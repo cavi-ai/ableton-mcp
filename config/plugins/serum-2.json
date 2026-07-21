@@ -1,0 +1,10 @@
+{
+  "productSlug": "serum-2",
+  "vendor": "Xfer Records",
+  "product": "Serum 2",
+  "version": "2.1.4",
+  "format": "VST3",
+  "factoryRoots": ["~/Library/Audio/Presets/Serum Presets/Presets"],
+  "extensions": [".fxp"],
+  "enabled": true
+}

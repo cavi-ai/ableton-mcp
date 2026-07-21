@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/cavi-ai/ableton-mcp/schemas/nks-preset-manifest.schema.json",
+  "title": "NKS Preset Manifest Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "productSlug",
+    "sourceRoot",
+    "sourcePath",
+    "sourceRelativePath",
+    "name",
+    "bank",
+    "subBank",
+    "types",
+    "modes",
+    "author",
+    "sourceFingerprint",
+    "state",
+    "attempts",
+    "evidence"
+  ],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9-]+:[a-f0-9]{24}$" },
+    "productSlug": { "enum": ["serum-2", "omnisphere", "vps-avenger"] },
+    "sourceRoot": { "type": "string", "minLength": 1 },
+    "sourcePath": { "type": "string", "minLength": 1 },
+    "sourceRelativePath": {
+      "type": "string",
+      "minLength": 1,
+      "not": { "pattern": "^\\.\\./" }
+    },
+    "sourceContainerPath": { "type": "string", "minLength": 1 },
+    "sourceEntryName": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "bank": { "type": "string", "minLength": 1 },
+    "subBank": { "type": "string", "minLength": 1 },
+    "types": { "type": "array", "items": { "type": "string" } },
+    "modes": { "type": "array", "items": { "type": "string" } },
+    "author": { "type": "string", "minLength": 1 },
+    "sourceFingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "state": {
+      "enum": [
+        "discovered",
+        "loading",
+        "nks_saved",
+        "previewed",
+        "validated",
+        "quarantined"
+      ]
+    },
+    "attempts": { "type": "integer", "minimum": 0 },
+    "workerId": { "type": "string", "minLength": 1 },
+    "leaseExpiresAt": { "type": "number" },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["state", "at"],
+        "properties": {
+          "state": { "type": "string", "minLength": 1 },
+          "at": { "type": ["string", "number"] }
+        }
+      }
+    }
+  }
+}

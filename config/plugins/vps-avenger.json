@@ -1,0 +1,11 @@
+{
+  "productSlug": "vps-avenger",
+  "vendor": "Vengeance Sound",
+  "product": "VPS Avenger",
+  "version": "1.8.7",
+  "format": "VST3",
+  "pluginName": "VPS Avenger.vst3",
+  "factoryRoots": [],
+  "extensions": [],
+  "enabled": false
+}

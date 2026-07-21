@@ -1,0 +1,11 @@
+{
+  "productSlug": "omnisphere",
+  "vendor": "Spectrasonics",
+  "product": "Omnisphere",
+  "version": "2.8.5f",
+  "format": "VST3",
+  "pluginName": "Omnisphere.vst3",
+  "factoryRoots": [],
+  "extensions": [".db"],
+  "enabled": true
+}

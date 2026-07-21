@@ -1,0 +1,17 @@
+.DS_Store
+node_modules/
+__pycache__/
+*.py[cod]
+*.sqlite
+*.db
+*.db3
+*.nksf
+*.nki
+*.wav
+*.aif
+*.aiff
+reports/
+artwork/
+.env
+.env.*
+!.env.example

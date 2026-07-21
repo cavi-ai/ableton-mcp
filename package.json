@@ -1,0 +1,18 @@
+{
+  "name": "ableton-nks-mcp-workspace",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "start": "npm --workspace @cavi-ai/ableton-nks-mcp start",
+    "test": "npm --workspace @cavi-ai/nks-pipeline test && npm --workspace @cavi-ai/ableton-nks-mcp test",
+    "test:mcp": "npm --workspace @cavi-ai/ableton-nks-mcp test",
+    "test:pipeline": "npm --workspace @cavi-ai/nks-pipeline test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

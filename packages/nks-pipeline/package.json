@@ -1,0 +1,14 @@
+{
+  "name": "@cavi-ai/nks-pipeline",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "artwork:matrix": "node scripts/build-artwork-matrix.mjs",
+    "artwork:render": "node scripts/render-artwork-derivatives.mjs",
+    "artwork:contact-sheets": "node scripts/build-artwork-contact-sheets.mjs",
+    "artwork:approve": "node scripts/approve-artwork-selection.mjs",
+    "artwork:catalog": "node scripts/import-artwork-catalog.mjs",
+    "artwork:install": "node scripts/install-nks-artwork.mjs"
+  }
+}
