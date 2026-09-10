@@ -87,6 +87,8 @@ class DispatchTest(unittest.TestCase):
         song = Song()
         status = dispatch_request(song, {"method": "get_live_state", "params": {}}, 4)
         self.assertEqual(status["stateVersion"], 4)
+        self.assertEqual(status["bridgeVersion"], "0.1.0")
+        self.assertIn("list_scenes", status["capabilities"])
         result = dispatch_request(song, {
             "method": "set_device_parameters",
             "params": {"trackId": "track-0", "deviceId": "track-0:device-0", "changes": [{"id": "parameter-0", "value": 0.8}]}

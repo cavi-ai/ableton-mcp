@@ -9,6 +9,14 @@ try:
 except ImportError:
     from protocol import decode_lines, encode_message
 
+BRIDGE_VERSION = "0.1.0"
+CAPABILITIES = (
+    "get_live_state", "list_tracks", "list_scenes", "list_clips", "list_devices",
+    "list_device_parameters", "set_device_parameters", "transport_play", "transport_stop",
+    "set_tempo", "set_track_mixer", "arm_track", "launch_scene", "launch_clip",
+    "stop_clip", "panic",
+)
+
 
 def _track(song, track_id):
     index = int(track_id.removeprefix("track-"))
@@ -42,7 +50,7 @@ def dispatch_request(song, request, state_version):
     params = request.get("params", {})
     fingerprint = hashlib.sha256(f"{len(song.tracks)}:{song.tempo}".encode()).hexdigest()[:16]
     if method == "get_live_state":
-        return {"stateVersion": state_version, "setFingerprint": fingerprint, "tempo": song.tempo, "isPlaying": song.is_playing}
+        return {"stateVersion": state_version, "setFingerprint": fingerprint, "tempo": song.tempo, "isPlaying": song.is_playing, "bridgeVersion": BRIDGE_VERSION, "capabilities": list(CAPABILITIES)}
     if method == "list_tracks":
         return {"stateVersion": state_version, "tracks": [{"id": f"track-{i}", "name": track.name, "mute": track.mute, "solo": track.solo, "armed": track.arm, "volume": track.mixer_device.volume.value, "pan": track.mixer_device.panning.value} for i, track in enumerate(song.tracks)]}
     if method == "list_scenes":

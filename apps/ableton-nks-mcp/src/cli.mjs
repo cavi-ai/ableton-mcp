@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { cp, mkdir, rm, stat } from "node:fs/promises";
+import { cp, mkdir, rm } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,6 +7,7 @@ import { homedir, platform as currentPlatform } from "node:os";
 import { defaultRemoteScriptRoots, resolveRuntimeConfig } from "./paths.mjs";
 import { createConfiguredService } from "./runtime.mjs";
 import { runStdio } from "./server.mjs";
+import { UnixBridgeClient } from "./bridge-client.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -24,10 +25,6 @@ export function parseCli(argv) {
 function option(args, name) {
   const index = args.indexOf(name);
   return index === -1 ? undefined : args[index + 1];
-}
-
-async function exists(path) {
-  try { await stat(path); return true; } catch { return false; }
 }
 
 function print(value, json, stdout) {
@@ -54,10 +51,25 @@ export async function runCli(argv, dependencies = {}) {
   }
   if (parsed.command === "doctor") {
     const config = resolveRuntimeConfig(env, { platform, home });
-    const bridgePresent = await exists(config.socketPath);
+    const bridgeProbe = dependencies.bridgeProbe || (() => new UnixBridgeClient(config.socketPath, { timeoutMs: 1000 }).request("get_live_state", {}));
+    let bridgeState;
+    let reason;
+    try {
+      bridgeState = await bridgeProbe();
+      if (bridgeState.bridgeVersion !== "0.1.0") reason = "outdated bridge: expected 0.1.0";
+      else if (!bridgeState.capabilities?.includes("list_scenes")) reason = "bridge is missing required capabilities";
+    } catch (error) {
+      reason = error.message;
+    }
     const result = {
-      ok: bridgePresent,
-      bridge: { socket: config.socketPath, connected: bridgePresent },
+      ok: !reason,
+      bridge: {
+        socket: config.socketPath,
+        connected: Boolean(bridgeState),
+        version: bridgeState?.bridgeVersion,
+        capabilities: bridgeState?.capabilities || [],
+        ...(reason ? { reason } : {})
+      },
       catalog: { configured: Boolean(config.catalogPath), path: config.catalogPath || null },
       remoteScriptRoots: defaultRemoteScriptRoots({ platform, home })
     };
