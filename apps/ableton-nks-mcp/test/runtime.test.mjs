@@ -5,8 +5,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createConfiguredService } from "../src/runtime.mjs";
 
-test("configured runtime requires explicit catalog and socket paths", () => {
-  assert.throws(() => createConfiguredService({}), /ABLETON_NKS_CATALOG_PATH/);
+test("configured runtime works without the private catalog", () => {
+  const runtime = createConfiguredService({ CAVI_MCP_BRIDGE_SOCKET: "/tmp/test-ableton-mcp.sock" });
+  assert.equal(typeof runtime.service.call, "function");
+  runtime.close();
 });
 
 test("configured runtime opens the SQLite catalog and bridge client", async () => {

@@ -24,6 +24,19 @@ def _device(song, track_id, device_id):
     return track, index, track.devices[index]
 
 
+def _clip_slot(song, track_id, clip_id):
+    track_index, track = _track(song, track_id)
+    expected = f"track-{track_index}:clip-"
+    if not clip_id.startswith(expected):
+        raise ValueError("clipId does not belong to trackId")
+    index = int(clip_id.removeprefix(expected))
+    return track, index, track.clip_slots[index]
+
+
+def _clamp(value, target):
+    return max(target.min, min(target.max, float(value)))
+
+
 def dispatch_request(song, request, state_version):
     method = request["method"]
     params = request.get("params", {})
@@ -31,7 +44,15 @@ def dispatch_request(song, request, state_version):
     if method == "get_live_state":
         return {"stateVersion": state_version, "setFingerprint": fingerprint, "tempo": song.tempo, "isPlaying": song.is_playing}
     if method == "list_tracks":
-        return {"stateVersion": state_version, "tracks": [{"id": f"track-{i}", "name": track.name} for i, track in enumerate(song.tracks)]}
+        return {"stateVersion": state_version, "tracks": [{"id": f"track-{i}", "name": track.name, "mute": track.mute, "solo": track.solo, "armed": track.arm, "volume": track.mixer_device.volume.value, "pan": track.mixer_device.panning.value} for i, track in enumerate(song.tracks)]}
+    if method == "list_scenes":
+        return {"stateVersion": state_version, "scenes": [{"id": f"scene-{i}", "name": scene.name} for i, scene in enumerate(song.scenes)]}
+    if method == "list_clips":
+        index, track = _track(song, params["trackId"])
+        clips = []
+        for i, slot in enumerate(track.clip_slots):
+            clips.append({"id": f"track-{index}:clip-{i}", "name": slot.clip.name if slot.has_clip else None, "hasClip": slot.has_clip, "isPlaying": slot.clip.is_playing if slot.has_clip else False})
+        return {"stateVersion": state_version, "trackId": params["trackId"], "clips": clips}
     if method == "list_devices":
         index, track = _track(song, params["trackId"])
         return {"stateVersion": state_version, "trackId": params["trackId"], "devices": [{"id": f"track-{index}:device-{i}", "name": device.name} for i, device in enumerate(track.devices)]}
@@ -48,6 +69,40 @@ def dispatch_request(song, request, state_version):
             parameter.value = max(parameter.min, min(parameter.max, float(change["value"])))
             observed.append({"id": change["id"], "value": parameter.value})
         return {"stateVersion": state_version + 1, "trackId": params["trackId"], "deviceId": params["deviceId"], "observedChanges": observed}
+    if method == "transport_play":
+        song.start_playing()
+        return {"stateVersion": state_version + 1, "isPlaying": song.is_playing}
+    if method == "transport_stop":
+        song.stop_playing()
+        return {"stateVersion": state_version + 1, "isPlaying": song.is_playing}
+    if method == "set_tempo":
+        song.tempo = max(20.0, min(999.0, float(params["tempo"])))
+        return {"stateVersion": state_version + 1, "tempo": song.tempo}
+    if method == "set_track_mixer":
+        _, track = _track(song, params["trackId"])
+        if "volume" in params:
+            track.mixer_device.volume.value = _clamp(params["volume"], track.mixer_device.volume)
+        if "pan" in params:
+            track.mixer_device.panning.value = _clamp(params["pan"], track.mixer_device.panning)
+        for source, target in (("mute", "mute"), ("solo", "solo")):
+            if source in params:
+                setattr(track, target, bool(params[source]))
+        return {"stateVersion": state_version + 1, "trackId": params["trackId"], "volume": track.mixer_device.volume.value, "pan": track.mixer_device.panning.value, "mute": track.mute, "solo": track.solo}
+    if method == "arm_track":
+        _, track = _track(song, params["trackId"])
+        track.arm = bool(params["armed"])
+        return {"stateVersion": state_version + 1, "trackId": params["trackId"], "armed": track.arm}
+    if method == "launch_scene":
+        index = int(params["sceneId"].removeprefix("scene-"))
+        song.scenes[index].fire()
+        return {"stateVersion": state_version + 1, "sceneId": params["sceneId"]}
+    if method in ("launch_clip", "stop_clip"):
+        _, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
+        if method == "launch_clip":
+            slot.fire()
+        else:
+            slot.stop()
+        return {"stateVersion": state_version + 1, "trackId": params["trackId"], "clipId": params["clipId"], "isPlaying": slot.clip.is_playing if slot.has_clip else False}
     if method == "panic":
         song.stop_playing()
         return {"stateVersion": state_version + 1, "isPlaying": song.is_playing}

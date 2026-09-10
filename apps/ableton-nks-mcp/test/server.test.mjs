@@ -23,8 +23,8 @@ test("stdio server initializes and lists MCP resources and tools", async () => {
   child.stdin.end();
   await once(child, "exit");
   const messages = stdout.trim().split("\n").map(JSON.parse);
-  assert.equal(messages[0].result.serverInfo.name, "ableton-nks-mcp");
-  assert.equal(messages[1].result.resources.length, 8);
+  assert.equal(messages[0].result.serverInfo.name, "ableton-mcp");
+  assert.equal(messages[1].result.resources.length, 9);
   assert.equal(
     messages[1].result.resources.some(({ uri }) => uri === "nks://catalog/artwork/{artwork_id}"),
     true

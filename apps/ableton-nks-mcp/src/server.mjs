@@ -9,9 +9,10 @@ const resources = [
   "nks://catalog/artwork/{artwork_id}",
   "ableton://live/status",
   "ableton://set/tracks",
+  "ableton://set/scenes",
+  "ableton://track/{track_id}/clips",
   "ableton://track/{track_id}/devices",
-  "ableton://device/{device_id}/parameters",
-  "ableton://manifests/{plugin}"
+  "ableton://device/{device_id}/parameters"
 ].map((uri) => ({ uri, name: uri }));
 
 const toolNames = [
@@ -19,12 +20,20 @@ const toolNames = [
   "get_preset",
   "get_live_state",
   "list_tracks",
+  "list_scenes",
+  "list_clips",
   "list_devices",
   "list_device_parameters",
-  "load_nks_preset",
   "set_device_parameters",
-  "recall_macro_snapshot",
-  "panic"
+  "panic",
+  "transport_play",
+  "transport_stop",
+  "set_tempo",
+  "set_track_mixer",
+  "launch_scene",
+  "launch_clip",
+  "stop_clip",
+  "arm_track"
 ];
 const tools = toolNames.map((name) => ({
   name,
@@ -47,7 +56,7 @@ export function createRouter(service) {
         result = {
           protocolVersion: params.protocolVersion || "2025-03-26",
           capabilities: { resources: {}, tools: {} },
-          serverInfo: { name: "ableton-nks-mcp", version: "0.1.0" }
+          serverInfo: { name: "ableton-mcp", version: "0.1.0" }
         };
       } else if (method === "resources/list") result = { resources };
       else if (method === "resources/read") {
@@ -80,12 +89,12 @@ export async function runStdio({ service }) {
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   if (process.env.ABLETON_NKS_MCP_FIXTURE === "1") {
-    process.stderr.write("ableton-nks-mcp fixture mode\n");
+    process.stderr.write("ableton-mcp fixture mode\n");
     await runStdio({ service: fixtureService() });
   } else {
     try {
       const runtime = createConfiguredService(process.env);
-      process.stderr.write("ableton-nks-mcp configured runtime\n");
+      process.stderr.write("ableton-mcp configured runtime\n");
       await runStdio({ service: runtime.service });
       runtime.close();
     } catch (error) {

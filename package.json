@@ -1,18 +1,37 @@
 {
-  "name": "ableton-nks-mcp-workspace",
-  "private": true,
+  "name": "@cavi-ai/ableton-mcp",
+  "version": "0.1.0",
+  "description": "Local-first Ableton Live MCP server, CLI, and Remote Script bridge",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cavi-ai/ableton-mcp.git"
+  },
   "type": "module",
+  "bin": {
+    "ableton-mcp": "apps/ableton-nks-mcp/src/cli.mjs"
+  },
+  "files": [
+    "apps/ableton-nks-mcp/src",
+    "ableton/Remote Scripts/CaviMcpBridge/__init__.py",
+    "ableton/Remote Scripts/CaviMcpBridge/bridge.py",
+    "ableton/Remote Scripts/CaviMcpBridge/protocol.py",
+    "packages/nks-pipeline/src/catalog.mjs",
+    "LICENSE",
+    "README.md"
+  ],
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
-    "start": "npm --workspace @cavi-ai/ableton-nks-mcp start",
-    "test": "npm --workspace @cavi-ai/nks-pipeline test && npm --workspace @cavi-ai/ableton-nks-mcp test",
-    "test:mcp": "npm --workspace @cavi-ai/ableton-nks-mcp test",
+    "start": "npm --workspace @cavi-ai/ableton-mcp-core start",
+    "cli": "node apps/ableton-nks-mcp/src/cli.mjs",
+    "test": "npm --workspace @cavi-ai/nks-pipeline test && npm --workspace @cavi-ai/ableton-mcp-core test && python3 -m unittest discover -s 'ableton/Remote Scripts/CaviMcpBridge/tests'",
+    "test:mcp": "npm --workspace @cavi-ai/ableton-mcp-core test",
     "test:pipeline": "npm --workspace @cavi-ai/nks-pipeline test"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   }
 }

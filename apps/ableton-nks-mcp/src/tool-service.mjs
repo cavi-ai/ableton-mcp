@@ -2,6 +2,12 @@ import { assertExpectedState } from "./bridge-protocol.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { CatalogService } from "./catalog-service.mjs";
 
+function requireExpectedState(args) {
+  if (!Number.isInteger(args.expectedStateVersion)) {
+    throw new Error("expectedStateVersion is required for mutations");
+  }
+}
+
 export class ToolService {
   constructor({ bridge, catalog, confirmations = new ConfirmationStore() }) {
     this.bridge = bridge;
@@ -16,12 +22,18 @@ export class ToolService {
     if (name === "get_preset") return { preset: this.catalog.get(args.presetId) };
     if (name === "get_live_state") return this.bridge.request("get_live_state", {});
     if (name === "list_tracks") return this.bridge.request("list_tracks", {});
+    if (name === "list_scenes") return this.bridge.request("list_scenes", {});
+    if (name === "list_clips") return this.bridge.request("list_clips", args);
     if (name === "list_devices") return this.bridge.request("list_devices", args);
     if (name === "list_device_parameters") {
       return this.bridge.request("list_device_parameters", args);
     }
     if (name === "set_device_parameters") return this.#setDeviceParameters(args);
-    if (["load_nks_preset", "recall_macro_snapshot", "panic"].includes(name)) {
+    if ([
+      "panic",
+      "transport_play", "transport_stop", "set_tempo", "set_track_mixer",
+      "launch_scene", "launch_clip", "stop_clip", "arm_track"
+    ].includes(name)) {
       return this.#genericMutation(name, args);
     }
     throw new Error(`unknown tool ${name}`);
@@ -41,6 +53,9 @@ export class ToolService {
     }
     if (uri === "ableton://live/status") return this.bridge.request("get_live_state", {});
     if (uri === "ableton://set/tracks") return this.bridge.request("list_tracks", {});
+    if (uri === "ableton://set/scenes") return this.bridge.request("list_scenes", {});
+    const trackClips = uri.match(/^ableton:\/\/track\/([^/]+)\/clips$/);
+    if (trackClips) return this.bridge.request("list_clips", { trackId: decodeURIComponent(trackClips[1]) });
     const trackDevices = uri.match(/^ableton:\/\/track\/([^/]+)\/devices$/);
     if (trackDevices) return this.bridge.request("list_devices", { trackId: decodeURIComponent(trackDevices[1]) });
     const deviceParameters = uri.match(/^ableton:\/\/device\/([^/]+)\/parameters$/);
@@ -53,6 +68,7 @@ export class ToolService {
   }
 
   async #setDeviceParameters(args) {
+    requireExpectedState(args);
     const observed = await this.bridge.request("list_device_parameters", {
       trackId: args.trackId,
       deviceId: args.deviceId
@@ -89,6 +105,9 @@ export class ToolService {
   }
 
   async #genericMutation(name, args) {
+    requireExpectedState(args);
+    const current = await this.bridge.request("get_live_state", {});
+    assertExpectedState(args, current);
     const plan = { method: name, ...args };
     delete plan.dryRun;
     delete plan.confirmationToken;

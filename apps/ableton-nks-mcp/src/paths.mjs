@@ -1,0 +1,23 @@
+import { join } from "node:path";
+import { homedir, platform as currentPlatform, tmpdir as currentTmpdir } from "node:os";
+
+export function defaultRemoteScriptRoots({ platform = currentPlatform(), home = homedir() } = {}) {
+  if (platform === "darwin") {
+    return [
+      join(home, "Music", "Ableton", "User Library", "Remote Scripts"),
+      join(home, "Library", "Preferences", "Ableton")
+    ];
+  }
+  if (platform === "win32") {
+    return [join(home, "Documents", "Ableton", "User Library", "Remote Scripts")];
+  }
+  return [join(home, "Ableton", "User Library", "Remote Scripts")];
+}
+
+export function resolveRuntimeConfig(environment = process.env, options = {}) {
+  const temp = options.tmpdir || currentTmpdir();
+  return {
+    socketPath: environment.CAVI_MCP_BRIDGE_SOCKET || join(temp, "cavi-ableton-mcp.sock"),
+    catalogPath: environment.ABLETON_NKS_CATALOG_PATH || undefined
+  };
+}

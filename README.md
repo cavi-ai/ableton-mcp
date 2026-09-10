@@ -1,10 +1,10 @@
-# Ableton NKS MCP
+# Ableton MCP
 
-Local-first tooling for cataloging NKS presets and controlling Ableton Live through an MCP server and a small Ableton Remote Script bridge.
+Local-first Ableton Live control through an installable Remote Script, MCP server, and command-line interface. NKS catalog integration is optional.
 
 ## Repository layout
 
-- `apps/ableton-nks-mcp` — MCP server and tests
+- `apps/ableton-nks-mcp` — MCP server, CLI, and tests
 - `packages/nks-pipeline` — preset inventory, catalog, artwork, preview, and generation helpers
 - `ableton/Remote Scripts/CaviMcpBridge` — Ableton Live bridge
 - `config` — product and artwork configuration
@@ -12,6 +12,10 @@ Local-first tooling for cataloging NKS presets and controlling Ableton Live thro
 - `schemas` — manifest schemas
 
 Generated presets, artwork, catalogs, and factory-source files are not part of this repository.
+
+## Control surface
+
+Read operations expose Live status, tracks, scenes, clips, devices, device parameters, and optional NKS catalog search. Guarded mutations cover transport play/stop, tempo, track volume/pan/mute/solo/arm, scene and clip launch, clip stop, device parameters, and panic. Every mutation requires an observed state version, defaults to a dry-run plan, and uses a short-lived single-use confirmation token for execution.
 
 ## Artwork model
 
@@ -21,7 +25,7 @@ The repository does not scrape or auto-populate vendor artwork. Operators provid
 
 ## Requirements
 
-- Node.js 20 or newer
+- Node.js 22 or newer
 - Python 3 for bridge tests
 - Ableton Live for live integration
 - ImageMagick for artwork rendering
@@ -32,13 +36,31 @@ The repository does not scrape or auto-populate vendor artwork. Operators provid
 npm test
 ```
 
+## CLI
+
+```bash
+npm run cli -- help
+npm run cli -- install
+npm run cli -- doctor --json
+npm run cli -- serve
+npm run cli -- status --json
+npm run cli -- resource ableton://set/tracks --json
+npm run cli -- call list_devices --args '{"trackId":"track-0"}' --json
+```
+
+`install` copies only `CaviMcpBridge` into the user-level Ableton Remote Scripts directory. It does not modify Ableton application bundles. Enable **CaviMcpBridge** as a Control Surface in Ableton Live preferences after installation.
+
+Use `ableton-mcp uninstall` to remove only that installed script directory. Pass `--destination <Remote Scripts path>` when the Ableton User Library is in a non-default location.
+
+The default bridge socket is `${TMPDIR}/cavi-ableton-mcp.sock`. Override it with `CAVI_MCP_BRIDGE_SOCKET` when needed.
+
 Run the MCP server in fixture mode:
 
 ```bash
 ABLETON_NKS_MCP_FIXTURE=1 npm start
 ```
 
-For live use, set `ABLETON_NKS_CATALOG_PATH` to the private catalog database and `CAVI_MCP_BRIDGE_SOCKET` to the Ableton bridge socket.
+Set `ABLETON_NKS_CATALOG_PATH` only when local preset search is wanted. Without it, preset search returns an empty collection.
 
 ## Safety
 

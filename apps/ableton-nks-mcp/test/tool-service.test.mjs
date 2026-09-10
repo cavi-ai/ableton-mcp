@@ -10,6 +10,8 @@ function fixture() {
       if (method === "get_live_state") return { stateVersion: 4, setFingerprint: "set:a" };
       if (method === "list_tracks") return { stateVersion: 4, tracks: [{ id: "track-0", name: "Synth" }] };
       if (method === "list_devices") return { stateVersion: 4, trackId: params.trackId, devices: [{ id: "device-0", name: "Serum 2" }] };
+      if (method === "list_scenes") return { stateVersion: 4, scenes: [{ id: "scene-0", name: "Verse" }] };
+      if (method === "list_clips") return { stateVersion: 4, trackId: params.trackId, clips: [{ id: "track-0:clip-0", name: "Loop" }] };
       if (method === "list_device_parameters") return {
         stateVersion: 4,
         trackId: "t1",
@@ -22,6 +24,9 @@ function fixture() {
         deviceId: "d1",
         observedChanges: params.changes
       };
+      if (["transport_play", "transport_stop", "set_tempo", "set_track_mixer", "launch_scene", "launch_clip", "stop_clip", "arm_track"].includes(method)) {
+        return { stateVersion: 5, method, ...params };
+      }
       throw new Error(`unexpected method ${method}`);
     }
   };
@@ -73,6 +78,46 @@ test("preset, track, and device inspection are exposed as read-only tools", asyn
   assert.equal((await service.call("list_tracks")).tracks[0].name, "Synth");
   assert.equal((await service.call("list_devices", { trackId: "track-0" })).devices[0].name, "Serum 2");
   assert.deepEqual(calls.map((call) => call.method), ["list_tracks", "list_devices"]);
+});
+
+test("scene and clip inspection are exposed as read-only tools and resources", async () => {
+  const { service } = fixture();
+  assert.equal((await service.call("list_scenes")).scenes[0].name, "Verse");
+  assert.equal((await service.call("list_clips", { trackId: "track-0" })).clips[0].name, "Loop");
+  assert.equal((await service.readResource("ableton://set/scenes")).scenes[0].name, "Verse");
+  assert.equal((await service.readResource("ableton://track/track-0/clips")).clips[0].name, "Loop");
+});
+
+test("core transport, mixer, scene, and clip operations use guarded mutation plans", async () => {
+  const { service, calls } = fixture();
+  for (const name of ["transport_play", "transport_stop", "set_tempo", "set_track_mixer", "launch_scene", "launch_clip", "stop_clip", "arm_track"]) {
+    const dry = await service.call(name, { expectedStateVersion: 4, value: 0.5 });
+    assert.equal(dry.dryRun, true);
+    const live = await service.call(name, {
+      expectedStateVersion: 4,
+      value: 0.5,
+      dryRun: false,
+      confirmationToken: dry.confirmation.token,
+      planHash: dry.confirmation.planHash
+    });
+    assert.equal(live.dryRun, false);
+    assert.equal(calls.at(-1).method, name);
+  }
+});
+
+test("core mutations reject stale Ableton state before issuing a plan", async () => {
+  const { service, calls } = fixture();
+  await assert.rejects(
+    () => service.call("transport_play", { expectedStateVersion: 3 }),
+    /stateVersion mismatch/
+  );
+  assert.equal(calls.at(-1).method, "get_live_state");
+});
+
+test("mutations require an explicit expected state version", async () => {
+  const { service, calls } = fixture();
+  await assert.rejects(() => service.call("transport_stop", {}), /expectedStateVersion is required/);
+  assert.deepEqual(calls, []);
 });
 
 test("parameter mutation defaults to dry-run, clamps, confirms once, and returns observed state", async () => {
