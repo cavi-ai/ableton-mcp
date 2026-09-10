@@ -15,9 +15,11 @@ export function defaultRemoteScriptRoots({ platform = currentPlatform(), home = 
 }
 
 export function resolveRuntimeConfig(environment = process.env, options = {}) {
+  const platform = options.platform || currentPlatform();
   const temp = options.tmpdir || currentTmpdir();
+  const socketRoot = platform === "win32" ? temp : "/tmp";
   return {
-    socketPath: environment.CAVI_MCP_BRIDGE_SOCKET || join(temp, "cavi-ableton-mcp.sock"),
+    socketPath: environment.CAVI_MCP_BRIDGE_SOCKET || join(socketRoot, "cavi-ableton-mcp.sock"),
     catalogPath: environment.ABLETON_NKS_CATALOG_PATH || undefined
   };
 }
