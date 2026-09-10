@@ -12,6 +12,8 @@ __pycache__/
 *.aiff
 reports/
 artwork/
+!examples/artwork/
+!examples/artwork/**
 .env
 .env.*
 !.env.example

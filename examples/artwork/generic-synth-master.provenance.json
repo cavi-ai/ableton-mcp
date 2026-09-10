@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "asset": "generic-synth-master.png",
+  "sha256": "aa89188db8bb85cc8b01ee24d692dc2c75a4982a36196b383cf150e7ec3a88c4",
+  "createdAt": "2026-09-10",
+  "creationMethod": "OpenAI image generation",
+  "promptSummary": "Original abstract spectral waveform artwork for a vendor-neutral NKS pipeline example.",
+  "thirdPartyInputs": [],
+  "brandReferences": [],
+  "intendedUse": "Open-source documentation, fixtures, and renderer demonstrations",
+  "license": "MIT",
+  "reviewStatus": "original-vendor-neutral-example"
+}
