@@ -13,11 +13,12 @@ const emptyCatalog = {
 };
 
 export function createConfiguredService(environment = process.env) {
-  const { catalogPath, socketPath } = resolveRuntimeConfig(environment);
+  const { catalogPath, socketPath, kompleteSocketPath } = resolveRuntimeConfig(environment);
   const catalog = catalogPath ? Catalog.open(catalogPath) : emptyCatalog;
   const bridge = new UnixBridgeClient(socketPath);
+  const komplete = new UnixBridgeClient(kompleteSocketPath);
   return {
-    service: new ToolService({ bridge, catalog }),
+    service: new ToolService({ bridge, catalog, komplete }),
     close: () => catalog.close()
   };
 }

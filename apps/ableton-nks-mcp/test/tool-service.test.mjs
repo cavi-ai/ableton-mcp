@@ -4,6 +4,7 @@ import { ToolService } from "../src/tool-service.mjs";
 
 function fixture() {
   const calls = [];
+  const kompleteCalls = [];
   const bridge = {
     async request(method, params = {}) {
       calls.push({ method, params });
@@ -42,7 +43,15 @@ function fixture() {
     } : undefined,
     artworkForPreset: (id) => id === "serum-2:a" ? { id: "art:bass" } : undefined
   };
-  return { service: new ToolService({ bridge, catalog }), calls };
+  const komplete = {
+    async request(method, params = {}) {
+      kompleteCalls.push({ method, params });
+      if (method === "get_status") return { sessionVersion: 7, state: "idle", instrument: null };
+      if (method === "verify_nks_preset") return { sessionVersion: 7, verified: true, fileName: params.fileName };
+      return { sessionVersion: 8, method, accepted: true };
+    }
+  };
+  return { service: new ToolService({ bridge, catalog, komplete }), calls, kompleteCalls };
 }
 
 test("search_presets remains read-only", async () => {
@@ -131,4 +140,47 @@ test("parameter mutation defaults to dry-run, clamps, confirms once, and returns
   assert.equal(live.observed.stateVersion, 5);
   assert.equal(calls.at(-1).method, "set_device_parameters");
   await assert.rejects(() => service.call("set_device_parameters", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash }), /unknown/);
+});
+
+test("Komplete status and preset verification are read-only", async () => {
+  const { service, kompleteCalls } = fixture();
+  assert.equal((await service.call("komplete_get_status")).sessionVersion, 7);
+  assert.equal((await service.call("komplete_verify_nks_preset", { fileName: "Bass.nksf" })).verified, true);
+  assert.deepEqual(kompleteCalls.map(({ method }) => method), ["get_status", "verify_nks_preset"]);
+});
+
+test("Komplete UI actions require current session state and single-use confirmation", async () => {
+  const { service, kompleteCalls } = fixture();
+  const args = { expectedSessionVersion: 7, productSlug: "serum-2" };
+  const dry = await service.call("komplete_open_instrument", args);
+  assert.equal(dry.dryRun, true);
+  assert.equal(dry.plan.method, "open_instrument");
+  assert.equal(kompleteCalls.at(-1).method, "get_status");
+
+  const live = await service.call("komplete_open_instrument", {
+    ...args,
+    dryRun: false,
+    confirmationToken: dry.confirmation.token,
+    planHash: dry.confirmation.planHash
+  });
+  assert.equal(live.observed.accepted, true);
+  assert.equal(kompleteCalls.at(-1).method, "open_instrument");
+  await assert.rejects(
+    () => service.call("komplete_open_instrument", {
+      ...args,
+      dryRun: false,
+      confirmationToken: dry.confirmation.token,
+      planHash: dry.confirmation.planHash
+    }),
+    /unknown/
+  );
+});
+
+test("Komplete UI actions reject stale session state", async () => {
+  const { service, kompleteCalls } = fixture();
+  await assert.rejects(
+    () => service.call("komplete_run_conversion_batch", { expectedSessionVersion: 6, jobs: [] }),
+    /sessionVersion mismatch/
+  );
+  assert.equal(kompleteCalls.at(-1).method, "get_status");
 });
