@@ -86,11 +86,12 @@ def dispatch_request(song, request, state_version):
         _, _, device = _device(song, params["trackId"], params["deviceId"])
         observed = []
         for change in params["changes"]:
-            parameter = device.parameters[int(change["id"].removeprefix("parameter-"))]
+            index = int(change["id"].removeprefix("parameter-"))
+            parameter = device.parameters[index]
             if not parameter.is_enabled:
                 raise ValueError("parameter is disabled")
             parameter.value = max(parameter.min, min(parameter.max, float(change["value"])))
-            observed.append({"id": change["id"], "value": parameter.value})
+            observed.append(_parameter_record(parameter, index))
         return {"stateVersion": state_version + 1, "trackId": params["trackId"], "deviceId": params["deviceId"], "observedChanges": observed}
     if method == "transport_play":
         song.start_playing()

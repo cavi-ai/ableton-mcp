@@ -18,7 +18,7 @@ class Parameter:
         self.value_items = ()
 
     def str_for_value(self, value):
-        return "400 Hz"
+        return f"{value * 1000:.0f} Hz"
 
 
 class QuantizedParameter:
@@ -134,7 +134,11 @@ class DispatchTest(unittest.TestCase):
             "method": "set_device_parameters",
             "params": {"trackId": "track-0", "deviceId": "track-0:device-0", "changes": [{"id": "parameter-0", "value": 0.8}]}
         }, 4)
-        self.assertEqual(result["observedChanges"][0]["value"], 0.8)
+        self.assertEqual(result["observedChanges"], [{
+            "id": "parameter-0", "name": "Cutoff", "originalName": "Filter Freq",
+            "min": 0.0, "max": 1.0, "value": 0.8, "displayValue": "800 Hz",
+            "enabled": True, "quantized": False, "valueItems": []
+        }])
         self.assertEqual(song.tracks[0].devices[0].parameters[0].value, 0.8)
 
     def test_core_production_controls_return_observed_state(self):
