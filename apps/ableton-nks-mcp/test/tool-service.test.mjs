@@ -22,8 +22,8 @@ function fixture() {
       };
       if (method === "list_device_parameters") return {
         stateVersion: 4,
-        trackId: "t1",
-        deviceId: "d1",
+        trackId: params.trackId,
+        deviceId: params.deviceId,
         parameters: [
           {
             id: "cutoff", name: "Cutoff", originalName: "Filter Freq",
@@ -55,6 +55,30 @@ function fixture() {
         clipId: params.clipId,
         lengthBeats: 4,
         notes: [{ pitch: 60, start: 0, duration: 1, velocity: 100, mute: false }]
+      };
+      if (method === "get_clip_parameter_envelope") return {
+        stateVersion: 4,
+        trackId: params.trackId,
+        clipId: params.clipId,
+        deviceId: params.deviceId,
+        parameterId: params.parameterId,
+        clipLengthBeats: 4,
+        parameter: {
+          id: params.parameterId, name: "Cutoff", originalName: "Filter Freq",
+          min: 0, max: 1, value: 0.4, displayValue: "400 Hz",
+          enabled: true, quantized: false, valueItems: []
+        },
+        exists: true,
+        samples: (params.sampleTimes || []).map((time) => ({ time, value: time / 4 }))
+      };
+      if (method === "set_clip_parameter_envelope") return {
+        stateVersion: 5,
+        trackId: params.trackId,
+        clipId: params.clipId,
+        deviceId: params.deviceId,
+        parameterId: params.parameterId,
+        replaced: true,
+        samples: params.points.map(({ time, value }) => ({ time, value }))
       };
       if (["transport_play", "transport_stop", "set_tempo", "set_track_mixer", "launch_scene", "launch_clip", "stop_clip", "arm_track"].includes(method)) {
         return { stateVersion: 5, method, ...params };
@@ -133,6 +157,54 @@ test("MIDI note inspection returns exact clip contents without mutation", async 
   const result = await service.call("get_midi_clip_notes", { trackId: "track-0", clipId: "track-0:clip-0" });
   assert.deepEqual(result.notes[0], { pitch: 60, start: 0, duration: 1, velocity: 100, mute: false });
   assert.equal(calls.at(-1).method, "get_midi_clip_notes");
+});
+
+test("clip parameter envelope inspection is read-only and returns sampled values", async () => {
+  const { service, calls } = fixture();
+  const result = await service.call("get_clip_parameter_envelope", {
+    trackId: "track-0", clipId: "track-0:clip-0",
+    deviceId: "track-0:device-0", parameterId: "cutoff", sampleTimes: [0, 2, 4]
+  });
+  assert.deepEqual(result.samples, [{ time: 0, value: 0 }, { time: 2, value: 0.5 }, { time: 4, value: 1 }]);
+  assert.equal(calls.at(-1).method, "get_clip_parameter_envelope");
+});
+
+test("clip parameter envelope replacement validates and signs exact steps", async () => {
+  const { service, calls } = fixture();
+  const args = {
+    expectedStateVersion: 4,
+    trackId: "track-0", clipId: "track-0:clip-0",
+    deviceId: "track-0:device-0", parameterId: "cutoff",
+    points: [{ time: 0, duration: 1, value: -1 }, { time: 2, duration: 0.5, value: 0.8 }]
+  };
+  const dry = await service.call("set_clip_parameter_envelope", args);
+  assert.deepEqual(dry.plan.points, [
+    { time: 0, duration: 1, requestedValue: -1, value: 0 },
+    { time: 2, duration: 0.5, requestedValue: 0.8, value: 0.8 }
+  ]);
+  const live = await service.call("set_clip_parameter_envelope", {
+    ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash
+  });
+  assert.equal(live.observed.replaced, true);
+  assert.equal(calls.at(-1).method, "set_clip_parameter_envelope");
+});
+
+test("clip parameter envelope replacement rejects invalid steps", async () => {
+  const { service } = fixture();
+  const base = {
+    expectedStateVersion: 4,
+    trackId: "track-0", clipId: "track-0:clip-0",
+    deviceId: "track-0:device-0", parameterId: "cutoff"
+  };
+  await assert.rejects(
+    () => service.call("set_clip_parameter_envelope", { ...base, points: [{ time: -1, duration: 1, value: 0.5 }] }),
+    /time/
+  );
+  await assert.rejects(
+    () => service.call("set_clip_parameter_envelope", { ...base, points: [{ time: 0, duration: 0, value: 0.5 }] }),
+    /duration/
+  );
 });
 
 test("core transport, mixer, scene, and clip operations use guarded mutation plans", async () => {

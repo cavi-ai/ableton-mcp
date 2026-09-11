@@ -34,6 +34,25 @@ function normalizeMidiNote(note, index, lengthBeats) {
   return { pitch, start, duration, velocity, mute: note.mute === true };
 }
 
+function normalizeEnvelopePoint(point, index, clipLengthBeats, parameter) {
+  const time = Number(point.time);
+  const duration = Number(point.duration);
+  const requestedValue = Number(point.value);
+  if (!Number.isFinite(time) || time < 0 || time > clipLengthBeats) {
+    throw new Error(`points[${index}].time must be within the clip`);
+  }
+  if (!Number.isFinite(duration) || duration <= 0 || time + duration > clipLengthBeats) {
+    throw new Error(`points[${index}].duration must be greater than zero and remain within the clip`);
+  }
+  if (!Number.isFinite(requestedValue)) throw new Error(`points[${index}].value must be finite`);
+  return {
+    time,
+    duration,
+    requestedValue,
+    value: Math.max(parameter.min, Math.min(parameter.max, requestedValue))
+  };
+}
+
 const unavailableKomplete = {
   async request() {
     throw new Error("Komplete automation worker is not configured");
@@ -58,6 +77,7 @@ export class ToolService {
     if (name === "list_scenes") return this.bridge.request("list_scenes", {});
     if (name === "list_clips") return this.bridge.request("list_clips", args);
     if (name === "get_midi_clip_notes") return this.bridge.request("get_midi_clip_notes", args);
+    if (name === "get_clip_parameter_envelope") return this.bridge.request("get_clip_parameter_envelope", args);
     if (name === "list_devices") return this.bridge.request("list_devices", args);
     if (name === "list_device_parameters") {
       return this.bridge.request("list_device_parameters", args);
@@ -76,6 +96,7 @@ export class ToolService {
     if (kompleteMethod) return this.#kompleteMutation(kompleteMethod, args);
     if (name === "set_device_parameters") return this.#setDeviceParameters(args);
     if (name === "create_midi_clip") return this.#createMidiClip(args);
+    if (name === "set_clip_parameter_envelope") return this.#setClipParameterEnvelope(args);
     if ([
       "panic",
       "transport_play", "transport_stop", "set_tempo", "set_track_mixer",
@@ -182,6 +203,38 @@ export class ToolService {
     if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
     this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
     const result = await this.bridge.request("create_midi_clip", plan);
+    return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
+  }
+
+  async #setClipParameterEnvelope(args) {
+    requireExpectedState(args);
+    if (!Array.isArray(args.points) || args.points.length === 0) {
+      throw new Error("points must be a non-empty array");
+    }
+    const sampleTimes = args.points.map(({ time }) => Number(time));
+    const observed = await this.bridge.request("get_clip_parameter_envelope", {
+      trackId: args.trackId,
+      clipId: args.clipId,
+      deviceId: args.deviceId,
+      parameterId: args.parameterId,
+      sampleTimes
+    });
+    assertExpectedState(args, observed);
+    if (!observed.parameter?.enabled) throw new Error(`parameter ${args.parameterId} is disabled`);
+    const plan = {
+      method: "set_clip_parameter_envelope",
+      trackId: args.trackId,
+      clipId: args.clipId,
+      deviceId: args.deviceId,
+      parameterId: args.parameterId,
+      expectedStateVersion: args.expectedStateVersion,
+      points: args.points.map((point, index) => normalizeEnvelopePoint(
+        point, index, observed.clipLengthBeats, observed.parameter
+      ))
+    };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
+    const result = await this.bridge.request("set_clip_parameter_envelope", plan);
     return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
   }
 

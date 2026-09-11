@@ -11,7 +11,8 @@ except ImportError:
 
 BRIDGE_VERSION = "0.1.0"
 CAPABILITIES = (
-    "get_live_state", "list_tracks", "list_scenes", "list_clips", "get_midi_clip_notes", "list_devices",
+    "get_live_state", "list_tracks", "list_scenes", "list_clips", "get_midi_clip_notes",
+    "get_clip_parameter_envelope", "set_clip_parameter_envelope", "list_devices",
     "list_device_parameters", "set_device_parameters", "create_midi_clip", "transport_play", "transport_stop",
     "set_tempo", "set_track_mixer", "arm_track", "launch_scene", "launch_clip",
     "stop_clip", "panic",
@@ -93,6 +94,37 @@ def dispatch_request(song, request, state_version):
                 "pitch": int(note[0]), "start": float(note[1]), "duration": float(note[2]),
                 "velocity": int(note[3]), "mute": bool(note[4]),
             } for note in notes],
+        }
+    if method in ("get_clip_parameter_envelope", "set_clip_parameter_envelope"):
+        _, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
+        if not slot.has_clip:
+            raise ValueError("clip slot is empty")
+        clip = slot.clip
+        if hasattr(clip, "is_midi_clip") and not clip.is_midi_clip:
+            raise ValueError("clip is not a MIDI clip")
+        _, _, device = _device(song, params["trackId"], params["deviceId"])
+        parameter_index = int(params["parameterId"].removeprefix("parameter-"))
+        parameter = device.parameters[parameter_index]
+        if method == "set_clip_parameter_envelope":
+            if not parameter.is_enabled:
+                raise ValueError("parameter is disabled")
+            clip.clear_envelope(parameter)
+            envelope = clip.create_automation_envelope(parameter)
+            for point in params["points"]:
+                envelope.insert_step(float(point["time"]), float(point["duration"]), _clamp(point["value"], parameter))
+            sample_times = [float(point["time"]) for point in params["points"]]
+        else:
+            envelope = clip.automation_envelope(parameter)
+            sample_times = [float(time) for time in params.get("sampleTimes", [])]
+        return {
+            "stateVersion": state_version + (1 if method == "set_clip_parameter_envelope" else 0),
+            "trackId": params["trackId"], "clipId": params["clipId"],
+            "deviceId": params["deviceId"], "parameterId": params["parameterId"],
+            "clipLengthBeats": float(clip.length), "parameter": _parameter_record(parameter, parameter_index),
+            "exists": envelope is not None, "replaced": method == "set_clip_parameter_envelope",
+            "samples": [] if envelope is None else [
+                {"time": time, "value": float(envelope.value_at_time(time))} for time in sample_times
+            ],
         }
     if method == "list_devices":
         index, track = _track(song, params["trackId"])
