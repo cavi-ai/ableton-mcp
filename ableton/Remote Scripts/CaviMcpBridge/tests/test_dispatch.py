@@ -9,16 +9,37 @@ from bridge import dispatch_request
 class Parameter:
     def __init__(self):
         self.name = "Cutoff"
+        self.original_name = "Filter Freq"
         self.min = 0.0
         self.max = 1.0
         self.value = 0.4
         self.is_enabled = True
+        self.is_quantized = False
+        self.value_items = ()
+
+    def str_for_value(self, value):
+        return "400 Hz"
+
+
+class QuantizedParameter:
+    def __init__(self):
+        self.name = "Filter Type"
+        self.original_name = "Filter Type"
+        self.min = 0.0
+        self.max = 2.0
+        self.value = 1.0
+        self.is_enabled = True
+        self.is_quantized = True
+        self.value_items = ("Low-pass", "Band-pass", "High-pass")
+
+    def str_for_value(self, value):
+        return self.value_items[int(value)]
 
 
 class Device:
     def __init__(self):
         self.name = "Serum 2"
-        self.parameters = [Parameter()]
+        self.parameters = [Parameter(), QuantizedParameter()]
 
 
 class Track:
@@ -83,6 +104,26 @@ class Song:
 
 
 class DispatchTest(unittest.TestCase):
+    def test_parameter_listing_exposes_agent_usable_plugin_metadata(self):
+        result = dispatch_request(Song(), {
+            "method": "list_device_parameters",
+            "params": {"trackId": "track-0", "deviceId": "track-0:device-0"}
+        }, 3)
+
+        self.assertEqual(result["parameters"], [
+            {
+                "id": "parameter-0", "name": "Cutoff", "originalName": "Filter Freq",
+                "min": 0.0, "max": 1.0, "value": 0.4, "displayValue": "400 Hz",
+                "enabled": True, "quantized": False, "valueItems": []
+            },
+            {
+                "id": "parameter-1", "name": "Filter Type", "originalName": "Filter Type",
+                "min": 0.0, "max": 2.0, "value": 1.0, "displayValue": "Band-pass",
+                "enabled": True, "quantized": True,
+                "valueItems": ["Low-pass", "Band-pass", "High-pass"]
+            }
+        ])
+
     def test_status_and_parameter_write_return_observed_state(self):
         song = Song()
         status = dispatch_request(song, {"method": "get_live_state", "params": {}}, 4)
