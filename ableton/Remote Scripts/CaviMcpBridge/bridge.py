@@ -11,8 +11,8 @@ except ImportError:
 
 BRIDGE_VERSION = "0.1.0"
 CAPABILITIES = (
-    "get_live_state", "list_tracks", "list_scenes", "list_clips", "list_devices",
-    "list_device_parameters", "set_device_parameters", "transport_play", "transport_stop",
+    "get_live_state", "list_tracks", "list_scenes", "list_clips", "get_midi_clip_notes", "list_devices",
+    "list_device_parameters", "set_device_parameters", "create_midi_clip", "transport_play", "transport_stop",
     "set_tempo", "set_track_mixer", "arm_track", "launch_scene", "launch_clip",
     "stop_clip", "panic",
 )
@@ -76,6 +76,24 @@ def dispatch_request(song, request, state_version):
         for i, slot in enumerate(track.clip_slots):
             clips.append({"id": f"track-{index}:clip-{i}", "name": slot.clip.name if slot.has_clip else None, "hasClip": slot.has_clip, "isPlaying": slot.clip.is_playing if slot.has_clip else False})
         return {"stateVersion": state_version, "trackId": params["trackId"], "clips": clips}
+    if method == "get_midi_clip_notes":
+        _, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
+        if not slot.has_clip:
+            raise ValueError("clip slot is empty")
+        clip = slot.clip
+        if hasattr(clip, "is_midi_clip") and not clip.is_midi_clip:
+            raise ValueError("clip is not a MIDI clip")
+        notes = clip.get_notes(0.0, 0, clip.length, 128)
+        return {
+            "stateVersion": state_version,
+            "trackId": params["trackId"],
+            "clipId": params["clipId"],
+            "lengthBeats": clip.length,
+            "notes": [{
+                "pitch": int(note[0]), "start": float(note[1]), "duration": float(note[2]),
+                "velocity": int(note[3]), "mute": bool(note[4]),
+            } for note in notes],
+        }
     if method == "list_devices":
         index, track = _track(song, params["trackId"])
         return {"stateVersion": state_version, "trackId": params["trackId"], "devices": [{"id": f"track-{index}:device-{i}", "name": device.name} for i, device in enumerate(track.devices)]}
@@ -86,12 +104,36 @@ def dispatch_request(song, request, state_version):
         _, _, device = _device(song, params["trackId"], params["deviceId"])
         observed = []
         for change in params["changes"]:
-            parameter = device.parameters[int(change["id"].removeprefix("parameter-"))]
+            index = int(change["id"].removeprefix("parameter-"))
+            parameter = device.parameters[index]
             if not parameter.is_enabled:
                 raise ValueError("parameter is disabled")
             parameter.value = max(parameter.min, min(parameter.max, float(change["value"])))
-            observed.append({"id": change["id"], "value": parameter.value})
+            observed.append(_parameter_record(parameter, index))
         return {"stateVersion": state_version + 1, "trackId": params["trackId"], "deviceId": params["deviceId"], "observedChanges": observed}
+    if method == "create_midi_clip":
+        track, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
+        if not getattr(track, "has_midi_input", True):
+            raise ValueError("track cannot host MIDI clips")
+        if slot.has_clip:
+            raise ValueError("clip slot already contains a clip")
+        slot.create_clip(float(params["lengthBeats"]))
+        clip = slot.clip
+        notes = tuple((
+            int(note["pitch"]), float(note["start"]), float(note["duration"]),
+            int(note["velocity"]), bool(note.get("mute", False))
+        ) for note in params["notes"])
+        clip.set_notes(notes)
+        if "name" in params:
+            clip.name = params["name"]
+        return {
+            "stateVersion": state_version + 1,
+            "trackId": params["trackId"],
+            "clip": {
+                "id": params["clipId"], "name": clip.name, "hasClip": True,
+                "lengthBeats": clip.length, "noteCount": len(notes), "isPlaying": clip.is_playing,
+            },
+        }
     if method == "transport_play":
         song.start_playing()
         return {"stateVersion": state_version + 1, "isPlaying": song.is_playing}

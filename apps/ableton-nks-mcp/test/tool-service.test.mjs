@@ -12,18 +12,49 @@ function fixture() {
       if (method === "list_tracks") return { stateVersion: 4, tracks: [{ id: "track-0", name: "Synth" }] };
       if (method === "list_devices") return { stateVersion: 4, trackId: params.trackId, devices: [{ id: "device-0", name: "Serum 2" }] };
       if (method === "list_scenes") return { stateVersion: 4, scenes: [{ id: "scene-0", name: "Verse" }] };
-      if (method === "list_clips") return { stateVersion: 4, trackId: params.trackId, clips: [{ id: "track-0:clip-0", name: "Loop" }] };
+      if (method === "list_clips") return {
+        stateVersion: 4,
+        trackId: params.trackId,
+        clips: [
+          { id: "track-0:clip-0", name: "Loop", hasClip: true },
+          { id: "track-0:clip-1", name: null, hasClip: false }
+        ]
+      };
       if (method === "list_device_parameters") return {
         stateVersion: 4,
         trackId: "t1",
         deviceId: "d1",
-        parameters: [{ id: "cutoff", min: 0, max: 1, value: 0.4 }]
+        parameters: [
+          {
+            id: "cutoff", name: "Cutoff", originalName: "Filter Freq",
+            min: 0, max: 1, value: 0.4, displayValue: "400 Hz",
+            enabled: true, quantized: false, valueItems: []
+          },
+          {
+            id: "filter-type", name: "Filter Type", originalName: "Filter Type",
+            min: 0, max: 2, value: 1, displayValue: "Band-pass",
+            enabled: true, quantized: true,
+            valueItems: ["Low-pass", "Band-pass", "High-pass"]
+          }
+        ]
       };
       if (method === "set_device_parameters") return {
         stateVersion: 5,
         trackId: "t1",
         deviceId: "d1",
         observedChanges: params.changes
+      };
+      if (method === "create_midi_clip") return {
+        stateVersion: 5,
+        trackId: params.trackId,
+        clip: { id: params.clipId, name: params.name, hasClip: true, lengthBeats: params.lengthBeats, noteCount: params.notes.length }
+      };
+      if (method === "get_midi_clip_notes") return {
+        stateVersion: 4,
+        trackId: params.trackId,
+        clipId: params.clipId,
+        lengthBeats: 4,
+        notes: [{ pitch: 60, start: 0, duration: 1, velocity: 100, mute: false }]
       };
       if (["transport_play", "transport_stop", "set_tempo", "set_track_mixer", "launch_scene", "launch_clip", "stop_clip", "arm_track"].includes(method)) {
         return { stateVersion: 5, method, ...params };
@@ -97,6 +128,13 @@ test("scene and clip inspection are exposed as read-only tools and resources", a
   assert.equal((await service.readResource("ableton://track/track-0/clips")).clips[0].name, "Loop");
 });
 
+test("MIDI note inspection returns exact clip contents without mutation", async () => {
+  const { service, calls } = fixture();
+  const result = await service.call("get_midi_clip_notes", { trackId: "track-0", clipId: "track-0:clip-0" });
+  assert.deepEqual(result.notes[0], { pitch: 60, start: 0, duration: 1, velocity: 100, mute: false });
+  assert.equal(calls.at(-1).method, "get_midi_clip_notes");
+});
+
 test("core transport, mixer, scene, and clip operations use guarded mutation plans", async () => {
   const { service, calls } = fixture();
   for (const name of ["transport_play", "transport_stop", "set_tempo", "set_track_mixer", "launch_scene", "launch_clip", "stop_clip", "arm_track"]) {
@@ -123,6 +161,46 @@ test("core mutations reject stale Ableton state before issuing a plan", async ()
   assert.equal(calls.at(-1).method, "get_live_state");
 });
 
+test("MIDI clip creation validates and signs an empty-slot plan", async () => {
+  const { service, calls } = fixture();
+  const args = {
+    trackId: "track-0",
+    clipId: "track-0:clip-1",
+    expectedStateVersion: 4,
+    lengthBeats: 4,
+    name: "Agent Pattern",
+    notes: [{ pitch: 60, start: 0, duration: 1, velocity: 100 }]
+  };
+  const dry = await service.call("create_midi_clip", args);
+  assert.equal(dry.plan.notes[0].mute, false);
+  assert.equal(calls.at(-1).method, "list_clips");
+  const live = await service.call("create_midi_clip", {
+    ...args,
+    dryRun: false,
+    confirmationToken: dry.confirmation.token,
+    planHash: dry.confirmation.planHash
+  });
+  assert.equal(live.observed.clip.noteCount, 1);
+  assert.equal(calls.at(-1).method, "create_midi_clip");
+});
+
+test("MIDI clip creation refuses occupied slots and invalid notes", async () => {
+  const { service } = fixture();
+  const base = { trackId: "track-0", expectedStateVersion: 4, lengthBeats: 4 };
+  await assert.rejects(
+    () => service.call("create_midi_clip", { ...base, clipId: "track-0:clip-0", notes: [] }),
+    /already contains a clip/
+  );
+  await assert.rejects(
+    () => service.call("create_midi_clip", {
+      ...base,
+      clipId: "track-0:clip-1",
+      notes: [{ pitch: 128, start: 0, duration: 1, velocity: 100 }]
+    }),
+    /pitch/
+  );
+});
+
 test("mutations require an explicit expected state version", async () => {
   const { service, calls } = fixture();
   await assert.rejects(() => service.call("transport_stop", {}), /expectedStateVersion is required/);
@@ -140,6 +218,42 @@ test("parameter mutation defaults to dry-run, clamps, confirms once, and returns
   assert.equal(live.observed.stateVersion, 5);
   assert.equal(calls.at(-1).method, "set_device_parameters");
   await assert.rejects(() => service.call("set_device_parameters", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash }), /unknown/);
+});
+
+test("parameter mutation plan carries signed before-and-after review context", async () => {
+  const { service } = fixture();
+  const dry = await service.call("set_device_parameters", {
+    trackId: "t1",
+    deviceId: "d1",
+    expectedStateVersion: 4,
+    changes: [
+      { id: "cutoff", value: 2 },
+      { id: "filter-type", value: 2 }
+    ]
+  });
+
+  assert.deepEqual(dry.plan.changes, [
+    {
+      id: "cutoff",
+      name: "Cutoff",
+      originalName: "Filter Freq",
+      previousValue: 0.4,
+      previousDisplayValue: "400 Hz",
+      requestedValue: 2,
+      value: 1,
+      targetDisplayValue: null
+    },
+    {
+      id: "filter-type",
+      name: "Filter Type",
+      originalName: "Filter Type",
+      previousValue: 1,
+      previousDisplayValue: "Band-pass",
+      requestedValue: 2,
+      value: 2,
+      targetDisplayValue: "High-pass"
+    }
+  ]);
 });
 
 test("Komplete status and preset verification are read-only", async () => {

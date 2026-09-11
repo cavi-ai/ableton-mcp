@@ -101,7 +101,7 @@ export async function runCli(argv, dependencies = {}) {
     const name = parsed.args[0];
     if (!name) throw new Error("call requires a tool name");
     const encodedArgs = option(parsed.args, "--args") || "{}";
-    const runtime = runtimeFactory(env);
+    const runtime = runtimeFactory(env, { persistentConfirmations: true });
     try {
       const result = await runtime.service.call(name, JSON.parse(encodedArgs));
       print(result, parsed.json, stdout);

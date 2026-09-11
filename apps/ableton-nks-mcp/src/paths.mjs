@@ -21,6 +21,7 @@ export function resolveRuntimeConfig(environment = process.env, options = {}) {
   return {
     socketPath: environment.CAVI_MCP_BRIDGE_SOCKET || join(socketRoot, "cavi-ableton-mcp.sock"),
     kompleteSocketPath: environment.KOMPLETE_AUTOMATION_SOCKET || join(socketRoot, "cavi-komplete-automation.sock"),
-    catalogPath: environment.ABLETON_NKS_CATALOG_PATH || undefined
+    catalogPath: environment.ABLETON_NKS_CATALOG_PATH || undefined,
+    confirmationDirectory: environment.CAVI_MCP_CONFIRMATION_DIR || join(homedir(), ".cavi", "ableton-mcp", "confirmations")
   };
 }
