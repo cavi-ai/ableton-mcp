@@ -45,6 +45,21 @@ def _clamp(value, target):
     return max(target.min, min(target.max, float(value)))
 
 
+def _parameter_record(parameter, index):
+    return {
+        "id": f"parameter-{index}",
+        "name": parameter.name,
+        "originalName": parameter.original_name,
+        "min": parameter.min,
+        "max": parameter.max,
+        "value": parameter.value,
+        "displayValue": parameter.str_for_value(parameter.value),
+        "enabled": parameter.is_enabled,
+        "quantized": parameter.is_quantized,
+        "valueItems": list(parameter.value_items),
+    }
+
+
 def dispatch_request(song, request, state_version):
     method = request["method"]
     params = request.get("params", {})
@@ -66,7 +81,7 @@ def dispatch_request(song, request, state_version):
         return {"stateVersion": state_version, "trackId": params["trackId"], "devices": [{"id": f"track-{index}:device-{i}", "name": device.name} for i, device in enumerate(track.devices)]}
     if method == "list_device_parameters":
         _, _, device = _device(song, params["trackId"], params["deviceId"])
-        return {"stateVersion": state_version, "trackId": params["trackId"], "deviceId": params["deviceId"], "parameters": [{"id": f"parameter-{i}", "name": parameter.name, "min": parameter.min, "max": parameter.max, "value": parameter.value, "enabled": parameter.is_enabled} for i, parameter in enumerate(device.parameters)]}
+        return {"stateVersion": state_version, "trackId": params["trackId"], "deviceId": params["deviceId"], "parameters": [_parameter_record(parameter, i) for i, parameter in enumerate(device.parameters)]}
     if method == "set_device_parameters":
         _, _, device = _device(song, params["trackId"], params["deviceId"])
         observed = []
