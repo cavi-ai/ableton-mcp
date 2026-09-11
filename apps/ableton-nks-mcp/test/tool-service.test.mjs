@@ -56,6 +56,14 @@ function fixture() {
         lengthBeats: 4,
         notes: [{ pitch: 60, start: 0, duration: 1, velocity: 100, mute: false }]
       };
+      if (method === "get_midi_clip_notes_extended") return {
+        stateVersion: 4, trackId: params.trackId, clipId: params.clipId, lengthBeats: 4,
+        notes: [{ noteId: 7, pitch: 60, start: 0, duration: 1, velocity: 100,
+          velocityDeviation: 0, releaseVelocity: 64, probability: 1, mute: false }]
+      };
+      if (method === "set_midi_note_properties") return {
+        stateVersion: 5, trackId: params.trackId, clipId: params.clipId, notes: params.changes
+      };
       if (method === "get_clip_parameter_envelope") return {
         stateVersion: 4,
         trackId: params.trackId,
@@ -157,6 +165,57 @@ test("MIDI note inspection returns exact clip contents without mutation", async 
   const result = await service.call("get_midi_clip_notes", { trackId: "track-0", clipId: "track-0:clip-0" });
   assert.deepEqual(result.notes[0], { pitch: 60, start: 0, duration: 1, velocity: 100, mute: false });
   assert.equal(calls.at(-1).method, "get_midi_clip_notes");
+});
+
+test("extended MIDI note inspection exposes stable IDs and every supported property", async () => {
+  const { service } = fixture();
+  const result = await service.call("get_midi_clip_notes_extended", { trackId: "track-0", clipId: "track-0:clip-0" });
+  assert.deepEqual(result.notes[0], {
+    noteId: 7, pitch: 60, start: 0, duration: 1, velocity: 100,
+    velocityDeviation: 0, releaseVelocity: 64, probability: 1, mute: false
+  });
+});
+
+test("automation capabilities state the exact Live API boundary", async () => {
+  const { service, calls } = fixture();
+  const result = await service.call("get_automation_capabilities");
+  assert.equal(result.sessionClipParameterEnvelopes.write, true);
+  assert.equal(result.arrangementParameterAutomation.write, false);
+  assert.deepEqual(result.perNoteProperties.fields, [
+    "pitch", "start", "duration", "velocity", "velocityDeviation", "releaseVelocity", "probability", "mute"
+  ]);
+  assert.deepEqual(calls, []);
+});
+
+test("per-note properties use a guarded exact-ID mutation plan", async () => {
+  const { service, calls } = fixture();
+  const args = {
+    expectedStateVersion: 4, trackId: "track-0", clipId: "track-0:clip-0",
+    changes: [{ noteId: 7, probability: 0.25, releaseVelocity: 92, velocityDeviation: -12 }]
+  };
+  const dry = await service.call("set_midi_note_properties", args);
+  assert.equal(dry.plan.changes[0].previous.probability, 1);
+  assert.equal(dry.plan.changes[0].probability, 0.25);
+  const live = await service.call("set_midi_note_properties", {
+    ...args, dryRun: false, confirmationToken: dry.confirmation.token,
+    planHash: dry.confirmation.planHash
+  });
+  assert.equal(live.observed.notes[0].releaseVelocity, 92);
+  assert.equal(calls.at(-1).method, "set_midi_note_properties");
+});
+
+test("per-note mutation rejects unknown IDs, invalid ranges, and unsupported MPE curves", async () => {
+  const { service } = fixture();
+  const base = { expectedStateVersion: 4, trackId: "track-0", clipId: "track-0:clip-0" };
+  await assert.rejects(() => service.call("set_midi_note_properties", {
+    ...base, changes: [{ noteId: 99, probability: 0.5 }]
+  }), /unknown noteId/);
+  await assert.rejects(() => service.call("set_midi_note_properties", {
+    ...base, changes: [{ noteId: 7, probability: 2 }]
+  }), /probability/);
+  await assert.rejects(() => service.call("set_midi_note_properties", {
+    ...base, changes: [{ noteId: 7, pitchBend: 0.5 }]
+  }), /unsupported per-note properties: pitchBend/);
 });
 
 test("clip parameter envelope inspection is read-only and returns sampled values", async () => {

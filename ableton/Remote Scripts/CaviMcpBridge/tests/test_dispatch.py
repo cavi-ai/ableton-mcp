@@ -74,6 +74,15 @@ class Clip:
     def get_notes(self, start, pitch, duration, pitch_span):
         return getattr(self, "notes", ())
 
+    def get_all_notes_extended(self):
+        return getattr(self, "extended_notes", [])
+
+    def get_notes_by_id(self, note_ids):
+        return [note for note in self.extended_notes if note.note_id in note_ids]
+
+    def apply_note_modifications(self, notes):
+        self.extended_notes = list(notes)
+
     def automation_envelope(self, parameter):
         return self.envelopes.get(id(parameter))
 
@@ -99,6 +108,19 @@ class AutomationEnvelope:
             if step_time <= time:
                 value = step_value
         return value
+
+
+class MidiNote:
+    def __init__(self, note_id=7):
+        self.note_id = note_id
+        self.pitch = 60
+        self.start_time = 0.0
+        self.duration = 1.0
+        self.velocity = 100
+        self.velocity_deviation = 0
+        self.release_velocity = 64
+        self.probability = 1.0
+        self.mute = False
 
 
 class ClipSlot:
@@ -236,6 +258,22 @@ class DispatchTest(unittest.TestCase):
             {"pitch": 60, "start": 0.0, "duration": 1.0, "velocity": 100, "mute": False},
             {"pitch": 64, "start": 1.0, "duration": 0.5, "velocity": 90, "mute": True},
         ])
+
+    def test_extended_notes_can_be_read_and_modified_by_stable_id(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        clip.extended_notes = [MidiNote()]
+        params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        observed = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": params}, 3)
+        self.assertEqual(observed["notes"][0]["noteId"], 7)
+        self.assertEqual(observed["notes"][0]["releaseVelocity"], 64)
+        changed = dispatch_request(song, {"method": "set_midi_note_properties", "params": {
+            **params, "changes": [{"noteId": 7, "probability": 0.25, "releaseVelocity": 92,
+                                    "velocityDeviation": -12}]
+        }}, 3)
+        self.assertEqual(changed["stateVersion"], 4)
+        self.assertEqual(clip.extended_notes[0].probability, 0.25)
+        self.assertEqual(changed["notes"][0]["velocityDeviation"], -12)
 
     def test_clip_parameter_envelope_can_be_sampled_and_replaced(self):
         song = Song()

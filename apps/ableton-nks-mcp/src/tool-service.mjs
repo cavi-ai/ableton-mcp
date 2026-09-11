@@ -53,6 +53,37 @@ function normalizeEnvelopePoint(point, index, clipLengthBeats, parameter) {
   };
 }
 
+const midiNotePropertyRanges = {
+  pitch: [0, 127, true], start: [0, Infinity, false], duration: [Number.MIN_VALUE, Infinity, false],
+  velocity: [1, 127, true], velocityDeviation: [-127, 127, true],
+  releaseVelocity: [0, 127, true], probability: [0, 1, false]
+};
+
+function normalizeMidiNoteChange(change, index, current, clipLengthBeats) {
+  const allowed = new Set(["noteId", "pitch", "start", "duration", "velocity", "velocityDeviation", "releaseVelocity", "probability", "mute"]);
+  const unsupported = Object.keys(change).filter((key) => !allowed.has(key));
+  if (unsupported.length) throw new Error(`unsupported per-note properties: ${unsupported.join(", ")}`);
+  const normalized = { noteId: change.noteId, previous: current };
+  if (!Number.isInteger(change.noteId)) throw new Error(`changes[${index}].noteId must be an integer`);
+  for (const [key, [min, max, integer]] of Object.entries(midiNotePropertyRanges)) {
+    if (change[key] === undefined) continue;
+    const value = Number(change[key]);
+    if (!Number.isFinite(value) || (integer && !Number.isInteger(value)) || value < min || value > max) {
+      throw new Error(`changes[${index}].${key} is outside its supported range`);
+    }
+    normalized[key] = value;
+  }
+  if (change.mute !== undefined) {
+    if (typeof change.mute !== "boolean") throw new Error(`changes[${index}].mute must be boolean`);
+    normalized.mute = change.mute;
+  }
+  const start = normalized.start ?? current.start;
+  const duration = normalized.duration ?? current.duration;
+  if (start + duration > clipLengthBeats) throw new Error(`changes[${index}] extends beyond the clip`);
+  if (Object.keys(normalized).length === 2) throw new Error(`changes[${index}] has no properties to update`);
+  return normalized;
+}
+
 const unavailableKomplete = {
   async request() {
     throw new Error("Komplete automation worker is not configured");
@@ -77,6 +108,22 @@ export class ToolService {
     if (name === "list_scenes") return this.bridge.request("list_scenes", {});
     if (name === "list_clips") return this.bridge.request("list_clips", args);
     if (name === "get_midi_clip_notes") return this.bridge.request("get_midi_clip_notes", args);
+    if (name === "get_midi_clip_notes_extended") return this.bridge.request("get_midi_clip_notes_extended", args);
+    if (name === "get_automation_capabilities") return {
+      sessionClipParameterEnvelopes: { read: true, write: true, shape: "steps" },
+      arrangementParameterAutomation: {
+        read: false, write: false,
+        reason: "Ableton Live's public Clip API returns no automation envelope for Arrangement clips"
+      },
+      perNoteProperties: {
+        read: true, write: true,
+        fields: ["pitch", "start", "duration", "velocity", "velocityDeviation", "releaseVelocity", "probability", "mute"]
+      },
+      perNoteExpressionCurves: {
+        read: false, write: false,
+        reason: "Ableton Live 12.4.5 does not expose pitch-bend, pressure, or slide curves on Live.Clip.MidiNote"
+      }
+    };
     if (name === "get_clip_parameter_envelope") return this.bridge.request("get_clip_parameter_envelope", args);
     if (name === "list_devices") return this.bridge.request("list_devices", args);
     if (name === "list_device_parameters") {
@@ -97,6 +144,7 @@ export class ToolService {
     if (name === "set_device_parameters") return this.#setDeviceParameters(args);
     if (name === "create_midi_clip") return this.#createMidiClip(args);
     if (name === "set_clip_parameter_envelope") return this.#setClipParameterEnvelope(args);
+    if (name === "set_midi_note_properties") return this.#setMidiNoteProperties(args);
     if ([
       "panic",
       "transport_play", "transport_stop", "set_tempo", "set_track_mixer",
@@ -235,6 +283,29 @@ export class ToolService {
     if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
     this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
     const result = await this.bridge.request("set_clip_parameter_envelope", plan);
+    return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
+  }
+
+  async #setMidiNoteProperties(args) {
+    requireExpectedState(args);
+    if (!Array.isArray(args.changes) || args.changes.length === 0) throw new Error("changes must be a non-empty array");
+    const observed = await this.bridge.request("get_midi_clip_notes_extended", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    assertExpectedState(args, observed);
+    const notes = new Map(observed.notes.map((note) => [note.noteId, note]));
+    const plan = {
+      method: "set_midi_note_properties", trackId: args.trackId, clipId: args.clipId,
+      expectedStateVersion: args.expectedStateVersion,
+      changes: args.changes.map((change, index) => {
+        const current = notes.get(change.noteId);
+        if (!current) throw new Error(`unknown noteId ${change.noteId}`);
+        return normalizeMidiNoteChange(change, index, current, observed.lengthBeats);
+      })
+    };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
+    const result = await this.bridge.request("set_midi_note_properties", plan);
     return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
   }
 

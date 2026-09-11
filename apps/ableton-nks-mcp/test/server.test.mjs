@@ -34,6 +34,9 @@ test("stdio server initializes and lists MCP resources and tools", async () => {
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_clip_parameter_envelope"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "set_clip_parameter_envelope"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_midi_clip_notes"), true);
+  assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_midi_clip_notes_extended"), true);
+  assert.equal(messages[2].result.tools.some((tool) => tool.name === "set_midi_note_properties"), true);
+  assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_automation_capabilities"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "list_tracks"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "list_devices"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "komplete_run_conversion_batch"), true);

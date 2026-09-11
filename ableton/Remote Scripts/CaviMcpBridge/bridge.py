@@ -12,6 +12,7 @@ except ImportError:
 BRIDGE_VERSION = "0.1.0"
 CAPABILITIES = (
     "get_live_state", "list_tracks", "list_scenes", "list_clips", "get_midi_clip_notes",
+    "get_midi_clip_notes_extended", "set_midi_note_properties",
     "get_clip_parameter_envelope", "set_clip_parameter_envelope", "list_devices",
     "list_device_parameters", "set_device_parameters", "create_midi_clip", "transport_play", "transport_stop",
     "set_tempo", "set_track_mixer", "arm_track", "launch_scene", "launch_clip",
@@ -61,6 +62,15 @@ def _parameter_record(parameter, index):
     }
 
 
+def _midi_note_record(note):
+    return {
+        "noteId": int(note.note_id), "pitch": int(note.pitch), "start": float(note.start_time),
+        "duration": float(note.duration), "velocity": int(note.velocity),
+        "velocityDeviation": int(note.velocity_deviation), "releaseVelocity": int(note.release_velocity),
+        "probability": float(note.probability), "mute": bool(note.mute),
+    }
+
+
 def dispatch_request(song, request, state_version):
     method = request["method"]
     params = request.get("params", {})
@@ -94,6 +104,38 @@ def dispatch_request(song, request, state_version):
                 "pitch": int(note[0]), "start": float(note[1]), "duration": float(note[2]),
                 "velocity": int(note[3]), "mute": bool(note[4]),
             } for note in notes],
+        }
+    if method in ("get_midi_clip_notes_extended", "set_midi_note_properties"):
+        _, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
+        if not slot.has_clip:
+            raise ValueError("clip slot is empty")
+        clip = slot.clip
+        if hasattr(clip, "is_midi_clip") and not clip.is_midi_clip:
+            raise ValueError("clip is not a MIDI clip")
+        if method == "set_midi_note_properties":
+            note_ids = [int(change["noteId"]) for change in params["changes"]]
+            notes = clip.get_notes_by_id(note_ids)
+            by_id = {int(note.note_id): note for note in notes}
+            if len(by_id) != len(set(note_ids)):
+                raise ValueError("one or more note IDs no longer exist")
+            fields = {
+                "pitch": "pitch", "start": "start_time", "duration": "duration", "velocity": "velocity",
+                "velocityDeviation": "velocity_deviation", "releaseVelocity": "release_velocity",
+                "probability": "probability", "mute": "mute",
+            }
+            for change in params["changes"]:
+                note = by_id[int(change["noteId"])]
+                for source, target in fields.items():
+                    if source in change:
+                        setattr(note, target, change[source])
+            clip.apply_note_modifications(notes)
+            notes = clip.get_notes_by_id(note_ids)
+        else:
+            notes = list(clip.get_all_notes_extended())
+        return {
+            "stateVersion": state_version + (1 if method == "set_midi_note_properties" else 0),
+            "trackId": params["trackId"], "clipId": params["clipId"],
+            "lengthBeats": float(clip.length), "notes": [_midi_note_record(note) for note in notes],
         }
     if method in ("get_clip_parameter_envelope", "set_clip_parameter_envelope"):
         _, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
