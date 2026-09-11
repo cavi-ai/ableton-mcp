@@ -11,7 +11,7 @@ except ImportError:
 
 BRIDGE_VERSION = "0.1.0"
 CAPABILITIES = (
-    "get_live_state", "list_tracks", "list_scenes", "list_clips", "get_midi_clip_notes",
+    "get_live_state", "list_tracks", "list_scenes", "list_clips", "get_track_mixer", "get_midi_clip_notes",
     "get_midi_clip_notes_extended", "set_midi_note_properties",
     "get_clip_parameter_envelope", "set_clip_parameter_envelope", "list_devices",
     "list_device_parameters", "set_device_parameters", "create_midi_clip", "transport_play", "transport_stop",
@@ -47,6 +47,10 @@ def _clamp(value, target):
     return max(target.min, min(target.max, float(value)))
 
 
+def _change_value(change):
+    return change.get("value") if isinstance(change, dict) else change
+
+
 def _parameter_record(parameter, index):
     return {
         "id": f"parameter-{index}",
@@ -71,6 +75,13 @@ def _midi_note_record(note):
     }
 
 
+def _send_records(song, track):
+    return [{
+        "id": f"send-{i}", "returnTrackId": f"return-{i}", "name": song.return_tracks[i].name,
+        "value": send.value, "min": send.min, "max": send.max,
+    } for i, send in enumerate(track.mixer_device.sends)]
+
+
 def dispatch_request(song, request, state_version):
     method = request["method"]
     params = request.get("params", {})
@@ -79,6 +90,14 @@ def dispatch_request(song, request, state_version):
         return {"stateVersion": state_version, "setFingerprint": fingerprint, "tempo": song.tempo, "isPlaying": song.is_playing, "bridgeVersion": BRIDGE_VERSION, "capabilities": list(CAPABILITIES)}
     if method == "list_tracks":
         return {"stateVersion": state_version, "tracks": [{"id": f"track-{i}", "name": track.name, "mute": track.mute, "solo": track.solo, "armed": track.arm, "volume": track.mixer_device.volume.value, "pan": track.mixer_device.panning.value} for i, track in enumerate(song.tracks)]}
+    if method == "get_track_mixer":
+        _, track = _track(song, params["trackId"])
+        return {
+            "stateVersion": state_version, "trackId": params["trackId"],
+            "volume": {"value": track.mixer_device.volume.value, "min": track.mixer_device.volume.min, "max": track.mixer_device.volume.max},
+            "pan": {"value": track.mixer_device.panning.value, "min": track.mixer_device.panning.min, "max": track.mixer_device.panning.max},
+            "mute": track.mute, "solo": track.solo, "sends": _send_records(song, track),
+        }
     if method == "list_scenes":
         return {"stateVersion": state_version, "scenes": [{"id": f"scene-{i}", "name": scene.name} for i, scene in enumerate(song.scenes)]}
     if method == "list_clips":
@@ -219,14 +238,22 @@ def dispatch_request(song, request, state_version):
         return {"stateVersion": state_version + 1, "tempo": song.tempo}
     if method == "set_track_mixer":
         _, track = _track(song, params["trackId"])
-        if "volume" in params:
-            track.mixer_device.volume.value = _clamp(params["volume"], track.mixer_device.volume)
-        if "pan" in params:
-            track.mixer_device.panning.value = _clamp(params["pan"], track.mixer_device.panning)
-        for source, target in (("mute", "mute"), ("solo", "solo")):
-            if source in params:
-                setattr(track, target, bool(params[source]))
-        return {"stateVersion": state_version + 1, "trackId": params["trackId"], "volume": track.mixer_device.volume.value, "pan": track.mixer_device.panning.value, "mute": track.mute, "solo": track.solo}
+        changes = params.get("changes", params)
+        if "volume" in changes:
+            track.mixer_device.volume.value = _clamp(_change_value(changes["volume"]), track.mixer_device.volume)
+        if "pan" in changes:
+            track.mixer_device.panning.value = _clamp(_change_value(changes["pan"]), track.mixer_device.panning)
+        for key in ("mute", "solo"):
+            if key in changes:
+                setattr(track, key, bool(_change_value(changes[key])))
+        for change in changes.get("sends", []):
+            index = int(change["id"].removeprefix("send-"))
+            track.mixer_device.sends[index].value = _clamp(change["value"], track.mixer_device.sends[index])
+        return {
+            "stateVersion": state_version + 1, "trackId": params["trackId"],
+            "volume": track.mixer_device.volume.value, "pan": track.mixer_device.panning.value,
+            "mute": track.mute, "solo": track.solo, "sends": _send_records(song, track),
+        }
     if method == "arm_track":
         _, track = _track(song, params["trackId"])
         track.arm = bool(params["armed"])
