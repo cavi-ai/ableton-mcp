@@ -11,7 +11,7 @@ except ImportError:
 
 BRIDGE_VERSION = "0.1.0"
 CAPABILITIES = (
-    "get_live_state", "list_tracks", "list_scenes", "list_clips", "list_devices",
+    "get_live_state", "list_tracks", "list_scenes", "list_clips", "get_midi_clip_notes", "list_devices",
     "list_device_parameters", "set_device_parameters", "create_midi_clip", "transport_play", "transport_stop",
     "set_tempo", "set_track_mixer", "arm_track", "launch_scene", "launch_clip",
     "stop_clip", "panic",
@@ -76,6 +76,24 @@ def dispatch_request(song, request, state_version):
         for i, slot in enumerate(track.clip_slots):
             clips.append({"id": f"track-{index}:clip-{i}", "name": slot.clip.name if slot.has_clip else None, "hasClip": slot.has_clip, "isPlaying": slot.clip.is_playing if slot.has_clip else False})
         return {"stateVersion": state_version, "trackId": params["trackId"], "clips": clips}
+    if method == "get_midi_clip_notes":
+        _, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
+        if not slot.has_clip:
+            raise ValueError("clip slot is empty")
+        clip = slot.clip
+        if hasattr(clip, "is_midi_clip") and not clip.is_midi_clip:
+            raise ValueError("clip is not a MIDI clip")
+        notes = clip.get_notes(0.0, 0, clip.length, 128)
+        return {
+            "stateVersion": state_version,
+            "trackId": params["trackId"],
+            "clipId": params["clipId"],
+            "lengthBeats": clip.length,
+            "notes": [{
+                "pitch": int(note[0]), "start": float(note[1]), "duration": float(note[2]),
+                "velocity": int(note[3]), "mute": bool(note[4]),
+            } for note in notes],
+        }
     if method == "list_devices":
         index, track = _track(song, params["trackId"])
         return {"stateVersion": state_version, "trackId": params["trackId"], "devices": [{"id": f"track-{index}:device-{i}", "name": device.name} for i, device in enumerate(track.devices)]}

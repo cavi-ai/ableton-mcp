@@ -23,6 +23,7 @@ const toolNames = [
   "list_tracks",
   "list_scenes",
   "list_clips",
+  "get_midi_clip_notes",
   "list_devices",
   "list_device_parameters",
   "set_device_parameters",

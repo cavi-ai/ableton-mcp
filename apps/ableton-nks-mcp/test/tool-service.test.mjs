@@ -49,6 +49,13 @@ function fixture() {
         trackId: params.trackId,
         clip: { id: params.clipId, name: params.name, hasClip: true, lengthBeats: params.lengthBeats, noteCount: params.notes.length }
       };
+      if (method === "get_midi_clip_notes") return {
+        stateVersion: 4,
+        trackId: params.trackId,
+        clipId: params.clipId,
+        lengthBeats: 4,
+        notes: [{ pitch: 60, start: 0, duration: 1, velocity: 100, mute: false }]
+      };
       if (["transport_play", "transport_stop", "set_tempo", "set_track_mixer", "launch_scene", "launch_clip", "stop_clip", "arm_track"].includes(method)) {
         return { stateVersion: 5, method, ...params };
       }
@@ -119,6 +126,13 @@ test("scene and clip inspection are exposed as read-only tools and resources", a
   assert.equal((await service.call("list_clips", { trackId: "track-0" })).clips[0].name, "Loop");
   assert.equal((await service.readResource("ableton://set/scenes")).scenes[0].name, "Verse");
   assert.equal((await service.readResource("ableton://track/track-0/clips")).clips[0].name, "Loop");
+});
+
+test("MIDI note inspection returns exact clip contents without mutation", async () => {
+  const { service, calls } = fixture();
+  const result = await service.call("get_midi_clip_notes", { trackId: "track-0", clipId: "track-0:clip-0" });
+  assert.deepEqual(result.notes[0], { pitch: 60, start: 0, duration: 1, velocity: 100, mute: false });
+  assert.equal(calls.at(-1).method, "get_midi_clip_notes");
 });
 
 test("core transport, mixer, scene, and clip operations use guarded mutation plans", async () => {

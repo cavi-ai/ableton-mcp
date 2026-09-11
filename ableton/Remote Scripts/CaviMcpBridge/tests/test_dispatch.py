@@ -69,6 +69,9 @@ class Clip:
     def set_notes(self, notes):
         self.notes = notes
 
+    def get_notes(self, start, pitch, duration, pitch_span):
+        return getattr(self, "notes", ())
+
 
 class ClipSlot:
     def __init__(self, has_clip=True):
@@ -190,6 +193,21 @@ class DispatchTest(unittest.TestCase):
                 "method": "create_midi_clip",
                 "params": {"trackId": "track-0", "clipId": "track-0:clip-0", "lengthBeats": 4, "notes": []}
             }, 3)
+
+    def test_get_midi_clip_notes_returns_normalized_notes(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        clip.length = 4.0
+        clip.notes = ((60, 0.0, 1.0, 100, False), (64, 1.0, 0.5, 90, True))
+        result = dispatch_request(song, {
+            "method": "get_midi_clip_notes",
+            "params": {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        }, 3)
+        self.assertEqual(result["lengthBeats"], 4.0)
+        self.assertEqual(result["notes"], [
+            {"pitch": 60, "start": 0.0, "duration": 1.0, "velocity": 100, "mute": False},
+            {"pitch": 64, "start": 1.0, "duration": 0.5, "velocity": 90, "mute": True},
+        ])
 
 
 if __name__ == "__main__":

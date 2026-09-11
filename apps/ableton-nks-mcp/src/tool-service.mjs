@@ -57,6 +57,7 @@ export class ToolService {
     if (name === "list_tracks") return this.bridge.request("list_tracks", {});
     if (name === "list_scenes") return this.bridge.request("list_scenes", {});
     if (name === "list_clips") return this.bridge.request("list_clips", args);
+    if (name === "get_midi_clip_notes") return this.bridge.request("get_midi_clip_notes", args);
     if (name === "list_devices") return this.bridge.request("list_devices", args);
     if (name === "list_device_parameters") {
       return this.bridge.request("list_device_parameters", args);
