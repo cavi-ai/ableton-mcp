@@ -17,7 +17,19 @@ function fixture() {
         stateVersion: 4,
         trackId: "t1",
         deviceId: "d1",
-        parameters: [{ id: "cutoff", min: 0, max: 1, value: 0.4 }]
+        parameters: [
+          {
+            id: "cutoff", name: "Cutoff", originalName: "Filter Freq",
+            min: 0, max: 1, value: 0.4, displayValue: "400 Hz",
+            enabled: true, quantized: false, valueItems: []
+          },
+          {
+            id: "filter-type", name: "Filter Type", originalName: "Filter Type",
+            min: 0, max: 2, value: 1, displayValue: "Band-pass",
+            enabled: true, quantized: true,
+            valueItems: ["Low-pass", "Band-pass", "High-pass"]
+          }
+        ]
       };
       if (method === "set_device_parameters") return {
         stateVersion: 5,
@@ -140,6 +152,42 @@ test("parameter mutation defaults to dry-run, clamps, confirms once, and returns
   assert.equal(live.observed.stateVersion, 5);
   assert.equal(calls.at(-1).method, "set_device_parameters");
   await assert.rejects(() => service.call("set_device_parameters", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash }), /unknown/);
+});
+
+test("parameter mutation plan carries signed before-and-after review context", async () => {
+  const { service } = fixture();
+  const dry = await service.call("set_device_parameters", {
+    trackId: "t1",
+    deviceId: "d1",
+    expectedStateVersion: 4,
+    changes: [
+      { id: "cutoff", value: 2 },
+      { id: "filter-type", value: 2 }
+    ]
+  });
+
+  assert.deepEqual(dry.plan.changes, [
+    {
+      id: "cutoff",
+      name: "Cutoff",
+      originalName: "Filter Freq",
+      previousValue: 0.4,
+      previousDisplayValue: "400 Hz",
+      requestedValue: 2,
+      value: 1,
+      targetDisplayValue: null
+    },
+    {
+      id: "filter-type",
+      name: "Filter Type",
+      originalName: "Filter Type",
+      previousValue: 1,
+      previousDisplayValue: "Band-pass",
+      requestedValue: 2,
+      value: 2,
+      targetDisplayValue: "High-pass"
+    }
+  ]);
 });
 
 test("Komplete status and preset verification are read-only", async () => {

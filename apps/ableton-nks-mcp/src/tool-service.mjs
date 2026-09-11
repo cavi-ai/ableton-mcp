@@ -14,6 +14,13 @@ function requireExpectedSession(args) {
   }
 }
 
+function targetDisplayValue(parameter, value) {
+  if (!parameter.quantized || !Array.isArray(parameter.valueItems)) return null;
+  const index = Math.round(value - parameter.min);
+  if (Math.abs(parameter.min + index - value) > Number.EPSILON) return null;
+  return parameter.valueItems[index] ?? null;
+}
+
 const unavailableKomplete = {
   async request() {
     throw new Error("Komplete automation worker is not configured");
@@ -104,9 +111,16 @@ export class ToolService {
     const changes = args.changes.map((change) => {
       const parameter = allowed.get(change.id);
       if (!parameter) throw new Error(`parameter ${change.id} is not allowlisted`);
+      const value = Math.max(parameter.min, Math.min(parameter.max, Number(change.value)));
       return {
         id: change.id,
-        value: Math.max(parameter.min, Math.min(parameter.max, Number(change.value)))
+        name: parameter.name,
+        originalName: parameter.originalName,
+        previousValue: parameter.value,
+        previousDisplayValue: parameter.displayValue,
+        requestedValue: change.value,
+        value,
+        targetDisplayValue: targetDisplayValue(parameter, value)
       };
     });
     const plan = {
