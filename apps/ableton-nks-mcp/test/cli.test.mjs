@@ -107,12 +107,12 @@ test("uninstall removes only the named CaviMcpBridge directory", async () => {
 
 test("call and resource expose the MCP service through the CLI", async () => {
   const calls = [];
-  const runtimeFactory = () => ({
+  const runtimeFactory = (environment, options) => ({
     service: {
       async call(name, args) { calls.push({ name, args }); return { tracks: [] }; },
       async readResource(uri) { calls.push({ uri }); return { scenes: [] }; }
     },
-    close() { calls.push({ closed: true }); }
+    close() { calls.push({ closed: true, options }); }
   });
   const output = [];
   await runCli(["call", "list_tracks", "--args", "{}", "--json"], {
@@ -125,9 +125,9 @@ test("call and resource expose the MCP service through the CLI", async () => {
   });
   assert.deepEqual(calls, [
     { name: "list_tracks", args: {} },
-    { closed: true },
+    { closed: true, options: { persistentConfirmations: true } },
     { uri: "ableton://set/scenes" },
-    { closed: true }
+    { closed: true, options: undefined }
   ]);
   assert.equal(JSON.parse(output[0]).tracks.length, 0);
 });
