@@ -12,7 +12,7 @@ except ImportError:
 BRIDGE_VERSION = "0.1.0"
 CAPABILITIES = (
     "get_live_state", "list_tracks", "list_scenes", "list_clips", "list_devices",
-    "list_device_parameters", "set_device_parameters", "transport_play", "transport_stop",
+    "list_device_parameters", "set_device_parameters", "create_midi_clip", "transport_play", "transport_stop",
     "set_tempo", "set_track_mixer", "arm_track", "launch_scene", "launch_clip",
     "stop_clip", "panic",
 )
@@ -93,6 +93,29 @@ def dispatch_request(song, request, state_version):
             parameter.value = max(parameter.min, min(parameter.max, float(change["value"])))
             observed.append(_parameter_record(parameter, index))
         return {"stateVersion": state_version + 1, "trackId": params["trackId"], "deviceId": params["deviceId"], "observedChanges": observed}
+    if method == "create_midi_clip":
+        track, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
+        if not getattr(track, "has_midi_input", True):
+            raise ValueError("track cannot host MIDI clips")
+        if slot.has_clip:
+            raise ValueError("clip slot already contains a clip")
+        slot.create_clip(float(params["lengthBeats"]))
+        clip = slot.clip
+        notes = tuple((
+            int(note["pitch"]), float(note["start"]), float(note["duration"]),
+            int(note["velocity"]), bool(note.get("mute", False))
+        ) for note in params["notes"])
+        clip.set_notes(notes)
+        if "name" in params:
+            clip.name = params["name"]
+        return {
+            "stateVersion": state_version + 1,
+            "trackId": params["trackId"],
+            "clip": {
+                "id": params["clipId"], "name": clip.name, "hasClip": True,
+                "lengthBeats": clip.length, "noteCount": len(notes), "isPlaying": clip.is_playing,
+            },
+        }
     if method == "transport_play":
         song.start_playing()
         return {"stateVersion": state_version + 1, "isPlaying": song.is_playing}

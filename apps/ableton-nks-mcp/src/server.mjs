@@ -26,6 +26,7 @@ const toolNames = [
   "list_devices",
   "list_device_parameters",
   "set_device_parameters",
+  "create_midi_clip",
   "panic",
   "transport_play",
   "transport_stop",

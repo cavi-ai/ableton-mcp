@@ -66,11 +66,21 @@ class Clip:
     def stop(self):
         self.is_playing = False
 
+    def set_notes(self, notes):
+        self.notes = notes
+
 
 class ClipSlot:
-    def __init__(self):
+    def __init__(self, has_clip=True):
+        self.has_clip = has_clip
+        self.clip = Clip() if has_clip else None
+
+    def create_clip(self, length):
+        if self.has_clip:
+            raise RuntimeError("occupied")
         self.has_clip = True
         self.clip = Clip()
+        self.clip.length = length
 
     def fire(self):
         self.clip.fire()
@@ -92,7 +102,7 @@ class Song:
     def __init__(self):
         self.tracks = [Track()]
         self.scenes = [Scene()]
-        self.tracks[0].clip_slots = [ClipSlot()]
+        self.tracks[0].clip_slots = [ClipSlot(), ClipSlot(False)]
         self.tempo = 120.0
         self.is_playing = False
 
@@ -158,6 +168,28 @@ class DispatchTest(unittest.TestCase):
         self.assertTrue(song.tracks[0].clip_slots[0].clip.is_playing)
         dispatch_request(song, {"method": "arm_track", "params": {"trackId": "track-0", "armed": True}}, 6)
         self.assertTrue(song.tracks[0].arm)
+
+    def test_create_midi_clip_writes_notes_and_returns_observed_clip(self):
+        song = Song()
+        result = dispatch_request(song, {
+            "method": "create_midi_clip",
+            "params": {
+                "trackId": "track-0", "clipId": "track-0:clip-1",
+                "lengthBeats": 4, "name": "Agent Pattern",
+                "notes": [{"pitch": 60, "start": 0, "duration": 1, "velocity": 100, "mute": False}]
+            }
+        }, 3)
+        clip = song.tracks[0].clip_slots[1].clip
+        self.assertEqual(clip.notes, ((60, 0.0, 1.0, 100, False),))
+        self.assertEqual(result["clip"]["name"], "Agent Pattern")
+        self.assertEqual(result["clip"]["noteCount"], 1)
+
+    def test_create_midi_clip_refuses_to_overwrite(self):
+        with self.assertRaisesRegex(ValueError, "already contains"):
+            dispatch_request(Song(), {
+                "method": "create_midi_clip",
+                "params": {"trackId": "track-0", "clipId": "track-0:clip-0", "lengthBeats": 4, "notes": []}
+            }, 3)
 
 
 if __name__ == "__main__":

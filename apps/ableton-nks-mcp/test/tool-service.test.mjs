@@ -12,7 +12,14 @@ function fixture() {
       if (method === "list_tracks") return { stateVersion: 4, tracks: [{ id: "track-0", name: "Synth" }] };
       if (method === "list_devices") return { stateVersion: 4, trackId: params.trackId, devices: [{ id: "device-0", name: "Serum 2" }] };
       if (method === "list_scenes") return { stateVersion: 4, scenes: [{ id: "scene-0", name: "Verse" }] };
-      if (method === "list_clips") return { stateVersion: 4, trackId: params.trackId, clips: [{ id: "track-0:clip-0", name: "Loop" }] };
+      if (method === "list_clips") return {
+        stateVersion: 4,
+        trackId: params.trackId,
+        clips: [
+          { id: "track-0:clip-0", name: "Loop", hasClip: true },
+          { id: "track-0:clip-1", name: null, hasClip: false }
+        ]
+      };
       if (method === "list_device_parameters") return {
         stateVersion: 4,
         trackId: "t1",
@@ -36,6 +43,11 @@ function fixture() {
         trackId: "t1",
         deviceId: "d1",
         observedChanges: params.changes
+      };
+      if (method === "create_midi_clip") return {
+        stateVersion: 5,
+        trackId: params.trackId,
+        clip: { id: params.clipId, name: params.name, hasClip: true, lengthBeats: params.lengthBeats, noteCount: params.notes.length }
       };
       if (["transport_play", "transport_stop", "set_tempo", "set_track_mixer", "launch_scene", "launch_clip", "stop_clip", "arm_track"].includes(method)) {
         return { stateVersion: 5, method, ...params };
@@ -133,6 +145,46 @@ test("core mutations reject stale Ableton state before issuing a plan", async ()
     /stateVersion mismatch/
   );
   assert.equal(calls.at(-1).method, "get_live_state");
+});
+
+test("MIDI clip creation validates and signs an empty-slot plan", async () => {
+  const { service, calls } = fixture();
+  const args = {
+    trackId: "track-0",
+    clipId: "track-0:clip-1",
+    expectedStateVersion: 4,
+    lengthBeats: 4,
+    name: "Agent Pattern",
+    notes: [{ pitch: 60, start: 0, duration: 1, velocity: 100 }]
+  };
+  const dry = await service.call("create_midi_clip", args);
+  assert.equal(dry.plan.notes[0].mute, false);
+  assert.equal(calls.at(-1).method, "list_clips");
+  const live = await service.call("create_midi_clip", {
+    ...args,
+    dryRun: false,
+    confirmationToken: dry.confirmation.token,
+    planHash: dry.confirmation.planHash
+  });
+  assert.equal(live.observed.clip.noteCount, 1);
+  assert.equal(calls.at(-1).method, "create_midi_clip");
+});
+
+test("MIDI clip creation refuses occupied slots and invalid notes", async () => {
+  const { service } = fixture();
+  const base = { trackId: "track-0", expectedStateVersion: 4, lengthBeats: 4 };
+  await assert.rejects(
+    () => service.call("create_midi_clip", { ...base, clipId: "track-0:clip-0", notes: [] }),
+    /already contains a clip/
+  );
+  await assert.rejects(
+    () => service.call("create_midi_clip", {
+      ...base,
+      clipId: "track-0:clip-1",
+      notes: [{ pitch: 128, start: 0, duration: 1, velocity: 100 }]
+    }),
+    /pitch/
+  );
 });
 
 test("mutations require an explicit expected state version", async () => {

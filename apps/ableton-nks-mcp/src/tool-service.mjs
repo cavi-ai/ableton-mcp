@@ -21,6 +21,19 @@ function targetDisplayValue(parameter, value) {
   return parameter.valueItems[index] ?? null;
 }
 
+function normalizeMidiNote(note, index, lengthBeats) {
+  const pitch = Number(note.pitch);
+  const start = Number(note.start);
+  const duration = Number(note.duration);
+  const velocity = Number(note.velocity);
+  if (!Number.isInteger(pitch) || pitch < 0 || pitch > 127) throw new Error(`notes[${index}].pitch must be an integer from 0 to 127`);
+  if (!Number.isFinite(start) || start < 0) throw new Error(`notes[${index}].start must be zero or greater`);
+  if (!Number.isFinite(duration) || duration <= 0) throw new Error(`notes[${index}].duration must be greater than zero`);
+  if (start + duration > lengthBeats) throw new Error(`notes[${index}] extends beyond lengthBeats`);
+  if (!Number.isInteger(velocity) || velocity < 1 || velocity > 127) throw new Error(`notes[${index}].velocity must be an integer from 1 to 127`);
+  return { pitch, start, duration, velocity, mute: note.mute === true };
+}
+
 const unavailableKomplete = {
   async request() {
     throw new Error("Komplete automation worker is not configured");
@@ -61,6 +74,7 @@ export class ToolService {
     }[name];
     if (kompleteMethod) return this.#kompleteMutation(kompleteMethod, args);
     if (name === "set_device_parameters") return this.#setDeviceParameters(args);
+    if (name === "create_midi_clip") return this.#createMidiClip(args);
     if ([
       "panic",
       "transport_play", "transport_stop", "set_tempo", "set_track_mixer",
@@ -142,6 +156,32 @@ export class ToolService {
       timestamp: new Date().toISOString(),
       rollback: "Recall the prior macro snapshot or restore the previous parameter values."
     };
+  }
+
+  async #createMidiClip(args) {
+    requireExpectedState(args);
+    const lengthBeats = Number(args.lengthBeats);
+    if (!Number.isFinite(lengthBeats) || lengthBeats <= 0) throw new Error("lengthBeats must be greater than zero");
+    if (!Array.isArray(args.notes)) throw new Error("notes must be an array");
+    if (args.name !== undefined && typeof args.name !== "string") throw new Error("name must be a string");
+    const observed = await this.bridge.request("list_clips", { trackId: args.trackId });
+    assertExpectedState(args, observed);
+    const slot = observed.clips.find((clip) => clip.id === args.clipId);
+    if (!slot) throw new Error(`unknown clip slot ${args.clipId}`);
+    if (slot.hasClip) throw new Error(`clip slot ${args.clipId} already contains a clip`);
+    const plan = {
+      method: "create_midi_clip",
+      trackId: args.trackId,
+      clipId: args.clipId,
+      expectedStateVersion: args.expectedStateVersion,
+      lengthBeats,
+      notes: args.notes.map((note, index) => normalizeMidiNote(note, index, lengthBeats))
+    };
+    if (args.name !== undefined) plan.name = args.name;
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
+    const result = await this.bridge.request("create_midi_clip", plan);
+    return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
   }
 
   async #genericMutation(name, args) {
