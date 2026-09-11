@@ -12,7 +12,8 @@ const resources = [
   "ableton://set/scenes",
   "ableton://track/{track_id}/clips",
   "ableton://track/{track_id}/devices",
-  "ableton://device/{device_id}/parameters"
+  "ableton://device/{device_id}/parameters",
+  "komplete://automation/status"
 ].map((uri) => ({ uri, name: uri }));
 
 const toolNames = [
@@ -33,7 +34,14 @@ const toolNames = [
   "launch_scene",
   "launch_clip",
   "stop_clip",
-  "arm_track"
+  "arm_track",
+  "komplete_get_status",
+  "komplete_open_instrument",
+  "komplete_load_source_preset",
+  "komplete_save_nks_preset",
+  "komplete_verify_nks_preset",
+  "komplete_run_conversion_batch",
+  "komplete_pause_batch"
 ];
 const tools = toolNames.map((name) => ({
   name,
