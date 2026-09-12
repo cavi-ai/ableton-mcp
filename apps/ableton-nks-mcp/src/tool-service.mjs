@@ -229,6 +229,7 @@ export class ToolService {
     if (name === "get_preset") return { preset: this.catalog.get(args.presetId) };
     if (name === "get_live_state") return this.bridge.request("get_live_state", {});
     if (name === "get_transport_context") return this.bridge.request("get_transport_context", {});
+    if (name === "get_history_state") return this.bridge.request("get_history_state", {});
     if (name === "get_song_musical_context") return this.bridge.request("get_song_musical_context", {});
     if (name === "get_transport_recording_context") return this.bridge.request("get_transport_recording_context", {});
     if (name === "list_arrangement_cue_points") return this.bridge.request("list_arrangement_cue_points", {});
@@ -315,6 +316,7 @@ export class ToolService {
     if (name === "set_track_routing") return this.#setTrackRouting(args);
     if (name === "load_factory_browser_item") return this.#loadFactoryBrowserItem(args);
     if (name === "set_master_mixer" || name === "set_return_mixer") return this.#setBusMixer(name, args);
+    if (name === "undo" || name === "redo") return this.#historyMutation(name, args);
     if ([
       "panic",
       "transport_play", "transport_stop", "set_tempo",
@@ -339,6 +341,7 @@ export class ToolService {
     }
     if (uri === "ableton://live/status") return this.bridge.request("get_live_state", {});
     if (uri === "ableton://live/transport") return this.bridge.request("get_transport_context", {});
+    if (uri === "ableton://set/history") return this.bridge.request("get_history_state", {});
     if (uri === "ableton://set/musical-context") return this.bridge.request("get_song_musical_context", {});
     if (uri === "ableton://set/mixer") return this.bridge.request("get_set_mixer", {});
     if (uri === "ableton://set/tracks") return this.bridge.request("list_tracks", {});
@@ -424,6 +427,17 @@ export class ToolService {
     };
     if (method === "set_device_active") plan.active = args.active;
     return this.#confirmedMutation(plan, args);
+  }
+
+  async #historyMutation(method, args) {
+    requireExpectedState(args);
+    const observed = await this.bridge.request("get_history_state", {});
+    assertExpectedState(args, observed);
+    const available = method === "undo" ? observed.canUndo : observed.canRedo;
+    if (!available) throw new Error(`${method} is not available`);
+    return this.#confirmedMutation({
+      method, expectedStateVersion: args.expectedStateVersion, before: observed
+    }, args);
   }
 
   async #setSongMusicalContext(args) {

@@ -289,6 +289,8 @@ class Song:
         master_mixer.crossfader = type("Value", (), {"value": 0.0, "min": -1.0, "max": 1.0})()
         self.master_track = type("MasterTrack", (), {"mixer_device": master_mixer})()
         self.scenes = [Scene(), Scene()]
+        self.can_undo = True
+        self.can_redo = False
         self.tracks[0].clip_slots = [ClipSlot(), ClipSlot(False)]
         self.tracks[1].clip_slots = [ClipSlot(False), ClipSlot(False)]
         audio_slot = ClipSlot()
@@ -372,6 +374,14 @@ class Song:
 
     def stop_playing(self):
         self.is_playing = False
+
+    def undo(self):
+        self.can_undo = False
+        self.can_redo = True
+
+    def redo(self):
+        self.can_undo = True
+        self.can_redo = False
 
 
 class BrowserItem:
@@ -562,6 +572,15 @@ class DispatchTest(unittest.TestCase):
         }}, 3)
         self.assertEqual(result["stateVersion"], 4)
         self.assertEqual(result["loop"], {"enabled": True, "startBeats": 0.0, "endBeats": 8.0})
+
+    def test_history_state_and_undo_redo_return_observed_availability(self):
+        song = Song()
+        history = dispatch_request(song, {"method": "get_history_state"}, 3)
+        self.assertEqual(history, {"stateVersion": 3, "canUndo": True, "canRedo": False})
+        undone = dispatch_request(song, {"method": "undo"}, 3)
+        self.assertEqual(undone, {"stateVersion": 4, "canUndo": False, "canRedo": True})
+        redone = dispatch_request(song, {"method": "redo"}, 4)
+        self.assertEqual(redone, {"stateVersion": 5, "canUndo": True, "canRedo": False})
 
     def test_song_musical_context_reads_and_writes_timing_key_groove_and_loop(self):
         song = Song()

@@ -16,7 +16,7 @@ except ImportError:
 
 BRIDGE_VERSION = "0.1.0"
 CAPABILITIES = (
-    "get_live_state", "get_transport_context", "set_transport_context",
+    "get_live_state", "get_history_state", "undo", "redo", "get_transport_context", "set_transport_context",
     "get_song_musical_context", "set_song_musical_context",
     "get_transport_recording_context", "set_transport_recording_context",
     "list_arrangement_cue_points", "create_arrangement_cue_point", "rename_arrangement_cue_point",
@@ -382,6 +382,18 @@ def dispatch_request(song, request, state_version, application=None):
         if "countInDuration" in changes:
             song.count_in_duration = int(_change_value(changes["countInDuration"]))
         return _transport_context(song, state_version + 1)
+    if method == "get_history_state":
+        return {"stateVersion": state_version, "canUndo": bool(song.can_undo), "canRedo": bool(song.can_redo)}
+    if method in ("undo", "redo"):
+        if method == "undo":
+            if not song.can_undo:
+                raise ValueError("undo is not available")
+            song.undo()
+        else:
+            if not song.can_redo:
+                raise ValueError("redo is not available")
+            song.redo()
+        return {"stateVersion": state_version + 1, "canUndo": bool(song.can_undo), "canRedo": bool(song.can_redo)}
     if method == "get_song_musical_context":
         return _song_musical_context(song, state_version)
     if method == "get_transport_recording_context":

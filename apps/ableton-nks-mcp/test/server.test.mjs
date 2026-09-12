@@ -24,7 +24,7 @@ test("stdio server initializes and lists MCP resources and tools", async () => {
   await once(child, "exit");
   const messages = stdout.trim().split("\n").map(JSON.parse);
   assert.equal(messages[0].result.serverInfo.name, "ableton-mcp");
-  assert.equal(messages[1].result.resources.length, 16);
+  assert.equal(messages[1].result.resources.length, 17);
   assert.equal(
     messages[1].result.resources.some(({ uri }) => uri === "nks://catalog/artwork/{artwork_id}"),
     true
@@ -51,6 +51,9 @@ test("stdio server initializes and lists MCP resources and tools", async () => {
   }
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_audio_clip_state"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "set_audio_clip_state"), true);
+  assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_history_state"), true);
+  assert.equal(messages[2].result.tools.some((tool) => tool.name === "undo"), true);
+  assert.equal(messages[2].result.tools.some((tool) => tool.name === "redo"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_automation_capabilities"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_track_mixer"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_track_routing"), true);

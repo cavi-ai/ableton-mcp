@@ -10,6 +10,8 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
     async request(method, params = {}) {
       calls.push({ method, params });
       if (method === "get_live_state") return { stateVersion: 4, setFingerprint: "set:a" };
+      if (method === "get_history_state") return { stateVersion: 4, canUndo: true, canRedo: false };
+      if (method === "undo" || method === "redo") return { stateVersion: 5, canUndo: method === "redo", canRedo: method === "undo" };
       if (method === "get_song_musical_context") return {
         stateVersion: 4,
         timeSignature: { numerator: 4, denominator: 4 },
@@ -833,6 +835,26 @@ test("transport context rejects invalid and empty changes", async () => {
   await assert.rejects(() => service.call("set_transport_context", { expectedStateVersion: 4 }), /at least one transport context change/);
   await assert.rejects(() => service.call("set_transport_context", { expectedStateVersion: 4, metronome: "yes" }), /metronome must be boolean/);
   await assert.rejects(() => service.call("set_transport_context", { expectedStateVersion: 4, countInDuration: "eight_bars" }), /countInDuration must be one of/);
+});
+
+test("undo and redo expose availability and use guarded history plans", async () => {
+  const { service, calls } = fixture();
+  const history = await service.call("get_history_state");
+  assert.deepEqual(history, { stateVersion: 4, canUndo: true, canRedo: false });
+  const dry = await service.call("undo", { expectedStateVersion: 4 });
+  assert.equal(dry.plan.method, "undo");
+  assert.equal(dry.plan.before.canUndo, true);
+  const live = await service.call("undo", {
+    expectedStateVersion: 4, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash
+  });
+  assert.equal(live.observed.canRedo, true);
+  assert.equal(calls.at(-1).method, "undo");
+});
+
+test("history mutations reject unavailable actions", async () => {
+  const { service } = fixture();
+  await assert.rejects(() => service.call("redo", { expectedStateVersion: 4 }), /redo is not available/);
 });
 
 test("core mutations reject stale Ableton state before issuing a plan", async () => {

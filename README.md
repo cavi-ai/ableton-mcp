@@ -78,6 +78,8 @@ Mutating Ableton operations use plan hashes and short-lived, single-use confirma
 
 MCP discovery publishes closed top-level JSON Schemas and operation-specific descriptions for every tool. Ableton mutations advertise `expectedStateVersion`; Komplete UI mutations advertise `expectedSessionVersion`, along with their dry-run and confirmation fields.
 
+`get_history_state` exposes Live's current undo/redo availability. Guarded `undo` and `redo` operations refuse unavailable history actions and advance the bridge state version after execution.
+
 ## License
 
 Code and the generic example artwork are distributed under the repository's MIT license. Third-party product names belong to their respective owners. No vendor artwork, logos, presets, or implied endorsements are included.
