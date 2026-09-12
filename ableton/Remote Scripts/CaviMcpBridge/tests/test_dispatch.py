@@ -128,7 +128,21 @@ class Clip:
         return [note for note in self.extended_notes if note.note_id in note_ids]
 
     def apply_note_modifications(self, notes):
+        if not notes:
+            raise AssertionError("Live rejects an empty apply_note_modifications call")
         self.extended_notes = list(notes)
+
+    def add_new_notes(self, notes):
+        self.added_notes = list(notes)
+        first_id = 100 + sum(note.note_id >= 100 for note in self.extended_notes)
+        added_ids = tuple(range(first_id, first_id + len(notes)))
+        for note_id, spec in zip(added_ids, notes):
+            note = MidiNote(note_id)
+            note.pitch = spec["pitch"]
+            note.start_time = spec["start"]
+            note.duration = spec["duration"]
+            self.extended_notes.append(note)
+        return added_ids
 
     def automation_envelope(self, parameter):
         return self.envelopes.get(id(parameter))
@@ -438,6 +452,34 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(changed["stateVersion"], 4)
         self.assertEqual(clip.extended_notes[0].probability, 0.25)
         self.assertEqual(changed["notes"][0]["velocityDeviation"], -12)
+
+    def test_transform_midi_notes_updates_existing_notes_and_adds_duplicates(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        clip.extended_notes = [MidiNote()]
+        params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+
+        changed = dispatch_request(song, {"method": "transform_midi_notes", "params": {
+            **params,
+            "changes": [{"noteId": 7, "start": 0.25, "duration": 0.75}],
+            "newNotes": [{"sourceNoteId": 7, "pitch": 60, "start": 2.0, "duration": 0.75,
+                          "velocity": 100, "velocityDeviation": 0, "releaseVelocity": 64,
+                          "probability": 1.0, "mute": False}]
+        }}, 3)
+
+        self.assertEqual(clip.extended_notes[0].start_time, 0.25)
+        self.assertEqual(clip.extended_notes[0].duration, 0.75)
+        self.assertEqual(changed["addedNoteIds"], [100])
+        self.assertEqual(changed["stateVersion"], 4)
+
+        duplicate_only = dispatch_request(song, {"method": "transform_midi_notes", "params": {
+            **params, "changes": [],
+            "newNotes": [{"sourceNoteId": 7, "pitch": 60, "start": 3.0, "duration": 0.5,
+                          "velocity": 100, "velocityDeviation": 0, "releaseVelocity": 64,
+                          "probability": 1.0, "mute": False}]
+        }}, 4)
+        self.assertEqual(duplicate_only["addedNoteIds"], [101])
+        self.assertEqual([note["noteId"] for note in duplicate_only["notes"]], [7, 100, 101])
 
     def test_clip_parameter_envelope_can_be_sampled_and_replaced(self):
         song = Song()

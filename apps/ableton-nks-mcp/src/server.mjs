@@ -43,6 +43,7 @@ const toolNames = [
   "create_midi_clip",
   "set_clip_parameter_envelope",
   "set_midi_note_properties",
+  "transform_midi_notes",
   "panic",
   "transport_play",
   "transport_stop",

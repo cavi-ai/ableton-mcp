@@ -108,6 +108,80 @@ function normalizeMidiNoteChange(change, index, current, clipLengthBeats) {
   return normalized;
 }
 
+function transformMidiNotes(observed, noteIds, operation) {
+  if (!Array.isArray(noteIds) || noteIds.length === 0) throw new Error("noteIds must be a non-empty array");
+  if (new Set(noteIds).size !== noteIds.length) throw new Error("duplicate noteId in noteIds");
+  const byId = new Map(observed.notes.map((note) => [note.noteId, note]));
+  const selected = noteIds.map((noteId) => {
+    if (!Number.isInteger(noteId)) throw new Error("noteIds must contain integers");
+    const note = byId.get(noteId);
+    if (!note) throw new Error(`unknown noteId ${noteId}`);
+    return note;
+  });
+  if (!operation || typeof operation.type !== "string") throw new Error("operation.type is required");
+
+  if (operation.type === "quantize") {
+    const grid = Number(operation.gridBeats);
+    const strength = operation.strength === undefined ? 1 : Number(operation.strength);
+    if (!Number.isFinite(grid) || grid <= 0) throw new Error("operation.gridBeats must be greater than zero");
+    if (!Number.isFinite(strength) || strength < 0 || strength > 1) throw new Error("operation.strength must be from 0 to 1");
+    if (operation.quantizeDuration !== undefined && typeof operation.quantizeDuration !== "boolean") {
+      throw new Error("operation.quantizeDuration must be boolean");
+    }
+    const changes = selected.map((note) => {
+      const targetStart = Math.round(note.start / grid) * grid;
+      const start = note.start + (targetStart - note.start) * strength;
+      const change = { noteId: note.noteId, previous: note, start };
+      if (operation.quantizeDuration === true) {
+        const targetDuration = Math.max(grid, Math.round(note.duration / grid) * grid);
+        change.duration = note.duration + (targetDuration - note.duration) * strength;
+      }
+      if (change.start + (change.duration ?? note.duration) > observed.lengthBeats) {
+        throw new Error(`noteId ${note.noteId} extends beyond clip length`);
+      }
+      return change;
+    });
+    return { changes, newNotes: [] };
+  }
+
+  if (operation.type === "legato") {
+    const gap = operation.gapBeats === undefined ? 0 : Number(operation.gapBeats);
+    if (!Number.isFinite(gap) || gap < 0) throw new Error("operation.gapBeats must be zero or greater");
+    const onsets = [...new Set(selected.map((note) => note.start))].sort((a, b) => a - b);
+    const nextOnset = new Map(onsets.slice(0, -1).map((onset, index) => [onset, onsets[index + 1]]));
+    const changes = selected.filter((note) => nextOnset.has(note.start)).map((note) => {
+      const duration = nextOnset.get(note.start) - note.start - gap;
+      if (duration <= 0) throw new Error("operation.gapBeats leaves no positive note duration");
+      return { noteId: note.noteId, previous: note, duration };
+    });
+    if (changes.length === 0) throw new Error("legato requires notes at two or more distinct onsets");
+    return { changes, newNotes: [] };
+  }
+
+  if (operation.type === "duplicate") {
+    const offset = Number(operation.offsetBeats);
+    const repeats = operation.repeats === undefined ? 1 : Number(operation.repeats);
+    if (!Number.isFinite(offset) || offset <= 0) throw new Error("operation.offsetBeats must be greater than zero");
+    if (!Number.isInteger(repeats) || repeats < 1 || repeats > 16) throw new Error("operation.repeats must be an integer from 1 to 16");
+    const occupied = new Set(observed.notes.map((note) => `${note.pitch}:${note.start.toFixed(9)}`));
+    const newNotes = [];
+    for (let repeat = 1; repeat <= repeats; repeat += 1) {
+      for (const note of selected) {
+        const start = note.start + offset * repeat;
+        if (start + note.duration > observed.lengthBeats) throw new Error(`noteId ${note.noteId} duplicate extends beyond clip length`);
+        const key = `${note.pitch}:${start.toFixed(9)}`;
+        if (occupied.has(key)) throw new Error(`duplicate collision for noteId ${note.noteId}`);
+        occupied.add(key);
+        newNotes.push({ sourceNoteId: note.noteId, pitch: note.pitch, start, duration: note.duration,
+          velocity: note.velocity, velocityDeviation: note.velocityDeviation,
+          releaseVelocity: note.releaseVelocity, probability: note.probability, mute: note.mute });
+      }
+    }
+    return { changes: [], newNotes };
+  }
+  throw new Error("operation.type must be quantize, legato, or duplicate");
+}
+
 const unavailableKomplete = {
   async request() {
     throw new Error("Komplete automation worker is not configured");
@@ -188,6 +262,7 @@ export class ToolService {
     if (name === "create_midi_clip") return this.#createMidiClip(args);
     if (name === "set_clip_parameter_envelope") return this.#setClipParameterEnvelope(args);
     if (name === "set_midi_note_properties") return this.#setMidiNoteProperties(args);
+    if (name === "transform_midi_notes") return this.#transformMidiNotes(args);
     if (name === "set_track_mixer") return this.#setTrackMixer(args);
     if ([
       "panic",
@@ -451,6 +526,24 @@ export class ToolService {
     if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
     this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
     const result = await this.bridge.request("set_midi_note_properties", plan);
+    return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
+  }
+
+  async #transformMidiNotes(args) {
+    requireExpectedState(args);
+    const observed = await this.bridge.request("get_midi_clip_notes_extended", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    assertExpectedState(args, observed);
+    const transformed = transformMidiNotes(observed, args.noteIds, args.operation);
+    const plan = {
+      method: "transform_midi_notes", trackId: args.trackId, clipId: args.clipId,
+      expectedStateVersion: args.expectedStateVersion, operation: args.operation,
+      changes: transformed.changes, newNotes: transformed.newNotes
+    };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
+    const result = await this.bridge.request("transform_midi_notes", plan);
     return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
   }
 
