@@ -21,6 +21,8 @@ Read operations expose Live status, playhead and transport-recording context, so
 
 `list_factory_device_profiles` exposes the versioned producer-oriented knowledge catalog for foundational Live devices: Simpler, Sampler, Drum Rack, Analog, Drift, Operator, Wavetable, EQ Eight, Delay, Echo, Reverb, and Hybrid Reverb. `get_factory_device_context` combines a matched profile with the device's live class identity, structural capabilities, and current parameters grouped by musical role. Parameter IDs and bounds always come from the running Live instance rather than a brittle hard-coded index map.
 
+`get_factory_browser_items` traverses one exact level of Live's factory Instruments, Audio Effects, MIDI Effects, Drums, or Sounds hierarchy. `load_factory_browser_item` resolves the reviewed root/path again at execution time and loads only a unique loadable item onto the guarded target track.
+
 `get_device_hierarchy` traverses nested rack chains and devices and reports only loaded Drum Rack pads, with stable path-based IDs and pad-to-chain references. It is read-only and works recursively for racks inside racks.
 
 ## Artwork model

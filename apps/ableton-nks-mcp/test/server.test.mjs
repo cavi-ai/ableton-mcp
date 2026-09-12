@@ -43,6 +43,8 @@ test("stdio server initializes and lists MCP resources and tools", async () => {
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "set_track_routing"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "list_factory_device_profiles"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_factory_device_context"), true);
+  assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_factory_browser_items"), true);
+  assert.equal(messages[2].result.tools.some((tool) => tool.name === "load_factory_browser_item"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_device_hierarchy"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_song_musical_context"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "set_song_musical_context"), true);

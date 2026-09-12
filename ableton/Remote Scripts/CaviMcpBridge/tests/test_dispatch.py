@@ -249,6 +249,7 @@ class CuePoint:
 class Song:
     def __init__(self):
         self.tracks = [Track(), Track()]
+        self.view = type("View", (), {"selected_track": self.tracks[0]})()
         self.return_tracks = [type("ReturnTrack", (), {"name": "Reverb"})()]
         self.scenes = [Scene(), Scene()]
         self.tracks[0].clip_slots = [ClipSlot(), ClipSlot(False)]
@@ -331,6 +332,25 @@ class Song:
         self.is_playing = False
 
 
+class BrowserItem:
+    def __init__(self, name, uri, loadable=False, children=()):
+        self.name = name
+        self.uri = uri
+        self.is_loadable = loadable
+        self.is_folder = bool(children)
+        self.children = tuple(children)
+
+
+class Application:
+    def __init__(self):
+        self.loaded = []
+        drift = BrowserItem("Drift", "query:Drift", True)
+        self.browser = type("Browser", (), {
+            "instruments": BrowserItem("Instruments", "query:instruments", children=(drift,)),
+            "load_item": self.loaded.append,
+        })()
+
+
 class DispatchTest(unittest.TestCase):
     def test_transport_recording_context_reads_and_writes_exact_modes(self):
         song = Song()
@@ -409,6 +429,21 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(changed["input"]["channel"]["id"], "Ch. 1")
         self.assertEqual(changed["output"]["type"]["id"], "No Output")
         self.assertEqual(changed["monitoring"]["name"], "off")
+
+    def test_factory_browser_lists_one_level_and_loads_an_exact_item(self):
+        song = Song()
+        application = Application()
+        listing = dispatch_request(song, {
+            "method": "get_factory_browser_items", "params": {"root": "instruments", "path": []}
+        }, 3, application)
+        self.assertEqual(listing["children"][0], {
+            "name": "Drift", "uri": "query:Drift", "loadable": True, "folder": False,
+        })
+        loaded = dispatch_request(song, {"method": "load_factory_browser_item", "params": {
+            "root": "instruments", "path": ["Drift"], "trackId": "track-0",
+        }}, 3, application)
+        self.assertEqual(application.loaded[0].name, "Drift")
+        self.assertEqual(loaded["stateVersion"], 4)
 
     def test_song_musical_context_reads_and_writes_timing_key_groove_and_loop(self):
         song = Song()

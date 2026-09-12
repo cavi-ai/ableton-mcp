@@ -20,6 +20,7 @@ CAPABILITIES = (
     "get_transport_recording_context", "set_transport_recording_context",
     "list_arrangement_cue_points", "create_arrangement_cue_point", "rename_arrangement_cue_point",
     "delete_arrangement_cue_point", "jump_to_arrangement_cue_point",
+    "get_factory_browser_items", "load_factory_browser_item",
     "list_tracks", "list_scenes", "list_clips", "get_clip_timing", "set_clip_timing",
     "get_track_mixer", "get_track_routing", "set_track_routing", "get_midi_clip_notes",
     "create_track", "create_scene", "rename_session_object",
@@ -250,6 +251,29 @@ def _device_record(device, device_id):
     }
 
 
+def _browser_item_record(item):
+    return {
+        "name": item.name, "uri": getattr(item, "uri", None),
+        "loadable": bool(item.is_loadable), "folder": bool(item.is_folder),
+    }
+
+
+def _factory_browser_item(application, root, path):
+    roots = {
+        "instruments": "instruments", "audio_effects": "audio_effects",
+        "midi_effects": "midi_effects", "drums": "drums", "sounds": "sounds",
+    }
+    if root not in roots:
+        raise ValueError("unknown factory browser root")
+    item = getattr(application.browser, roots[root])
+    for name in path:
+        matches = [child for child in item.children if child.name == name]
+        if len(matches) != 1:
+            raise ValueError("factory browser path is missing or ambiguous")
+        item = matches[0]
+    return item
+
+
 def _device_tree(device, device_id):
     record = _device_record(device, device_id)
     chains = []
@@ -273,7 +297,7 @@ def _device_tree(device, device_id):
     return record
 
 
-def dispatch_request(song, request, state_version):
+def dispatch_request(song, request, state_version, application=None):
     method = request["method"]
     params = request.get("params", {})
     fingerprint = hashlib.sha256(f"{len(song.tracks)}:{song.tempo}".encode()).hexdigest()[:16]
@@ -353,6 +377,25 @@ def dispatch_request(song, request, state_version):
         if "monitoring" in changes:
             track.current_monitoring_state = int(changes["monitoring"]["value"]["value"])
         return _track_routing(song, params["trackId"], state_version + 1)
+    if method == "get_factory_browser_items":
+        item = _factory_browser_item(application, params["root"], params.get("path", []))
+        return {
+            "stateVersion": state_version, "root": params["root"], "path": params.get("path", []),
+            "item": _browser_item_record(item),
+            "children": [_browser_item_record(child) for child in item.children],
+        }
+    if method == "load_factory_browser_item":
+        item = _factory_browser_item(application, params["root"], params["path"])
+        if not item.is_loadable:
+            raise ValueError("factory browser item is not loadable")
+        _, track = _track(song, params["trackId"])
+        previous_track = song.view.selected_track
+        try:
+            song.view.selected_track = track
+            application.browser.load_item(item)
+        finally:
+            song.view.selected_track = previous_track
+        return {"stateVersion": state_version + 1, "trackId": params["trackId"], "loadedItem": _browser_item_record(item)}
     if method == "set_song_musical_context":
         changes = params["changes"]
         signature = changes.get("timeSignature", {})
@@ -722,7 +765,9 @@ class SocketBridge:
                 self._defer_cue_mutation(client, request)
                 return
             try:
-                result = dispatch_request(self.control_surface.song(), request, self.state_version)
+                result = dispatch_request(
+                    self.control_surface.song(), request, self.state_version, self.control_surface.application()
+                )
                 self.state_version = result.get("stateVersion", self.state_version)
                 response = {"id": request.get("id"), "result": result}
             except Exception as error:

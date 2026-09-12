@@ -42,6 +42,17 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
       if (method === "list_scenes") return { stateVersion: 4, scenes: [
         { id: "scene-0", name: "Verse" }, { id: "scene-1", name: "Chorus" }
       ] };
+      if (method === "get_factory_browser_items") return {
+        stateVersion: 4, root: params.root, path: params.path || [],
+        item: params.path?.length
+          ? { name: params.path.at(-1), uri: "query:Drift", loadable: true, folder: false }
+          : { name: "Instruments", uri: "query:instruments", loadable: false, folder: true },
+        children: [{ name: "Drift", uri: "query:Drift", loadable: true, folder: false }]
+      };
+      if (method === "load_factory_browser_item") return {
+        stateVersion: 5, trackId: params.trackId,
+        loadedItem: params.item
+      };
       if (method === "list_clips") return {
         stateVersion: 4,
         trackId: params.trackId,
@@ -231,6 +242,30 @@ test("preset, track, and device inspection are exposed as read-only tools", asyn
   assert.equal((await service.call("list_tracks")).tracks[0].name, "Synth");
   assert.equal((await service.call("list_devices", { trackId: "track-0" })).devices[0].name, "Serum 2");
   assert.deepEqual(calls.map((call) => call.method), ["list_tracks", "list_devices"]);
+});
+
+test("factory browser listing is read-only and exact-path device loading is guarded", async () => {
+  const { service, calls } = fixture();
+  const listing = await service.call("get_factory_browser_items", { root: "instruments", path: [] });
+  assert.equal(listing.children[0].name, "Drift");
+  const args = { expectedStateVersion: 4, trackId: "track-0", root: "instruments", path: ["Drift"] };
+  const dry = await service.call("load_factory_browser_item", args);
+  assert.equal(dry.plan.item.name, "Drift");
+  assert.equal(dry.plan.item.loadable, true);
+  const live = await service.call("load_factory_browser_item", {
+    ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash
+  });
+  assert.equal(live.observed.loadedItem.name, "Drift");
+  assert.deepEqual(calls.slice(-3).map(({ method }) => method), [
+    "list_devices", "get_factory_browser_items", "load_factory_browser_item"
+  ]);
+});
+
+test("factory browser loading rejects non-loadable and ambiguous requests", async () => {
+  const { service } = fixture();
+  const base = { expectedStateVersion: 4, trackId: "track-0", root: "instruments" };
+  await assert.rejects(() => service.call("load_factory_browser_item", { ...base, path: [] }), /not loadable/);
+  await assert.rejects(() => service.call("load_factory_browser_item", { ...base, path: "Drift" }), /path must be an array/);
 });
 
 test("scene and clip inspection are exposed as read-only tools and resources", async () => {

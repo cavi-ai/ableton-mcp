@@ -50,6 +50,8 @@ const toolNames = [
   "set_track_routing",
   "list_factory_device_profiles",
   "get_factory_device_context",
+  "get_factory_browser_items",
+  "load_factory_browser_item",
   "get_device_hierarchy",
   "get_clip_parameter_envelope",
   "list_devices",

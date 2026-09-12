@@ -204,6 +204,16 @@ const unavailableKomplete = {
   }
 };
 
+const FACTORY_BROWSER_ROOTS = new Set(["instruments", "audio_effects", "midi_effects", "drums", "sounds"]);
+
+function normalizeBrowserPath(args) {
+  if (!FACTORY_BROWSER_ROOTS.has(args.root)) throw new Error(`unknown factory browser root ${args.root}`);
+  if (args.path !== undefined && !Array.isArray(args.path)) throw new Error("path must be an array");
+  const path = args.path || [];
+  if (path.some((part) => typeof part !== "string" || !part.trim())) throw new Error("path entries must be non-empty strings");
+  return { root: args.root, path: path.map((part) => part.trim()) };
+}
+
 export class ToolService {
   constructor({ bridge, catalog, komplete = unavailableKomplete, confirmations = new ConfirmationStore() }) {
     this.bridge = bridge;
@@ -229,6 +239,7 @@ export class ToolService {
     if (name === "get_track_mixer") return this.bridge.request("get_track_mixer", args);
     if (name === "get_track_routing") return this.bridge.request("get_track_routing", args);
     if (name === "list_factory_device_profiles") return { profiles: listFactoryDeviceProfiles() };
+    if (name === "get_factory_browser_items") return this.bridge.request("get_factory_browser_items", normalizeBrowserPath(args));
     if (name === "get_factory_device_context") {
       const devices = await this.bridge.request("list_devices", { trackId: args.trackId });
       const device = devices.devices.find(({ id }) => id === args.deviceId);
@@ -293,6 +304,7 @@ export class ToolService {
     if (name === "transform_midi_notes") return this.#transformMidiNotes(args);
     if (name === "set_track_mixer") return this.#setTrackMixer(args);
     if (name === "set_track_routing") return this.#setTrackRouting(args);
+    if (name === "load_factory_browser_item") return this.#loadFactoryBrowserItem(args);
     if ([
       "panic",
       "transport_play", "transport_stop", "set_tempo",
@@ -841,6 +853,22 @@ export class ToolService {
     return this.#confirmedMutation({
       method: "set_track_routing", trackId: args.trackId,
       expectedStateVersion: args.expectedStateVersion, changes
+    }, args);
+  }
+
+  async #loadFactoryBrowserItem(args) {
+    requireExpectedState(args);
+    const browserPath = normalizeBrowserPath(args);
+    if (!browserPath.path.length) throw new Error("factory browser item is not loadable");
+    const observed = await this.bridge.request("list_devices", { trackId: args.trackId });
+    assertExpectedState(args, observed);
+    const listing = await this.bridge.request("get_factory_browser_items", browserPath);
+    if (!listing.item.loadable) throw new Error(`factory browser item ${listing.item.name} is not loadable`);
+    return this.#confirmedMutation({
+      method: "load_factory_browser_item", trackId: args.trackId,
+      expectedStateVersion: args.expectedStateVersion,
+      root: browserPath.root, path: browserPath.path, item: listing.item,
+      before: observed
     }, args);
   }
 
