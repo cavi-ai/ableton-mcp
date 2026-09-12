@@ -15,6 +15,29 @@ function requireExpectedSession(args) {
   }
 }
 
+function normalizeChoice(value, field, choices) {
+  const choice = typeof value === "string"
+    ? choices.find((item) => item.name === value)
+    : choices.find((item) => item.value === value);
+  if (!choice) throw new Error(`${field} must be one of: ${choices.map(({ name }) => name).join(", ")}`);
+  return choice.value;
+}
+
+function normalizeSignature(value, field) {
+  if (value === undefined) return undefined;
+  const numerator = Number(value.numerator);
+  const denominator = Number(value.denominator);
+  if (!Number.isInteger(numerator) || numerator < 1 || numerator > 99) throw new Error(`${field}.numerator must be an integer from 1 to 99`);
+  if (![1, 2, 4, 8, 16].includes(denominator)) throw new Error(`${field}.denominator must be 1, 2, 4, 8, or 16`);
+  return { numerator, denominator };
+}
+
+function finiteRange(value, field, min, max) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < min || number > max) throw new Error(`${field} must be from ${min} to ${max}`);
+  return number;
+}
+
 function targetDisplayValue(parameter, value) {
   if (!parameter.quantized || !Array.isArray(parameter.valueItems)) return null;
   const index = Math.round(value - parameter.min);
@@ -105,6 +128,7 @@ export class ToolService {
     }
     if (name === "get_preset") return { preset: this.catalog.get(args.presetId) };
     if (name === "get_live_state") return this.bridge.request("get_live_state", {});
+    if (name === "get_song_musical_context") return this.bridge.request("get_song_musical_context", {});
     if (name === "list_tracks") return this.bridge.request("list_tracks", {});
     if (name === "list_scenes") return this.bridge.request("list_scenes", {});
     if (name === "list_clips") return this.bridge.request("list_clips", args);
@@ -140,6 +164,7 @@ export class ToolService {
       }
     };
     if (name === "get_clip_parameter_envelope") return this.bridge.request("get_clip_parameter_envelope", args);
+    if (name === "get_clip_timing") return this.bridge.request("get_clip_timing", args);
     if (name === "list_devices") return this.bridge.request("list_devices", args);
     if (name === "get_device_hierarchy") return this.bridge.request("get_device_hierarchy", args);
     if (name === "list_device_parameters") {
@@ -158,6 +183,8 @@ export class ToolService {
     }[name];
     if (kompleteMethod) return this.#kompleteMutation(kompleteMethod, args);
     if (name === "set_device_parameters") return this.#setDeviceParameters(args);
+    if (name === "set_song_musical_context") return this.#setSongMusicalContext(args);
+    if (name === "set_clip_timing") return this.#setClipTiming(args);
     if (name === "create_midi_clip") return this.#createMidiClip(args);
     if (name === "set_clip_parameter_envelope") return this.#setClipParameterEnvelope(args);
     if (name === "set_midi_note_properties") return this.#setMidiNoteProperties(args);
@@ -185,11 +212,16 @@ export class ToolService {
       };
     }
     if (uri === "ableton://live/status") return this.bridge.request("get_live_state", {});
+    if (uri === "ableton://set/musical-context") return this.bridge.request("get_song_musical_context", {});
     if (uri === "ableton://set/tracks") return this.bridge.request("list_tracks", {});
     if (uri === "ableton://set/scenes") return this.bridge.request("list_scenes", {});
     if (uri === "komplete://automation/status") return this.komplete.request("get_status", {});
     const trackClips = uri.match(/^ableton:\/\/track\/([^/]+)\/clips$/);
     if (trackClips) return this.bridge.request("list_clips", { trackId: decodeURIComponent(trackClips[1]) });
+    const clipTiming = uri.match(/^ableton:\/\/track\/([^/]+)\/clip\/([^/]+)\/timing$/);
+    if (clipTiming) return this.bridge.request("get_clip_timing", {
+      trackId: decodeURIComponent(clipTiming[1]), clipId: decodeURIComponent(clipTiming[2])
+    });
     const trackDevices = uri.match(/^ableton:\/\/track\/([^/]+)\/devices$/);
     if (trackDevices) return this.bridge.request("list_devices", { trackId: decodeURIComponent(trackDevices[1]) });
     const deviceParameters = uri.match(/^ableton:\/\/device\/([^/]+)\/parameters$/);
@@ -243,6 +275,102 @@ export class ToolService {
       timestamp: new Date().toISOString(),
       rollback: "Recall the prior macro snapshot or restore the previous parameter values."
     };
+  }
+
+  async #setSongMusicalContext(args) {
+    requireExpectedState(args);
+    const observed = await this.bridge.request("get_song_musical_context", {});
+    assertExpectedState(args, observed);
+    const changes = {};
+    const signature = normalizeSignature(args.timeSignature, "timeSignature");
+    if (signature) changes.timeSignature = signature;
+    if (args.key !== undefined) {
+      const key = {};
+      if (args.key.rootNote !== undefined) {
+        const rootNote = Number(args.key.rootNote);
+        if (!Number.isInteger(rootNote) || rootNote < 0 || rootNote > 11) throw new Error("key.rootNote must be an integer from 0 to 11");
+        key.rootNote = rootNote;
+      }
+      if (args.key.scaleName !== undefined) {
+        if (typeof args.key.scaleName !== "string" || !args.key.scaleName.trim()) throw new Error("key.scaleName must be a non-empty string");
+        key.scaleName = args.key.scaleName;
+      }
+      if (args.key.scaleMode !== undefined) {
+        if (typeof args.key.scaleMode !== "boolean") throw new Error("key.scaleMode must be boolean");
+        key.scaleMode = args.key.scaleMode;
+      }
+      if (Object.keys(key).length) changes.key = key;
+    }
+    if (args.quantization !== undefined) {
+      const quantization = {};
+      if (args.quantization.clipTrigger !== undefined) quantization.clipTrigger = normalizeChoice(
+        args.quantization.clipTrigger, "quantization.clipTrigger", observed.quantization.clipTrigger.choices
+      );
+      if (args.quantization.midiRecording !== undefined) quantization.midiRecording = normalizeChoice(
+        args.quantization.midiRecording, "quantization.midiRecording", observed.quantization.midiRecording.choices
+      );
+      if (Object.keys(quantization).length) changes.quantization = quantization;
+    }
+    if (args.groove !== undefined) {
+      const groove = {};
+      if (args.groove.amount !== undefined) groove.amount = finiteRange(args.groove.amount, "groove.amount", 0, 1);
+      if (args.groove.swingAmount !== undefined) groove.swingAmount = finiteRange(args.groove.swingAmount, "groove.swingAmount", 0, 1);
+      if (Object.keys(groove).length) changes.groove = groove;
+    }
+    if (args.loop !== undefined) {
+      const loop = {};
+      if (args.loop.enabled !== undefined) {
+        if (typeof args.loop.enabled !== "boolean") throw new Error("loop.enabled must be boolean");
+        loop.enabled = args.loop.enabled;
+      }
+      if (args.loop.startBeats !== undefined) loop.startBeats = finiteRange(args.loop.startBeats, "loop.startBeats", 0, Number.MAX_SAFE_INTEGER);
+      if (args.loop.lengthBeats !== undefined) loop.lengthBeats = finiteRange(args.loop.lengthBeats, "loop.lengthBeats", Number.EPSILON, Number.MAX_SAFE_INTEGER);
+      if (Object.keys(loop).length) changes.loop = loop;
+    }
+    if (!Object.keys(changes).length) throw new Error("at least one musical context change is required");
+    return this.#confirmedMutation({ method: "set_song_musical_context", expectedStateVersion: args.expectedStateVersion, before: observed, changes }, args);
+  }
+
+  async #setClipTiming(args) {
+    requireExpectedState(args);
+    const observed = await this.bridge.request("get_clip_timing", { trackId: args.trackId, clipId: args.clipId });
+    assertExpectedState(args, observed);
+    const changes = {};
+    if (args.loop !== undefined) {
+      const loop = {};
+      if (args.loop.enabled !== undefined) {
+        if (typeof args.loop.enabled !== "boolean") throw new Error("loop.enabled must be boolean");
+        loop.enabled = args.loop.enabled;
+      }
+      const start = args.loop.startBeats === undefined ? observed.loop.startBeats : finiteRange(args.loop.startBeats, "loop.startBeats", 0, Number.MAX_SAFE_INTEGER);
+      const end = args.loop.endBeats === undefined ? observed.loop.endBeats : finiteRange(args.loop.endBeats, "loop.endBeats", 0, Number.MAX_SAFE_INTEGER);
+      if (end <= start) throw new Error("loop.endBeats must be greater than loop.startBeats");
+      if (args.loop.startBeats !== undefined) loop.startBeats = start;
+      if (args.loop.endBeats !== undefined) loop.endBeats = end;
+      if (Object.keys(loop).length) changes.loop = loop;
+    }
+    const signature = normalizeSignature(args.timeSignature, "timeSignature");
+    if (signature) changes.timeSignature = signature;
+    if (args.launchQuantization !== undefined) changes.launchQuantization = normalizeChoice(
+      args.launchQuantization, "launchQuantization", observed.launchQuantization.choices
+    );
+    if (args.grooveId !== undefined) {
+      if (typeof args.grooveId !== "string") throw new Error("grooveId must identify an available groove");
+      if (!observed.availableGrooves.some(({ id }) => id === args.grooveId)) throw new Error(`unknown groove ${args.grooveId}`);
+      changes.grooveId = args.grooveId;
+    }
+    if (!Object.keys(changes).length) throw new Error("at least one clip timing change is required");
+    return this.#confirmedMutation({
+      method: "set_clip_timing", trackId: args.trackId, clipId: args.clipId,
+      expectedStateVersion: args.expectedStateVersion, before: observed, changes
+    }, args);
+  }
+
+  async #confirmedMutation(plan, args) {
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
+    const observed = await this.bridge.request(plan.method, plan);
+    return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString() };
   }
 
   async #createMidiClip(args) {

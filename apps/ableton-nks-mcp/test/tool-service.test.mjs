@@ -9,6 +9,17 @@ function fixture() {
     async request(method, params = {}) {
       calls.push({ method, params });
       if (method === "get_live_state") return { stateVersion: 4, setFingerprint: "set:a" };
+      if (method === "get_song_musical_context") return {
+        stateVersion: 4,
+        timeSignature: { numerator: 4, denominator: 4 },
+        key: { rootNote: 0, rootName: "C", scaleName: "Major", scaleMode: true, scaleIntervals: [0, 2, 4, 5, 7, 9, 11] },
+        quantization: {
+          clipTrigger: { value: 4, name: "1_bar", choices: [{ value: 4, name: "1_bar" }, { value: 7, name: "1_4" }] },
+          midiRecording: { value: 5, name: "1_16", choices: [{ value: 0, name: "none" }, { value: 5, name: "1_16" }] }
+        },
+        groove: { amount: 1, swingAmount: 0, pool: [{ id: "groove-0", name: "Swing 16-65" }] },
+        loop: { enabled: false, startBeats: 0, lengthBeats: 8 }
+      };
       if (method === "list_tracks") return { stateVersion: 4, tracks: [{ id: "track-0", name: "Synth" }] };
       if (method === "list_devices") return { stateVersion: 4, trackId: params.trackId, devices: [
         { id: "device-0", name: "Serum 2", className: "PluginDevice", type: "instrument" },
@@ -99,6 +110,13 @@ function fixture() {
         exists: true,
         samples: (params.sampleTimes || []).map((time) => ({ time, value: time / 4 }))
       };
+      if (method === "get_clip_timing") return {
+        stateVersion: 4, trackId: params.trackId, clipId: params.clipId,
+        loop: { enabled: true, startBeats: 0, endBeats: 4 },
+        timeSignature: { numerator: 4, denominator: 4 },
+        launchQuantization: { value: 0, name: "global", choices: [{ value: 0, name: "global" }, { value: 12, name: "1_16" }] },
+        grooveId: null, availableGrooves: [{ id: "groove-0", name: "Swing 16-65" }]
+      };
       if (method === "set_clip_parameter_envelope") return {
         stateVersion: 5,
         trackId: params.trackId,
@@ -108,7 +126,7 @@ function fixture() {
         replaced: true,
         samples: params.points.map(({ time, value }) => ({ time, value }))
       };
-      if (["transport_play", "transport_stop", "set_tempo", "set_track_mixer", "launch_scene", "launch_clip", "stop_clip", "arm_track"].includes(method)) {
+      if (["transport_play", "transport_stop", "set_tempo", "set_song_musical_context", "set_clip_timing", "set_track_mixer", "launch_scene", "launch_clip", "stop_clip", "arm_track"].includes(method)) {
         return { stateVersion: 5, method, ...params };
       }
       throw new Error(`unexpected method ${method}`);
@@ -232,6 +250,53 @@ test("device hierarchy is exposed read-only for rack and drum-pad traversal", as
   });
   assert.equal(hierarchy.device.className, "InstrumentGroupDevice");
   assert.deepEqual(hierarchy.device.chains, []);
+});
+
+test("musical context inspection exposes timing harmony groove and clip loop state", async () => {
+  const { service } = fixture();
+  const song = await service.call("get_song_musical_context");
+  assert.equal(song.key.rootName, "C");
+  assert.deepEqual(song.key.scaleIntervals, [0, 2, 4, 5, 7, 9, 11]);
+  assert.equal(song.quantization.clipTrigger.name, "1_bar");
+  assert.equal(song.groove.pool[0].id, "groove-0");
+  const clip = await service.call("get_clip_timing", { trackId: "track-0", clipId: "track-0:clip-0" });
+  assert.deepEqual(clip.loop, { enabled: true, startBeats: 0, endBeats: 4 });
+});
+
+test("song musical context mutation validates and signs exact producer changes", async () => {
+  const { service, calls } = fixture();
+  const args = {
+    expectedStateVersion: 4,
+    timeSignature: { numerator: 7, denominator: 8 },
+    key: { rootNote: 2, scaleName: "Dorian", scaleMode: true },
+    quantization: { clipTrigger: "1_4", midiRecording: "none" },
+    groove: { amount: 0.75, swingAmount: 0.2 },
+    loop: { enabled: true, startBeats: 4, lengthBeats: 12 }
+  };
+  const dry = await service.call("set_song_musical_context", args);
+  assert.equal(dry.dryRun, true);
+  assert.deepEqual(dry.plan.changes.quantization, { clipTrigger: 7, midiRecording: 0 });
+  assert.deepEqual(dry.plan.changes.timeSignature, args.timeSignature);
+  assert.equal(calls.at(-1).method, "get_song_musical_context");
+});
+
+test("clip timing mutation rejects invalid loops and signs groove assignment", async () => {
+  const { service } = fixture();
+  const base = { trackId: "track-0", clipId: "track-0:clip-0", expectedStateVersion: 4 };
+  await assert.rejects(() => service.call("set_clip_timing", {
+    ...base, loop: { startBeats: 4, endBeats: 2 }
+  }), /endBeats must be greater/);
+  await assert.rejects(() => service.call("set_clip_timing", {
+    ...base, grooveId: null
+  }), /grooveId must identify/);
+  const dry = await service.call("set_clip_timing", {
+    ...base, loop: { enabled: true, startBeats: 1, endBeats: 5 },
+    timeSignature: { numerator: 3, denominator: 4 },
+    launchQuantization: "1_16", grooveId: "groove-0"
+  });
+  assert.equal(dry.dryRun, true);
+  assert.equal(dry.plan.changes.launchQuantization, 12);
+  assert.equal(dry.plan.changes.grooveId, "groove-0");
 });
 
 test("track mixer mutation signs before-and-after context and clamps values", async () => {
