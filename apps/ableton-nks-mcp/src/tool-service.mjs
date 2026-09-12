@@ -238,6 +238,7 @@ export class ToolService {
     if (name === "get_midi_clip_notes_extended") return this.bridge.request("get_midi_clip_notes_extended", args);
     if (name === "get_track_mixer") return this.bridge.request("get_track_mixer", args);
     if (name === "get_track_routing") return this.bridge.request("get_track_routing", args);
+    if (name === "get_set_mixer") return this.bridge.request("get_set_mixer", {});
     if (name === "list_factory_device_profiles") return { profiles: listFactoryDeviceProfiles() };
     if (name === "get_factory_browser_items") return this.bridge.request("get_factory_browser_items", normalizeBrowserPath(args));
     if (name === "get_factory_device_context") {
@@ -306,6 +307,7 @@ export class ToolService {
     if (name === "set_track_mixer") return this.#setTrackMixer(args);
     if (name === "set_track_routing") return this.#setTrackRouting(args);
     if (name === "load_factory_browser_item") return this.#loadFactoryBrowserItem(args);
+    if (name === "set_master_mixer" || name === "set_return_mixer") return this.#setBusMixer(name, args);
     if ([
       "panic",
       "transport_play", "transport_stop", "set_tempo",
@@ -330,6 +332,7 @@ export class ToolService {
     }
     if (uri === "ableton://live/status") return this.bridge.request("get_live_state", {});
     if (uri === "ableton://set/musical-context") return this.bridge.request("get_song_musical_context", {});
+    if (uri === "ableton://set/mixer") return this.bridge.request("get_set_mixer", {});
     if (uri === "ableton://set/tracks") return this.bridge.request("list_tracks", {});
     if (uri === "ableton://set/scenes") return this.bridge.request("list_scenes", {});
     if (uri === "komplete://automation/status") return this.komplete.request("get_status", {});
@@ -886,6 +889,45 @@ export class ToolService {
       root: browserPath.root, path: browserPath.path, item: listing.item,
       before: observed
     }, args);
+  }
+
+  async #setBusMixer(method, args) {
+    requireExpectedState(args);
+    const observed = await this.bridge.request("get_set_mixer", {});
+    assertExpectedState({ expectedStateVersion: args.expectedStateVersion }, observed);
+    const target = method === "set_master_mixer"
+      ? observed.master
+      : observed.returns.find(({ id }) => id === args.returnTrackId);
+    if (!target) throw new Error(`unknown return track ${args.returnTrackId}`);
+    const numericKeys = method === "set_master_mixer"
+      ? ["volume", "pan", "cueVolume", "crossfader"]
+      : ["volume", "pan"];
+    const booleanKeys = method === "set_return_mixer" ? ["mute", "solo"] : [];
+    const changes = {};
+    for (const key of numericKeys) {
+      if (args[key] === undefined) continue;
+      const requestedValue = Number(args[key]);
+      if (!Number.isFinite(requestedValue)) throw new Error(`${key} must be finite`);
+      changes[key] = {
+        previousValue: target[key].value, requestedValue,
+        value: Math.max(target[key].min, Math.min(target[key].max, requestedValue))
+      };
+    }
+    for (const key of booleanKeys) {
+      if (args[key] === undefined) continue;
+      if (typeof args[key] !== "boolean") throw new Error(`${key} must be boolean`);
+      changes[key] = { previousValue: target[key], value: args[key] };
+    }
+    if (!Object.keys(changes).length) {
+      throw new Error(`at least one ${method === "set_master_mixer" ? "master" : "return"} mixer change is required`);
+    }
+    const plan = { method, expectedStateVersion: args.expectedStateVersion, changes };
+    if (method === "set_master_mixer") plan.beforeMaster = target;
+    else {
+      plan.returnTrackId = args.returnTrackId;
+      plan.beforeReturn = target;
+    }
+    return this.#confirmedMutation(plan, args);
   }
 
   async #genericMutation(name, args) {

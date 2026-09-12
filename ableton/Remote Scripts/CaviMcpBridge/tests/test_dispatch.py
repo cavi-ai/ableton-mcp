@@ -254,7 +254,15 @@ class Song:
     def __init__(self):
         self.tracks = [Track(), Track()]
         self.view = type("View", (), {"selected_track": self.tracks[0]})()
-        self.return_tracks = [type("ReturnTrack", (), {"name": "Reverb"})()]
+        mixer = lambda volume=0.6: type("Mixer", (), {
+            "volume": type("Value", (), {"value": volume, "min": 0.0, "max": 1.0})(),
+            "panning": type("Value", (), {"value": 0.0, "min": -1.0, "max": 1.0})(),
+        })()
+        self.return_tracks = [type("ReturnTrack", (), {"name": "Reverb", "mixer_device": mixer(), "mute": False, "solo": False})()]
+        master_mixer = mixer(0.8)
+        master_mixer.cue_volume = type("Value", (), {"value": 0.7, "min": 0.0, "max": 1.0})()
+        master_mixer.crossfader = type("Value", (), {"value": 0.0, "min": -1.0, "max": 1.0})()
+        self.master_track = type("MasterTrack", (), {"mixer_device": master_mixer})()
         self.scenes = [Scene(), Scene()]
         self.tracks[0].clip_slots = [ClipSlot(), ClipSlot(False)]
         self.tracks[1].clip_slots = [ClipSlot(False), ClipSlot(False)]
@@ -462,6 +470,22 @@ class DispatchTest(unittest.TestCase):
             "trackId": "track-0", "deviceId": device["id"], "beforeDevice": {**device, "active": False},
         }}, 4)
         self.assertEqual(deleted["devices"], [])
+
+    def test_master_and_return_mixer_lifecycle(self):
+        song = Song()
+        observed = dispatch_request(song, {"method": "get_set_mixer"}, 3)
+        self.assertEqual(observed["master"]["cueVolume"]["value"], 0.7)
+        self.assertEqual(observed["returns"][0]["name"], "Reverb")
+        master = dispatch_request(song, {"method": "set_master_mixer", "params": {"changes": {
+            "volume": {"value": 0.5}, "crossfader": {"value": -0.25},
+        }}}, 3)
+        self.assertEqual(master["master"]["volume"]["value"], 0.5)
+        returned = dispatch_request(song, {"method": "set_return_mixer", "params": {
+            "returnTrackId": "return-0", "beforeReturn": observed["returns"][0],
+            "changes": {"pan": {"value": 0.5}, "mute": {"value": True}},
+        }}, 4)
+        self.assertTrue(returned["return"]["mute"])
+        self.assertEqual(returned["return"]["pan"]["value"], 0.5)
 
     def test_song_musical_context_reads_and_writes_timing_key_groove_and_loop(self):
         song = Song()

@@ -105,6 +105,15 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         monitoring: { value: 1, name: "auto", choices: [{ value: 0, name: "in" }, { value: 1, name: "auto" }, { value: 2, name: "off" }] }
       };
       if (method === "set_track_routing") return { stateVersion: 5, trackId: params.trackId, changes: params.changes };
+      if (method === "get_set_mixer") return {
+        stateVersion: 4,
+        master: {
+          volume: { value: 0.8, min: 0, max: 1 }, pan: { value: 0, min: -1, max: 1 },
+          cueVolume: { value: 0.7, min: 0, max: 1 }, crossfader: { value: 0, min: -1, max: 1 }
+        },
+        returns: [{ id: "return-0", name: "Reverb", volume: { value: 0.6, min: 0, max: 1 }, pan: { value: 0, min: -1, max: 1 }, mute: false, solo: false }]
+      };
+      if (method === "set_master_mixer" || method === "set_return_mixer") return { stateVersion: 5, method, ...params };
       if (method === "get_device_hierarchy") return {
         stateVersion: 4, trackId: params.trackId, device: {
           id: params.deviceId, name: "Drum Rack", className: "InstrumentGroupDevice",
@@ -578,6 +587,35 @@ test("track routing rejects unknown choices and empty changes", async () => {
   await assert.rejects(() => service.call("set_track_routing", base), /at least one routing change/);
   await assert.rejects(() => service.call("set_track_routing", { ...base, inputTypeId: "missing" }), /unknown inputTypeId/);
   await assert.rejects(() => service.call("set_track_routing", { ...base, monitoring: "sometimes" }), /unknown monitoring/);
+});
+
+test("set mixer exposes master and return buses and guards bounded changes", async () => {
+  const { service, calls } = fixture();
+  const observed = await service.call("get_set_mixer");
+  assert.equal(observed.master.cueVolume.value, 0.7);
+  assert.equal(observed.returns[0].name, "Reverb");
+  const masterArgs = { expectedStateVersion: 4, volume: 2, crossfader: -2 };
+  const masterDry = await service.call("set_master_mixer", masterArgs);
+  assert.equal(masterDry.plan.changes.volume.value, 1);
+  assert.equal(masterDry.plan.changes.crossfader.value, -1);
+  const masterLive = await service.call("set_master_mixer", {
+    ...masterArgs, dryRun: false, confirmationToken: masterDry.confirmation.token, planHash: masterDry.confirmation.planHash
+  });
+  assert.equal(masterLive.observed.stateVersion, 5);
+  const returnArgs = { expectedStateVersion: 5, returnTrackId: "return-0", pan: 0.5, mute: true };
+  const refreshed = { ...observed, stateVersion: 5 };
+  calls.push({ method: "fixture_state_override", params: refreshed });
+  const originalRequest = service.bridge.request.bind(service.bridge);
+  service.bridge.request = async (method, params) => method === "get_set_mixer" ? refreshed : originalRequest(method, params);
+  const returnDry = await service.call("set_return_mixer", returnArgs);
+  assert.equal(returnDry.plan.beforeReturn.name, "Reverb");
+  assert.equal(returnDry.plan.changes.mute.value, true);
+});
+
+test("set mixer rejects unknown returns and empty mutations", async () => {
+  const { service } = fixture();
+  await assert.rejects(() => service.call("set_master_mixer", { expectedStateVersion: 4 }), /at least one master mixer change/);
+  await assert.rejects(() => service.call("set_return_mixer", { expectedStateVersion: 4, returnTrackId: "return-9", mute: true }), /unknown return track/);
 });
 
 test("per-note properties use a guarded exact-ID mutation plan", async () => {

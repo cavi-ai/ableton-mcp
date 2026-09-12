@@ -41,6 +41,9 @@ test("stdio server initializes and lists MCP resources and tools", async () => {
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_track_mixer"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_track_routing"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "set_track_routing"), true);
+  assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_set_mixer"), true);
+  assert.equal(messages[2].result.tools.some((tool) => tool.name === "set_master_mixer"), true);
+  assert.equal(messages[2].result.tools.some((tool) => tool.name === "set_return_mixer"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "list_factory_device_profiles"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_factory_device_context"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_factory_browser_items"), true);

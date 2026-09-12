@@ -26,6 +26,7 @@ CAPABILITIES = (
     "create_track", "create_scene", "rename_session_object",
     "get_midi_clip_notes_extended", "set_midi_note_properties", "transform_midi_notes",
     "duplicate_session_object", "delete_session_object",
+    "get_set_mixer", "set_master_mixer", "set_return_mixer",
     "get_clip_parameter_envelope", "set_clip_parameter_envelope", "list_devices", "get_device_hierarchy",
     "set_device_active", "delete_device",
     "list_device_parameters", "set_device_parameters", "create_midi_clip", "transport_play", "transport_stop",
@@ -239,6 +240,31 @@ def _track_routing(song, track_id, state_version):
     }
 
 
+def _value_record(parameter):
+    return {"value": parameter.value, "min": parameter.min, "max": parameter.max}
+
+
+def _return_mixer_record(track, index):
+    return {
+        "id": f"return-{index}", "name": track.name,
+        "volume": _value_record(track.mixer_device.volume),
+        "pan": _value_record(track.mixer_device.panning),
+        "mute": bool(track.mute), "solo": bool(track.solo),
+    }
+
+
+def _set_mixer(song, state_version):
+    mixer = song.master_track.mixer_device
+    return {
+        "stateVersion": state_version,
+        "master": {
+            "volume": _value_record(mixer.volume), "pan": _value_record(mixer.panning),
+            "cueVolume": _value_record(mixer.cue_volume), "crossfader": _value_record(mixer.crossfader),
+        },
+        "returns": [_return_mixer_record(track, index) for index, track in enumerate(song.return_tracks)],
+    }
+
+
 def _device_type(device):
     return {0: "audio_effect", 1: "instrument", 2: "midi_effect"}.get(device.type, "unknown")
 
@@ -398,6 +424,30 @@ def dispatch_request(song, request, state_version, application=None):
         finally:
             song.view.selected_track = previous_track
         return {"stateVersion": state_version + 1, "trackId": params["trackId"], "loadedItem": _browser_item_record(item)}
+    if method == "get_set_mixer":
+        return _set_mixer(song, state_version)
+    if method == "set_master_mixer":
+        mixer = song.master_track.mixer_device
+        properties = {"volume": "volume", "pan": "panning", "cueVolume": "cue_volume", "crossfader": "crossfader"}
+        for key, attribute in properties.items():
+            if key in params["changes"]:
+                getattr(mixer, attribute).value = params["changes"][key]["value"]
+        return _set_mixer(song, state_version + 1)
+    if method == "set_return_mixer":
+        index = int(params["returnTrackId"].removeprefix("return-"))
+        track = song.return_tracks[index]
+        if track.name != params["beforeReturn"]["name"]:
+            raise ValueError("return track identity changed")
+        changes = params["changes"]
+        if "volume" in changes:
+            track.mixer_device.volume.value = changes["volume"]["value"]
+        if "pan" in changes:
+            track.mixer_device.panning.value = changes["pan"]["value"]
+        if "mute" in changes:
+            track.mute = changes["mute"]["value"]
+        if "solo" in changes:
+            track.solo = changes["solo"]["value"]
+        return {"stateVersion": state_version + 1, "return": _return_mixer_record(track, index)}
     if method == "set_song_musical_context":
         changes = params["changes"]
         signature = changes.get("timeSignature", {})
