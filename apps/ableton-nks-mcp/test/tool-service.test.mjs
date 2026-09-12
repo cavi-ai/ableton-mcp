@@ -45,14 +45,14 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
       if (method === "list_scenes") return { stateVersion: 4, scenes: [
         { id: "scene-0", name: "Verse" }, { id: "scene-1", name: "Chorus" }
       ] };
-      if (method === "get_factory_browser_items") return {
+      if (method === "get_browser_items" || method === "get_factory_browser_items") return {
         stateVersion: 4, root: params.root, path: params.path || [],
         item: params.path?.length
           ? { name: params.path.at(-1), uri: "query:Drift", loadable: true, folder: false }
           : { name: "Instruments", uri: "query:instruments", loadable: false, folder: true },
         children: [{ name: "Drift", uri: "query:Drift", loadable: true, folder: false }]
       };
-      if (method === "load_factory_browser_item") return {
+      if (method === "load_browser_item" || method === "load_factory_browser_item") return {
         stateVersion: 5, trackId: params.trackId,
         loadedItem: params.item
       };
@@ -292,6 +292,21 @@ test("factory browser listing is read-only and exact-path device loading is guar
   ]);
 });
 
+test("Live browser exposes plug-ins and user content through canonical guarded tools", async () => {
+  const { service, calls } = fixture();
+  const listing = await service.call("get_browser_items", { root: "plugins", path: [] });
+  assert.equal(listing.root, "plugins");
+  const args = { expectedStateVersion: 4, trackId: "track-0", root: "user_library", path: ["Drift"] };
+  const dry = await service.call("load_browser_item", args);
+  const live = await service.call("load_browser_item", {
+    ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash
+  });
+  assert.equal(live.observed.loadedItem.name, "Drift");
+  assert.deepEqual(calls.slice(-4).map(({ method }) => method), [
+    "get_browser_items", "list_devices", "get_browser_items", "load_browser_item"
+  ]);
+});
+
 test("factory browser loading rejects non-loadable and ambiguous requests", async () => {
   const { service } = fixture();
   const base = { expectedStateVersion: 4, trackId: "track-0", root: "instruments" };
@@ -345,6 +360,16 @@ test("session object rename resolves the exact current identity", async () => {
 
 test("session duplication signs exact source and destination identities", async () => {
   const { service } = fixture();
+  const track = await service.call("duplicate_session_object", {
+    expectedStateVersion: 4, targetType: "track", targetId: "track-0", name: "Synth Layer"
+  });
+  assert.deepEqual(track.plan.target, {
+    targetType: "track", targetId: "track-0", sourceName: "Synth", name: "Synth Layer", destinationId: "track-1",
+    displaced: { id: "track-1", name: "Empty MIDI", isGroup: true, isGrouped: false, groupTrackId: null, foldState: 0 }
+  });
+  await assert.rejects(() => service.call("duplicate_session_object", {
+    expectedStateVersion: 4, targetType: "track", targetId: "track-0", name: "   "
+  }), /name must be a non-empty string/);
   const clip = await service.call("duplicate_session_object", {
     expectedStateVersion: 4, targetType: "clip", trackId: "track-0", targetId: "track-0:clip-0"
   });
