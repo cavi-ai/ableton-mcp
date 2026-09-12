@@ -24,6 +24,8 @@ const toolNames = [
   "get_live_state",
   "get_song_musical_context",
   "set_song_musical_context",
+  "get_transport_recording_context",
+  "set_transport_recording_context",
   "list_tracks",
   "list_scenes",
   "list_clips",

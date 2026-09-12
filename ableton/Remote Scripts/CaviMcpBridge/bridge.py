@@ -17,6 +17,7 @@ except ImportError:
 BRIDGE_VERSION = "0.1.0"
 CAPABILITIES = (
     "get_live_state", "get_song_musical_context", "set_song_musical_context",
+    "get_transport_recording_context", "set_transport_recording_context",
     "list_tracks", "list_scenes", "list_clips", "get_clip_timing", "set_clip_timing",
     "get_track_mixer", "get_midi_clip_notes",
     "create_track", "create_scene", "rename_session_object",
@@ -118,6 +119,20 @@ def _song_musical_context(song, state_version):
             "enabled": bool(song.loop), "startBeats": float(song.loop_start),
             "lengthBeats": float(song.loop_length),
         },
+    }
+
+
+def _transport_recording_context(song, state_version):
+    return {
+        "stateVersion": state_version, "currentSongTime": float(song.current_song_time),
+        "isPlaying": bool(song.is_playing), "metronome": bool(song.metronome),
+        "arrangement": {
+            "record": bool(song.record_mode), "overdub": bool(song.arrangement_overdub),
+            "punchIn": bool(song.punch_in), "punchOut": bool(song.punch_out),
+            "backToArranger": bool(song.back_to_arranger),
+        },
+        "session": {"record": bool(song.session_record), "overdub": bool(song.overdub)},
+        "automationArm": bool(song.session_automation_record),
     }
 
 
@@ -224,6 +239,20 @@ def dispatch_request(song, request, state_version):
         return {"stateVersion": state_version, "setFingerprint": fingerprint, "tempo": song.tempo, "isPlaying": song.is_playing, "bridgeVersion": BRIDGE_VERSION, "capabilities": list(CAPABILITIES)}
     if method == "get_song_musical_context":
         return _song_musical_context(song, state_version)
+    if method == "get_transport_recording_context":
+        return _transport_recording_context(song, state_version)
+    if method == "set_transport_recording_context":
+        changes = params["changes"]
+        for source, target in {"currentSongTime": "current_song_time", "metronome": "metronome", "automationArm": "session_automation_record"}.items():
+            if source in changes:
+                setattr(song, target, changes[source])
+        for source, target in {"record": "record_mode", "overdub": "arrangement_overdub", "punchIn": "punch_in", "punchOut": "punch_out", "backToArranger": "back_to_arranger"}.items():
+            if source in changes.get("arrangement", {}):
+                setattr(song, target, changes["arrangement"][source])
+        for source, target in {"record": "session_record", "overdub": "overdub"}.items():
+            if source in changes.get("session", {}):
+                setattr(song, target, changes["session"][source])
+        return _transport_recording_context(song, state_version + 1)
     if method == "set_song_musical_context":
         changes = params["changes"]
         signature = changes.get("timeSignature", {})

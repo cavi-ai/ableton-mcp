@@ -48,6 +48,12 @@ function insertionContext(items, index) {
   return { count: items.length, previous: index > 0 ? items[index - 1] : null, next: items[index] || null };
 }
 
+function optionalBoolean(value, field) {
+  if (value === undefined) return undefined;
+  if (typeof value !== "boolean") throw new Error(`${field} must be boolean`);
+  return value;
+}
+
 function targetDisplayValue(parameter, value) {
   if (!parameter.quantized || !Array.isArray(parameter.valueItems)) return null;
   const index = Math.round(value - parameter.min);
@@ -213,6 +219,7 @@ export class ToolService {
     if (name === "get_preset") return { preset: this.catalog.get(args.presetId) };
     if (name === "get_live_state") return this.bridge.request("get_live_state", {});
     if (name === "get_song_musical_context") return this.bridge.request("get_song_musical_context", {});
+    if (name === "get_transport_recording_context") return this.bridge.request("get_transport_recording_context", {});
     if (name === "list_tracks") return this.bridge.request("list_tracks", {});
     if (name === "list_scenes") return this.bridge.request("list_scenes", {});
     if (name === "list_clips") return this.bridge.request("list_clips", args);
@@ -268,6 +275,7 @@ export class ToolService {
     if (kompleteMethod) return this.#kompleteMutation(kompleteMethod, args);
     if (name === "set_device_parameters") return this.#setDeviceParameters(args);
     if (name === "set_song_musical_context") return this.#setSongMusicalContext(args);
+    if (name === "set_transport_recording_context") return this.#setTransportRecordingContext(args);
     if (name === "set_clip_timing") return this.#setClipTiming(args);
     if (name === "create_track") return this.#createTrack(args);
     if (name === "create_scene") return this.#createScene(args);
@@ -419,6 +427,35 @@ export class ToolService {
     }
     if (!Object.keys(changes).length) throw new Error("at least one musical context change is required");
     return this.#confirmedMutation({ method: "set_song_musical_context", expectedStateVersion: args.expectedStateVersion, before: observed, changes }, args);
+  }
+
+  async #setTransportRecordingContext(args) {
+    requireExpectedState(args);
+    const observed = await this.bridge.request("get_transport_recording_context", {});
+    assertExpectedState(args, observed);
+    const changes = {};
+    if (args.currentSongTime !== undefined) changes.currentSongTime = finiteRange(args.currentSongTime, "currentSongTime", 0, Number.MAX_SAFE_INTEGER);
+    const metronome = optionalBoolean(args.metronome, "metronome");
+    const automationArm = optionalBoolean(args.automationArm, "automationArm");
+    if (metronome !== undefined) changes.metronome = metronome;
+    if (automationArm !== undefined) changes.automationArm = automationArm;
+    for (const [group, fields] of Object.entries({
+      arrangement: ["record", "overdub", "punchIn", "punchOut", "backToArranger"],
+      session: ["record", "overdub"]
+    })) {
+      if (args[group] === undefined) continue;
+      const values = {};
+      for (const field of fields) {
+        const value = optionalBoolean(args[group][field], `${group}.${field}`);
+        if (value !== undefined) values[field] = value;
+      }
+      if (Object.keys(values).length) changes[group] = values;
+    }
+    if (!Object.keys(changes).length) throw new Error("at least one transport recording context change is required");
+    return this.#confirmedMutation({
+      method: "set_transport_recording_context", expectedStateVersion: args.expectedStateVersion,
+      before: observed, changes
+    }, args);
   }
 
   async #setClipTiming(args) {

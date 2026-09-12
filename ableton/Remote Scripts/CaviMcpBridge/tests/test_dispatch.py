@@ -247,6 +247,16 @@ class Song:
         self.loop = False
         self.loop_start = 0.0
         self.loop_length = 8.0
+        self.current_song_time = 16.5
+        self.metronome = True
+        self.record_mode = False
+        self.arrangement_overdub = False
+        self.punch_in = True
+        self.punch_out = False
+        self.back_to_arranger = False
+        self.session_record = False
+        self.overdub = True
+        self.session_automation_record = False
         self.groove_pool = type("GroovePool", (), {"grooves": [type("Groove", (), {
             "name": "Swing 16-65", "base": 3, "timing_amount": 1.0,
             "quantization_amount": 1.0, "random_amount": 0.0,
@@ -292,6 +302,24 @@ class Song:
 
 
 class DispatchTest(unittest.TestCase):
+    def test_transport_recording_context_reads_and_writes_exact_modes(self):
+        song = Song()
+        observed = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
+        self.assertEqual(observed["currentSongTime"], 16.5)
+        self.assertTrue(observed["arrangement"]["punchIn"])
+        self.assertTrue(observed["session"]["overdub"])
+        changed = dispatch_request(song, {"method": "set_transport_recording_context", "params": {"changes": {
+            "currentSongTime": 32.0, "metronome": False,
+            "arrangement": {"record": True, "overdub": True, "punchIn": False, "punchOut": True, "backToArranger": True},
+            "session": {"record": True, "overdub": False}, "automationArm": True,
+        }}}, 3)
+        self.assertEqual(changed["stateVersion"], 4)
+        self.assertEqual(song.current_song_time, 32.0)
+        self.assertTrue(song.record_mode)
+        self.assertTrue(song.back_to_arranger)
+        self.assertFalse(song.overdub)
+        self.assertTrue(song.session_automation_record)
+
     def test_song_musical_context_reads_and_writes_timing_key_groove_and_loop(self):
         song = Song()
         observed = dispatch_request(song, {"method": "get_song_musical_context"}, 3)

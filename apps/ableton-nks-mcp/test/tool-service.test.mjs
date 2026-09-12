@@ -27,6 +27,11 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
       if (method === "list_devices" && params.trackId === "track-1") return {
         stateVersion: 4, trackId: params.trackId, devices: []
       };
+      if (method === "get_transport_recording_context") return {
+        stateVersion: 4, currentSongTime: 16.5, isPlaying: false, metronome: true,
+        arrangement: { record: false, overdub: false, punchIn: true, punchOut: false, backToArranger: false },
+        session: { record: false, overdub: true }, automationArm: false
+      };
       if (method === "list_devices") return { stateVersion: 4, trackId: params.trackId, devices: [
         { id: "device-0", name: "Serum 2", className: "PluginDevice", type: "instrument" },
         { id: "track-0:device-1", name: "EQ Eight", className: "Eq8", type: "audio_effect" }
@@ -146,7 +151,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         replaced: true,
         samples: params.points.map(({ time, value }) => ({ time, value }))
       };
-      if (["transport_play", "transport_stop", "set_tempo", "set_song_musical_context", "set_clip_timing", "set_track_mixer", "launch_scene", "launch_clip", "stop_clip", "arm_track"].includes(method)) {
+      if (["transport_play", "transport_stop", "set_tempo", "set_song_musical_context", "set_transport_recording_context", "set_clip_timing", "set_track_mixer", "launch_scene", "launch_clip", "stop_clip", "arm_track"].includes(method)) {
         return { stateVersion: 5, method, ...params };
       }
       throw new Error(`unexpected method ${method}`);
@@ -361,6 +366,30 @@ test("musical context inspection exposes timing harmony groove and clip loop sta
   assert.equal(song.groove.pool[0].id, "groove-0");
   const clip = await service.call("get_clip_timing", { trackId: "track-0", clipId: "track-0:clip-0" });
   assert.deepEqual(clip.loop, { enabled: true, startBeats: 0, endBeats: 4 });
+});
+
+test("transport recording context inspection exposes playhead and record modes", async () => {
+  const { service } = fixture();
+  const context = await service.call("get_transport_recording_context");
+  assert.equal(context.currentSongTime, 16.5);
+  assert.equal(context.arrangement.punchIn, true);
+  assert.equal(context.session.overdub, true);
+});
+
+test("transport recording context mutation validates and signs exact changes", async () => {
+  const { service, calls } = fixture();
+  const args = {
+    expectedStateVersion: 4, currentSongTime: 32, metronome: false,
+    arrangement: { record: true, overdub: true, punchIn: false, punchOut: true, backToArranger: true },
+    session: { record: true, overdub: false }, automationArm: true
+  };
+  const dry = await service.call("set_transport_recording_context", args);
+  assert.equal(dry.dryRun, true);
+  assert.deepEqual(dry.plan.changes.arrangement, args.arrangement);
+  assert.equal(calls.at(-1).method, "get_transport_recording_context");
+  await assert.rejects(() => service.call("set_transport_recording_context", {
+    expectedStateVersion: 4, currentSongTime: -1
+  }), /currentSongTime/);
 });
 
 test("song musical context mutation validates and signs exact producer changes", async () => {
