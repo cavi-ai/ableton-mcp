@@ -13,7 +13,7 @@ BRIDGE_VERSION = "0.1.0"
 CAPABILITIES = (
     "get_live_state", "list_tracks", "list_scenes", "list_clips", "get_track_mixer", "get_midi_clip_notes",
     "get_midi_clip_notes_extended", "set_midi_note_properties",
-    "get_clip_parameter_envelope", "set_clip_parameter_envelope", "list_devices",
+    "get_clip_parameter_envelope", "set_clip_parameter_envelope", "list_devices", "get_device_hierarchy",
     "list_device_parameters", "set_device_parameters", "create_midi_clip", "transport_play", "transport_stop",
     "set_tempo", "set_track_mixer", "arm_track", "launch_scene", "launch_clip",
     "stop_clip", "panic",
@@ -86,13 +86,36 @@ def _device_type(device):
     return {0: "audio_effect", 1: "instrument", 2: "midi_effect"}.get(device.type, "unknown")
 
 
-def _device_record(device, track_index, index):
+def _device_record(device, device_id):
     return {
-        "id": f"track-{track_index}:device-{index}", "name": device.name,
+        "id": device_id, "name": device.name,
         "className": device.class_name, "classDisplayName": device.class_display_name,
         "type": _device_type(device), "canHaveChains": bool(device.can_have_chains),
         "canHaveDrumPads": bool(device.can_have_drum_pads),
     }
+
+
+def _device_tree(device, device_id):
+    record = _device_record(device, device_id)
+    chains = []
+    chain_ids = {}
+    if device.can_have_chains:
+        for chain_index, chain in enumerate(device.chains):
+            chain_id = f"{device_id}/chain-{chain_index}"
+            chain_ids[id(chain)] = chain_id
+            chains.append({
+                "id": chain_id, "name": chain.name,
+                "devices": [_device_tree(child, f"{chain_id}/device-{child_index}")
+                            for child_index, child in enumerate(chain.devices)],
+            })
+    record["chains"] = chains
+    record["drumPads"] = []
+    if device.can_have_drum_pads:
+        record["drumPads"] = [{
+            "note": int(pad.note), "name": pad.name, "mute": bool(pad.mute), "solo": bool(pad.solo),
+            "chainIds": [chain_ids[id(chain)] for chain in pad.chains if id(chain) in chain_ids],
+        } for pad in device.drum_pads if pad.chains]
+    return record
 
 
 def dispatch_request(song, request, state_version):
@@ -202,7 +225,13 @@ def dispatch_request(song, request, state_version):
         }
     if method == "list_devices":
         index, track = _track(song, params["trackId"])
-        return {"stateVersion": state_version, "trackId": params["trackId"], "devices": [_device_record(device, index, i) for i, device in enumerate(track.devices)]}
+        return {"stateVersion": state_version, "trackId": params["trackId"], "devices": [_device_record(device, f"track-{index}:device-{i}") for i, device in enumerate(track.devices)]}
+    if method == "get_device_hierarchy":
+        _, _, device = _device(song, params["trackId"], params["deviceId"])
+        return {
+            "stateVersion": state_version, "trackId": params["trackId"],
+            "device": _device_tree(device, params["deviceId"]),
+        }
     if method == "list_device_parameters":
         _, _, device = _device(song, params["trackId"], params["deviceId"])
         return {"stateVersion": state_version, "trackId": params["trackId"], "deviceId": params["deviceId"], "parameters": [_parameter_record(parameter, i) for i, parameter in enumerate(device.parameters)]}

@@ -21,6 +21,8 @@ Read operations expose Live status, tracks, scenes, clips, devices, device param
 
 `list_factory_device_profiles` exposes the versioned producer-oriented knowledge catalog for foundational Live devices: Simpler, Sampler, Drum Rack, Analog, Drift, Operator, Wavetable, EQ Eight, Delay, Echo, Reverb, and Hybrid Reverb. `get_factory_device_context` combines a matched profile with the device's live class identity, structural capabilities, and current parameters grouped by musical role. Parameter IDs and bounds always come from the running Live instance rather than a brittle hard-coded index map.
 
+`get_device_hierarchy` traverses nested rack chains and devices and reports only loaded Drum Rack pads, with stable path-based IDs and pad-to-chain references. It is read-only and works recursively for racks inside racks.
+
 ## Artwork model
 
 The repository does not scrape or auto-populate vendor artwork. Operators provide an authoritative master image and metadata; the pipeline deterministically renders Native Instruments product, bank, category, and size variants. Generated derivatives and installation staging remain build outputs rather than source-controlled assets.

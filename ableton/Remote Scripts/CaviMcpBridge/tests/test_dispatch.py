@@ -47,6 +47,40 @@ class Device:
         self.parameters = [Parameter(), QuantizedParameter()]
 
 
+class NestedDevice(Device):
+    def __init__(self, name, class_name, device_type=1):
+        super().__init__()
+        self.name = name
+        self.class_name = class_name
+        self.class_display_name = name
+        self.type = device_type
+
+
+class Chain:
+    def __init__(self, name, devices):
+        self.name = name
+        self.devices = devices
+
+
+class DrumPad:
+    def __init__(self, note, name, chains):
+        self.note = note
+        self.name = name
+        self.mute = False
+        self.solo = False
+        self.chains = chains
+
+
+class DrumRack(NestedDevice):
+    def __init__(self):
+        super().__init__("Drum Rack", "InstrumentGroupDevice")
+        self.can_have_chains = True
+        self.can_have_drum_pads = True
+        kick = Chain("Kick", [NestedDevice("Kick", "OriginalSimpler")])
+        self.chains = [kick]
+        self.drum_pads = [DrumPad(36, "Kick", [kick]), DrumPad(37, "Empty", [])]
+
+
 class Track:
     def __init__(self):
         self.name = "Synth"
@@ -174,6 +208,24 @@ class Song:
 
 
 class DispatchTest(unittest.TestCase):
+    def test_device_hierarchy_exposes_nested_chain_devices_and_loaded_drum_pads(self):
+        song = Song()
+        song.tracks[0].devices = [DrumRack()]
+        result = dispatch_request(song, {
+            "method": "get_device_hierarchy",
+            "params": {"trackId": "track-0", "deviceId": "track-0:device-0"}
+        }, 3)
+
+        rack = result["device"]
+        self.assertEqual(rack["className"], "InstrumentGroupDevice")
+        self.assertEqual(rack["chains"][0]["id"], "track-0:device-0/chain-0")
+        self.assertEqual(rack["chains"][0]["devices"][0]["id"], "track-0:device-0/chain-0/device-0")
+        self.assertEqual(rack["chains"][0]["devices"][0]["className"], "OriginalSimpler")
+        self.assertEqual(rack["drumPads"], [{
+            "note": 36, "name": "Kick", "mute": False, "solo": False,
+            "chainIds": ["track-0:device-0/chain-0"]
+        }])
+
     def test_device_listing_exposes_stable_identity_and_structure(self):
         result = dispatch_request(Song(), {
             "method": "list_devices", "params": {"trackId": "track-0"}
