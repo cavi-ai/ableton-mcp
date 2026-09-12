@@ -10,6 +10,8 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
     async request(method, params = {}) {
       calls.push({ method, params });
       if (method === "get_live_state") return { stateVersion: 4, setFingerprint: "set:a" };
+      if (method === "get_history_state") return { stateVersion: 4, canUndo: true, canRedo: false };
+      if (method === "undo" || method === "redo") return { stateVersion: 5, canUndo: method === "redo", canRedo: method === "undo" };
       if (method === "get_song_musical_context") return {
         stateVersion: 4,
         timeSignature: { numerator: 4, denominator: 4 },
@@ -21,16 +23,47 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         groove: { amount: 1, swingAmount: 0, pool: [{ id: "groove-0", name: "Swing 16-65" }] },
         loop: { enabled: false, startBeats: 0, lengthBeats: 8 }
       };
-      if (method === "list_tracks") return { stateVersion: 4, tracks: [{ id: "track-0", name: "Synth" }] };
-      if (method === "list_devices") return { stateVersion: 4, trackId: params.trackId, devices: [
-        { id: "device-0", name: "Serum 2", className: "PluginDevice", type: "instrument" },
-        { id: "track-0:device-1", name: "EQ Eight", className: "Eq8", type: "audio_effect" }
+      if (method === "list_tracks") return { stateVersion: 4, tracks: [
+        { id: "track-0", name: "Synth" }, { id: "track-1", name: "Empty MIDI" }
       ] };
-      if (method === "list_scenes") return { stateVersion: 4, scenes: [{ id: "scene-0", name: "Verse" }] };
+      if (method === "list_devices" && params.trackId === "track-1") return {
+        stateVersion: 4, trackId: params.trackId, devices: []
+      };
+      if (method === "get_transport_recording_context") return {
+        stateVersion: 4, currentSongTime: 16.5, isPlaying: false, metronome: true,
+        arrangement: { record: false, overdub: false, punchIn: true, punchOut: false, backToArranger: false },
+        session: { record: false, overdub: true }, automationArm: false
+      };
+      if (method === "list_arrangement_cue_points") return {
+        stateVersion: 4, cuePoints: [{ id: "cue-0", name: "Verse", timeBeats: 16 }]
+      };
+      if (method === "list_devices") return { stateVersion: 4, trackId: params.trackId, devices: [
+        { id: "device-0", name: "Serum 2", className: "PluginDevice", type: "instrument", active: true },
+        { id: "track-0:device-1", name: "EQ Eight", className: "Eq8", type: "audio_effect", active: true }
+      ] };
+      if (method === "list_scenes") return { stateVersion: 4, scenes: [
+        { id: "scene-0", name: "Verse" }, { id: "scene-1", name: "Chorus" }
+      ] };
+      if (method === "get_factory_browser_items") return {
+        stateVersion: 4, root: params.root, path: params.path || [],
+        item: params.path?.length
+          ? { name: params.path.at(-1), uri: "query:Drift", loadable: true, folder: false }
+          : { name: "Instruments", uri: "query:instruments", loadable: false, folder: true },
+        children: [{ name: "Drift", uri: "query:Drift", loadable: true, folder: false }]
+      };
+      if (method === "load_factory_browser_item") return {
+        stateVersion: 5, trackId: params.trackId,
+        loadedItem: params.item
+      };
+      if (method === "set_device_active") return { stateVersion: 5, trackId: params.trackId, device: { ...params.beforeDevice, active: params.active } };
+      if (method === "delete_device") return { stateVersion: 5, trackId: params.trackId, deletedDevice: params.beforeDevice, devices: [] };
       if (method === "list_clips") return {
         stateVersion: 4,
         trackId: params.trackId,
-        clips: [
+        clips: params.trackId === "track-1" ? [
+          { id: "track-1:clip-0", name: null, hasClip: false },
+          { id: "track-1:clip-1", name: null, hasClip: false }
+        ] : [
           { id: "track-0:clip-0", name: "Loop", hasClip: true },
           { id: "track-0:clip-1", name: null, hasClip: false }
         ]
@@ -59,6 +92,30 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         pan: { value: 0, min: -1, max: 1 }, mute: false, solo: false,
         sends: [{ id: "send-0", returnTrackId: "return-0", name: "Reverb", value: 0.2, min: 0, max: 1 }]
       };
+      if (method === "get_track_routing") return {
+        stateVersion: 4, trackId: params.trackId,
+        input: {
+          type: { id: "all-ins", name: "All Ins" }, channel: { id: "all-channels", name: "All Channels" },
+          availableTypes: [{ id: "all-ins", name: "All Ins" }, { id: "no-input", name: "No Input" }],
+          availableChannels: [{ id: "all-channels", name: "All Channels" }, { id: "channel-1", name: "Ch. 1" }]
+        },
+        output: {
+          type: { id: "main", name: "Main" }, channel: { id: "post-mixer", name: "Post Mixer" },
+          availableTypes: [{ id: "main", name: "Main" }, { id: "no-output", name: "No Output" }],
+          availableChannels: [{ id: "post-mixer", name: "Post Mixer" }]
+        },
+        monitoring: { value: 1, name: "auto", choices: [{ value: 0, name: "in" }, { value: 1, name: "auto" }, { value: 2, name: "off" }] }
+      };
+      if (method === "set_track_routing") return { stateVersion: 5, trackId: params.trackId, changes: params.changes };
+      if (method === "get_set_mixer") return {
+        stateVersion: 4,
+        master: {
+          volume: { value: 0.8, min: 0, max: 1 }, pan: { value: 0, min: -1, max: 1 },
+          cueVolume: { value: 0.7, min: 0, max: 1 }, crossfader: { value: 0, min: -1, max: 1 }
+        },
+        returns: [{ id: "return-0", name: "Reverb", volume: { value: 0.6, min: 0, max: 1 }, pan: { value: 0, min: -1, max: 1 }, mute: false, solo: false }]
+      };
+      if (method === "set_master_mixer" || method === "set_return_mixer") return { stateVersion: 5, method, ...params };
       if (method === "get_device_hierarchy") return {
         stateVersion: 4, trackId: params.trackId, device: {
           id: params.deviceId, name: "Drum Rack", className: "InstrumentGroupDevice",
@@ -81,6 +138,9 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         trackId: params.trackId,
         clip: { id: params.clipId, name: params.name, hasClip: true, lengthBeats: params.lengthBeats, noteCount: params.notes.length }
       };
+      if (method === "duplicate_clip" || method === "delete_clip") return {
+        stateVersion: 5, trackId: params.trackId, method, clips: []
+      };
       if (method === "get_midi_clip_notes") return {
         stateVersion: 4,
         trackId: params.trackId,
@@ -102,6 +162,9 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         stateVersion: 5, trackId: params.trackId, clipId: params.clipId,
         notes: [...(params.changes || []), ...(params.newNotes || [])]
       };
+      if (["duplicate_session_object", "delete_session_object"].includes(method)) {
+        return { stateVersion: 5, method, ...params };
+      }
       if (method === "get_clip_parameter_envelope") return {
         stateVersion: 4,
         trackId: params.trackId,
@@ -124,6 +187,18 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         launchQuantization: { value: 0, name: "global", choices: [{ value: 0, name: "global" }, { value: 12, name: "1_16" }] },
         grooveId: null, availableGrooves: [{ id: "groove-0", name: "Swing 16-65" }]
       };
+      if (method === "get_audio_clip_state") return {
+        stateVersion: 4, trackId: params.trackId, clipId: params.clipId,
+        gain: { value: 0.5, min: 0, max: 1, displayValue: "0.00 dB" },
+        pitch: { coarse: 0, fine: 0 }, warping: true,
+        warpMode: { value: 0, name: "beats", choices: [{ value: 0, name: "beats" }, { value: 6, name: "complex_pro" }] },
+        markers: { startBeats: 0, endBeats: 8 }
+      };
+      if (method === "set_audio_clip_state") return { stateVersion: 5, trackId: params.trackId, clipId: params.clipId, ...params.changes };
+      if (method === "get_transport_context") return {
+        stateVersion: 4, isPlaying: false, metronome: false,
+        countInDuration: { value: 1, name: "one_bar", choices: [{ value: 0, name: "none" }, { value: 1, name: "one_bar" }, { value: 2, name: "two_bars" }, { value: 3, name: "four_bars" }] }
+      };
       if (method === "set_clip_parameter_envelope") return {
         stateVersion: 5,
         trackId: params.trackId,
@@ -133,7 +208,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         replaced: true,
         samples: params.points.map(({ time, value }) => ({ time, value }))
       };
-      if (["transport_play", "transport_stop", "set_tempo", "set_song_musical_context", "set_clip_timing", "set_track_mixer", "launch_scene", "launch_clip", "stop_clip", "arm_track"].includes(method)) {
+      if (["transport_play", "transport_stop", "set_tempo", "set_transport_context", "set_song_musical_context", "set_transport_recording_context", "create_arrangement_cue_point", "rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point", "set_clip_timing", "duplicate_clip_loop", "set_track_mixer", "launch_scene", "launch_clip", "stop_clip", "arm_track"].includes(method)) {
         return { stateVersion: 5, method, ...params };
       }
       throw new Error(`unexpected method ${method}`);
@@ -197,6 +272,30 @@ test("preset, track, and device inspection are exposed as read-only tools", asyn
   assert.deepEqual(calls.map((call) => call.method), ["list_tracks", "list_devices"]);
 });
 
+test("factory browser listing is read-only and exact-path device loading is guarded", async () => {
+  const { service, calls } = fixture();
+  const listing = await service.call("get_factory_browser_items", { root: "instruments", path: [] });
+  assert.equal(listing.children[0].name, "Drift");
+  const args = { expectedStateVersion: 4, trackId: "track-0", root: "instruments", path: ["Drift"] };
+  const dry = await service.call("load_factory_browser_item", args);
+  assert.equal(dry.plan.item.name, "Drift");
+  assert.equal(dry.plan.item.loadable, true);
+  const live = await service.call("load_factory_browser_item", {
+    ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash
+  });
+  assert.equal(live.observed.loadedItem.name, "Drift");
+  assert.deepEqual(calls.slice(-3).map(({ method }) => method), [
+    "list_devices", "get_factory_browser_items", "load_factory_browser_item"
+  ]);
+});
+
+test("factory browser loading rejects non-loadable and ambiguous requests", async () => {
+  const { service } = fixture();
+  const base = { expectedStateVersion: 4, trackId: "track-0", root: "instruments" };
+  await assert.rejects(() => service.call("load_factory_browser_item", { ...base, path: [] }), /not loadable/);
+  await assert.rejects(() => service.call("load_factory_browser_item", { ...base, path: "Drift" }), /path must be an array/);
+});
+
 test("scene and clip inspection are exposed as read-only tools and resources", async () => {
   const { service } = fixture();
   assert.equal((await service.call("list_scenes")).scenes[0].name, "Verse");
@@ -212,13 +311,13 @@ test("track and scene creation sign explicit insertion context", async () => {
   });
   assert.deepEqual(track.plan, {
     method: "create_track", expectedStateVersion: 4, type: "midi", index: 1, name: "Bass",
-    before: { count: 1, previous: { id: "track-0", name: "Synth" }, next: null }
+    before: { count: 2, previous: { id: "track-0", name: "Synth" }, next: { id: "track-1", name: "Empty MIDI" } }
   });
   const scene = await service.call("create_scene", {
     expectedStateVersion: 4, index: 0, name: "Intro"
   });
   assert.deepEqual(scene.plan.before, {
-    count: 1, previous: null, next: { id: "scene-0", name: "Verse" }
+    count: 2, previous: null, next: { id: "scene-0", name: "Verse" }
   });
 });
 
@@ -236,6 +335,53 @@ test("session object rename resolves the exact current identity", async () => {
     expectedStateVersion: 4, targetType: "clip", trackId: "track-0",
     targetId: "track-0:clip-1", name: "Empty"
   }), /empty clip slot/);
+});
+
+test("session duplication signs exact source and destination identities", async () => {
+  const { service } = fixture();
+  const clip = await service.call("duplicate_session_object", {
+    expectedStateVersion: 4, targetType: "clip", trackId: "track-0", targetId: "track-0:clip-0"
+  });
+  assert.deepEqual(clip.plan.target, {
+    targetType: "clip", trackId: "track-0", targetId: "track-0:clip-0", name: "Loop",
+    destinationId: "track-0:clip-1"
+  });
+  const scene = await service.call("duplicate_session_object", {
+    expectedStateVersion: 4, targetType: "scene", targetId: "scene-0"
+  });
+  assert.deepEqual(scene.plan.target, {
+    targetType: "scene", targetId: "scene-0", name: "Verse", destinationId: "scene-1",
+    displaced: { id: "scene-1", name: "Chorus" }
+  });
+});
+
+test("session deletion requires explicit content authority and records destructive contents", async () => {
+  const { service } = fixture();
+  await assert.rejects(() => service.call("delete_session_object", {
+    expectedStateVersion: 4, targetType: "track", targetId: "track-0"
+  }), /allowContent/);
+  const track = await service.call("delete_session_object", {
+    expectedStateVersion: 4, targetType: "track", targetId: "track-0", allowContent: true
+  });
+  assert.equal(track.plan.target.clipCount, 1);
+  assert.equal(track.plan.target.deviceCount, 2);
+  assert.deepEqual(track.plan.target.clips, [{ id: "track-0:clip-0", name: "Loop" }]);
+  assert.deepEqual(track.plan.target.devices.map(({ id, name }) => ({ id, name })), [
+    { id: "device-0", name: "Serum 2" }, { id: "track-0:device-1", name: "EQ Eight" }
+  ]);
+  await assert.rejects(() => service.call("delete_session_object", {
+    expectedStateVersion: 4, targetType: "scene", targetId: "scene-0"
+  }), /allowContent/);
+  const scene = await service.call("delete_session_object", {
+    expectedStateVersion: 4, targetType: "scene", targetId: "scene-0", allowContent: true
+  });
+  assert.deepEqual(scene.plan.target.occupiedClips, [
+    { trackId: "track-0", clipId: "track-0:clip-0", name: "Loop" }
+  ]);
+  const clip = await service.call("delete_session_object", {
+    expectedStateVersion: 4, targetType: "clip", trackId: "track-0", targetId: "track-0:clip-0"
+  });
+  assert.equal(clip.plan.target.name, "Loop");
 });
 
 test("MIDI note inspection returns exact clip contents without mutation", async () => {
@@ -283,6 +429,34 @@ test("factory device context combines stable identity, knowledge, and live param
   assert.deepEqual(context.parameterGroups.frequency.map(({ id }) => id), ["cutoff"]);
 });
 
+test("device activation and deletion use guarded exact-identity plans", async () => {
+  const { service, calls } = fixture();
+  const base = { expectedStateVersion: 4, trackId: "track-0", deviceId: "track-0:device-1" };
+  const activeDry = await service.call("set_device_active", { ...base, active: false });
+  assert.equal(activeDry.plan.beforeDevice.name, "EQ Eight");
+  assert.equal(activeDry.plan.active, false);
+  const active = await service.call("set_device_active", {
+    ...base, active: false, dryRun: false,
+    confirmationToken: activeDry.confirmation.token, planHash: activeDry.confirmation.planHash
+  });
+  assert.equal(active.observed.device.active, false);
+  const deleteDry = await service.call("delete_device", base);
+  assert.equal(deleteDry.plan.beforeDevice.className, "Eq8");
+  const deleted = await service.call("delete_device", {
+    ...base, dryRun: false,
+    confirmationToken: deleteDry.confirmation.token, planHash: deleteDry.confirmation.planHash
+  });
+  assert.equal(deleted.observed.deletedDevice.name, "EQ Eight");
+  assert.deepEqual(calls.slice(-2).map(({ method }) => method), ["list_devices", "delete_device"]);
+});
+
+test("device lifecycle rejects unknown identities and invalid activation state", async () => {
+  const { service } = fixture();
+  const base = { expectedStateVersion: 4, trackId: "track-0" };
+  await assert.rejects(() => service.call("delete_device", { ...base, deviceId: "track-0:device-9" }), /unknown device/);
+  await assert.rejects(() => service.call("set_device_active", { ...base, deviceId: "track-0:device-1", active: "no" }), /active must be boolean/);
+});
+
 test("device hierarchy is exposed read-only for rack and drum-pad traversal", async () => {
   const { service } = fixture();
   const hierarchy = await service.call("get_device_hierarchy", {
@@ -301,6 +475,49 @@ test("musical context inspection exposes timing harmony groove and clip loop sta
   assert.equal(song.groove.pool[0].id, "groove-0");
   const clip = await service.call("get_clip_timing", { trackId: "track-0", clipId: "track-0:clip-0" });
   assert.deepEqual(clip.loop, { enabled: true, startBeats: 0, endBeats: 4 });
+});
+
+test("transport recording context inspection exposes playhead and record modes", async () => {
+  const { service } = fixture();
+  const context = await service.call("get_transport_recording_context");
+  assert.equal(context.currentSongTime, 16.5);
+  assert.equal(context.arrangement.punchIn, true);
+  assert.equal(context.session.overdub, true);
+});
+
+test("transport recording context mutation validates and signs exact changes", async () => {
+  const { service, calls } = fixture();
+  const args = {
+    expectedStateVersion: 4, currentSongTime: 32, metronome: false,
+    arrangement: { record: true, overdub: true, punchIn: false, punchOut: true, backToArranger: true },
+    session: { record: true, overdub: false }, automationArm: true
+  };
+  const dry = await service.call("set_transport_recording_context", args);
+  assert.equal(dry.dryRun, true);
+  assert.deepEqual(dry.plan.changes.arrangement, args.arrangement);
+  assert.equal(calls.at(-1).method, "get_transport_recording_context");
+  await assert.rejects(() => service.call("set_transport_recording_context", {
+    expectedStateVersion: 4, currentSongTime: -1
+  }), /currentSongTime/);
+});
+
+test("arrangement cue points are inspectable and exact mutations are guarded", async () => {
+  const { service, calls } = fixture();
+  assert.equal((await service.call("list_arrangement_cue_points")).cuePoints[0].timeBeats, 16);
+  for (const [name, args] of [
+    ["create_arrangement_cue_point", { timeBeats: 32, name: "Chorus" }],
+    ["rename_arrangement_cue_point", { cuePointId: "cue-0", name: "Intro" }],
+    ["delete_arrangement_cue_point", { cuePointId: "cue-0" }],
+    ["jump_to_arrangement_cue_point", { cuePointId: "cue-0" }]
+  ]) {
+    const dry = await service.call(name, { expectedStateVersion: 4, ...args });
+    assert.equal(dry.dryRun, true);
+    assert.equal(dry.plan.method, name);
+    assert.equal(calls.at(-1).method, "list_arrangement_cue_points");
+  }
+  await assert.rejects(() => service.call("rename_arrangement_cue_point", {
+    expectedStateVersion: 4, cuePointId: "cue-9", name: "Missing"
+  }), /unknown cue point/);
 });
 
 test("song musical context mutation validates and signs exact producer changes", async () => {
@@ -339,6 +556,16 @@ test("clip timing mutation rejects invalid loops and signs groove assignment", a
   assert.equal(dry.plan.changes.grooveId, "groove-0");
 });
 
+test("clip loop duplication signs exact timing and executes once", async () => {
+  const { service, calls } = fixture();
+  const args = { expectedStateVersion: 4, trackId: "track-0", clipId: "track-0:clip-0" };
+  const dry = await service.call("duplicate_clip_loop", args);
+  assert.equal(dry.plan.before.loop.endBeats, 4);
+  const live = await service.call("duplicate_clip_loop", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(live.dryRun, false);
+  assert.equal(calls.at(-1).method, "duplicate_clip_loop");
+});
+
 test("track mixer mutation signs before-and-after context and clamps values", async () => {
   const { service, calls } = fixture();
   const args = {
@@ -365,6 +592,57 @@ test("track mixer mutation rejects unknown sends and empty changes", async () =>
   await assert.rejects(() => service.call("set_track_mixer", {
     ...base, sends: [{ id: "send-9", value: 0.5 }]
   }), /unknown send send-9/);
+});
+
+test("track routing exposes exact choices and guards identifier-based changes", async () => {
+  const { service, calls } = fixture();
+  const observed = await service.call("get_track_routing", { trackId: "track-0" });
+  assert.equal(observed.input.type.id, "all-ins");
+  const args = { expectedStateVersion: 4, trackId: "track-0", inputChannelId: "channel-1", outputTypeId: "no-output", monitoring: "off" };
+  const dry = await service.call("set_track_routing", args);
+  assert.equal(dry.plan.changes.inputChannelId.previous.id, "all-channels");
+  assert.equal(dry.plan.changes.outputTypeId.value.id, "no-output");
+  assert.equal(dry.plan.changes.monitoring.value.name, "off");
+  const live = await service.call("set_track_routing", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(live.observed.stateVersion, 5);
+  assert.equal(calls.at(-1).method, "set_track_routing");
+});
+
+test("track routing rejects unknown choices and empty changes", async () => {
+  const { service } = fixture();
+  const base = { expectedStateVersion: 4, trackId: "track-0" };
+  await assert.rejects(() => service.call("set_track_routing", base), /at least one routing change/);
+  await assert.rejects(() => service.call("set_track_routing", { ...base, inputTypeId: "missing" }), /unknown inputTypeId/);
+  await assert.rejects(() => service.call("set_track_routing", { ...base, monitoring: "sometimes" }), /unknown monitoring/);
+});
+
+test("set mixer exposes master and return buses and guards bounded changes", async () => {
+  const { service, calls } = fixture();
+  const observed = await service.call("get_set_mixer");
+  assert.equal(observed.master.cueVolume.value, 0.7);
+  assert.equal(observed.returns[0].name, "Reverb");
+  const masterArgs = { expectedStateVersion: 4, volume: 2, crossfader: -2 };
+  const masterDry = await service.call("set_master_mixer", masterArgs);
+  assert.equal(masterDry.plan.changes.volume.value, 1);
+  assert.equal(masterDry.plan.changes.crossfader.value, -1);
+  const masterLive = await service.call("set_master_mixer", {
+    ...masterArgs, dryRun: false, confirmationToken: masterDry.confirmation.token, planHash: masterDry.confirmation.planHash
+  });
+  assert.equal(masterLive.observed.stateVersion, 5);
+  const returnArgs = { expectedStateVersion: 5, returnTrackId: "return-0", pan: 0.5, mute: true };
+  const refreshed = { ...observed, stateVersion: 5 };
+  calls.push({ method: "fixture_state_override", params: refreshed });
+  const originalRequest = service.bridge.request.bind(service.bridge);
+  service.bridge.request = async (method, params) => method === "get_set_mixer" ? refreshed : originalRequest(method, params);
+  const returnDry = await service.call("set_return_mixer", returnArgs);
+  assert.equal(returnDry.plan.beforeReturn.name, "Reverb");
+  assert.equal(returnDry.plan.changes.mute.value, true);
+});
+
+test("set mixer rejects unknown returns and empty mutations", async () => {
+  const { service } = fixture();
+  await assert.rejects(() => service.call("set_master_mixer", { expectedStateVersion: 4 }), /at least one master mixer change/);
+  await assert.rejects(() => service.call("set_return_mixer", { expectedStateVersion: 4, returnTrackId: "return-9", mute: true }), /unknown return track/);
 });
 
 test("per-note properties use a guarded exact-ID mutation plan", async () => {
@@ -462,6 +740,29 @@ test("clip parameter envelope inspection is read-only and returns sampled values
   assert.equal(calls.at(-1).method, "get_clip_parameter_envelope");
 });
 
+test("audio clip state exposes warp pitch gain and markers with guarded changes", async () => {
+  const { service, calls } = fixture();
+  const base = { trackId: "track-0", clipId: "track-0:clip-2" };
+  const observed = await service.call("get_audio_clip_state", base);
+  assert.equal(observed.warpMode.name, "beats");
+  const args = { ...base, expectedStateVersion: 4, gain: 2, pitchCoarse: -12, pitchFine: 17, warping: false, warpMode: "complex_pro", startMarkerBeats: 1, endMarkerBeats: 7 };
+  const dry = await service.call("set_audio_clip_state", args);
+  assert.equal(dry.plan.changes.gain.value, 1);
+  assert.equal(dry.plan.changes.warpMode.value, 6);
+  assert.equal(dry.plan.changes.pitchCoarse.value, -12);
+  const live = await service.call("set_audio_clip_state", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(live.observed.stateVersion, 5);
+  assert.equal(calls.at(-1).method, "set_audio_clip_state");
+});
+
+test("audio clip mutation rejects invalid pitch markers and empty changes", async () => {
+  const { service } = fixture();
+  const base = { trackId: "track-0", clipId: "track-0:clip-2", expectedStateVersion: 4 };
+  await assert.rejects(() => service.call("set_audio_clip_state", base), /at least one audio clip change/);
+  await assert.rejects(() => service.call("set_audio_clip_state", { ...base, pitchFine: 60 }), /pitchFine/);
+  await assert.rejects(() => service.call("set_audio_clip_state", { ...base, startMarkerBeats: 7, endMarkerBeats: 2 }), /endMarkerBeats must be greater/);
+});
+
 test("clip parameter envelope replacement validates and signs exact steps", async () => {
   const { service, calls } = fixture();
   const args = {
@@ -517,6 +818,45 @@ test("core transport, mixer, scene, and clip operations use guarded mutation pla
   }
 });
 
+test("transport context exposes and guards metronome and count-in changes", async () => {
+  const { service, calls } = fixture();
+  const observed = await service.call("get_transport_context");
+  assert.equal(observed.countInDuration.name, "one_bar");
+  const args = { expectedStateVersion: 4, metronome: true, countInDuration: "two_bars" };
+  const dry = await service.call("set_transport_context", args);
+  assert.deepEqual(dry.plan.changes, { metronome: { previous: false, value: true }, countInDuration: { previous: 1, value: 2 } });
+  const live = await service.call("set_transport_context", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(live.dryRun, false);
+  assert.equal(calls.at(-1).method, "set_transport_context");
+});
+
+test("transport context rejects invalid and empty changes", async () => {
+  const { service } = fixture();
+  await assert.rejects(() => service.call("set_transport_context", { expectedStateVersion: 4 }), /at least one transport context change/);
+  await assert.rejects(() => service.call("set_transport_context", { expectedStateVersion: 4, metronome: "yes" }), /metronome must be boolean/);
+  await assert.rejects(() => service.call("set_transport_context", { expectedStateVersion: 4, countInDuration: "eight_bars" }), /countInDuration must be one of/);
+});
+
+test("undo and redo expose availability and use guarded history plans", async () => {
+  const { service, calls } = fixture();
+  const history = await service.call("get_history_state");
+  assert.deepEqual(history, { stateVersion: 4, canUndo: true, canRedo: false });
+  const dry = await service.call("undo", { expectedStateVersion: 4 });
+  assert.equal(dry.plan.method, "undo");
+  assert.equal(dry.plan.before.canUndo, true);
+  const live = await service.call("undo", {
+    expectedStateVersion: 4, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash
+  });
+  assert.equal(live.observed.canRedo, true);
+  assert.equal(calls.at(-1).method, "undo");
+});
+
+test("history mutations reject unavailable actions", async () => {
+  const { service } = fixture();
+  await assert.rejects(() => service.call("redo", { expectedStateVersion: 4 }), /redo is not available/);
+});
+
 test("core mutations reject stale Ableton state before issuing a plan", async () => {
   const { service, calls } = fixture();
   await assert.rejects(
@@ -547,6 +887,30 @@ test("MIDI clip creation validates and signs an empty-slot plan", async () => {
   });
   assert.equal(live.observed.clip.noteCount, 1);
   assert.equal(calls.at(-1).method, "create_midi_clip");
+});
+
+test("clip duplication requires an occupied source and empty target", async () => {
+  const { service, calls } = fixture();
+  const args = { expectedStateVersion: 4, trackId: "track-0", sourceClipId: "track-0:clip-0", targetClipId: "track-0:clip-1" };
+  const dry = await service.call("duplicate_clip", args);
+  assert.equal(dry.plan.source.name, "Loop");
+  assert.equal(dry.plan.target.hasClip, false);
+  const live = await service.call("duplicate_clip", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(live.dryRun, false);
+  assert.equal(calls.at(-1).method, "duplicate_clip");
+  await assert.rejects(() => service.call("duplicate_clip", { ...args, sourceClipId: "track-0:clip-1" }), /source clip is empty/);
+  await assert.rejects(() => service.call("duplicate_clip", { ...args, targetClipId: "track-0:clip-0" }), /target clip must be empty/);
+});
+
+test("clip deletion requires an occupied exact clip", async () => {
+  const { service, calls } = fixture();
+  const args = { expectedStateVersion: 4, trackId: "track-0", clipId: "track-0:clip-0" };
+  const dry = await service.call("delete_clip", args);
+  assert.equal(dry.plan.before.name, "Loop");
+  const live = await service.call("delete_clip", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(live.dryRun, false);
+  assert.equal(calls.at(-1).method, "delete_clip");
+  await assert.rejects(() => service.call("delete_clip", { ...args, clipId: "track-0:clip-1" }), /clip is empty/);
 });
 
 test("MIDI clip creation refuses occupied slots and invalid notes", async () => {

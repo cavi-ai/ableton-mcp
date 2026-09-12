@@ -2,17 +2,23 @@ import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 import { ToolService } from "./tool-service.mjs";
 import { createConfiguredService } from "./runtime.mjs";
+import { toolContracts } from "./tool-contracts.mjs";
 
 const resources = [
   "nks://catalog/products",
   "nks://catalog/presets/{preset_id}",
   "nks://catalog/artwork/{artwork_id}",
   "ableton://live/status",
+  "ableton://live/transport",
   "ableton://set/musical-context",
+  "ableton://set/mixer",
+  "ableton://set/history",
   "ableton://set/tracks",
+  "ableton://track/{track_id}/routing",
   "ableton://set/scenes",
   "ableton://track/{track_id}/clips",
   "ableton://track/{track_id}/clip/{clip_id}/timing",
+  "ableton://track/{track_id}/clip/{clip_id}/audio",
   "ableton://track/{track_id}/devices",
   "ableton://device/{device_id}/parameters",
   "komplete://automation/status"
@@ -22,8 +28,20 @@ const toolNames = [
   "search_presets",
   "get_preset",
   "get_live_state",
+  "get_transport_context",
+  "set_transport_context",
+  "get_history_state",
+  "undo",
+  "redo",
   "get_song_musical_context",
   "set_song_musical_context",
+  "get_transport_recording_context",
+  "set_transport_recording_context",
+  "list_arrangement_cue_points",
+  "create_arrangement_cue_point",
+  "rename_arrangement_cue_point",
+  "delete_arrangement_cue_point",
+  "jump_to_arrangement_cue_point",
   "list_tracks",
   "list_scenes",
   "list_clips",
@@ -34,10 +52,26 @@ const toolNames = [
   "create_track",
   "create_scene",
   "rename_session_object",
+  "duplicate_session_object",
+  "delete_session_object",
+  "get_audio_clip_state",
+  "set_audio_clip_state",
+  "duplicate_clip",
+  "delete_clip",
+  "duplicate_clip_loop",
   "get_automation_capabilities",
   "get_track_mixer",
+  "get_track_routing",
+  "set_track_routing",
+  "get_set_mixer",
+  "set_master_mixer",
+  "set_return_mixer",
   "list_factory_device_profiles",
   "get_factory_device_context",
+  "get_factory_browser_items",
+  "load_factory_browser_item",
+  "set_device_active",
+  "delete_device",
   "get_device_hierarchy",
   "get_clip_parameter_envelope",
   "list_devices",
@@ -64,11 +98,7 @@ const toolNames = [
   "komplete_run_conversion_batch",
   "komplete_pause_batch"
 ];
-const tools = toolNames.map((name) => ({
-  name,
-  description: `Ableton NKS operation: ${name}`,
-  inputSchema: { type: "object", additionalProperties: true }
-}));
+const tools = toolNames.map((name) => ({ name, ...toolContracts[name] }));
 
 function fixtureService() {
   const catalog = { search: ({ query }) => [{ id: "serum-2:fixture", name: query || "Deep" }] };

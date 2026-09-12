@@ -15,11 +15,15 @@ Generated presets, artwork, catalogs, and factory-source files are not part of t
 
 ## Control surface
 
-Read operations expose Live status, song key/scale and timing context, global and recording quantization, groove pool and swing state, Arrangement loop state, tracks, scenes, clips, clip loop/signature/quantization/groove state, devices, device parameters, complete track mixer state with named return sends, Session clip envelopes, extended MIDI note properties, and optional NKS catalog search. Guarded mutations cover those musical-context and clip-timing fields alongside transport play/stop, tempo, track volume/pan/mute/solo/arm and return sends, scene and clip launch, clip stop, device parameters, Session clip envelope steps, per-note MIDI properties, MIDI-note quantize/legato/duplicate transforms, and panic. Every mutation requires an observed state version, defaults to a dry-run plan, and uses a short-lived single-use confirmation token for execution.
+Read operations expose Live status, playhead, transport-recording, metronome, and count-in context, song key/scale and timing context, global and recording quantization, groove pool and swing state, Arrangement loop and cue-point state, tracks, scenes, clips, clip loop/signature/quantization/groove state, audio clip gain/pitch/warp/marker state, devices, device parameters, complete track, master, and return-bus mixer state with named sends, input/output routing state, monitor mode, Session clip envelopes, extended MIDI note properties, and optional NKS catalog search. Guarded mutations cover those transport, musical-context, cue-point, clip-timing, audio-clip, routing, and monitoring fields alongside track/scene creation, exact session-object renaming, Session clip duplication/deletion and clip-loop duplication, scene duplication, content-aware track/scene deletion, tempo, track/master/return-bus mixing, scene and clip launch, clip stop, device parameters, Session clip envelope steps, per-note MIDI properties, MIDI-note quantize/legato/duplicate transforms, and panic. Every mutation requires an observed state version, defaults to a dry-run plan, and uses a short-lived single-use confirmation token for execution.
 
 `get_automation_capabilities` reports the exact supported surface. Ableton Live 12.4.5 exposes Session clip parameter envelopes and the per-note fields pitch, start, duration, velocity, velocity deviation, release velocity, probability, and mute. Its public API does not expose Arrangement automation envelopes or per-note pitch-bend, pressure, and slide curves; the MCP reports those boundaries instead of simulating unsupported writes.
 
 `list_factory_device_profiles` exposes the versioned producer-oriented knowledge catalog for foundational Live devices: Simpler, Sampler, Drum Rack, Analog, Drift, Operator, Wavetable, EQ Eight, Delay, Echo, Reverb, and Hybrid Reverb. `get_factory_device_context` combines a matched profile with the device's live class identity, structural capabilities, and current parameters grouped by musical role. Parameter IDs and bounds always come from the running Live instance rather than a brittle hard-coded index map.
+
+`get_factory_browser_items` traverses one exact level of Live's factory Instruments, Audio Effects, MIDI Effects, Drums, or Sounds hierarchy. `load_factory_browser_item` resolves the reviewed root/path again at execution time and loads only a unique loadable item onto the guarded target track.
+
+Device listings include active/bypassed state. `set_device_active` and `delete_device` require the exact observed device identity, current bridge state version, reviewed dry-run plan, and a single-use confirmation token.
 
 `get_device_hierarchy` traverses nested rack chains and devices and reports only loaded Drum Rack pads, with stable path-based IDs and pad-to-chain references. It is read-only and works recursively for racks inside racks.
 
@@ -71,6 +75,10 @@ Set `ABLETON_NKS_CATALOG_PATH` only when local preset search is wanted. Without 
 ## Safety
 
 Mutating Ableton operations use plan hashes and short-lived, single-use confirmation tokens. Keep generated commercial preset content out of this repository.
+
+MCP discovery publishes closed top-level JSON Schemas and operation-specific descriptions for every tool. Ableton mutations advertise `expectedStateVersion`; Komplete UI mutations advertise `expectedSessionVersion`, along with their dry-run and confirmation fields.
+
+`get_history_state` exposes Live's current undo/redo availability. Guarded `undo` and `redo` operations refuse unavailable history actions and advance the bridge state version after execution.
 
 ## License
 

@@ -1,9 +1,11 @@
+import json
+import copy
 import os
 import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from bridge import dispatch_request
+from bridge import SocketBridge, dispatch_request
 
 
 class Parameter:
@@ -42,6 +44,7 @@ class Device:
         self.class_name = "PluginDevice"
         self.class_display_name = "Plug-in"
         self.type = 1
+        self.is_active = True
         self.can_have_chains = False
         self.can_have_drum_pads = False
         self.parameters = [Parameter(), QuantizedParameter()]
@@ -88,11 +91,33 @@ class Track:
         self.mute = False
         self.solo = False
         self.arm = False
+        route = lambda identifier, name: type("Route", (), {"identifier": identifier, "display_name": name})()
+        self.available_input_routing_types = [route("all-ins", "All Ins"), route("no-input", "No Input")]
+        self.available_input_routing_channels = [route("all-channels", "All Channels"), route("channel-1", "Ch. 1")]
+        self.available_output_routing_types = [route("main", "Main"), route("no-output", "No Output")]
+        self.available_output_routing_channels = [route("post-mixer", "Post Mixer")]
+        self.current_input_routing = "All Ins"
+        self.current_input_sub_routing = self.available_input_routing_channels[0]
+        self.current_output_routing = self.available_output_routing_types[0]
+        self.current_output_sub_routing = self.available_output_routing_channels[0]
+        self.current_monitoring_state = 1
         self.mixer_device = type("Mixer", (), {
             "volume": type("Value", (), {"value": 0.75, "min": 0.0, "max": 1.0})(),
             "panning": type("Value", (), {"value": 0.0, "min": -1.0, "max": 1.0})(),
             "sends": [type("Value", (), {"value": 0.2, "min": 0.0, "max": 1.0})()]
         })()
+
+    def duplicate_clip_slot(self, index):
+        source = self.clip_slots[index]
+        destination = self.clip_slots[index + 1]
+        if not source.has_clip or destination.has_clip:
+            raise RuntimeError("invalid duplicate")
+        destination.has_clip = True
+        destination.clip = Clip()
+        destination.clip.name = source.clip.name
+
+    def delete_device(self, index):
+        self.devices.pop(index)
 
 
 class Clip:
@@ -108,7 +133,6 @@ class Clip:
         self.launch_quantization = 0
         self.groove = None
         self.envelopes = {}
-
     def fire(self):
         self.is_playing = True
 
@@ -154,6 +178,25 @@ class Clip:
 
     def clear_envelope(self, parameter):
         self.envelopes.pop(id(parameter), None)
+
+    def duplicate_loop(self):
+        self.loop_end += self.loop_end - self.loop_start
+        self.length = max(self.length, self.loop_end)
+
+
+class AudioClip(Clip):
+    def __init__(self):
+        super().__init__()
+        self.name = "Vocal"
+        self.is_audio_clip = True
+        self.gain = 0.5
+        self.gain_display_string = "0.00 dB"
+        self.pitch_coarse = 0
+        self.pitch_fine = 0
+        self.warping = True
+        self.warp_mode = 0
+        self.start_marker = 0.0
+        self.end_marker = 8.0
 
 
 class AutomationEnvelope:
@@ -202,6 +245,16 @@ class ClipSlot:
     def stop(self):
         self.clip.stop()
 
+    def duplicate_clip_to(self, target):
+        if target.has_clip:
+            raise RuntimeError("occupied")
+        target.has_clip = True
+        target.clip = copy.deepcopy(self.clip)
+
+    def delete_clip(self):
+        self.has_clip = False
+        self.clip = None
+
 
 class Scene:
     def __init__(self):
@@ -212,12 +265,37 @@ class Scene:
         self.is_triggered = True
 
 
+class CuePoint:
+    def __init__(self, name="Verse", time=16.0):
+        self.name = name
+        self.time = time
+        self.jumped = False
+
+    def jump(self):
+        self.jumped = True
+
+
 class Song:
     def __init__(self):
-        self.tracks = [Track()]
-        self.return_tracks = [type("ReturnTrack", (), {"name": "Reverb"})()]
-        self.scenes = [Scene()]
+        self.tracks = [Track(), Track()]
+        self.view = type("View", (), {"selected_track": self.tracks[0]})()
+        mixer = lambda volume=0.6: type("Mixer", (), {
+            "volume": type("Value", (), {"value": volume, "min": 0.0, "max": 1.0})(),
+            "panning": type("Value", (), {"value": 0.0, "min": -1.0, "max": 1.0})(),
+        })()
+        self.return_tracks = [type("ReturnTrack", (), {"name": "Reverb", "mixer_device": mixer(), "mute": False, "solo": False})()]
+        master_mixer = mixer(0.8)
+        master_mixer.cue_volume = type("Value", (), {"value": 0.7, "min": 0.0, "max": 1.0})()
+        master_mixer.crossfader = type("Value", (), {"value": 0.0, "min": -1.0, "max": 1.0})()
+        self.master_track = type("MasterTrack", (), {"mixer_device": master_mixer})()
+        self.scenes = [Scene(), Scene()]
+        self.can_undo = True
+        self.can_redo = False
         self.tracks[0].clip_slots = [ClipSlot(), ClipSlot(False)]
+        self.tracks[1].clip_slots = [ClipSlot(False), ClipSlot(False)]
+        audio_slot = ClipSlot()
+        audio_slot.clip = AudioClip()
+        self.tracks[0].clip_slots.append(audio_slot)
         self.tempo = 120.0
         self.is_playing = False
         self.signature_numerator = 4
@@ -233,10 +311,31 @@ class Song:
         self.loop = False
         self.loop_start = 0.0
         self.loop_length = 8.0
+        self.current_song_time = 16.5
+        self.metronome = True
+        self.record_mode = False
+        self.arrangement_overdub = False
+        self.punch_in = True
+        self.punch_out = False
+        self.back_to_arranger = False
+        self.session_record = False
+        self.overdub = True
+        self.session_automation_record = False
         self.groove_pool = type("GroovePool", (), {"grooves": [type("Groove", (), {
             "name": "Swing 16-65", "base": 3, "timing_amount": 1.0,
             "quantization_amount": 1.0, "random_amount": 0.0,
         })()]})()
+        self.current_song_time = 4.0
+        self.cue_points = [CuePoint()]
+        self.metronome = False
+        self.count_in_duration = 1
+
+    def set_or_delete_cue(self):
+        existing = next((cue for cue in self.cue_points if cue.time == self.current_song_time), None)
+        if existing:
+            self.cue_points.remove(existing)
+        else:
+            self.cue_points.append(CuePoint("", self.current_song_time))
 
     def create_midi_track(self, index):
         self.tracks.insert(index, Track())
@@ -249,14 +348,240 @@ class Song:
     def create_scene(self, index):
         self.scenes.insert(index, Scene())
 
+    def duplicate_scene(self, index):
+        scene = Scene()
+        scene.name = self.scenes[index].name
+        self.scenes.insert(index + 1, scene)
+        for track in self.tracks:
+            source = track.clip_slots[index]
+            duplicate = ClipSlot(False)
+            if source.has_clip:
+                duplicate.has_clip = True
+                duplicate.clip = Clip()
+                duplicate.clip.name = source.clip.name
+            track.clip_slots.insert(index + 1, duplicate)
+
+    def delete_track(self, index):
+        self.tracks.pop(index)
+
+    def delete_scene(self, index):
+        self.scenes.pop(index)
+        for track in self.tracks:
+            track.clip_slots.pop(index)
+
     def start_playing(self):
         self.is_playing = True
 
     def stop_playing(self):
         self.is_playing = False
 
+    def undo(self):
+        self.can_undo = False
+        self.can_redo = True
+
+    def redo(self):
+        self.can_undo = True
+        self.can_redo = False
+
+
+class BrowserItem:
+    def __init__(self, name, uri, loadable=False, children=()):
+        self.name = name
+        self.uri = uri
+        self.is_loadable = loadable
+        self.is_folder = bool(children)
+        self.children = tuple(children)
+
+
+class Application:
+    def __init__(self):
+        self.loaded = []
+        drift = BrowserItem("Drift", "query:Drift", True)
+        self.browser = type("Browser", (), {
+            "instruments": BrowserItem("Instruments", "query:instruments", children=(drift,)),
+            "load_item": self.loaded.append,
+        })()
+
 
 class DispatchTest(unittest.TestCase):
+    def test_transport_recording_context_reads_and_writes_exact_modes(self):
+        song = Song()
+        observed = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
+        self.assertEqual(observed["currentSongTime"], 4.0)
+        self.assertTrue(observed["arrangement"]["punchIn"])
+        self.assertTrue(observed["session"]["overdub"])
+        changed = dispatch_request(song, {"method": "set_transport_recording_context", "params": {"changes": {
+            "currentSongTime": 32.0, "metronome": False,
+            "arrangement": {"record": True, "overdub": True, "punchIn": False, "punchOut": True, "backToArranger": True},
+            "session": {"record": True, "overdub": False}, "automationArm": True,
+        }}}, 3)
+        self.assertEqual(changed["stateVersion"], 4)
+        self.assertEqual(song.current_song_time, 32.0)
+        self.assertTrue(song.record_mode)
+        self.assertTrue(song.back_to_arranger)
+        self.assertFalse(song.overdub)
+        self.assertTrue(song.session_automation_record)
+
+    def test_socket_bridge_defers_cue_mutations_until_live_applies_the_playhead(self):
+        song = Song()
+
+        class Surface:
+            def song(self):
+                return song
+
+            def schedule_message(self, _, callback):
+                self.callback = callback
+
+        class Client:
+            def __init__(self):
+                self.messages = []
+
+            def sendall(self, payload):
+                self.messages.append(json.loads(payload))
+
+        surface = Surface()
+        client = Client()
+        bridge = SocketBridge(surface, "/unused")
+        bridge.requests.put((client, {"id": 1, "method": "create_arrangement_cue_point", "params": {"timeBeats": 32, "name": "Chorus"}}))
+        bridge.drain()
+        self.assertEqual(client.messages, [])
+        self.assertEqual(song.current_song_time, 32)
+        surface.callback()
+        self.assertEqual(client.messages[0]["result"]["cuePoint"]["name"], "Chorus")
+        self.assertEqual(song.current_song_time, 4.0)
+
+    def test_arrangement_cue_point_lifecycle_and_jump(self):
+        song = Song()
+        observed = dispatch_request(song, {"method": "list_arrangement_cue_points"}, 3)
+        self.assertEqual(observed["cuePoints"][0], {"id": "cue-0", "name": "Verse", "timeBeats": 16.0})
+        created = dispatch_request(song, {"method": "create_arrangement_cue_point", "params": {"timeBeats": 32, "name": "Chorus"}}, 3)
+        self.assertEqual(created["cuePoint"]["name"], "Chorus")
+        self.assertEqual(song.current_song_time, 4.0)
+        dispatch_request(song, {"method": "rename_arrangement_cue_point", "params": {"cuePointId": "cue-0", "name": "Intro"}}, 4)
+        self.assertEqual(song.cue_points[0].name, "Intro")
+        dispatch_request(song, {"method": "jump_to_arrangement_cue_point", "params": {"cuePointId": "cue-0"}}, 5)
+        self.assertTrue(song.cue_points[0].jumped)
+        dispatch_request(song, {"method": "delete_arrangement_cue_point", "params": {"cuePointId": "cue-1"}}, 6)
+        self.assertEqual(len(song.cue_points), 1)
+        self.assertEqual(song.current_song_time, 4.0)
+
+    def test_track_routing_reads_choices_and_applies_exact_identifiers(self):
+        song = Song()
+        observed = dispatch_request(song, {"method": "get_track_routing", "params": {"trackId": "track-0"}}, 3)
+        self.assertEqual(observed["input"]["type"], {"id": "All Ins", "name": "All Ins"})
+        self.assertEqual(observed["monitoring"]["name"], "auto")
+        changed = dispatch_request(song, {"method": "set_track_routing", "params": {
+            "trackId": "track-0", "changes": {
+                "inputChannelId": {"value": {"id": "channel-1"}},
+                "outputTypeId": {"value": {"id": "no-output"}},
+                "monitoring": {"value": {"value": 2}},
+            }
+        }}, 3)
+        self.assertEqual(changed["stateVersion"], 4)
+        self.assertEqual(changed["input"]["channel"]["id"], "Ch. 1")
+        self.assertEqual(changed["output"]["type"]["id"], "No Output")
+        self.assertEqual(changed["monitoring"]["name"], "off")
+
+    def test_factory_browser_lists_one_level_and_loads_an_exact_item(self):
+        song = Song()
+        application = Application()
+        listing = dispatch_request(song, {
+            "method": "get_factory_browser_items", "params": {"root": "instruments", "path": []}
+        }, 3, application)
+        self.assertEqual(listing["children"][0], {
+            "name": "Drift", "uri": "query:Drift", "loadable": True, "folder": False,
+        })
+        loaded = dispatch_request(song, {"method": "load_factory_browser_item", "params": {
+            "root": "instruments", "path": ["Drift"], "trackId": "track-0",
+        }}, 3, application)
+        self.assertEqual(application.loaded[0].name, "Drift")
+        self.assertEqual(loaded["stateVersion"], 4)
+
+    def test_device_lifecycle_reports_active_state_and_checks_exact_identity(self):
+        song = Song()
+        listed = dispatch_request(song, {"method": "list_devices", "params": {"trackId": "track-0"}}, 3)
+        device = listed["devices"][0]
+        self.assertTrue(device["active"])
+        changed = dispatch_request(song, {"method": "set_device_active", "params": {
+            "trackId": "track-0", "deviceId": device["id"], "beforeDevice": device, "active": False,
+        }}, 3)
+        self.assertFalse(changed["device"]["active"])
+        deleted = dispatch_request(song, {"method": "delete_device", "params": {
+            "trackId": "track-0", "deviceId": device["id"], "beforeDevice": {**device, "active": False},
+        }}, 4)
+        self.assertEqual(deleted["devices"], [])
+
+    def test_master_and_return_mixer_lifecycle(self):
+        song = Song()
+        observed = dispatch_request(song, {"method": "get_set_mixer"}, 3)
+        self.assertEqual(observed["master"]["cueVolume"]["value"], 0.7)
+        self.assertEqual(observed["returns"][0]["name"], "Reverb")
+        master = dispatch_request(song, {"method": "set_master_mixer", "params": {"changes": {
+            "volume": {"value": 0.5}, "crossfader": {"value": -0.25},
+        }}}, 3)
+        self.assertEqual(master["master"]["volume"]["value"], 0.5)
+        returned = dispatch_request(song, {"method": "set_return_mixer", "params": {
+            "returnTrackId": "return-0", "beforeReturn": observed["returns"][0],
+            "changes": {"pan": {"value": 0.5}, "mute": {"value": True}},
+        }}, 4)
+        self.assertTrue(returned["return"]["mute"])
+        self.assertEqual(returned["return"]["pan"]["value"], 0.5)
+
+    def test_audio_clip_state_reads_and_writes_warp_pitch_gain_and_markers(self):
+        song = Song()
+        params = {"trackId": "track-0", "clipId": "track-0:clip-2"}
+        observed = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
+        self.assertEqual(observed["warpMode"]["name"], "beats")
+        changed = dispatch_request(song, {"method": "set_audio_clip_state", "params": {**params, "changes": {
+            "gain": {"value": 0.75}, "pitchCoarse": {"value": -12}, "pitchFine": {"value": 17},
+            "warping": {"value": False}, "warpMode": {"value": 6},
+            "startMarkerBeats": {"value": 1}, "endMarkerBeats": {"value": 7},
+        }}}, 3)
+        self.assertEqual(changed["stateVersion"], 4)
+        self.assertEqual(changed["pitch"], {"coarse": -12, "fine": 17})
+        self.assertEqual(changed["markers"], {"startBeats": 1.0, "endBeats": 7.0})
+
+    def test_transport_context_reads_and_writes_metronome_and_count_in(self):
+        song = Song()
+        observed = dispatch_request(song, {"method": "get_transport_context"}, 3)
+        self.assertFalse(observed["metronome"])
+        self.assertEqual(observed["countInDuration"]["name"], "one_bar")
+        changed = dispatch_request(song, {"method": "set_transport_context", "params": {"changes": {
+            "metronome": {"value": True}, "countInDuration": {"value": 2}
+        }}}, 3)
+        self.assertEqual(changed["stateVersion"], 4)
+        self.assertTrue(song.metronome)
+        self.assertEqual(changed["countInDuration"]["name"], "two_bars")
+
+    def test_clip_duplication_and_deletion_return_observed_slots(self):
+        song = Song()
+        duplicated = dispatch_request(song, {"method": "duplicate_clip", "params": {
+            "trackId": "track-0", "sourceClipId": "track-0:clip-0", "targetClipId": "track-0:clip-1"
+        }}, 3)
+        self.assertEqual(duplicated["stateVersion"], 4)
+        self.assertEqual(duplicated["clips"][1]["name"], "Loop")
+        deleted = dispatch_request(song, {"method": "delete_clip", "params": {
+            "trackId": "track-0", "clipId": "track-0:clip-1"
+        }}, 4)
+        self.assertFalse(deleted["clips"][1]["hasClip"])
+
+    def test_duplicate_clip_loop_doubles_loop_region_and_returns_timing(self):
+        song = Song()
+        result = dispatch_request(song, {"method": "duplicate_clip_loop", "params": {
+            "trackId": "track-0", "clipId": "track-0:clip-0"
+        }}, 3)
+        self.assertEqual(result["stateVersion"], 4)
+        self.assertEqual(result["loop"], {"enabled": True, "startBeats": 0.0, "endBeats": 8.0})
+
+    def test_history_state_and_undo_redo_return_observed_availability(self):
+        song = Song()
+        history = dispatch_request(song, {"method": "get_history_state"}, 3)
+        self.assertEqual(history, {"stateVersion": 3, "canUndo": True, "canRedo": False})
+        undone = dispatch_request(song, {"method": "undo"}, 3)
+        self.assertEqual(undone, {"stateVersion": 4, "canUndo": False, "canRedo": True})
+        redone = dispatch_request(song, {"method": "redo"}, 4)
+        self.assertEqual(redone, {"stateVersion": 5, "canUndo": True, "canRedo": False})
+
     def test_song_musical_context_reads_and_writes_timing_key_groove_and_loop(self):
         song = Song()
         observed = dispatch_request(song, {"method": "get_song_musical_context"}, 3)
@@ -335,7 +660,7 @@ class DispatchTest(unittest.TestCase):
 
         self.assertEqual(result["devices"][0], {
             "id": "track-0:device-0", "name": "Serum 2", "className": "PluginDevice",
-            "classDisplayName": "Plug-in", "type": "instrument",
+            "classDisplayName": "Plug-in", "type": "instrument", "active": True,
             "canHaveChains": False, "canHaveDrumPads": False,
         })
 
@@ -410,6 +735,32 @@ class DispatchTest(unittest.TestCase):
         }}, 5)
         self.assertEqual(renamed["target"]["name"], "Hook")
         self.assertEqual(song.tracks[0].clip_slots[0].clip.name, "Hook")
+
+    def test_session_duplicate_and_delete_return_exact_observed_state(self):
+        song = Song()
+        duplicated = dispatch_request(song, {"method": "duplicate_session_object", "params": {
+            "target": {"targetType": "clip", "trackId": "track-0", "targetId": "track-0:clip-0",
+                       "destinationId": "track-0:clip-1", "name": "Loop"}
+        }}, 3)
+        self.assertEqual(duplicated["target"]["destinationId"], "track-0:clip-1")
+        self.assertTrue(song.tracks[0].clip_slots[1].has_clip)
+        deleted_clip = dispatch_request(song, {"method": "delete_session_object", "params": {
+            "target": {"targetType": "clip", "trackId": "track-0", "targetId": "track-0:clip-1", "name": "Loop"}
+        }}, 4)
+        self.assertFalse(song.tracks[0].clip_slots[1].has_clip)
+        self.assertEqual(deleted_clip["deleted"]["targetId"], "track-0:clip-1")
+        dispatch_request(song, {"method": "duplicate_session_object", "params": {
+            "target": {"targetType": "scene", "targetId": "scene-0", "destinationId": "scene-1", "name": "Verse"}
+        }}, 5)
+        self.assertEqual(len(song.scenes), 3)
+        dispatch_request(song, {"method": "delete_session_object", "params": {
+            "target": {"targetType": "scene", "targetId": "scene-1", "name": "Verse", "occupiedClips": []}
+        }}, 6)
+        self.assertEqual(len(song.scenes), 2)
+        dispatch_request(song, {"method": "delete_session_object", "params": {
+            "target": {"targetType": "track", "targetId": "track-1", "name": "Synth", "clipCount": 0, "deviceCount": 0}
+        }}, 7)
+        self.assertEqual(len(song.tracks), 1)
 
     def test_track_mixer_read_and_write_include_named_return_sends(self):
         song = Song()

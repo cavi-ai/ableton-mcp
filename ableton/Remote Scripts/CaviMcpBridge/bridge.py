@@ -16,12 +16,22 @@ except ImportError:
 
 BRIDGE_VERSION = "0.1.0"
 CAPABILITIES = (
-    "get_live_state", "get_song_musical_context", "set_song_musical_context",
-    "list_tracks", "list_scenes", "list_clips", "get_clip_timing", "set_clip_timing",
-    "get_track_mixer", "get_midi_clip_notes",
+    "get_live_state", "get_history_state", "undo", "redo", "get_transport_context", "set_transport_context",
+    "get_song_musical_context", "set_song_musical_context",
+    "get_transport_recording_context", "set_transport_recording_context",
+    "list_arrangement_cue_points", "create_arrangement_cue_point", "rename_arrangement_cue_point",
+    "delete_arrangement_cue_point", "jump_to_arrangement_cue_point",
+    "get_factory_browser_items", "load_factory_browser_item",
+    "list_tracks", "list_scenes", "list_clips", "get_clip_timing", "set_clip_timing", "duplicate_clip_loop",
+    "duplicate_clip", "delete_clip",
+    "get_audio_clip_state", "set_audio_clip_state",
+    "get_track_mixer", "get_track_routing", "set_track_routing", "get_midi_clip_notes",
     "create_track", "create_scene", "rename_session_object",
     "get_midi_clip_notes_extended", "set_midi_note_properties", "transform_midi_notes",
+    "duplicate_session_object", "delete_session_object",
+    "get_set_mixer", "set_master_mixer", "set_return_mixer",
     "get_clip_parameter_envelope", "set_clip_parameter_envelope", "list_devices", "get_device_hierarchy",
+    "set_device_active", "delete_device",
     "list_device_parameters", "set_device_parameters", "create_midi_clip", "transport_play", "transport_stop",
     "set_tempo", "set_track_mixer", "arm_track", "launch_scene", "launch_clip",
     "stop_clip", "panic",
@@ -40,6 +50,8 @@ CLIP_QUANTIZATION_NAMES = (
     "global", "none", "8_bars", "4_bars", "2_bars", "1_bar", "1_2", "1_2_triplet",
     "1_4", "1_4_triplet", "1_8", "1_8_triplet", "1_16", "1_16_triplet", "1_32",
 )
+AUDIO_WARP_MODE_NAMES = ("beats", "tones", "texture", "re_pitch", "complex", "rex", "complex_pro")
+COUNT_IN_DURATION_NAMES = ("none", "one_bar", "two_bars", "four_bars")
 
 
 def _track(song, track_id):
@@ -120,6 +132,35 @@ def _song_musical_context(song, state_version):
     }
 
 
+def _transport_recording_context(song, state_version):
+    return {
+        "stateVersion": state_version, "currentSongTime": float(song.current_song_time),
+        "isPlaying": bool(song.is_playing), "metronome": bool(song.metronome),
+        "arrangement": {
+            "record": bool(song.record_mode), "overdub": bool(song.arrangement_overdub),
+            "punchIn": bool(song.punch_in), "punchOut": bool(song.punch_out),
+            "backToArranger": bool(song.back_to_arranger),
+        },
+        "session": {"record": bool(song.session_record), "overdub": bool(song.overdub)},
+        "automationArm": bool(song.session_automation_record),
+    }
+
+
+def _arrangement_cue_points(song, state_version):
+    return {
+        "stateVersion": state_version,
+        "cuePoints": [{"id": f"cue-{i}", "name": cue.name, "timeBeats": float(cue.time)} for i, cue in enumerate(song.cue_points)],
+    }
+
+
+def _transport_context(song, state_version):
+    return {
+        "stateVersion": state_version, "isPlaying": bool(song.is_playing),
+        "metronome": bool(song.metronome),
+        "countInDuration": _enum_record(song.count_in_duration, COUNT_IN_DURATION_NAMES),
+    }
+
+
 def _clip_timing(song, track_id, clip_id, state_version):
     _, _, slot = _clip_slot(song, track_id, clip_id)
     if not slot.has_clip:
@@ -134,6 +175,35 @@ def _clip_timing(song, track_id, clip_id, state_version):
         "launchQuantization": _enum_record(clip.launch_quantization, CLIP_QUANTIZATION_NAMES),
         "grooveId": groove_id,
         "availableGrooves": [_groove_record(groove, index) for index, groove in enumerate(grooves)],
+    }
+
+
+def _audio_clip_state(song, track_id, clip_id, state_version):
+    _, _, slot = _clip_slot(song, track_id, clip_id)
+    if not slot.has_clip:
+        raise ValueError("clip slot is empty")
+    clip = slot.clip
+    if not getattr(clip, "is_audio_clip", False):
+        raise ValueError("clip is not an audio clip")
+    return {
+        "stateVersion": state_version, "trackId": track_id, "clipId": clip_id,
+        "gain": {"value": float(clip.gain), "min": 0.0, "max": 1.0, "displayValue": clip.gain_display_string},
+        "pitch": {"coarse": int(clip.pitch_coarse), "fine": int(clip.pitch_fine)},
+        "warping": bool(clip.warping), "warpMode": _enum_record(clip.warp_mode, AUDIO_WARP_MODE_NAMES),
+        "markers": {"startBeats": float(clip.start_marker), "endBeats": float(clip.end_marker)},
+    }
+
+
+def _clip_list(song, track_id, state_version):
+    index, track = _track(song, track_id)
+    return {
+        "stateVersion": state_version, "trackId": track_id,
+        "clips": [{
+            "id": f"track-{index}:clip-{slot_index}",
+            "name": slot.clip.name if slot.has_clip else None,
+            "hasClip": bool(slot.has_clip),
+            "isPlaying": bool(slot.clip.is_playing) if slot.has_clip else False,
+        } for slot_index, slot in enumerate(track.clip_slots)],
     }
 
 
@@ -179,6 +249,64 @@ def _send_records(song, track):
     } for i, send in enumerate(track.mixer_device.sends)]
 
 
+def _routing_option(option):
+    name = str(getattr(option, "display_name", option))
+    identifier = getattr(option, "identifier", None)
+    return {
+        "id": str(identifier) if isinstance(identifier, (str, int, float)) else name,
+        "name": name,
+    }
+
+
+def _routing_id(option):
+    return _routing_option(option)["id"]
+
+
+def _track_routing(song, track_id, state_version):
+    _, track = _track(song, track_id)
+    return {
+        "stateVersion": state_version, "trackId": track_id,
+        "input": {
+            "type": _routing_option(track.current_input_routing),
+            "channel": _routing_option(track.current_input_sub_routing),
+            "availableTypes": [_routing_option(option) for option in track.available_input_routing_types],
+            "availableChannels": [_routing_option(option) for option in track.available_input_routing_channels],
+        },
+        "output": {
+            "type": _routing_option(track.current_output_routing),
+            "channel": _routing_option(track.current_output_sub_routing),
+            "availableTypes": [_routing_option(option) for option in track.available_output_routing_types],
+            "availableChannels": [_routing_option(option) for option in track.available_output_routing_channels],
+        },
+        "monitoring": _enum_record(track.current_monitoring_state, ("in", "auto", "off")),
+    }
+
+
+def _value_record(parameter):
+    return {"value": parameter.value, "min": parameter.min, "max": parameter.max}
+
+
+def _return_mixer_record(track, index):
+    return {
+        "id": f"return-{index}", "name": track.name,
+        "volume": _value_record(track.mixer_device.volume),
+        "pan": _value_record(track.mixer_device.panning),
+        "mute": bool(track.mute), "solo": bool(track.solo),
+    }
+
+
+def _set_mixer(song, state_version):
+    mixer = song.master_track.mixer_device
+    return {
+        "stateVersion": state_version,
+        "master": {
+            "volume": _value_record(mixer.volume), "pan": _value_record(mixer.panning),
+            "cueVolume": _value_record(mixer.cue_volume), "crossfader": _value_record(mixer.crossfader),
+        },
+        "returns": [_return_mixer_record(track, index) for index, track in enumerate(song.return_tracks)],
+    }
+
+
 def _device_type(device):
     return {0: "audio_effect", 1: "instrument", 2: "midi_effect"}.get(device.type, "unknown")
 
@@ -187,9 +315,33 @@ def _device_record(device, device_id):
     return {
         "id": device_id, "name": device.name,
         "className": device.class_name, "classDisplayName": device.class_display_name,
-        "type": _device_type(device), "canHaveChains": bool(device.can_have_chains),
+        "type": _device_type(device), "active": bool(device.is_active),
+        "canHaveChains": bool(device.can_have_chains),
         "canHaveDrumPads": bool(device.can_have_drum_pads),
     }
+
+
+def _browser_item_record(item):
+    return {
+        "name": item.name, "uri": getattr(item, "uri", None),
+        "loadable": bool(item.is_loadable), "folder": bool(item.is_folder),
+    }
+
+
+def _factory_browser_item(application, root, path):
+    roots = {
+        "instruments": "instruments", "audio_effects": "audio_effects",
+        "midi_effects": "midi_effects", "drums": "drums", "sounds": "sounds",
+    }
+    if root not in roots:
+        raise ValueError("unknown factory browser root")
+    item = getattr(application.browser, roots[root])
+    for name in path:
+        matches = [child for child in item.children if child.name == name]
+        if len(matches) != 1:
+            raise ValueError("factory browser path is missing or ambiguous")
+        item = matches[0]
+    return item
 
 
 def _device_tree(device, device_id):
@@ -215,14 +367,173 @@ def _device_tree(device, device_id):
     return record
 
 
-def dispatch_request(song, request, state_version):
+def dispatch_request(song, request, state_version, application=None):
     method = request["method"]
     params = request.get("params", {})
     fingerprint = hashlib.sha256(f"{len(song.tracks)}:{song.tempo}".encode()).hexdigest()[:16]
     if method == "get_live_state":
         return {"stateVersion": state_version, "setFingerprint": fingerprint, "tempo": song.tempo, "isPlaying": song.is_playing, "bridgeVersion": BRIDGE_VERSION, "capabilities": list(CAPABILITIES)}
+    if method == "get_transport_context":
+        return _transport_context(song, state_version)
+    if method == "set_transport_context":
+        changes = params["changes"]
+        if "metronome" in changes:
+            song.metronome = bool(_change_value(changes["metronome"]))
+        if "countInDuration" in changes:
+            song.count_in_duration = int(_change_value(changes["countInDuration"]))
+        return _transport_context(song, state_version + 1)
+    if method == "get_history_state":
+        return {"stateVersion": state_version, "canUndo": bool(song.can_undo), "canRedo": bool(song.can_redo)}
+    if method in ("undo", "redo"):
+        if method == "undo":
+            if not song.can_undo:
+                raise ValueError("undo is not available")
+            song.undo()
+        else:
+            if not song.can_redo:
+                raise ValueError("redo is not available")
+            song.redo()
+        return {"stateVersion": state_version + 1, "canUndo": bool(song.can_undo), "canRedo": bool(song.can_redo)}
     if method == "get_song_musical_context":
         return _song_musical_context(song, state_version)
+    if method == "get_transport_recording_context":
+        return _transport_recording_context(song, state_version)
+    if method == "set_transport_recording_context":
+        changes = params["changes"]
+        for source, target in {"currentSongTime": "current_song_time", "metronome": "metronome", "automationArm": "session_automation_record"}.items():
+            if source in changes:
+                setattr(song, target, changes[source])
+        for source, target in {"record": "record_mode", "overdub": "arrangement_overdub", "punchIn": "punch_in", "punchOut": "punch_out", "backToArranger": "back_to_arranger"}.items():
+            if source in changes.get("arrangement", {}):
+                setattr(song, target, changes["arrangement"][source])
+        for source, target in {"record": "session_record", "overdub": "overdub"}.items():
+            if source in changes.get("session", {}):
+                setattr(song, target, changes["session"][source])
+        return _transport_recording_context(song, state_version + 1)
+    if method == "list_arrangement_cue_points":
+        return _arrangement_cue_points(song, state_version)
+    if method == "create_arrangement_cue_point":
+        time_beats = float(params["timeBeats"])
+        if any(float(cue.time) == time_beats for cue in song.cue_points):
+            raise ValueError("cue point already exists at requested time")
+        previous_time = song.current_song_time
+        try:
+            song.current_song_time = time_beats
+            song.set_or_delete_cue()
+        finally:
+            song.current_song_time = previous_time
+        cue = next(cue for cue in song.cue_points if float(cue.time) == time_beats)
+        cue.name = params["name"]
+        result = _arrangement_cue_points(song, state_version + 1)
+        result["cuePoint"] = next(record for record in result["cuePoints"] if record["timeBeats"] == time_beats)
+        return result
+    if method in ("rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point"):
+        prefix, raw_index = params["cuePointId"].split("-", 1)
+        if prefix != "cue" or not raw_index.isdigit():
+            raise ValueError("unknown cue point")
+        index = int(raw_index)
+        if index >= len(song.cue_points):
+            raise ValueError("unknown cue point")
+        cue = song.cue_points[index]
+        if method == "rename_arrangement_cue_point":
+            cue.name = params["name"]
+        elif method == "delete_arrangement_cue_point":
+            previous_time = song.current_song_time
+            try:
+                song.current_song_time = float(cue.time)
+                song.set_or_delete_cue()
+            finally:
+                song.current_song_time = previous_time
+        else:
+            cue.jump()
+        return _arrangement_cue_points(song, state_version + 1)
+    if method == "get_track_routing":
+        return _track_routing(song, params["trackId"], state_version)
+    if method == "set_track_routing":
+        _, track = _track(song, params["trackId"])
+        changes = params["changes"]
+        properties = {
+            "inputTypeId": ("current_input_routing", track.available_input_routing_types),
+            "inputChannelId": ("current_input_sub_routing", track.available_input_routing_channels),
+            "outputTypeId": ("current_output_routing", track.available_output_routing_types),
+            "outputChannelId": ("current_output_sub_routing", track.available_output_routing_channels),
+        }
+        for key, (attribute, choices) in properties.items():
+            if key in changes:
+                identifier = changes[key]["value"]["id"]
+                selected = next(
+                    option for option in choices if _routing_id(option) == identifier
+                )
+                setattr(track, attribute, _routing_option(selected)["name"])
+        if "monitoring" in changes:
+            track.current_monitoring_state = int(changes["monitoring"]["value"]["value"])
+        return _track_routing(song, params["trackId"], state_version + 1)
+    if method == "get_factory_browser_items":
+        item = _factory_browser_item(application, params["root"], params.get("path", []))
+        return {
+            "stateVersion": state_version, "root": params["root"], "path": params.get("path", []),
+            "item": _browser_item_record(item),
+            "children": [_browser_item_record(child) for child in item.children],
+        }
+    if method == "load_factory_browser_item":
+        item = _factory_browser_item(application, params["root"], params["path"])
+        if not item.is_loadable:
+            raise ValueError("factory browser item is not loadable")
+        _, track = _track(song, params["trackId"])
+        previous_track = song.view.selected_track
+        try:
+            song.view.selected_track = track
+            application.browser.load_item(item)
+        finally:
+            song.view.selected_track = previous_track
+        return {"stateVersion": state_version + 1, "trackId": params["trackId"], "loadedItem": _browser_item_record(item)}
+    if method == "get_set_mixer":
+        return _set_mixer(song, state_version)
+    if method == "set_master_mixer":
+        mixer = song.master_track.mixer_device
+        properties = {"volume": "volume", "pan": "panning", "cueVolume": "cue_volume", "crossfader": "crossfader"}
+        for key, attribute in properties.items():
+            if key in params["changes"]:
+                getattr(mixer, attribute).value = params["changes"][key]["value"]
+        return _set_mixer(song, state_version + 1)
+    if method == "set_return_mixer":
+        index = int(params["returnTrackId"].removeprefix("return-"))
+        track = song.return_tracks[index]
+        if track.name != params["beforeReturn"]["name"]:
+            raise ValueError("return track identity changed")
+        changes = params["changes"]
+        if "volume" in changes:
+            track.mixer_device.volume.value = changes["volume"]["value"]
+        if "pan" in changes:
+            track.mixer_device.panning.value = changes["pan"]["value"]
+        if "mute" in changes:
+            track.mute = changes["mute"]["value"]
+        if "solo" in changes:
+            track.solo = changes["solo"]["value"]
+        return {"stateVersion": state_version + 1, "return": _return_mixer_record(track, index)}
+    if method == "get_audio_clip_state":
+        return _audio_clip_state(song, params["trackId"], params["clipId"], state_version)
+    if method == "set_audio_clip_state":
+        track_id, clip_id = params["trackId"], params["clipId"]
+        _, _, slot = _clip_slot(song, track_id, clip_id)
+        if not slot.has_clip or not getattr(slot.clip, "is_audio_clip", False):
+            raise ValueError("clip is not an audio clip")
+        clip = slot.clip
+        changes = params["changes"]
+        for source, target in (("gain", "gain"), ("pitchCoarse", "pitch_coarse"),
+                               ("pitchFine", "pitch_fine"), ("warping", "warping"),
+                               ("warpMode", "warp_mode")):
+            if source in changes:
+                setattr(clip, target, _change_value(changes[source]))
+        start = _change_value(changes["startMarkerBeats"]) if "startMarkerBeats" in changes else clip.start_marker
+        end = _change_value(changes["endMarkerBeats"]) if "endMarkerBeats" in changes else clip.end_marker
+        if start >= clip.end_marker:
+            clip.end_marker = end
+            clip.start_marker = start
+        else:
+            clip.start_marker = start
+            clip.end_marker = end
+        return _audio_clip_state(song, track_id, clip_id, state_version + 1)
     if method == "set_song_musical_context":
         changes = params["changes"]
         signature = changes.get("timeSignature", {})
@@ -293,12 +604,50 @@ def dispatch_request(song, request, state_version):
         return {"stateVersion": state_version + 1, "target": {
             **target, "name": item.name,
         }}
+    if method == "duplicate_session_object":
+        target = params["target"]
+        if target["targetType"] == "scene":
+            source_index = int(target["targetId"].removeprefix("scene-"))
+            song.duplicate_scene(source_index)
+            item = song.scenes[source_index + 1]
+        else:
+            track, source_index, _ = _clip_slot(song, target["trackId"], target["targetId"])
+            track.duplicate_clip_slot(source_index)
+            item = track.clip_slots[source_index + 1].clip
+        return {"stateVersion": state_version + 1, "target": {
+            **target, "name": item.name,
+        }}
+    if method == "delete_session_object":
+        target = params["target"]
+        if target["targetType"] == "track":
+            song.delete_track(int(target["targetId"].removeprefix("track-")))
+        elif target["targetType"] == "scene":
+            song.delete_scene(int(target["targetId"].removeprefix("scene-")))
+        else:
+            _, _, slot = _clip_slot(song, target["trackId"], target["targetId"])
+            if not slot.has_clip:
+                raise ValueError("clip slot is empty")
+            slot.delete_clip()
+        return {"stateVersion": state_version + 1, "deleted": target}
     if method == "list_clips":
-        index, track = _track(song, params["trackId"])
-        clips = []
-        for i, slot in enumerate(track.clip_slots):
-            clips.append({"id": f"track-{index}:clip-{i}", "name": slot.clip.name if slot.has_clip else None, "hasClip": slot.has_clip, "isPlaying": slot.clip.is_playing if slot.has_clip else False})
-        return {"stateVersion": state_version, "trackId": params["trackId"], "clips": clips}
+        return _clip_list(song, params["trackId"], state_version)
+    if method == "duplicate_clip":
+        track_id = params["trackId"]
+        _, _, source = _clip_slot(song, track_id, params["sourceClipId"])
+        _, _, target = _clip_slot(song, track_id, params["targetClipId"])
+        if not source.has_clip:
+            raise ValueError("source clip is empty")
+        if target.has_clip:
+            raise ValueError("target clip must be empty")
+        source.duplicate_clip_to(target)
+        return _clip_list(song, track_id, state_version + 1)
+    if method == "delete_clip":
+        track_id = params["trackId"]
+        _, _, slot = _clip_slot(song, track_id, params["clipId"])
+        if not slot.has_clip:
+            raise ValueError("clip is empty")
+        slot.delete_clip()
+        return _clip_list(song, track_id, state_version + 1)
     if method == "get_clip_timing":
         return _clip_timing(song, params["trackId"], params["clipId"], state_version)
     if method == "set_clip_timing":
@@ -321,6 +670,15 @@ def dispatch_request(song, request, state_version):
         if "grooveId" in changes:
             clip.groove = _grooves(song)[int(changes["grooveId"].removeprefix("groove-"))]
         return _clip_timing(song, params["trackId"], params["clipId"], state_version + 1)
+    if method == "duplicate_clip_loop":
+        track_id, clip_id = params["trackId"], params["clipId"]
+        _, _, slot = _clip_slot(song, track_id, clip_id)
+        if not slot.has_clip:
+            raise ValueError("clip slot is empty")
+        if not slot.clip.looping:
+            raise ValueError("clip looping must be enabled")
+        slot.clip.duplicate_loop()
+        return _clip_timing(song, track_id, clip_id, state_version + 1)
     if method == "get_midi_clip_notes":
         _, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
         if not slot.has_clip:
@@ -416,6 +774,24 @@ def dispatch_request(song, request, state_version):
     if method == "list_devices":
         index, track = _track(song, params["trackId"])
         return {"stateVersion": state_version, "trackId": params["trackId"], "devices": [_device_record(device, f"track-{index}:device-{i}") for i, device in enumerate(track.devices)]}
+    if method in ("set_device_active", "delete_device"):
+        track, index, device = _device(song, params["trackId"], params["deviceId"])
+        before = params["beforeDevice"]
+        if device.name != before["name"] or device.class_name != before["className"]:
+            raise ValueError("device identity changed")
+        deleted = _device_record(device, params["deviceId"])
+        if method == "set_device_active":
+            device.is_active = bool(params["active"])
+            return {
+                "stateVersion": state_version + 1, "trackId": params["trackId"],
+                "device": _device_record(device, params["deviceId"]),
+            }
+        track.delete_device(index)
+        return {
+            "stateVersion": state_version + 1, "trackId": params["trackId"],
+            "deletedDevice": deleted,
+            "devices": [_device_record(item, f"track-{int(params['trackId'].removeprefix('track-'))}:device-{i}") for i, item in enumerate(track.devices)],
+        }
     if method == "get_device_hierarchy":
         _, _, device = _device(song, params["trackId"], params["deviceId"])
         return {
@@ -514,6 +890,7 @@ class SocketBridge:
         self.requests = queue.Queue()
         self.stopped = threading.Event()
         self.state_version = 1
+        self.deferred_request = False
         self.thread = threading.Thread(target=self._serve, name="CaviMcpBridge", daemon=True)
 
     def start(self):
@@ -555,15 +932,64 @@ class SocketBridge:
                     self.requests.put((client, message))
 
     def drain(self):
+        if self.deferred_request:
+            return
         while True:
             try:
                 client, request = self.requests.get_nowait()
             except queue.Empty:
                 return
+            if request.get("method") in ("create_arrangement_cue_point", "delete_arrangement_cue_point"):
+                self._defer_cue_mutation(client, request)
+                return
             try:
-                result = dispatch_request(self.control_surface.song(), request, self.state_version)
+                result = dispatch_request(
+                    self.control_surface.song(), request, self.state_version, self.control_surface.application()
+                )
                 self.state_version = result.get("stateVersion", self.state_version)
                 response = {"id": request.get("id"), "result": result}
             except Exception as error:
-                response = {"id": request.get("id"), "error": {"message": str(error)}}
+                response = {"id": request.get("id"), "error": {"message": str(error) or error.__class__.__name__}}
             client.sendall(encode_message(response))
+
+    def _defer_cue_mutation(self, client, request):
+        song = self.control_surface.song()
+        params = request.get("params", {})
+        method = request["method"]
+        try:
+            if method == "create_arrangement_cue_point":
+                time_beats = float(params["timeBeats"])
+                if any(float(cue.time) == time_beats for cue in song.cue_points):
+                    raise ValueError("cue point already exists at requested time")
+            else:
+                prefix, raw_index = params["cuePointId"].split("-", 1)
+                if prefix != "cue" or not raw_index.isdigit() or int(raw_index) >= len(song.cue_points):
+                    raise ValueError("unknown cue point")
+                time_beats = float(song.cue_points[int(raw_index)].time)
+            previous_time = float(song.current_song_time)
+            song.current_song_time = time_beats
+            self.deferred_request = True
+            self.control_surface.schedule_message(
+                1, lambda: self._complete_cue_mutation(client, request, previous_time, time_beats)
+            )
+        except Exception as error:
+            client.sendall(encode_message({"id": request.get("id"), "error": {"message": str(error) or error.__class__.__name__}}))
+
+    def _complete_cue_mutation(self, client, request, previous_time, time_beats):
+        song = self.control_surface.song()
+        try:
+            song.set_or_delete_cue()
+            if request["method"] == "create_arrangement_cue_point":
+                cue = next(cue for cue in song.cue_points if float(cue.time) == time_beats)
+                cue.name = request["params"]["name"]
+            self.state_version += 1
+            result = _arrangement_cue_points(song, self.state_version)
+            if request["method"] == "create_arrangement_cue_point":
+                result["cuePoint"] = next(record for record in result["cuePoints"] if record["timeBeats"] == time_beats)
+            response = {"id": request.get("id"), "result": result}
+        except Exception as error:
+            response = {"id": request.get("id"), "error": {"message": str(error) or error.__class__.__name__}}
+        finally:
+            song.current_song_time = previous_time
+            self.deferred_request = False
+        client.sendall(encode_message(response))
