@@ -37,6 +37,18 @@ test("stdio server initializes and lists MCP resources and tools", async () => {
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_midi_clip_notes_extended"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "set_midi_note_properties"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "transform_midi_notes"), true);
+  for (const tool of messages[2].result.tools) {
+    assert.equal(tool.inputSchema.additionalProperties, false, `${tool.name} must reject unknown arguments`);
+    assert.doesNotMatch(tool.description, /^Ableton NKS operation:/, `${tool.name} needs an actionable description`);
+  }
+  for (const name of ["set_song_musical_context", "set_clip_timing", "set_device_parameters", "create_midi_clip", "set_clip_parameter_envelope", "set_midi_note_properties", "panic", "transport_play", "transport_stop", "set_tempo", "set_track_mixer", "launch_scene", "launch_clip", "stop_clip", "arm_track"]) {
+    const tool = messages[2].result.tools.find((candidate) => candidate.name === name);
+    assert.equal(tool.inputSchema.required.includes("expectedStateVersion"), true, `${name} must advertise its state guard`);
+  }
+  for (const name of ["komplete_open_instrument", "komplete_load_source_preset", "komplete_save_nks_preset", "komplete_run_conversion_batch", "komplete_pause_batch"]) {
+    const tool = messages[2].result.tools.find((candidate) => candidate.name === name);
+    assert.equal(tool.inputSchema.required.includes("expectedSessionVersion"), true, `${name} must advertise its session guard`);
+  }
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_automation_capabilities"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_track_mixer"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_track_routing"), true);

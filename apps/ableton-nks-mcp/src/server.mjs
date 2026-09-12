@@ -2,6 +2,7 @@ import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 import { ToolService } from "./tool-service.mjs";
 import { createConfiguredService } from "./runtime.mjs";
+import { toolContracts } from "./tool-contracts.mjs";
 
 const resources = [
   "nks://catalog/products",
@@ -84,11 +85,7 @@ const toolNames = [
   "komplete_run_conversion_batch",
   "komplete_pause_batch"
 ];
-const tools = toolNames.map((name) => ({
-  name,
-  description: `Ableton NKS operation: ${name}`,
-  inputSchema: { type: "object", additionalProperties: true }
-}));
+const tools = toolNames.map((name) => ({ name, ...toolContracts[name] }));
 
 function fixtureService() {
   const catalog = { search: ({ query }) => [{ id: "serum-2:fixture", name: query || "Deep" }] };
