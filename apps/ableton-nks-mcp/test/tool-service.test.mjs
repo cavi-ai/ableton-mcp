@@ -36,8 +36,8 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         stateVersion: 4, cuePoints: [{ id: "cue-0", name: "Verse", timeBeats: 16 }]
       };
       if (method === "list_devices") return { stateVersion: 4, trackId: params.trackId, devices: [
-        { id: "device-0", name: "Serum 2", className: "PluginDevice", type: "instrument" },
-        { id: "track-0:device-1", name: "EQ Eight", className: "Eq8", type: "audio_effect" }
+        { id: "device-0", name: "Serum 2", className: "PluginDevice", type: "instrument", active: true },
+        { id: "track-0:device-1", name: "EQ Eight", className: "Eq8", type: "audio_effect", active: true }
       ] };
       if (method === "list_scenes") return { stateVersion: 4, scenes: [
         { id: "scene-0", name: "Verse" }, { id: "scene-1", name: "Chorus" }
@@ -53,6 +53,8 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         stateVersion: 5, trackId: params.trackId,
         loadedItem: params.item
       };
+      if (method === "set_device_active") return { stateVersion: 5, trackId: params.trackId, device: { ...params.beforeDevice, active: params.active } };
+      if (method === "delete_device") return { stateVersion: 5, trackId: params.trackId, deletedDevice: params.beforeDevice, devices: [] };
       if (method === "list_clips") return {
         stateVersion: 4,
         trackId: params.trackId,
@@ -399,6 +401,34 @@ test("factory device context combines stable identity, knowledge, and live param
   assert.equal(context.device.className, "Eq8");
   assert.equal(context.profile.id, "eq-eight");
   assert.deepEqual(context.parameterGroups.frequency.map(({ id }) => id), ["cutoff"]);
+});
+
+test("device activation and deletion use guarded exact-identity plans", async () => {
+  const { service, calls } = fixture();
+  const base = { expectedStateVersion: 4, trackId: "track-0", deviceId: "track-0:device-1" };
+  const activeDry = await service.call("set_device_active", { ...base, active: false });
+  assert.equal(activeDry.plan.beforeDevice.name, "EQ Eight");
+  assert.equal(activeDry.plan.active, false);
+  const active = await service.call("set_device_active", {
+    ...base, active: false, dryRun: false,
+    confirmationToken: activeDry.confirmation.token, planHash: activeDry.confirmation.planHash
+  });
+  assert.equal(active.observed.device.active, false);
+  const deleteDry = await service.call("delete_device", base);
+  assert.equal(deleteDry.plan.beforeDevice.className, "Eq8");
+  const deleted = await service.call("delete_device", {
+    ...base, dryRun: false,
+    confirmationToken: deleteDry.confirmation.token, planHash: deleteDry.confirmation.planHash
+  });
+  assert.equal(deleted.observed.deletedDevice.name, "EQ Eight");
+  assert.deepEqual(calls.slice(-2).map(({ method }) => method), ["list_devices", "delete_device"]);
+});
+
+test("device lifecycle rejects unknown identities and invalid activation state", async () => {
+  const { service } = fixture();
+  const base = { expectedStateVersion: 4, trackId: "track-0" };
+  await assert.rejects(() => service.call("delete_device", { ...base, deviceId: "track-0:device-9" }), /unknown device/);
+  await assert.rejects(() => service.call("set_device_active", { ...base, deviceId: "track-0:device-1", active: "no" }), /active must be boolean/);
 });
 
 test("device hierarchy is exposed read-only for rack and drum-pad traversal", async () => {

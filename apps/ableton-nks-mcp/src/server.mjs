@@ -52,6 +52,8 @@ const toolNames = [
   "get_factory_device_context",
   "get_factory_browser_items",
   "load_factory_browser_item",
+  "set_device_active",
+  "delete_device",
   "get_device_hierarchy",
   "get_clip_parameter_envelope",
   "list_devices",

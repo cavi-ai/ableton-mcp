@@ -23,6 +23,8 @@ Read operations expose Live status, playhead and transport-recording context, so
 
 `get_factory_browser_items` traverses one exact level of Live's factory Instruments, Audio Effects, MIDI Effects, Drums, or Sounds hierarchy. `load_factory_browser_item` resolves the reviewed root/path again at execution time and loads only a unique loadable item onto the guarded target track.
 
+Device listings include active/bypassed state. `set_device_active` and `delete_device` require the exact observed device identity, current bridge state version, reviewed dry-run plan, and a single-use confirmation token.
+
 `get_device_hierarchy` traverses nested rack chains and devices and reports only loaded Drum Rack pads, with stable path-based IDs and pad-to-chain references. It is read-only and works recursively for racks inside racks.
 
 ## Artwork model

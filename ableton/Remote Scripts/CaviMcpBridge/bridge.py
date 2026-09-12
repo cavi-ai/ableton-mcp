@@ -27,6 +27,7 @@ CAPABILITIES = (
     "get_midi_clip_notes_extended", "set_midi_note_properties", "transform_midi_notes",
     "duplicate_session_object", "delete_session_object",
     "get_clip_parameter_envelope", "set_clip_parameter_envelope", "list_devices", "get_device_hierarchy",
+    "set_device_active", "delete_device",
     "list_device_parameters", "set_device_parameters", "create_midi_clip", "transport_play", "transport_stop",
     "set_tempo", "set_track_mixer", "arm_track", "launch_scene", "launch_clip",
     "stop_clip", "panic",
@@ -246,7 +247,8 @@ def _device_record(device, device_id):
     return {
         "id": device_id, "name": device.name,
         "className": device.class_name, "classDisplayName": device.class_display_name,
-        "type": _device_type(device), "canHaveChains": bool(device.can_have_chains),
+        "type": _device_type(device), "active": bool(device.is_active),
+        "canHaveChains": bool(device.can_have_chains),
         "canHaveDrumPads": bool(device.can_have_drum_pads),
     }
 
@@ -614,6 +616,24 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "list_devices":
         index, track = _track(song, params["trackId"])
         return {"stateVersion": state_version, "trackId": params["trackId"], "devices": [_device_record(device, f"track-{index}:device-{i}") for i, device in enumerate(track.devices)]}
+    if method in ("set_device_active", "delete_device"):
+        track, index, device = _device(song, params["trackId"], params["deviceId"])
+        before = params["beforeDevice"]
+        if device.name != before["name"] or device.class_name != before["className"]:
+            raise ValueError("device identity changed")
+        deleted = _device_record(device, params["deviceId"])
+        if method == "set_device_active":
+            device.is_active = bool(params["active"])
+            return {
+                "stateVersion": state_version + 1, "trackId": params["trackId"],
+                "device": _device_record(device, params["deviceId"]),
+            }
+        track.delete_device(index)
+        return {
+            "stateVersion": state_version + 1, "trackId": params["trackId"],
+            "deletedDevice": deleted,
+            "devices": [_device_record(item, f"track-{int(params['trackId'].removeprefix('track-'))}:device-{i}") for i, item in enumerate(track.devices)],
+        }
     if method == "get_device_hierarchy":
         _, _, device = _device(song, params["trackId"], params["deviceId"])
         return {

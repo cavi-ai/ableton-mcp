@@ -43,6 +43,7 @@ class Device:
         self.class_name = "PluginDevice"
         self.class_display_name = "Plug-in"
         self.type = 1
+        self.is_active = True
         self.can_have_chains = False
         self.can_have_drum_pads = False
         self.parameters = [Parameter(), QuantizedParameter()]
@@ -113,6 +114,9 @@ class Track:
         destination.has_clip = True
         destination.clip = Clip()
         destination.clip.name = source.clip.name
+
+    def delete_device(self, index):
+        self.devices.pop(index)
 
 
 class Clip:
@@ -445,6 +449,20 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(application.loaded[0].name, "Drift")
         self.assertEqual(loaded["stateVersion"], 4)
 
+    def test_device_lifecycle_reports_active_state_and_checks_exact_identity(self):
+        song = Song()
+        listed = dispatch_request(song, {"method": "list_devices", "params": {"trackId": "track-0"}}, 3)
+        device = listed["devices"][0]
+        self.assertTrue(device["active"])
+        changed = dispatch_request(song, {"method": "set_device_active", "params": {
+            "trackId": "track-0", "deviceId": device["id"], "beforeDevice": device, "active": False,
+        }}, 3)
+        self.assertFalse(changed["device"]["active"])
+        deleted = dispatch_request(song, {"method": "delete_device", "params": {
+            "trackId": "track-0", "deviceId": device["id"], "beforeDevice": {**device, "active": False},
+        }}, 4)
+        self.assertEqual(deleted["devices"], [])
+
     def test_song_musical_context_reads_and_writes_timing_key_groove_and_loop(self):
         song = Song()
         observed = dispatch_request(song, {"method": "get_song_musical_context"}, 3)
@@ -523,7 +541,7 @@ class DispatchTest(unittest.TestCase):
 
         self.assertEqual(result["devices"][0], {
             "id": "track-0:device-0", "name": "Serum 2", "className": "PluginDevice",
-            "classDisplayName": "Plug-in", "type": "instrument",
+            "classDisplayName": "Plug-in", "type": "instrument", "active": True,
             "canHaveChains": False, "canHaveDrumPads": False,
         })
 

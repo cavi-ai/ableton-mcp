@@ -287,6 +287,7 @@ export class ToolService {
     }[name];
     if (kompleteMethod) return this.#kompleteMutation(kompleteMethod, args);
     if (name === "set_device_parameters") return this.#setDeviceParameters(args);
+    if (name === "set_device_active" || name === "delete_device") return this.#deviceLifecycle(name, args);
     if (name === "set_song_musical_context") return this.#setSongMusicalContext(args);
     if (name === "set_transport_recording_context") return this.#setTransportRecordingContext(args);
     if (["create_arrangement_cue_point", "rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point"].includes(name)) {
@@ -393,6 +394,21 @@ export class ToolService {
       timestamp: new Date().toISOString(),
       rollback: "Recall the prior macro snapshot or restore the previous parameter values."
     };
+  }
+
+  async #deviceLifecycle(method, args) {
+    requireExpectedState(args);
+    if (method === "set_device_active" && typeof args.active !== "boolean") throw new Error("active must be boolean");
+    const observed = await this.bridge.request("list_devices", { trackId: args.trackId });
+    assertExpectedState({ expectedStateVersion: args.expectedStateVersion, trackId: args.trackId }, observed);
+    const device = observed.devices.find(({ id }) => id === args.deviceId);
+    if (!device) throw new Error(`unknown device ${args.deviceId}`);
+    const plan = {
+      method, trackId: args.trackId, deviceId: args.deviceId,
+      expectedStateVersion: args.expectedStateVersion, beforeDevice: device
+    };
+    if (method === "set_device_active") plan.active = args.active;
+    return this.#confirmedMutation(plan, args);
   }
 
   async #setSongMusicalContext(args) {
