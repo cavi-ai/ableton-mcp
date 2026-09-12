@@ -95,6 +95,9 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
       if (method === "set_midi_note_properties") return {
         stateVersion: 5, trackId: params.trackId, clipId: params.clipId, notes: params.changes
       };
+      if (["create_track", "create_scene", "rename_session_object"].includes(method)) {
+        return { stateVersion: 5, method, ...params };
+      }
       if (method === "transform_midi_notes") return {
         stateVersion: 5, trackId: params.trackId, clipId: params.clipId,
         notes: [...(params.changes || []), ...(params.newNotes || [])]
@@ -200,6 +203,39 @@ test("scene and clip inspection are exposed as read-only tools and resources", a
   assert.equal((await service.call("list_clips", { trackId: "track-0" })).clips[0].name, "Loop");
   assert.equal((await service.readResource("ableton://set/scenes")).scenes[0].name, "Verse");
   assert.equal((await service.readResource("ableton://track/track-0/clips")).clips[0].name, "Loop");
+});
+
+test("track and scene creation sign explicit insertion context", async () => {
+  const { service } = fixture();
+  const track = await service.call("create_track", {
+    expectedStateVersion: 4, type: "midi", index: 1, name: "Bass"
+  });
+  assert.deepEqual(track.plan, {
+    method: "create_track", expectedStateVersion: 4, type: "midi", index: 1, name: "Bass",
+    before: { count: 1, previous: { id: "track-0", name: "Synth" }, next: null }
+  });
+  const scene = await service.call("create_scene", {
+    expectedStateVersion: 4, index: 0, name: "Intro"
+  });
+  assert.deepEqual(scene.plan.before, {
+    count: 1, previous: null, next: { id: "scene-0", name: "Verse" }
+  });
+});
+
+test("session object rename resolves the exact current identity", async () => {
+  const { service } = fixture();
+  const dry = await service.call("rename_session_object", {
+    expectedStateVersion: 4, targetType: "clip", trackId: "track-0",
+    targetId: "track-0:clip-0", name: "Hook"
+  });
+  assert.deepEqual(dry.plan.target, {
+    targetType: "clip", trackId: "track-0", targetId: "track-0:clip-0",
+    previousName: "Loop", name: "Hook"
+  });
+  await assert.rejects(() => service.call("rename_session_object", {
+    expectedStateVersion: 4, targetType: "clip", trackId: "track-0",
+    targetId: "track-0:clip-1", name: "Empty"
+  }), /empty clip slot/);
 });
 
 test("MIDI note inspection returns exact clip contents without mutation", async () => {

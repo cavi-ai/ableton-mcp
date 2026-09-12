@@ -38,6 +38,16 @@ function finiteRange(value, field, min, max) {
   return number;
 }
 
+function sessionName(value) {
+  if (typeof value !== "string" || !value.trim()) throw new Error("name must be a non-empty string");
+  if (value.length > 255) throw new Error("name must be 255 characters or fewer");
+  return value.trim();
+}
+
+function insertionContext(items, index) {
+  return { count: items.length, previous: index > 0 ? items[index - 1] : null, next: items[index] || null };
+}
+
 function targetDisplayValue(parameter, value) {
   if (!parameter.quantized || !Array.isArray(parameter.valueItems)) return null;
   const index = Math.round(value - parameter.min);
@@ -259,6 +269,9 @@ export class ToolService {
     if (name === "set_device_parameters") return this.#setDeviceParameters(args);
     if (name === "set_song_musical_context") return this.#setSongMusicalContext(args);
     if (name === "set_clip_timing") return this.#setClipTiming(args);
+    if (name === "create_track") return this.#createTrack(args);
+    if (name === "create_scene") return this.#createScene(args);
+    if (name === "rename_session_object") return this.#renameSessionObject(args);
     if (name === "create_midi_clip") return this.#createMidiClip(args);
     if (name === "set_clip_parameter_envelope") return this.#setClipParameterEnvelope(args);
     if (name === "set_midi_note_properties") return this.#setMidiNoteProperties(args);
@@ -446,6 +459,58 @@ export class ToolService {
     this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
     const observed = await this.bridge.request(plan.method, plan);
     return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString() };
+  }
+
+  async #createTrack(args) {
+    requireExpectedState(args);
+    if (!["midi", "audio"].includes(args.type)) throw new Error("type must be midi or audio");
+    const observed = await this.bridge.request("list_tracks", {});
+    assertExpectedState(args, observed);
+    const index = args.index === undefined ? observed.tracks.length : Number(args.index);
+    if (!Number.isInteger(index) || index < 0 || index > observed.tracks.length) throw new Error("index is outside the track insertion range");
+    return this.#confirmedMutation({
+      method: "create_track", expectedStateVersion: args.expectedStateVersion,
+      type: args.type, index, name: sessionName(args.name), before: insertionContext(observed.tracks, index)
+    }, args);
+  }
+
+  async #createScene(args) {
+    requireExpectedState(args);
+    const observed = await this.bridge.request("list_scenes", {});
+    assertExpectedState(args, observed);
+    const index = args.index === undefined ? observed.scenes.length : Number(args.index);
+    if (!Number.isInteger(index) || index < 0 || index > observed.scenes.length) throw new Error("index is outside the scene insertion range");
+    return this.#confirmedMutation({
+      method: "create_scene", expectedStateVersion: args.expectedStateVersion,
+      index, name: sessionName(args.name), before: insertionContext(observed.scenes, index)
+    }, args);
+  }
+
+  async #renameSessionObject(args) {
+    requireExpectedState(args);
+    const name = sessionName(args.name);
+    if (args.targetType === "clip") {
+      const observed = await this.bridge.request("list_clips", { trackId: args.trackId });
+      assertExpectedState(args, observed);
+      const clip = observed.clips.find(({ id }) => id === args.targetId);
+      if (!clip) throw new Error(`unknown clip slot ${args.targetId}`);
+      if (!clip.hasClip) throw new Error(`empty clip slot ${args.targetId}`);
+      return this.#confirmedMutation({
+        method: "rename_session_object", expectedStateVersion: args.expectedStateVersion,
+        target: { targetType: "clip", trackId: args.trackId, targetId: args.targetId, previousName: clip.name, name }
+      }, args);
+    }
+    if (!["track", "scene"].includes(args.targetType)) throw new Error("targetType must be track, scene, or clip");
+    const observed = args.targetType === "track" ? await this.bridge.request("list_tracks", {})
+      : await this.bridge.request("list_scenes", {});
+    assertExpectedState(args, observed);
+    const items = args.targetType === "track" ? observed.tracks : observed.scenes;
+    const target = items.find(({ id }) => id === args.targetId);
+    if (!target) throw new Error(`unknown ${args.targetType} ${args.targetId}`);
+    return this.#confirmedMutation({
+      method: "rename_session_object", expectedStateVersion: args.expectedStateVersion,
+      target: { targetType: args.targetType, targetId: args.targetId, previousName: target.name, name }
+    }, args);
   }
 
   async #createMidiClip(args) {
