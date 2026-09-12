@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ToolService } from "../src/tool-service.mjs";
 
-function fixture() {
+function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 1, velocity: 100,
+  velocityDeviation: 0, releaseVelocity: 64, probability: 1, mute: false }] } = {}) {
   const calls = [];
   const kompleteCalls = [];
   const bridge = {
@@ -89,8 +90,7 @@ function fixture() {
       };
       if (method === "get_midi_clip_notes_extended") return {
         stateVersion: 4, trackId: params.trackId, clipId: params.clipId, lengthBeats: 4,
-        notes: [{ noteId: 7, pitch: 60, start: 0, duration: 1, velocity: 100,
-          velocityDeviation: 0, releaseVelocity: 64, probability: 1, mute: false }]
+        notes: extendedNotes
       };
       if (method === "set_midi_note_properties") return {
         stateVersion: 5, trackId: params.trackId, clipId: params.clipId, notes: params.changes
@@ -98,6 +98,10 @@ function fixture() {
       if (["create_track", "create_scene", "rename_session_object"].includes(method)) {
         return { stateVersion: 5, method, ...params };
       }
+      if (method === "transform_midi_notes") return {
+        stateVersion: 5, trackId: params.trackId, clipId: params.clipId,
+        notes: [...(params.changes || []), ...(params.newNotes || [])]
+      };
       if (method === "get_clip_parameter_envelope") return {
         stateVersion: 4,
         trackId: params.trackId,
@@ -392,6 +396,60 @@ test("per-note mutation rejects unknown IDs, invalid ranges, and unsupported MPE
   await assert.rejects(() => service.call("set_midi_note_properties", {
     ...base, changes: [{ noteId: 7, pitchBend: 0.5 }]
   }), /unsupported per-note properties: pitchBend/);
+});
+
+test("MIDI note transforms sign hand-derived quantize and legato changes", async () => {
+  const { service, calls } = fixture({ extendedNotes: [
+    { noteId: 7, pitch: 60, start: 0.1, duration: 0.6, velocity: 100,
+      velocityDeviation: 0, releaseVelocity: 64, probability: 1, mute: false }
+  ] });
+  const quantize = await service.call("transform_midi_notes", {
+    trackId: "track-0", clipId: "track-0:clip-0", expectedStateVersion: 4,
+    noteIds: [7], operation: { type: "quantize", gridBeats: 0.25, strength: 0.5, quantizeDuration: true }
+  });
+  assert.deepEqual(quantize.plan.changes, [{
+    noteId: 7,
+    previous: { noteId: 7, pitch: 60, start: 0.1, duration: 0.6, velocity: 100,
+      velocityDeviation: 0, releaseVelocity: 64, probability: 1, mute: false },
+    start: 0.05, duration: 0.55
+  }]);
+  assert.equal(calls.at(-1).method, "get_midi_clip_notes_extended");
+
+  const { service: legatoService } = fixture({ extendedNotes: [
+    { noteId: 7, pitch: 60, start: 0, duration: 0.25, velocity: 100,
+      velocityDeviation: 0, releaseVelocity: 64, probability: 1, mute: false },
+    { noteId: 8, pitch: 64, start: 0, duration: 0.5, velocity: 90,
+      velocityDeviation: 3, releaseVelocity: 70, probability: 0.8, mute: false },
+    { noteId: 9, pitch: 67, start: 1.5, duration: 0.5, velocity: 80,
+      velocityDeviation: 0, releaseVelocity: 64, probability: 1, mute: false }
+  ] });
+  const legato = await legatoService.call("transform_midi_notes", {
+    trackId: "track-0", clipId: "track-0:clip-0", expectedStateVersion: 4,
+    noteIds: [7, 8, 9], operation: { type: "legato", gapBeats: 0.1 }
+  });
+  assert.deepEqual(legato.plan.changes.map(({ noteId, duration }) => ({ noteId, duration })), [
+    { noteId: 7, duration: 1.4 }, { noteId: 8, duration: 1.4 }
+  ]);
+});
+
+test("MIDI duplication retains expression fields and rejects collisions or overflow", async () => {
+  const { service } = fixture();
+  const dry = await service.call("transform_midi_notes", {
+    trackId: "track-0", clipId: "track-0:clip-0", expectedStateVersion: 4,
+    noteIds: [7], operation: { type: "duplicate", offsetBeats: 2, repeats: 1 }
+  });
+  assert.deepEqual(dry.plan.newNotes, [{
+    sourceNoteId: 7, pitch: 60, start: 2, duration: 1, velocity: 100,
+    velocityDeviation: 0, releaseVelocity: 64, probability: 1, mute: false
+  }]);
+  await assert.rejects(() => service.call("transform_midi_notes", {
+    trackId: "track-0", clipId: "track-0:clip-0", expectedStateVersion: 4,
+    noteIds: [7], operation: { type: "duplicate", offsetBeats: 4, repeats: 1 }
+  }), /beyond clip length/);
+  await assert.rejects(() => service.call("transform_midi_notes", {
+    trackId: "track-0", clipId: "track-0:clip-0", expectedStateVersion: 4,
+    noteIds: [7, 7], operation: { type: "quantize", gridBeats: 0.25 }
+  }), /duplicate noteId/);
 });
 
 test("clip parameter envelope inspection is read-only and returns sampled values", async () => {

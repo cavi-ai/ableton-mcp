@@ -5,6 +5,11 @@ import socket
 import threading
 
 try:
+    import Live
+except ImportError:
+    Live = None
+
+try:
     from .protocol import decode_lines, encode_message
 except ImportError:
     from protocol import decode_lines, encode_message
@@ -15,7 +20,7 @@ CAPABILITIES = (
     "list_tracks", "list_scenes", "list_clips", "get_clip_timing", "set_clip_timing",
     "get_track_mixer", "get_midi_clip_notes",
     "create_track", "create_scene", "rename_session_object",
-    "get_midi_clip_notes_extended", "set_midi_note_properties",
+    "get_midi_clip_notes_extended", "set_midi_note_properties", "transform_midi_notes",
     "get_clip_parameter_envelope", "set_clip_parameter_envelope", "list_devices", "get_device_hierarchy",
     "list_device_parameters", "set_device_parameters", "create_midi_clip", "transport_play", "transport_stop",
     "set_tempo", "set_track_mixer", "arm_track", "launch_scene", "launch_clip",
@@ -154,6 +159,17 @@ def _midi_note_record(note):
         "velocityDeviation": int(note.velocity_deviation), "releaseVelocity": int(note.release_velocity),
         "probability": float(note.probability), "mute": bool(note.mute),
     }
+
+
+def _new_midi_note(spec):
+    if Live is None:
+        return spec
+    return Live.Clip.MidiNoteSpecification(
+        pitch=int(spec["pitch"]), start_time=float(spec["start"]), duration=float(spec["duration"]),
+        velocity=int(spec["velocity"]), velocity_deviation=int(spec["velocityDeviation"]),
+        release_velocity=int(spec["releaseVelocity"]), probability=float(spec["probability"]),
+        mute=bool(spec["mute"]),
+    )
 
 
 def _send_records(song, track):
@@ -323,16 +339,16 @@ def dispatch_request(song, request, state_version):
                 "velocity": int(note[3]), "mute": bool(note[4]),
             } for note in notes],
         }
-    if method in ("get_midi_clip_notes_extended", "set_midi_note_properties"):
+    if method in ("get_midi_clip_notes_extended", "set_midi_note_properties", "transform_midi_notes"):
         _, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
         if not slot.has_clip:
             raise ValueError("clip slot is empty")
         clip = slot.clip
         if hasattr(clip, "is_midi_clip") and not clip.is_midi_clip:
             raise ValueError("clip is not a MIDI clip")
-        if method == "set_midi_note_properties":
+        if method in ("set_midi_note_properties", "transform_midi_notes"):
             note_ids = [int(change["noteId"]) for change in params["changes"]]
-            notes = clip.get_notes_by_id(note_ids)
+            notes = clip.get_notes_by_id(note_ids) if note_ids else []
             by_id = {int(note.note_id): note for note in notes}
             if len(by_id) != len(set(note_ids)):
                 raise ValueError("one or more note IDs no longer exist")
@@ -346,15 +362,26 @@ def dispatch_request(song, request, state_version):
                 for source, target in fields.items():
                     if source in change:
                         setattr(note, target, change[source])
-            clip.apply_note_modifications(notes)
-            notes = clip.get_notes_by_id(note_ids)
+            if notes:
+                clip.apply_note_modifications(notes)
+            added_note_ids = []
+            if method == "transform_midi_notes" and params.get("newNotes"):
+                added_note_ids = list(clip.add_new_notes(tuple(
+                    _new_midi_note(note) for note in params["newNotes"]
+                )))
+            notes = (list(clip.get_all_notes_extended()) if method == "transform_midi_notes"
+                     else list(clip.get_notes_by_id(note_ids)))
         else:
             notes = list(clip.get_all_notes_extended())
-        return {
-            "stateVersion": state_version + (1 if method == "set_midi_note_properties" else 0),
+            added_note_ids = []
+        result = {
+            "stateVersion": state_version + (1 if method != "get_midi_clip_notes_extended" else 0),
             "trackId": params["trackId"], "clipId": params["clipId"],
             "lengthBeats": float(clip.length), "notes": [_midi_note_record(note) for note in notes],
         }
+        if method == "transform_midi_notes":
+            result["addedNoteIds"] = added_note_ids
+        return result
     if method in ("get_clip_parameter_envelope", "set_clip_parameter_envelope"):
         _, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
         if not slot.has_clip:
