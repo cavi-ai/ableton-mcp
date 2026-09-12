@@ -29,6 +29,7 @@ const toolNames = [
   "get_track_mixer",
   "list_factory_device_profiles",
   "get_factory_device_context",
+  "get_device_hierarchy",
   "get_clip_parameter_envelope",
   "list_devices",
   "list_device_parameters",

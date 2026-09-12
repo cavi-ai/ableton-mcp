@@ -47,6 +47,13 @@ function fixture() {
         pan: { value: 0, min: -1, max: 1 }, mute: false, solo: false,
         sends: [{ id: "send-0", returnTrackId: "return-0", name: "Reverb", value: 0.2, min: 0, max: 1 }]
       };
+      if (method === "get_device_hierarchy") return {
+        stateVersion: 4, trackId: params.trackId, device: {
+          id: params.deviceId, name: "Drum Rack", className: "InstrumentGroupDevice",
+          classDisplayName: "Drum Rack", type: "instrument", canHaveChains: true,
+          canHaveDrumPads: true, chains: [], drumPads: []
+        }
+      };
       if (method === "set_track_mixer") return {
         stateVersion: 5, trackId: params.trackId, volume: 0, pan: 0, mute: true, solo: false,
         sends: [{ id: "send-0", returnTrackId: "return-0", name: "Reverb", value: 1 }]
@@ -216,6 +223,15 @@ test("factory device context combines stable identity, knowledge, and live param
   assert.equal(context.device.className, "Eq8");
   assert.equal(context.profile.id, "eq-eight");
   assert.deepEqual(context.parameterGroups.frequency.map(({ id }) => id), ["cutoff"]);
+});
+
+test("device hierarchy is exposed read-only for rack and drum-pad traversal", async () => {
+  const { service } = fixture();
+  const hierarchy = await service.call("get_device_hierarchy", {
+    trackId: "track-0", deviceId: "track-0:device-0"
+  });
+  assert.equal(hierarchy.device.className, "InstrumentGroupDevice");
+  assert.deepEqual(hierarchy.device.chains, []);
 });
 
 test("track mixer mutation signs before-and-after context and clamps values", async () => {

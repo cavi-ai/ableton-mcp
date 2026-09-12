@@ -141,6 +141,7 @@ export class ToolService {
     };
     if (name === "get_clip_parameter_envelope") return this.bridge.request("get_clip_parameter_envelope", args);
     if (name === "list_devices") return this.bridge.request("list_devices", args);
+    if (name === "get_device_hierarchy") return this.bridge.request("get_device_hierarchy", args);
     if (name === "list_device_parameters") {
       return this.bridge.request("list_device_parameters", args);
     }
