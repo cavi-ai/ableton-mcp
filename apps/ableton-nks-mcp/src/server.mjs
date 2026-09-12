@@ -54,6 +54,7 @@ const toolNames = [
   "set_audio_clip_state",
   "duplicate_clip",
   "delete_clip",
+  "duplicate_clip_loop",
   "get_automation_capabilities",
   "get_track_mixer",
   "get_track_routing",

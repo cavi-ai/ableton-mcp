@@ -306,6 +306,7 @@ export class ToolService {
     if (name === "set_audio_clip_state") return this.#setAudioClipState(args);
     if (name === "duplicate_clip") return this.#duplicateClip(args);
     if (name === "delete_clip") return this.#deleteClip(args);
+    if (name === "duplicate_clip_loop") return this.#duplicateClipLoop(args);
     if (name === "create_midi_clip") return this.#createMidiClip(args);
     if (name === "set_clip_parameter_envelope") return this.#setClipParameterEnvelope(args);
     if (name === "set_midi_note_properties") return this.#setMidiNoteProperties(args);
@@ -655,6 +656,17 @@ export class ToolService {
     return this.#confirmedMutation({
       method: "delete_clip", trackId: args.trackId, clipId: clip.id,
       expectedStateVersion: args.expectedStateVersion, before: clip
+    }, args);
+  }
+
+  async #duplicateClipLoop(args) {
+    requireExpectedState(args);
+    const observed = await this.bridge.request("get_clip_timing", { trackId: args.trackId, clipId: args.clipId });
+    assertExpectedState(args, observed);
+    if (!observed.loop.enabled) throw new Error("clip looping must be enabled before duplicating its loop");
+    return this.#confirmedMutation({
+      method: "duplicate_clip_loop", trackId: args.trackId, clipId: args.clipId,
+      expectedStateVersion: args.expectedStateVersion, before: observed
     }, args);
   }
 

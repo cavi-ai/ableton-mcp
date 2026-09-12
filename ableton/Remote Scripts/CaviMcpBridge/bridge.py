@@ -22,7 +22,7 @@ CAPABILITIES = (
     "list_arrangement_cue_points", "create_arrangement_cue_point", "rename_arrangement_cue_point",
     "delete_arrangement_cue_point", "jump_to_arrangement_cue_point",
     "get_factory_browser_items", "load_factory_browser_item",
-    "list_tracks", "list_scenes", "list_clips", "get_clip_timing", "set_clip_timing",
+    "list_tracks", "list_scenes", "list_clips", "get_clip_timing", "set_clip_timing", "duplicate_clip_loop",
     "duplicate_clip", "delete_clip",
     "get_audio_clip_state", "set_audio_clip_state",
     "get_track_mixer", "get_track_routing", "set_track_routing", "get_midi_clip_notes",
@@ -658,6 +658,15 @@ def dispatch_request(song, request, state_version, application=None):
         if "grooveId" in changes:
             clip.groove = _grooves(song)[int(changes["grooveId"].removeprefix("groove-"))]
         return _clip_timing(song, params["trackId"], params["clipId"], state_version + 1)
+    if method == "duplicate_clip_loop":
+        track_id, clip_id = params["trackId"], params["clipId"]
+        _, _, slot = _clip_slot(song, track_id, clip_id)
+        if not slot.has_clip:
+            raise ValueError("clip slot is empty")
+        if not slot.clip.looping:
+            raise ValueError("clip looping must be enabled")
+        slot.clip.duplicate_loop()
+        return _clip_timing(song, track_id, clip_id, state_version + 1)
     if method == "get_midi_clip_notes":
         _, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
         if not slot.has_clip:

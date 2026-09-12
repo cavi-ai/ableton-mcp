@@ -206,7 +206,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         replaced: true,
         samples: params.points.map(({ time, value }) => ({ time, value }))
       };
-      if (["transport_play", "transport_stop", "set_tempo", "set_transport_context", "set_song_musical_context", "set_transport_recording_context", "create_arrangement_cue_point", "rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point", "set_clip_timing", "set_track_mixer", "launch_scene", "launch_clip", "stop_clip", "arm_track"].includes(method)) {
+      if (["transport_play", "transport_stop", "set_tempo", "set_transport_context", "set_song_musical_context", "set_transport_recording_context", "create_arrangement_cue_point", "rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point", "set_clip_timing", "duplicate_clip_loop", "set_track_mixer", "launch_scene", "launch_clip", "stop_clip", "arm_track"].includes(method)) {
         return { stateVersion: 5, method, ...params };
       }
       throw new Error(`unexpected method ${method}`);
@@ -552,6 +552,16 @@ test("clip timing mutation rejects invalid loops and signs groove assignment", a
   assert.equal(dry.dryRun, true);
   assert.equal(dry.plan.changes.launchQuantization, 12);
   assert.equal(dry.plan.changes.grooveId, "groove-0");
+});
+
+test("clip loop duplication signs exact timing and executes once", async () => {
+  const { service, calls } = fixture();
+  const args = { expectedStateVersion: 4, trackId: "track-0", clipId: "track-0:clip-0" };
+  const dry = await service.call("duplicate_clip_loop", args);
+  assert.equal(dry.plan.before.loop.endBeats, 4);
+  const live = await service.call("duplicate_clip_loop", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(live.dryRun, false);
+  assert.equal(calls.at(-1).method, "duplicate_clip_loop");
 });
 
 test("track mixer mutation signs before-and-after context and clamps values", async () => {

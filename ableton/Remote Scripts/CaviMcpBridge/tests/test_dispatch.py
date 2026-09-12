@@ -179,6 +179,10 @@ class Clip:
     def clear_envelope(self, parameter):
         self.envelopes.pop(id(parameter), None)
 
+    def duplicate_loop(self):
+        self.loop_end += self.loop_end - self.loop_start
+        self.length = max(self.length, self.loop_end)
+
 
 class AudioClip(Clip):
     def __init__(self):
@@ -550,6 +554,14 @@ class DispatchTest(unittest.TestCase):
             "trackId": "track-0", "clipId": "track-0:clip-1"
         }}, 4)
         self.assertFalse(deleted["clips"][1]["hasClip"])
+
+    def test_duplicate_clip_loop_doubles_loop_region_and_returns_timing(self):
+        song = Song()
+        result = dispatch_request(song, {"method": "duplicate_clip_loop", "params": {
+            "trackId": "track-0", "clipId": "track-0:clip-0"
+        }}, 3)
+        self.assertEqual(result["stateVersion"], 4)
+        self.assertEqual(result["loop"], {"enabled": True, "startBeats": 0.0, "endBeats": 8.0})
 
     def test_song_musical_context_reads_and_writes_timing_key_groove_and_loop(self):
         song = Song()
