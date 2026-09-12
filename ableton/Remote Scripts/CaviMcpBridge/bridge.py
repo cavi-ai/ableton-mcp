@@ -21,7 +21,7 @@ CAPABILITIES = (
     "get_transport_recording_context", "set_transport_recording_context",
     "list_arrangement_cue_points", "create_arrangement_cue_point", "rename_arrangement_cue_point",
     "delete_arrangement_cue_point", "jump_to_arrangement_cue_point",
-    "get_factory_browser_items", "load_factory_browser_item",
+    "get_browser_items", "load_browser_item", "get_factory_browser_items", "load_factory_browser_item",
     "list_tracks", "list_scenes", "list_clips", "get_clip_timing", "set_clip_timing", "duplicate_clip_loop",
     "duplicate_clip", "delete_clip",
     "get_audio_clip_state", "set_audio_clip_state",
@@ -346,18 +346,21 @@ def _browser_item_record(item):
     }
 
 
-def _factory_browser_item(application, root, path):
+def _browser_item(application, root, path):
     roots = {
-        "instruments": "instruments", "audio_effects": "audio_effects",
-        "midi_effects": "midi_effects", "drums": "drums", "sounds": "sounds",
+        name: name for name in (
+            "audio_effects", "clips", "current_project", "drums", "hotswap_target", "instruments",
+            "legacy_libraries", "max_for_live", "midi_effects", "packs", "plugins", "samples", "sounds",
+            "user_folders", "user_library",
+        )
     }
     if root not in roots:
-        raise ValueError("unknown factory browser root")
+        raise ValueError("unknown Live browser root")
     item = getattr(application.browser, roots[root])
     for name in path:
         matches = [child for child in item.children if child.name == name]
         if len(matches) != 1:
-            raise ValueError("factory browser path is missing or ambiguous")
+            raise ValueError("Live browser path is missing or ambiguous")
         item = matches[0]
     return item
 
@@ -503,17 +506,17 @@ def dispatch_request(song, request, state_version, application=None):
             track.current_output_routing = selected
             routes.append(_track_routing(song, route_change["trackId"], state_version + 1))
         return {"stateVersion": state_version + 1, "busTrackId": params["busTrackId"], "routes": routes}
-    if method == "get_factory_browser_items":
-        item = _factory_browser_item(application, params["root"], params.get("path", []))
+    if method in ("get_browser_items", "get_factory_browser_items"):
+        item = _browser_item(application, params["root"], params.get("path", []))
         return {
             "stateVersion": state_version, "root": params["root"], "path": params.get("path", []),
             "item": _browser_item_record(item),
             "children": [_browser_item_record(child) for child in item.children],
         }
-    if method == "load_factory_browser_item":
-        item = _factory_browser_item(application, params["root"], params["path"])
+    if method in ("load_browser_item", "load_factory_browser_item"):
+        item = _browser_item(application, params["root"], params["path"])
         if not item.is_loadable:
-            raise ValueError("factory browser item is not loadable")
+            raise ValueError("Live browser item is not loadable")
         _, track = _track(song, params["trackId"])
         previous_track = song.view.selected_track
         try:

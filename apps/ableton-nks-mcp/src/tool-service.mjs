@@ -204,10 +204,14 @@ const unavailableKomplete = {
   }
 };
 
-const FACTORY_BROWSER_ROOTS = new Set(["instruments", "audio_effects", "midi_effects", "drums", "sounds"]);
+const BROWSER_ROOTS = new Set([
+  "audio_effects", "clips", "current_project", "drums", "hotswap_target", "instruments",
+  "legacy_libraries", "max_for_live", "midi_effects", "packs", "plugins", "samples", "sounds",
+  "user_folders", "user_library"
+]);
 
 function normalizeBrowserPath(args) {
-  if (!FACTORY_BROWSER_ROOTS.has(args.root)) throw new Error(`unknown factory browser root ${args.root}`);
+  if (!BROWSER_ROOTS.has(args.root)) throw new Error(`unknown Live browser root ${args.root}`);
   if (args.path !== undefined && !Array.isArray(args.path)) throw new Error("path must be an array");
   const path = args.path || [];
   if (path.some((part) => typeof part !== "string" || !part.trim())) throw new Error("path entries must be non-empty strings");
@@ -242,7 +246,9 @@ export class ToolService {
     if (name === "get_track_routing") return this.bridge.request("get_track_routing", args);
     if (name === "get_set_mixer") return this.bridge.request("get_set_mixer", {});
     if (name === "list_factory_device_profiles") return { profiles: listFactoryDeviceProfiles() };
-    if (name === "get_factory_browser_items") return this.bridge.request("get_factory_browser_items", normalizeBrowserPath(args));
+    if (name === "get_browser_items" || name === "get_factory_browser_items") {
+      return this.bridge.request(name, normalizeBrowserPath(args));
+    }
     if (name === "get_factory_device_context") {
       const devices = await this.bridge.request("list_devices", { trackId: args.trackId });
       const device = devices.devices.find(({ id }) => id === args.deviceId);
@@ -316,7 +322,7 @@ export class ToolService {
     if (name === "set_track_routing") return this.#setTrackRouting(args);
     if (name === "set_group_fold_state") return this.#setGroupFoldState(args);
     if (name === "route_tracks_to_bus") return this.#routeTracksToBus(args);
-    if (name === "load_factory_browser_item") return this.#loadFactoryBrowserItem(args);
+    if (name === "load_browser_item" || name === "load_factory_browser_item") return this.#loadBrowserItem(name, args);
     if (name === "set_master_mixer" || name === "set_return_mixer") return this.#setBusMixer(name, args);
     if (name === "undo" || name === "redo") return this.#historyMutation(name, args);
     if ([
@@ -1061,16 +1067,17 @@ export class ToolService {
     }, args);
   }
 
-  async #loadFactoryBrowserItem(args) {
+  async #loadBrowserItem(method, args) {
     requireExpectedState(args);
     const browserPath = normalizeBrowserPath(args);
-    if (!browserPath.path.length) throw new Error("factory browser item is not loadable");
+    if (!browserPath.path.length) throw new Error("Live browser item is not loadable");
     const observed = await this.bridge.request("list_devices", { trackId: args.trackId });
     assertExpectedState(args, observed);
-    const listing = await this.bridge.request("get_factory_browser_items", browserPath);
-    if (!listing.item.loadable) throw new Error(`factory browser item ${listing.item.name} is not loadable`);
+    const listMethod = method === "load_browser_item" ? "get_browser_items" : "get_factory_browser_items";
+    const listing = await this.bridge.request(listMethod, browserPath);
+    if (!listing.item.loadable) throw new Error(`Live browser item ${listing.item.name} is not loadable`);
     return this.#confirmedMutation({
-      method: "load_factory_browser_item", trackId: args.trackId,
+      method, trackId: args.trackId,
       expectedStateVersion: args.expectedStateVersion,
       root: browserPath.root, path: browserPath.path, item: listing.item,
       before: observed

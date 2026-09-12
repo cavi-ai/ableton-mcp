@@ -404,6 +404,8 @@ class Application:
         drift = BrowserItem("Drift", "query:Drift", True)
         self.browser = type("Browser", (), {
             "instruments": BrowserItem("Instruments", "query:instruments", children=(drift,)),
+            "plugins": BrowserItem("Plug-ins", "query:plugins", children=(drift,)),
+            "user_library": BrowserItem("User Library", "query:user-library", children=(drift,)),
             "load_item": self.loaded.append,
         })()
 
@@ -543,6 +545,19 @@ class DispatchTest(unittest.TestCase):
         })
         loaded = dispatch_request(song, {"method": "load_factory_browser_item", "params": {
             "root": "instruments", "path": ["Drift"], "trackId": "track-0",
+        }}, 3, application)
+        self.assertEqual(application.loaded[0].name, "Drift")
+        self.assertEqual(loaded["stateVersion"], 4)
+
+    def test_live_browser_lists_plugins_and_loads_user_library_items(self):
+        song = Song()
+        application = Application()
+        listing = dispatch_request(song, {
+            "method": "get_browser_items", "params": {"root": "plugins", "path": []}
+        }, 3, application)
+        self.assertEqual(listing["root"], "plugins")
+        loaded = dispatch_request(song, {"method": "load_browser_item", "params": {
+            "root": "user_library", "path": ["Drift"], "trackId": "track-0",
         }}, 3, application)
         self.assertEqual(application.loaded[0].name, "Drift")
         self.assertEqual(loaded["stateVersion"], 4)
