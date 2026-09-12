@@ -27,6 +27,8 @@ const resources = [
 const toolNames = [
   "search_presets",
   "get_preset",
+  "get_preset_metadata",
+  "set_preset_metadata",
   "get_live_state",
   "get_transport_context",
   "set_transport_context",

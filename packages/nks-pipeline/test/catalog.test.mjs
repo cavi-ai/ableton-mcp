@@ -99,3 +99,41 @@ test("Catalog rejects unapproved or missing artwork assignments", async () => {
   assert.throws(() => catalog.assignArtwork("missing", "art:pending"), /unknown preset/);
   catalog.close();
 });
+
+test("Catalog persists normalized user tags and favorites outside vendor preset JSON", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "nks-catalog-metadata-"));
+  const path = join(dir, "catalog.sqlite");
+  let catalog = Catalog.open(path);
+  catalog.upsert({
+    id: "serum-2:a", productSlug: "serum-2", name: "Deep", bank: "Factory", subBank: "Bass",
+    author: "Xfer Records", sourceFingerprint: "sha256:a", state: "indexed", types: ["Bass"]
+  });
+  assert.deepEqual(catalog.metadata("serum-2:a"), { favorite: false, tags: [], revision: 0 });
+  assert.deepEqual(catalog.setMetadata("serum-2:a", 0, {
+    favorite: true, tags: [" Warm ", "bass", "WARM"]
+  }), { favorite: true, tags: ["bass", "warm"], revision: 1 });
+  assert.equal(JSON.parse(catalog.database.prepare("SELECT json FROM presets WHERE id = ?").get("serum-2:a").json).metadata, undefined);
+  catalog.close();
+
+  catalog = Catalog.open(path);
+  assert.deepEqual(catalog.metadata("serum-2:a"), { favorite: true, tags: ["bass", "warm"], revision: 1 });
+  assert.deepEqual(catalog.search({ productSlug: "serum-2", favorite: true, tags: ["warm"] })[0].metadata,
+    { favorite: true, tags: ["bass", "warm"], revision: 1 });
+  assert.equal(catalog.search({ productSlug: "serum-2", favorite: false }).length, 0);
+  assert.deepEqual(JSON.parse(catalog.exportJson()).records[0].metadata,
+    { favorite: true, tags: ["bass", "warm"], revision: 1 });
+  catalog.close();
+});
+
+test("Catalog rejects stale preset metadata revisions and unknown presets", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "nks-catalog-metadata-guard-"));
+  const catalog = Catalog.open(join(dir, "catalog.sqlite"));
+  catalog.upsert({
+    id: "serum-2:a", productSlug: "serum-2", name: "Deep", bank: "Factory", subBank: "Bass",
+    author: "Xfer Records", sourceFingerprint: "sha256:a", state: "indexed"
+  });
+  catalog.setMetadata("serum-2:a", 0, { favorite: true });
+  assert.throws(() => catalog.setMetadata("serum-2:a", 0, { tags: ["warm"] }), /metadata revision mismatch/);
+  assert.throws(() => catalog.metadata("missing"), /unknown preset missing/);
+  catalog.close();
+});

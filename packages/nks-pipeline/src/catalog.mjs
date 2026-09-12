@@ -1,5 +1,14 @@
 import { DatabaseSync } from "node:sqlite";
 
+function normalizeTags(tags) {
+  if (!Array.isArray(tags)) throw new Error("tags must be an array");
+  const normalized = tags.map((tag) => {
+    if (typeof tag !== "string" || !tag.trim()) throw new Error("tags must contain non-empty strings");
+    return tag.trim().toLowerCase();
+  });
+  return [...new Set(normalized)].sort();
+}
+
 export class Catalog {
   static open(path) {
     return new Catalog(new DatabaseSync(path));
@@ -30,6 +39,16 @@ export class Catalog {
     CREATE TABLE IF NOT EXISTS preset_artwork (
       preset_id TEXT PRIMARY KEY REFERENCES presets(id) ON DELETE CASCADE,
       artwork_id TEXT NOT NULL REFERENCES artwork(id)
+    );
+    CREATE TABLE IF NOT EXISTS preset_metadata (
+      preset_id TEXT PRIMARY KEY REFERENCES presets(id) ON DELETE CASCADE,
+      favorite INTEGER NOT NULL CHECK(favorite IN (0, 1)),
+      revision INTEGER NOT NULL CHECK(revision > 0)
+    );
+    CREATE TABLE IF NOT EXISTS preset_tags (
+      preset_id TEXT NOT NULL REFERENCES presets(id) ON DELETE CASCADE,
+      tag TEXT NOT NULL,
+      PRIMARY KEY (preset_id, tag)
     );
     CREATE INDEX IF NOT EXISTS artwork_product_category ON artwork(product_slug, category);
     CREATE INDEX IF NOT EXISTS preset_artwork_artwork ON preset_artwork(artwork_id);`);
@@ -67,21 +86,34 @@ export class Catalog {
     );
   }
 
-  search({ productSlug, query = "" }) {
+  search({ productSlug, query = "", favorite, tags = [] }) {
+    const requiredTags = normalizeTags(tags);
     return this.database
       .prepare(
-        `SELECT presets.json, preset_artwork.artwork_id
+        `SELECT presets.json, preset_artwork.artwork_id,
+                COALESCE(preset_metadata.favorite, 0) AS favorite,
+                COALESCE(preset_metadata.revision, 0) AS revision,
+                COALESCE((SELECT json_group_array(tag) FROM
+                  (SELECT tag FROM preset_tags WHERE preset_id = presets.id ORDER BY tag)), '[]') AS tags_json
          FROM presets LEFT JOIN preset_artwork ON preset_artwork.preset_id = presets.id
+         LEFT JOIN preset_metadata ON preset_metadata.preset_id = presets.id
          WHERE presets.product_slug = ? AND lower(presets.name) LIKE ? ORDER BY presets.id`
       )
       .all(productSlug, `%${query.toLowerCase()}%`)
-      .map((row) => this.#presetFromRow(row));
+      .map((row) => this.#presetFromRow(row))
+      .filter((record) => favorite === undefined || record.metadata.favorite === favorite)
+      .filter((record) => requiredTags.every((tag) => record.metadata.tags.includes(tag)));
   }
 
   get(id) {
     const row = this.database.prepare(
-      `SELECT presets.json, preset_artwork.artwork_id
+      `SELECT presets.json, preset_artwork.artwork_id,
+              COALESCE(preset_metadata.favorite, 0) AS favorite,
+              COALESCE(preset_metadata.revision, 0) AS revision,
+              COALESCE((SELECT json_group_array(tag) FROM
+                (SELECT tag FROM preset_tags WHERE preset_id = presets.id ORDER BY tag)), '[]') AS tags_json
        FROM presets LEFT JOIN preset_artwork ON preset_artwork.preset_id = presets.id
+       LEFT JOIN preset_metadata ON preset_metadata.preset_id = presets.id
        WHERE presets.id = ?`
     ).get(id);
     return row && this.#presetFromRow(row);
@@ -126,11 +158,63 @@ export class Catalog {
     ).all();
   }
 
+  metadata(presetId) {
+    if (!this.database.prepare("SELECT 1 FROM presets WHERE id = ?").get(presetId)) {
+      throw new Error(`unknown preset ${presetId}`);
+    }
+    const row = this.database.prepare(
+      `SELECT favorite, revision FROM preset_metadata WHERE preset_id = ?`
+    ).get(presetId);
+    const tags = this.database.prepare(
+      "SELECT tag FROM preset_tags WHERE preset_id = ? ORDER BY tag"
+    ).all(presetId).map(({ tag }) => tag);
+    return { favorite: Boolean(row?.favorite), tags, revision: row?.revision || 0 };
+  }
+
+  planMetadataUpdate(presetId, expectedRevision, changes) {
+    if (!Number.isInteger(expectedRevision) || expectedRevision < 0) throw new Error("expected metadata revision must be a non-negative integer");
+    if (changes.favorite === undefined && changes.tags === undefined) throw new Error("favorite or tags is required");
+    if (changes.favorite !== undefined && typeof changes.favorite !== "boolean") throw new Error("favorite must be boolean");
+    const before = this.metadata(presetId);
+    if (before.revision !== expectedRevision) {
+      throw new Error(`metadata revision mismatch: expected ${expectedRevision}, observed ${before.revision}`);
+    }
+    return { before, after: {
+      favorite: changes.favorite ?? before.favorite,
+      tags: changes.tags === undefined ? before.tags : normalizeTags(changes.tags),
+      revision: before.revision + 1
+    } };
+  }
+
+  setMetadata(presetId, expectedRevision, changes) {
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const plan = this.planMetadataUpdate(presetId, expectedRevision, changes);
+      this.database.prepare(
+        `INSERT INTO preset_metadata (preset_id, favorite, revision) VALUES (?, ?, ?)
+         ON CONFLICT(preset_id) DO UPDATE SET favorite=excluded.favorite, revision=excluded.revision`
+      ).run(presetId, plan.after.favorite ? 1 : 0, plan.after.revision);
+      this.database.prepare("DELETE FROM preset_tags WHERE preset_id = ?").run(presetId);
+      const insertTag = this.database.prepare("INSERT INTO preset_tags (preset_id, tag) VALUES (?, ?)");
+      for (const tag of plan.after.tags) insertTag.run(presetId, tag);
+      this.database.exec("COMMIT");
+      return plan.after;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   exportJson() {
     const records = this.database
       .prepare(
-        `SELECT presets.json, preset_artwork.artwork_id
+        `SELECT presets.json, preset_artwork.artwork_id,
+                COALESCE(preset_metadata.favorite, 0) AS favorite,
+                COALESCE(preset_metadata.revision, 0) AS revision,
+                COALESCE((SELECT json_group_array(tag) FROM
+                  (SELECT tag FROM preset_tags WHERE preset_id = presets.id ORDER BY tag)), '[]') AS tags_json
          FROM presets LEFT JOIN preset_artwork ON preset_artwork.preset_id = presets.id
+         LEFT JOIN preset_metadata ON preset_metadata.preset_id = presets.id
          ORDER BY presets.id`
       )
       .all()
@@ -140,7 +224,10 @@ export class Catalog {
 
   #presetFromRow(row) {
     const record = JSON.parse(row.json);
-    return row.artwork_id ? { ...record, artworkId: row.artwork_id } : record;
+    const enriched = { ...record, metadata: {
+      favorite: Boolean(row.favorite), tags: JSON.parse(row.tags_json), revision: row.revision
+    } };
+    return row.artwork_id ? { ...enriched, artworkId: row.artwork_id } : enriched;
   }
 
   close() {

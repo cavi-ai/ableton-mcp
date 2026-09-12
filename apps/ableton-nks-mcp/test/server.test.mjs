@@ -70,6 +70,9 @@ test("stdio server initializes and lists MCP resources and tools", async () => {
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_browser_items"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "load_browser_item"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "search_browser_items"), true);
+  assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_preset_metadata"), true);
+  const metadataMutation = messages[2].result.tools.find((tool) => tool.name === "set_preset_metadata");
+  assert.equal(metadataMutation.inputSchema.required.includes("expectedMetadataRevision"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "set_device_active"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "delete_device"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_device_hierarchy"), true);

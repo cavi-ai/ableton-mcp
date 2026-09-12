@@ -11,6 +11,15 @@ test("configured runtime works without the private catalog", () => {
   runtime.close();
 });
 
+test("preset metadata reports when the private catalog is not configured", async () => {
+  const runtime = createConfiguredService({ CAVI_MCP_BRIDGE_SOCKET: "/tmp/test-ableton-mcp.sock" });
+  await assert.rejects(
+    () => runtime.service.call("get_preset_metadata", { presetId: "serum-2:a" }),
+    /preset catalog is not configured/
+  );
+  runtime.close();
+});
+
 test("configured runtime opens the SQLite catalog and bridge client", async () => {
   const dir = await mkdtemp(join(tmpdir(), "mcp-runtime-"));
   const runtime = createConfiguredService({

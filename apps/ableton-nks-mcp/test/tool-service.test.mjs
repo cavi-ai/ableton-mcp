@@ -221,9 +221,33 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
       throw new Error(`unexpected method ${method}`);
     }
   };
+  let metadata = { favorite: false, tags: [], revision: 0 };
+  const normalizedTags = (tags) => [...new Set(tags.map((tag) => tag.trim().toLowerCase()))].sort();
   const catalog = {
-    search: ({ query }) => [{ id: "serum-2:a", name: query || "Deep" }],
+    search: ({ query, favorite, tags = [] }) => {
+      const matches = (favorite === undefined || metadata.favorite === favorite) &&
+        normalizedTags(tags).every((tag) => metadata.tags.includes(tag));
+      return matches ? [{ id: "serum-2:a", name: query || "Deep", metadata: structuredClone(metadata) }] : [];
+    },
     get: (id) => id === "serum-2:a" ? { id, name: "Deep" } : undefined,
+    metadata: (id) => {
+      if (id !== "serum-2:a") throw new Error(`unknown preset ${id}`);
+      return structuredClone(metadata);
+    },
+    planMetadataUpdate: (id, expectedRevision, changes) => {
+      if (id !== "serum-2:a") throw new Error(`unknown preset ${id}`);
+      if (expectedRevision !== metadata.revision) throw new Error(`metadata revision mismatch: expected ${expectedRevision}, observed ${metadata.revision}`);
+      return { before: structuredClone(metadata), after: {
+        favorite: changes.favorite ?? metadata.favorite,
+        tags: changes.tags === undefined ? [...metadata.tags] : normalizedTags(changes.tags),
+        revision: metadata.revision + 1
+      } };
+    },
+    setMetadata: (id, expectedRevision, changes) => {
+      const plan = catalog.planMetadataUpdate(id, expectedRevision, changes);
+      metadata = plan.after;
+      return structuredClone(metadata);
+    },
     products: () => [{ productSlug: "serum-2", count: 1 }],
     getArtwork: (id) => id === "art:bass" ? {
       id,
@@ -249,6 +273,39 @@ test("search_presets remains read-only", async () => {
   const result = await service.call("search_presets", { productSlug: "serum-2", query: "Deep" });
   assert.equal(result.presets[0].id, "serum-2:a");
   assert.deepEqual(calls, []);
+});
+
+test("preset tags and favorites use exact revisions and confirmed plans", async () => {
+  const { service } = fixture();
+  assert.deepEqual(await service.call("get_preset_metadata", { presetId: "serum-2:a" }), {
+    presetId: "serum-2:a", metadata: { favorite: false, tags: [], revision: 0 }
+  });
+  const args = {
+    presetId: "serum-2:a", expectedMetadataRevision: 0,
+    favorite: true, tags: [" Warm ", "bass", "WARM"]
+  };
+  const dry = await service.call("set_preset_metadata", args);
+  assert.deepEqual(dry.plan.after, { favorite: true, tags: ["bass", "warm"], revision: 1 });
+  const live = await service.call("set_preset_metadata", {
+    ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash
+  });
+  assert.deepEqual(live.observed, { favorite: true, tags: ["bass", "warm"], revision: 1 });
+  assert.equal((await service.call("search_presets", {
+    productSlug: "serum-2", favorite: true, tags: ["warm"]
+  })).presets.length, 1);
+  await assert.rejects(() => service.call("set_preset_metadata", {
+    ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash
+  }), /metadata revision mismatch/);
+});
+
+test("preset metadata rejects stale revisions and empty mutations", async () => {
+  const { service } = fixture();
+  await assert.rejects(() => service.call("set_preset_metadata", {
+    presetId: "serum-2:a", expectedMetadataRevision: 1, favorite: true
+  }), /metadata revision mismatch/);
+  await assert.rejects(() => service.call("set_preset_metadata", {
+    presetId: "serum-2:a", expectedMetadataRevision: 0
+  }), /favorite or tags is required/);
 });
 
 test("MCP resources return live and catalog-backed content", async () => {

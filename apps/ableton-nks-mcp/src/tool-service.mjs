@@ -241,6 +241,8 @@ export class ToolService {
       return { presets: this.catalog.search(args) };
     }
     if (name === "get_preset") return { preset: this.catalog.get(args.presetId) };
+    if (name === "get_preset_metadata") return { presetId: args.presetId, metadata: this.catalog.metadata(args.presetId) };
+    if (name === "set_preset_metadata") return this.#setPresetMetadata(args);
     if (name === "get_live_state") return this.bridge.request("get_live_state", {});
     if (name === "get_transport_context") return this.bridge.request("get_transport_context", {});
     if (name === "get_history_state") return this.bridge.request("get_history_state", {});
@@ -707,6 +709,26 @@ export class ToolService {
     if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
     this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
     const observed = await this.bridge.request(plan.method, plan);
+    return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString() };
+  }
+
+  async #setPresetMetadata(args) {
+    if (!Number.isInteger(args.expectedMetadataRevision) || args.expectedMetadataRevision < 0) {
+      throw new Error("expectedMetadataRevision is required for preset metadata mutations");
+    }
+    if (args.favorite === undefined && args.tags === undefined) throw new Error("favorite or tags is required");
+    const changes = {};
+    if (args.favorite !== undefined) changes.favorite = args.favorite;
+    if (args.tags !== undefined) changes.tags = args.tags;
+    const update = this.catalog.planMetadataUpdate(args.presetId, args.expectedMetadataRevision, changes);
+    const plan = {
+      method: "set_preset_metadata", presetId: args.presetId,
+      expectedMetadataRevision: args.expectedMetadataRevision,
+      before: update.before, after: update.after
+    };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
+    const observed = this.catalog.setMetadata(args.presetId, args.expectedMetadataRevision, changes);
     return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString() };
   }
 
