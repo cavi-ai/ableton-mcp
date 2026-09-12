@@ -100,6 +100,13 @@ class Clip:
         self.name = "Loop"
         self.is_playing = False
         self.length = 4.0
+        self.looping = True
+        self.loop_start = 0.0
+        self.loop_end = 4.0
+        self.signature_numerator = 4
+        self.signature_denominator = 4
+        self.launch_quantization = 0
+        self.groove = None
         self.envelopes = {}
 
     def fire(self):
@@ -199,6 +206,23 @@ class Song:
         self.tracks[0].clip_slots = [ClipSlot(), ClipSlot(False)]
         self.tempo = 120.0
         self.is_playing = False
+        self.signature_numerator = 4
+        self.signature_denominator = 4
+        self.root_note = 0
+        self.scale_name = "Major"
+        self.scale_mode = True
+        self.scale_intervals = (0, 2, 4, 5, 7, 9, 11)
+        self.clip_trigger_quantization = 4
+        self.midi_recording_quantization = 5
+        self.groove_amount = 1.0
+        self.swing_amount = 0.0
+        self.loop = False
+        self.loop_start = 0.0
+        self.loop_length = 8.0
+        self.groove_pool = type("GroovePool", (), {"grooves": [type("Groove", (), {
+            "name": "Swing 16-65", "base": 3, "timing_amount": 1.0,
+            "quantization_amount": 1.0, "random_amount": 0.0,
+        })()]})()
 
     def start_playing(self):
         self.is_playing = True
@@ -208,6 +232,59 @@ class Song:
 
 
 class DispatchTest(unittest.TestCase):
+    def test_song_musical_context_reads_and_writes_timing_key_groove_and_loop(self):
+        song = Song()
+        observed = dispatch_request(song, {"method": "get_song_musical_context"}, 3)
+        self.assertEqual(observed["timeSignature"], {"numerator": 4, "denominator": 4})
+        self.assertEqual(observed["key"], {
+            "rootNote": 0, "rootName": "C", "scaleName": "Major", "scaleMode": True,
+            "scaleIntervals": [0, 2, 4, 5, 7, 9, 11],
+        })
+        self.assertEqual(observed["quantization"]["clipTrigger"]["value"], 4)
+        self.assertEqual(observed["quantization"]["clipTrigger"]["name"], "1_bar")
+        self.assertIn({"value": 7, "name": "1_4"}, observed["quantization"]["clipTrigger"]["choices"])
+        self.assertEqual(observed["quantization"]["midiRecording"]["value"], 5)
+        self.assertEqual(observed["quantization"]["midiRecording"]["name"], "1_16")
+        self.assertEqual(observed["groove"]["pool"][0]["id"], "groove-0")
+        self.assertEqual(observed["loop"], {"enabled": False, "startBeats": 0.0, "lengthBeats": 8.0})
+
+        changed = dispatch_request(song, {"method": "set_song_musical_context", "params": {"changes": {
+            "timeSignature": {"numerator": 7, "denominator": 8},
+            "key": {"rootNote": 2, "scaleName": "Dorian", "scaleMode": True},
+            "quantization": {"clipTrigger": 7, "midiRecording": 2},
+            "groove": {"amount": 0.75, "swingAmount": 0.2},
+            "loop": {"enabled": True, "startBeats": 4.0, "lengthBeats": 12.0},
+        }}}, 3)
+        self.assertEqual(changed["stateVersion"], 4)
+        self.assertEqual(song.signature_numerator, 7)
+        self.assertEqual(song.root_note, 2)
+        self.assertEqual(song.clip_trigger_quantization, 7)
+        self.assertEqual(song.groove_amount, 0.75)
+        self.assertTrue(song.loop)
+        self.assertEqual(song.loop_length, 12.0)
+
+    def test_clip_timing_reads_and_writes_loop_signature_quantization_and_groove(self):
+        song = Song()
+        params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        observed = dispatch_request(song, {"method": "get_clip_timing", "params": params}, 3)
+        self.assertEqual(observed["loop"], {"enabled": True, "startBeats": 0.0, "endBeats": 4.0})
+        self.assertEqual(observed["timeSignature"], {"numerator": 4, "denominator": 4})
+        self.assertEqual(observed["launchQuantization"]["value"], 0)
+        self.assertEqual(observed["launchQuantization"]["name"], "global")
+        self.assertIn({"value": 12, "name": "1_16"}, observed["launchQuantization"]["choices"])
+        self.assertIsNone(observed["grooveId"])
+
+        changed = dispatch_request(song, {"method": "set_clip_timing", "params": {**params, "changes": {
+            "loop": {"enabled": True, "startBeats": 1.0, "endBeats": 5.0},
+            "timeSignature": {"numerator": 3, "denominator": 4},
+            "launchQuantization": 12, "grooveId": "groove-0",
+        }}}, 3)
+        clip = song.tracks[0].clip_slots[0].clip
+        self.assertEqual(changed["stateVersion"], 4)
+        self.assertEqual((clip.loop_start, clip.loop_end), (1.0, 5.0))
+        self.assertEqual(clip.signature_numerator, 3)
+        self.assertIs(clip.groove, song.groove_pool.grooves[0])
+
     def test_device_hierarchy_exposes_nested_chain_devices_and_loaded_drum_pads(self):
         song = Song()
         song.tracks[0].devices = [DrumRack()]

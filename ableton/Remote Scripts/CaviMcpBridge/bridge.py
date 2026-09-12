@@ -11,12 +11,28 @@ except ImportError:
 
 BRIDGE_VERSION = "0.1.0"
 CAPABILITIES = (
-    "get_live_state", "list_tracks", "list_scenes", "list_clips", "get_track_mixer", "get_midi_clip_notes",
+    "get_live_state", "get_song_musical_context", "set_song_musical_context",
+    "list_tracks", "list_scenes", "list_clips", "get_clip_timing", "set_clip_timing",
+    "get_track_mixer", "get_midi_clip_notes",
     "get_midi_clip_notes_extended", "set_midi_note_properties",
     "get_clip_parameter_envelope", "set_clip_parameter_envelope", "list_devices", "get_device_hierarchy",
     "list_device_parameters", "set_device_parameters", "create_midi_clip", "transport_play", "transport_stop",
     "set_tempo", "set_track_mixer", "arm_track", "launch_scene", "launch_clip",
     "stop_clip", "panic",
+)
+
+NOTE_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+SONG_QUANTIZATION_NAMES = (
+    "none", "8_bars", "4_bars", "2_bars", "1_bar", "1_2", "1_2_triplet",
+    "1_4", "1_4_triplet", "1_8", "1_8_triplet", "1_16", "1_16_triplet", "1_32",
+)
+RECORD_QUANTIZATION_NAMES = (
+    "none", "1_4", "1_8", "1_8_triplet", "1_8_and_triplet", "1_16",
+    "1_16_triplet", "1_16_and_triplet", "1_32",
+)
+CLIP_QUANTIZATION_NAMES = (
+    "global", "none", "8_bars", "4_bars", "2_bars", "1_bar", "1_2", "1_2_triplet",
+    "1_4", "1_4_triplet", "1_8", "1_8_triplet", "1_16", "1_16_triplet", "1_32",
 )
 
 
@@ -49,6 +65,70 @@ def _clamp(value, target):
 
 def _change_value(change):
     return change.get("value") if isinstance(change, dict) else change
+
+
+def _enum_record(value, names):
+    number = int(value)
+    return {
+        "value": number,
+        "name": names[number] if 0 <= number < len(names) else "unknown",
+        "choices": [{"value": index, "name": name} for index, name in enumerate(names)],
+    }
+
+
+def _grooves(song):
+    pool = getattr(song, "groove_pool", None)
+    return list(getattr(pool, "grooves", ()))
+
+
+def _groove_record(groove, index):
+    return {
+        "id": f"groove-{index}", "name": getattr(groove, "name", f"Groove {index + 1}"),
+        "base": int(groove.base), "timingAmount": float(groove.timing_amount),
+        "quantizationAmount": float(groove.quantization_amount),
+        "randomAmount": float(groove.random_amount),
+    }
+
+
+def _song_musical_context(song, state_version):
+    return {
+        "stateVersion": state_version,
+        "timeSignature": {"numerator": int(song.signature_numerator), "denominator": int(song.signature_denominator)},
+        "key": {
+            "rootNote": int(song.root_note), "rootName": NOTE_NAMES[int(song.root_note) % 12],
+            "scaleName": song.scale_name, "scaleMode": bool(song.scale_mode),
+            "scaleIntervals": [int(interval) for interval in song.scale_intervals],
+        },
+        "quantization": {
+            "clipTrigger": _enum_record(song.clip_trigger_quantization, SONG_QUANTIZATION_NAMES),
+            "midiRecording": _enum_record(song.midi_recording_quantization, RECORD_QUANTIZATION_NAMES),
+        },
+        "groove": {
+            "amount": float(song.groove_amount), "swingAmount": float(song.swing_amount),
+            "pool": [_groove_record(groove, index) for index, groove in enumerate(_grooves(song))],
+        },
+        "loop": {
+            "enabled": bool(song.loop), "startBeats": float(song.loop_start),
+            "lengthBeats": float(song.loop_length),
+        },
+    }
+
+
+def _clip_timing(song, track_id, clip_id, state_version):
+    _, _, slot = _clip_slot(song, track_id, clip_id)
+    if not slot.has_clip:
+        raise ValueError("clip slot is empty")
+    clip = slot.clip
+    grooves = _grooves(song)
+    groove_id = next((f"groove-{index}" for index, groove in enumerate(grooves) if groove == clip.groove), None)
+    return {
+        "stateVersion": state_version, "trackId": track_id, "clipId": clip_id,
+        "loop": {"enabled": bool(clip.looping), "startBeats": float(clip.loop_start), "endBeats": float(clip.loop_end)},
+        "timeSignature": {"numerator": int(clip.signature_numerator), "denominator": int(clip.signature_denominator)},
+        "launchQuantization": _enum_record(clip.launch_quantization, CLIP_QUANTIZATION_NAMES),
+        "grooveId": groove_id,
+        "availableGrooves": [_groove_record(groove, index) for index, groove in enumerate(grooves)],
+    }
 
 
 def _parameter_record(parameter, index):
@@ -124,6 +204,34 @@ def dispatch_request(song, request, state_version):
     fingerprint = hashlib.sha256(f"{len(song.tracks)}:{song.tempo}".encode()).hexdigest()[:16]
     if method == "get_live_state":
         return {"stateVersion": state_version, "setFingerprint": fingerprint, "tempo": song.tempo, "isPlaying": song.is_playing, "bridgeVersion": BRIDGE_VERSION, "capabilities": list(CAPABILITIES)}
+    if method == "get_song_musical_context":
+        return _song_musical_context(song, state_version)
+    if method == "set_song_musical_context":
+        changes = params["changes"]
+        signature = changes.get("timeSignature", {})
+        if "numerator" in signature:
+            song.signature_numerator = int(signature["numerator"])
+        if "denominator" in signature:
+            song.signature_denominator = int(signature["denominator"])
+        key = changes.get("key", {})
+        for source, target in (("rootNote", "root_note"), ("scaleName", "scale_name"), ("scaleMode", "scale_mode")):
+            if source in key:
+                setattr(song, target, key[source])
+        quantization = changes.get("quantization", {})
+        if "clipTrigger" in quantization:
+            song.clip_trigger_quantization = int(quantization["clipTrigger"])
+        if "midiRecording" in quantization:
+            song.midi_recording_quantization = int(quantization["midiRecording"])
+        groove = changes.get("groove", {})
+        if "amount" in groove:
+            song.groove_amount = float(groove["amount"])
+        if "swingAmount" in groove:
+            song.swing_amount = float(groove["swingAmount"])
+        loop = changes.get("loop", {})
+        for source, target in (("enabled", "loop"), ("startBeats", "loop_start"), ("lengthBeats", "loop_length")):
+            if source in loop:
+                setattr(song, target, loop[source])
+        return _song_musical_context(song, state_version + 1)
     if method == "list_tracks":
         return {"stateVersion": state_version, "tracks": [{"id": f"track-{i}", "name": track.name, "mute": track.mute, "solo": track.solo, "armed": track.arm, "volume": track.mixer_device.volume.value, "pan": track.mixer_device.panning.value} for i, track in enumerate(song.tracks)]}
     if method == "get_track_mixer":
@@ -142,6 +250,28 @@ def dispatch_request(song, request, state_version):
         for i, slot in enumerate(track.clip_slots):
             clips.append({"id": f"track-{index}:clip-{i}", "name": slot.clip.name if slot.has_clip else None, "hasClip": slot.has_clip, "isPlaying": slot.clip.is_playing if slot.has_clip else False})
         return {"stateVersion": state_version, "trackId": params["trackId"], "clips": clips}
+    if method == "get_clip_timing":
+        return _clip_timing(song, params["trackId"], params["clipId"], state_version)
+    if method == "set_clip_timing":
+        _, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
+        if not slot.has_clip:
+            raise ValueError("clip slot is empty")
+        clip = slot.clip
+        changes = params["changes"]
+        loop = changes.get("loop", {})
+        for source, target in (("enabled", "looping"), ("startBeats", "loop_start"), ("endBeats", "loop_end")):
+            if source in loop:
+                setattr(clip, target, loop[source])
+        signature = changes.get("timeSignature", {})
+        if "numerator" in signature:
+            clip.signature_numerator = int(signature["numerator"])
+        if "denominator" in signature:
+            clip.signature_denominator = int(signature["denominator"])
+        if "launchQuantization" in changes:
+            clip.launch_quantization = int(changes["launchQuantization"])
+        if "grooveId" in changes:
+            clip.groove = _grooves(song)[int(changes["grooveId"].removeprefix("groove-"))]
+        return _clip_timing(song, params["trackId"], params["clipId"], state_version + 1)
     if method == "get_midi_clip_notes":
         _, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
         if not slot.has_clip:
