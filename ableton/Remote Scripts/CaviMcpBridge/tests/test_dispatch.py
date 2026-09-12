@@ -132,7 +132,6 @@ class Clip:
         self.launch_quantization = 0
         self.groove = None
         self.envelopes = {}
-
     def fire(self):
         self.is_playing = True
 
@@ -178,6 +177,21 @@ class Clip:
 
     def clear_envelope(self, parameter):
         self.envelopes.pop(id(parameter), None)
+
+
+class AudioClip(Clip):
+    def __init__(self):
+        super().__init__()
+        self.name = "Vocal"
+        self.is_audio_clip = True
+        self.gain = 0.5
+        self.gain_display_string = "0.00 dB"
+        self.pitch_coarse = 0
+        self.pitch_fine = 0
+        self.warping = True
+        self.warp_mode = 0
+        self.start_marker = 0.0
+        self.end_marker = 8.0
 
 
 class AutomationEnvelope:
@@ -266,6 +280,9 @@ class Song:
         self.scenes = [Scene(), Scene()]
         self.tracks[0].clip_slots = [ClipSlot(), ClipSlot(False)]
         self.tracks[1].clip_slots = [ClipSlot(False), ClipSlot(False)]
+        audio_slot = ClipSlot()
+        audio_slot.clip = AudioClip()
+        self.tracks[0].clip_slots.append(audio_slot)
         self.tempo = 120.0
         self.is_playing = False
         self.signature_numerator = 4
@@ -486,6 +503,20 @@ class DispatchTest(unittest.TestCase):
         }}, 4)
         self.assertTrue(returned["return"]["mute"])
         self.assertEqual(returned["return"]["pan"]["value"], 0.5)
+
+    def test_audio_clip_state_reads_and_writes_warp_pitch_gain_and_markers(self):
+        song = Song()
+        params = {"trackId": "track-0", "clipId": "track-0:clip-2"}
+        observed = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
+        self.assertEqual(observed["warpMode"]["name"], "beats")
+        changed = dispatch_request(song, {"method": "set_audio_clip_state", "params": {**params, "changes": {
+            "gain": {"value": 0.75}, "pitchCoarse": {"value": -12}, "pitchFine": {"value": 17},
+            "warping": {"value": False}, "warpMode": {"value": 6},
+            "startMarkerBeats": {"value": 1}, "endMarkerBeats": {"value": 7},
+        }}}, 3)
+        self.assertEqual(changed["stateVersion"], 4)
+        self.assertEqual(changed["pitch"], {"coarse": -12, "fine": 17})
+        self.assertEqual(changed["markers"], {"startBeats": 1.0, "endBeats": 7.0})
 
     def test_song_musical_context_reads_and_writes_timing_key_groove_and_loop(self):
         song = Song()

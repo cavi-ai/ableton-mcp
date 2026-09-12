@@ -49,6 +49,8 @@ test("stdio server initializes and lists MCP resources and tools", async () => {
     const tool = messages[2].result.tools.find((candidate) => candidate.name === name);
     assert.equal(tool.inputSchema.required.includes("expectedSessionVersion"), true, `${name} must advertise its session guard`);
   }
+  assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_audio_clip_state"), true);
+  assert.equal(messages[2].result.tools.some((tool) => tool.name === "set_audio_clip_state"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_automation_capabilities"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_track_mixer"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_track_routing"), true);

@@ -270,6 +270,7 @@ export class ToolService {
     };
     if (name === "get_clip_parameter_envelope") return this.bridge.request("get_clip_parameter_envelope", args);
     if (name === "get_clip_timing") return this.bridge.request("get_clip_timing", args);
+    if (name === "get_audio_clip_state") return this.bridge.request("get_audio_clip_state", args);
     if (name === "list_devices") return this.bridge.request("list_devices", args);
     if (name === "get_device_hierarchy") return this.bridge.request("get_device_hierarchy", args);
     if (name === "list_device_parameters") {
@@ -300,6 +301,7 @@ export class ToolService {
     if (name === "rename_session_object") return this.#renameSessionObject(args);
     if (name === "duplicate_session_object") return this.#duplicateSessionObject(args);
     if (name === "delete_session_object") return this.#deleteSessionObject(args);
+    if (name === "set_audio_clip_state") return this.#setAudioClipState(args);
     if (name === "create_midi_clip") return this.#createMidiClip(args);
     if (name === "set_clip_parameter_envelope") return this.#setClipParameterEnvelope(args);
     if (name === "set_midi_note_properties") return this.#setMidiNoteProperties(args);
@@ -343,6 +345,10 @@ export class ToolService {
     const clipTiming = uri.match(/^ableton:\/\/track\/([^/]+)\/clip\/([^/]+)\/timing$/);
     if (clipTiming) return this.bridge.request("get_clip_timing", {
       trackId: decodeURIComponent(clipTiming[1]), clipId: decodeURIComponent(clipTiming[2])
+    });
+    const audioClip = uri.match(/^ableton:\/\/track\/([^/]+)\/clip\/([^/]+)\/audio$/);
+    if (audioClip) return this.bridge.request("get_audio_clip_state", {
+      trackId: decodeURIComponent(audioClip[1]), clipId: decodeURIComponent(audioClip[2])
     });
     const trackDevices = uri.match(/^ableton:\/\/track\/([^/]+)\/devices$/);
     if (trackDevices) return this.bridge.request("list_devices", { trackId: decodeURIComponent(trackDevices[1]) });
@@ -550,6 +556,48 @@ export class ToolService {
     if (!Object.keys(changes).length) throw new Error("at least one clip timing change is required");
     return this.#confirmedMutation({
       method: "set_clip_timing", trackId: args.trackId, clipId: args.clipId,
+      expectedStateVersion: args.expectedStateVersion, before: observed, changes
+    }, args);
+  }
+
+  async #setAudioClipState(args) {
+    requireExpectedState(args);
+    const observed = await this.bridge.request("get_audio_clip_state", { trackId: args.trackId, clipId: args.clipId });
+    assertExpectedState(args, observed);
+    const changes = {};
+    if (args.gain !== undefined) {
+      const requested = Number(args.gain);
+      if (!Number.isFinite(requested)) throw new Error("gain must be finite");
+      changes.gain = { previous: observed.gain.value, requested, value: Math.max(observed.gain.min, Math.min(observed.gain.max, requested)) };
+    }
+    for (const [argument, field, min, max] of [
+      ["pitchCoarse", "coarse", -48, 48], ["pitchFine", "fine", -50, 50]
+    ]) {
+      if (args[argument] === undefined) continue;
+      const value = Number(args[argument]);
+      if (!Number.isInteger(value) || value < min || value > max) throw new Error(`${argument} must be an integer from ${min} to ${max}`);
+      changes[argument] = { previous: observed.pitch[field], value };
+    }
+    if (args.warping !== undefined) {
+      if (typeof args.warping !== "boolean") throw new Error("warping must be boolean");
+      changes.warping = { previous: observed.warping, value: args.warping };
+    }
+    if (args.warpMode !== undefined) changes.warpMode = {
+      previous: observed.warpMode.value,
+      value: normalizeChoice(args.warpMode, "warpMode", observed.warpMode.choices)
+    };
+    const start = args.startMarkerBeats === undefined
+      ? observed.markers.startBeats
+      : finiteRange(args.startMarkerBeats, "startMarkerBeats", 0, Number.MAX_SAFE_INTEGER);
+    const end = args.endMarkerBeats === undefined
+      ? observed.markers.endBeats
+      : finiteRange(args.endMarkerBeats, "endMarkerBeats", 0, Number.MAX_SAFE_INTEGER);
+    if (end <= start) throw new Error("endMarkerBeats must be greater than startMarkerBeats");
+    if (args.startMarkerBeats !== undefined) changes.startMarkerBeats = { previous: observed.markers.startBeats, value: start };
+    if (args.endMarkerBeats !== undefined) changes.endMarkerBeats = { previous: observed.markers.endBeats, value: end };
+    if (!Object.keys(changes).length) throw new Error("at least one audio clip change is required");
+    return this.#confirmedMutation({
+      method: "set_audio_clip_state", trackId: args.trackId, clipId: args.clipId,
       expectedStateVersion: args.expectedStateVersion, before: observed, changes
     }, args);
   }

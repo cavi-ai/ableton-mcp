@@ -16,6 +16,7 @@ const resources = [
   "ableton://set/scenes",
   "ableton://track/{track_id}/clips",
   "ableton://track/{track_id}/clip/{clip_id}/timing",
+  "ableton://track/{track_id}/clip/{clip_id}/audio",
   "ableton://track/{track_id}/devices",
   "ableton://device/{device_id}/parameters",
   "komplete://automation/status"
@@ -46,6 +47,8 @@ const toolNames = [
   "rename_session_object",
   "duplicate_session_object",
   "delete_session_object",
+  "get_audio_clip_state",
+  "set_audio_clip_state",
   "get_automation_capabilities",
   "get_track_mixer",
   "get_track_routing",

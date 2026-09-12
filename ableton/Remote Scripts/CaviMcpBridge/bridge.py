@@ -22,6 +22,7 @@ CAPABILITIES = (
     "delete_arrangement_cue_point", "jump_to_arrangement_cue_point",
     "get_factory_browser_items", "load_factory_browser_item",
     "list_tracks", "list_scenes", "list_clips", "get_clip_timing", "set_clip_timing",
+    "get_audio_clip_state", "set_audio_clip_state",
     "get_track_mixer", "get_track_routing", "set_track_routing", "get_midi_clip_notes",
     "create_track", "create_scene", "rename_session_object",
     "get_midi_clip_notes_extended", "set_midi_note_properties", "transform_midi_notes",
@@ -47,6 +48,7 @@ CLIP_QUANTIZATION_NAMES = (
     "global", "none", "8_bars", "4_bars", "2_bars", "1_bar", "1_2", "1_2_triplet",
     "1_4", "1_4_triplet", "1_8", "1_8_triplet", "1_16", "1_16_triplet", "1_32",
 )
+AUDIO_WARP_MODE_NAMES = ("beats", "tones", "texture", "re_pitch", "complex", "rex", "complex_pro")
 
 
 def _track(song, track_id):
@@ -162,6 +164,22 @@ def _clip_timing(song, track_id, clip_id, state_version):
         "launchQuantization": _enum_record(clip.launch_quantization, CLIP_QUANTIZATION_NAMES),
         "grooveId": groove_id,
         "availableGrooves": [_groove_record(groove, index) for index, groove in enumerate(grooves)],
+    }
+
+
+def _audio_clip_state(song, track_id, clip_id, state_version):
+    _, _, slot = _clip_slot(song, track_id, clip_id)
+    if not slot.has_clip:
+        raise ValueError("clip slot is empty")
+    clip = slot.clip
+    if not getattr(clip, "is_audio_clip", False):
+        raise ValueError("clip is not an audio clip")
+    return {
+        "stateVersion": state_version, "trackId": track_id, "clipId": clip_id,
+        "gain": {"value": float(clip.gain), "min": 0.0, "max": 1.0, "displayValue": clip.gain_display_string},
+        "pitch": {"coarse": int(clip.pitch_coarse), "fine": int(clip.pitch_fine)},
+        "warping": bool(clip.warping), "warpMode": _enum_record(clip.warp_mode, AUDIO_WARP_MODE_NAMES),
+        "markers": {"startBeats": float(clip.start_marker), "endBeats": float(clip.end_marker)},
     }
 
 
@@ -448,6 +466,29 @@ def dispatch_request(song, request, state_version, application=None):
         if "solo" in changes:
             track.solo = changes["solo"]["value"]
         return {"stateVersion": state_version + 1, "return": _return_mixer_record(track, index)}
+    if method == "get_audio_clip_state":
+        return _audio_clip_state(song, params["trackId"], params["clipId"], state_version)
+    if method == "set_audio_clip_state":
+        track_id, clip_id = params["trackId"], params["clipId"]
+        _, _, slot = _clip_slot(song, track_id, clip_id)
+        if not slot.has_clip or not getattr(slot.clip, "is_audio_clip", False):
+            raise ValueError("clip is not an audio clip")
+        clip = slot.clip
+        changes = params["changes"]
+        for source, target in (("gain", "gain"), ("pitchCoarse", "pitch_coarse"),
+                               ("pitchFine", "pitch_fine"), ("warping", "warping"),
+                               ("warpMode", "warp_mode")):
+            if source in changes:
+                setattr(clip, target, _change_value(changes[source]))
+        start = _change_value(changes["startMarkerBeats"]) if "startMarkerBeats" in changes else clip.start_marker
+        end = _change_value(changes["endMarkerBeats"]) if "endMarkerBeats" in changes else clip.end_marker
+        if start >= clip.end_marker:
+            clip.end_marker = end
+            clip.start_marker = start
+        else:
+            clip.start_marker = start
+            clip.end_marker = end
+        return _audio_clip_state(song, track_id, clip_id, state_version + 1)
     if method == "set_song_musical_context":
         changes = params["changes"]
         signature = changes.get("timeSignature", {})

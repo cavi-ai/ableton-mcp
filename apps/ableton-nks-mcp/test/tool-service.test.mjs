@@ -182,6 +182,14 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         launchQuantization: { value: 0, name: "global", choices: [{ value: 0, name: "global" }, { value: 12, name: "1_16" }] },
         grooveId: null, availableGrooves: [{ id: "groove-0", name: "Swing 16-65" }]
       };
+      if (method === "get_audio_clip_state") return {
+        stateVersion: 4, trackId: params.trackId, clipId: params.clipId,
+        gain: { value: 0.5, min: 0, max: 1, displayValue: "0.00 dB" },
+        pitch: { coarse: 0, fine: 0 }, warping: true,
+        warpMode: { value: 0, name: "beats", choices: [{ value: 0, name: "beats" }, { value: 6, name: "complex_pro" }] },
+        markers: { startBeats: 0, endBeats: 8 }
+      };
+      if (method === "set_audio_clip_state") return { stateVersion: 5, trackId: params.trackId, clipId: params.clipId, ...params.changes };
       if (method === "set_clip_parameter_envelope") return {
         stateVersion: 5,
         trackId: params.trackId,
@@ -711,6 +719,29 @@ test("clip parameter envelope inspection is read-only and returns sampled values
   });
   assert.deepEqual(result.samples, [{ time: 0, value: 0 }, { time: 2, value: 0.5 }, { time: 4, value: 1 }]);
   assert.equal(calls.at(-1).method, "get_clip_parameter_envelope");
+});
+
+test("audio clip state exposes warp pitch gain and markers with guarded changes", async () => {
+  const { service, calls } = fixture();
+  const base = { trackId: "track-0", clipId: "track-0:clip-2" };
+  const observed = await service.call("get_audio_clip_state", base);
+  assert.equal(observed.warpMode.name, "beats");
+  const args = { ...base, expectedStateVersion: 4, gain: 2, pitchCoarse: -12, pitchFine: 17, warping: false, warpMode: "complex_pro", startMarkerBeats: 1, endMarkerBeats: 7 };
+  const dry = await service.call("set_audio_clip_state", args);
+  assert.equal(dry.plan.changes.gain.value, 1);
+  assert.equal(dry.plan.changes.warpMode.value, 6);
+  assert.equal(dry.plan.changes.pitchCoarse.value, -12);
+  const live = await service.call("set_audio_clip_state", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(live.observed.stateVersion, 5);
+  assert.equal(calls.at(-1).method, "set_audio_clip_state");
+});
+
+test("audio clip mutation rejects invalid pitch markers and empty changes", async () => {
+  const { service } = fixture();
+  const base = { trackId: "track-0", clipId: "track-0:clip-2", expectedStateVersion: 4 };
+  await assert.rejects(() => service.call("set_audio_clip_state", base), /at least one audio clip change/);
+  await assert.rejects(() => service.call("set_audio_clip_state", { ...base, pitchFine: 60 }), /pitchFine/);
+  await assert.rejects(() => service.call("set_audio_clip_state", { ...base, startMarkerBeats: 7, endMarkerBeats: 2 }), /endMarkerBeats must be greater/);
 });
 
 test("clip parameter envelope replacement validates and signs exact steps", async () => {
