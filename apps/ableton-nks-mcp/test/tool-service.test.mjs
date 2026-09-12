@@ -10,7 +10,10 @@ function fixture() {
       calls.push({ method, params });
       if (method === "get_live_state") return { stateVersion: 4, setFingerprint: "set:a" };
       if (method === "list_tracks") return { stateVersion: 4, tracks: [{ id: "track-0", name: "Synth" }] };
-      if (method === "list_devices") return { stateVersion: 4, trackId: params.trackId, devices: [{ id: "device-0", name: "Serum 2" }] };
+      if (method === "list_devices") return { stateVersion: 4, trackId: params.trackId, devices: [
+        { id: "device-0", name: "Serum 2", className: "PluginDevice", type: "instrument" },
+        { id: "track-0:device-1", name: "EQ Eight", className: "Eq8", type: "audio_effect" }
+      ] };
       if (method === "list_scenes") return { stateVersion: 4, scenes: [{ id: "scene-0", name: "Verse" }] };
       if (method === "list_clips") return {
         stateVersion: 4,
@@ -203,6 +206,16 @@ test("track mixer inspection exposes bounded controls and named return sends", a
   assert.deepEqual(mixer.sends[0], {
     id: "send-0", returnTrackId: "return-0", name: "Reverb", value: 0.2, min: 0, max: 1
   });
+});
+
+test("factory device context combines stable identity, knowledge, and live parameters", async () => {
+  const { service } = fixture();
+  const context = await service.call("get_factory_device_context", {
+    trackId: "track-0", deviceId: "track-0:device-1"
+  });
+  assert.equal(context.device.className, "Eq8");
+  assert.equal(context.profile.id, "eq-eight");
+  assert.deepEqual(context.parameterGroups.frequency.map(({ id }) => id), ["cutoff"]);
 });
 
 test("track mixer mutation signs before-and-after context and clamps values", async () => {

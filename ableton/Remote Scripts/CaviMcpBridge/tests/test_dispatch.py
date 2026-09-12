@@ -39,6 +39,11 @@ class QuantizedParameter:
 class Device:
     def __init__(self):
         self.name = "Serum 2"
+        self.class_name = "PluginDevice"
+        self.class_display_name = "Plug-in"
+        self.type = 1
+        self.can_have_chains = False
+        self.can_have_drum_pads = False
         self.parameters = [Parameter(), QuantizedParameter()]
 
 
@@ -169,6 +174,17 @@ class Song:
 
 
 class DispatchTest(unittest.TestCase):
+    def test_device_listing_exposes_stable_identity_and_structure(self):
+        result = dispatch_request(Song(), {
+            "method": "list_devices", "params": {"trackId": "track-0"}
+        }, 3)
+
+        self.assertEqual(result["devices"][0], {
+            "id": "track-0:device-0", "name": "Serum 2", "className": "PluginDevice",
+            "classDisplayName": "Plug-in", "type": "instrument",
+            "canHaveChains": False, "canHaveDrumPads": False,
+        })
+
     def test_parameter_listing_exposes_agent_usable_plugin_metadata(self):
         result = dispatch_request(Song(), {
             "method": "list_device_parameters",

@@ -19,6 +19,8 @@ Read operations expose Live status, tracks, scenes, clips, devices, device param
 
 `get_automation_capabilities` reports the exact supported surface. Ableton Live 12.4.5 exposes Session clip parameter envelopes and the per-note fields pitch, start, duration, velocity, velocity deviation, release velocity, probability, and mute. Its public API does not expose Arrangement automation envelopes or per-note pitch-bend, pressure, and slide curves; the MCP reports those boundaries instead of simulating unsupported writes.
 
+`list_factory_device_profiles` exposes the versioned producer-oriented knowledge catalog for foundational Live devices: Simpler, Sampler, Drum Rack, Analog, Drift, Operator, Wavetable, EQ Eight, Delay, Echo, Reverb, and Hybrid Reverb. `get_factory_device_context` combines a matched profile with the device's live class identity, structural capabilities, and current parameters grouped by musical role. Parameter IDs and bounds always come from the running Live instance rather than a brittle hard-coded index map.
+
 ## Artwork model
 
 The repository does not scrape or auto-populate vendor artwork. Operators provide an authoritative master image and metadata; the pipeline deterministically renders Native Instruments product, bank, category, and size variants. Generated derivatives and installation staging remain build outputs rather than source-controlled assets.

@@ -1,6 +1,7 @@
 import { assertExpectedState } from "./bridge-protocol.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { CatalogService } from "./catalog-service.mjs";
+import { getFactoryDeviceProfile, groupDeviceParameters, listFactoryDeviceProfiles } from "./factory-device-knowledge.mjs";
 
 function requireExpectedState(args) {
   if (!Number.isInteger(args.expectedStateVersion)) {
@@ -110,6 +111,19 @@ export class ToolService {
     if (name === "get_midi_clip_notes") return this.bridge.request("get_midi_clip_notes", args);
     if (name === "get_midi_clip_notes_extended") return this.bridge.request("get_midi_clip_notes_extended", args);
     if (name === "get_track_mixer") return this.bridge.request("get_track_mixer", args);
+    if (name === "list_factory_device_profiles") return { profiles: listFactoryDeviceProfiles() };
+    if (name === "get_factory_device_context") {
+      const devices = await this.bridge.request("list_devices", { trackId: args.trackId });
+      const device = devices.devices.find(({ id }) => id === args.deviceId);
+      if (!device) throw new Error(`unknown device ${args.deviceId}`);
+      const profile = getFactoryDeviceProfile(device);
+      const observed = await this.bridge.request("list_device_parameters", args);
+      return {
+        stateVersion: observed.stateVersion, trackId: args.trackId, device,
+        profile: profile || null,
+        parameterGroups: groupDeviceParameters(profile, observed.parameters)
+      };
+    }
     if (name === "get_automation_capabilities") return {
       sessionClipParameterEnvelopes: { read: true, write: true, shape: "steps" },
       arrangementParameterAutomation: {
