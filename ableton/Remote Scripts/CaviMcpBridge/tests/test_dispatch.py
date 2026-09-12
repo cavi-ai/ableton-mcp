@@ -1,9 +1,10 @@
+import json
 import os
 import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from bridge import dispatch_request
+from bridge import SocketBridge, dispatch_request
 
 
 class Parameter:
@@ -225,6 +226,16 @@ class Scene:
         self.is_triggered = True
 
 
+class CuePoint:
+    def __init__(self, name="Verse", time=16.0):
+        self.name = name
+        self.time = time
+        self.jumped = False
+
+    def jump(self):
+        self.jumped = True
+
+
 class Song:
     def __init__(self):
         self.tracks = [Track(), Track()]
@@ -261,6 +272,15 @@ class Song:
             "name": "Swing 16-65", "base": 3, "timing_amount": 1.0,
             "quantization_amount": 1.0, "random_amount": 0.0,
         })()]})()
+        self.current_song_time = 4.0
+        self.cue_points = [CuePoint()]
+
+    def set_or_delete_cue(self):
+        existing = next((cue for cue in self.cue_points if cue.time == self.current_song_time), None)
+        if existing:
+            self.cue_points.remove(existing)
+        else:
+            self.cue_points.append(CuePoint("", self.current_song_time))
 
     def create_midi_track(self, index):
         self.tracks.insert(index, Track())
@@ -319,6 +339,49 @@ class DispatchTest(unittest.TestCase):
         self.assertTrue(song.back_to_arranger)
         self.assertFalse(song.overdub)
         self.assertTrue(song.session_automation_record)
+
+    def test_socket_bridge_defers_cue_mutations_until_live_applies_the_playhead(self):
+        song = Song()
+
+        class Surface:
+            def song(self):
+                return song
+
+            def schedule_message(self, _, callback):
+                self.callback = callback
+
+        class Client:
+            def __init__(self):
+                self.messages = []
+
+            def sendall(self, payload):
+                self.messages.append(json.loads(payload))
+
+        surface = Surface()
+        client = Client()
+        bridge = SocketBridge(surface, "/unused")
+        bridge.requests.put((client, {"id": 1, "method": "create_arrangement_cue_point", "params": {"timeBeats": 32, "name": "Chorus"}}))
+        bridge.drain()
+        self.assertEqual(client.messages, [])
+        self.assertEqual(song.current_song_time, 32)
+        surface.callback()
+        self.assertEqual(client.messages[0]["result"]["cuePoint"]["name"], "Chorus")
+        self.assertEqual(song.current_song_time, 4.0)
+
+    def test_arrangement_cue_point_lifecycle_and_jump(self):
+        song = Song()
+        observed = dispatch_request(song, {"method": "list_arrangement_cue_points"}, 3)
+        self.assertEqual(observed["cuePoints"][0], {"id": "cue-0", "name": "Verse", "timeBeats": 16.0})
+        created = dispatch_request(song, {"method": "create_arrangement_cue_point", "params": {"timeBeats": 32, "name": "Chorus"}}, 3)
+        self.assertEqual(created["cuePoint"]["name"], "Chorus")
+        self.assertEqual(song.current_song_time, 4.0)
+        dispatch_request(song, {"method": "rename_arrangement_cue_point", "params": {"cuePointId": "cue-0", "name": "Intro"}}, 4)
+        self.assertEqual(song.cue_points[0].name, "Intro")
+        dispatch_request(song, {"method": "jump_to_arrangement_cue_point", "params": {"cuePointId": "cue-0"}}, 5)
+        self.assertTrue(song.cue_points[0].jumped)
+        dispatch_request(song, {"method": "delete_arrangement_cue_point", "params": {"cuePointId": "cue-1"}}, 6)
+        self.assertEqual(len(song.cue_points), 1)
+        self.assertEqual(song.current_song_time, 4.0)
 
     def test_song_musical_context_reads_and_writes_timing_key_groove_and_loop(self):
         song = Song()

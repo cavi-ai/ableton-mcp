@@ -220,6 +220,7 @@ export class ToolService {
     if (name === "get_live_state") return this.bridge.request("get_live_state", {});
     if (name === "get_song_musical_context") return this.bridge.request("get_song_musical_context", {});
     if (name === "get_transport_recording_context") return this.bridge.request("get_transport_recording_context", {});
+    if (name === "list_arrangement_cue_points") return this.bridge.request("list_arrangement_cue_points", {});
     if (name === "list_tracks") return this.bridge.request("list_tracks", {});
     if (name === "list_scenes") return this.bridge.request("list_scenes", {});
     if (name === "list_clips") return this.bridge.request("list_clips", args);
@@ -276,6 +277,9 @@ export class ToolService {
     if (name === "set_device_parameters") return this.#setDeviceParameters(args);
     if (name === "set_song_musical_context") return this.#setSongMusicalContext(args);
     if (name === "set_transport_recording_context") return this.#setTransportRecordingContext(args);
+    if (["create_arrangement_cue_point", "rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point"].includes(name)) {
+      return this.#arrangementCuePointMutation(name, args);
+    }
     if (name === "set_clip_timing") return this.#setClipTiming(args);
     if (name === "create_track") return this.#createTrack(args);
     if (name === "create_scene") return this.#createScene(args);
@@ -456,6 +460,28 @@ export class ToolService {
       method: "set_transport_recording_context", expectedStateVersion: args.expectedStateVersion,
       before: observed, changes
     }, args);
+  }
+
+  async #arrangementCuePointMutation(method, args) {
+    requireExpectedState(args);
+    const observed = await this.bridge.request("list_arrangement_cue_points", {});
+    assertExpectedState(args, observed);
+    const plan = { method, expectedStateVersion: args.expectedStateVersion, before: observed };
+    if (method === "create_arrangement_cue_point") {
+      plan.timeBeats = finiteRange(args.timeBeats, "timeBeats", 0, Number.MAX_SAFE_INTEGER);
+      if (typeof args.name !== "string" || !args.name.trim()) throw new Error("name must be a non-empty string");
+      plan.name = args.name.trim();
+    } else {
+      const cuePoint = observed.cuePoints.find(({ id }) => id === args.cuePointId);
+      if (!cuePoint) throw new Error(`unknown cue point ${args.cuePointId}`);
+      plan.cuePointId = args.cuePointId;
+      plan.beforeCuePoint = cuePoint;
+      if (method === "rename_arrangement_cue_point") {
+        if (typeof args.name !== "string" || !args.name.trim()) throw new Error("name must be a non-empty string");
+        plan.name = args.name.trim();
+      }
+    }
+    return this.#confirmedMutation(plan, args);
   }
 
   async #setClipTiming(args) {

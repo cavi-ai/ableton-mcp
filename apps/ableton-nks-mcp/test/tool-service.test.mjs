@@ -32,6 +32,9 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         arrangement: { record: false, overdub: false, punchIn: true, punchOut: false, backToArranger: false },
         session: { record: false, overdub: true }, automationArm: false
       };
+      if (method === "list_arrangement_cue_points") return {
+        stateVersion: 4, cuePoints: [{ id: "cue-0", name: "Verse", timeBeats: 16 }]
+      };
       if (method === "list_devices") return { stateVersion: 4, trackId: params.trackId, devices: [
         { id: "device-0", name: "Serum 2", className: "PluginDevice", type: "instrument" },
         { id: "track-0:device-1", name: "EQ Eight", className: "Eq8", type: "audio_effect" }
@@ -151,7 +154,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         replaced: true,
         samples: params.points.map(({ time, value }) => ({ time, value }))
       };
-      if (["transport_play", "transport_stop", "set_tempo", "set_song_musical_context", "set_transport_recording_context", "set_clip_timing", "set_track_mixer", "launch_scene", "launch_clip", "stop_clip", "arm_track"].includes(method)) {
+      if (["transport_play", "transport_stop", "set_tempo", "set_song_musical_context", "set_transport_recording_context", "create_arrangement_cue_point", "rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point", "set_clip_timing", "set_track_mixer", "launch_scene", "launch_clip", "stop_clip", "arm_track"].includes(method)) {
         return { stateVersion: 5, method, ...params };
       }
       throw new Error(`unexpected method ${method}`);
@@ -390,6 +393,25 @@ test("transport recording context mutation validates and signs exact changes", a
   await assert.rejects(() => service.call("set_transport_recording_context", {
     expectedStateVersion: 4, currentSongTime: -1
   }), /currentSongTime/);
+});
+
+test("arrangement cue points are inspectable and exact mutations are guarded", async () => {
+  const { service, calls } = fixture();
+  assert.equal((await service.call("list_arrangement_cue_points")).cuePoints[0].timeBeats, 16);
+  for (const [name, args] of [
+    ["create_arrangement_cue_point", { timeBeats: 32, name: "Chorus" }],
+    ["rename_arrangement_cue_point", { cuePointId: "cue-0", name: "Intro" }],
+    ["delete_arrangement_cue_point", { cuePointId: "cue-0" }],
+    ["jump_to_arrangement_cue_point", { cuePointId: "cue-0" }]
+  ]) {
+    const dry = await service.call(name, { expectedStateVersion: 4, ...args });
+    assert.equal(dry.dryRun, true);
+    assert.equal(dry.plan.method, name);
+    assert.equal(calls.at(-1).method, "list_arrangement_cue_points");
+  }
+  await assert.rejects(() => service.call("rename_arrangement_cue_point", {
+    expectedStateVersion: 4, cuePointId: "cue-9", name: "Missing"
+  }), /unknown cue point/);
 });
 
 test("song musical context mutation validates and signs exact producer changes", async () => {

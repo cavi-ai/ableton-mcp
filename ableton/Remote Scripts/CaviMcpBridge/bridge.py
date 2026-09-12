@@ -18,6 +18,8 @@ BRIDGE_VERSION = "0.1.0"
 CAPABILITIES = (
     "get_live_state", "get_song_musical_context", "set_song_musical_context",
     "get_transport_recording_context", "set_transport_recording_context",
+    "list_arrangement_cue_points", "create_arrangement_cue_point", "rename_arrangement_cue_point",
+    "delete_arrangement_cue_point", "jump_to_arrangement_cue_point",
     "list_tracks", "list_scenes", "list_clips", "get_clip_timing", "set_clip_timing",
     "get_track_mixer", "get_midi_clip_notes",
     "create_track", "create_scene", "rename_session_object",
@@ -133,6 +135,13 @@ def _transport_recording_context(song, state_version):
         },
         "session": {"record": bool(song.session_record), "overdub": bool(song.overdub)},
         "automationArm": bool(song.session_automation_record),
+    }
+
+
+def _arrangement_cue_points(song, state_version):
+    return {
+        "stateVersion": state_version,
+        "cuePoints": [{"id": f"cue-{i}", "name": cue.name, "timeBeats": float(cue.time)} for i, cue in enumerate(song.cue_points)],
     }
 
 
@@ -253,6 +262,43 @@ def dispatch_request(song, request, state_version):
             if source in changes.get("session", {}):
                 setattr(song, target, changes["session"][source])
         return _transport_recording_context(song, state_version + 1)
+    if method == "list_arrangement_cue_points":
+        return _arrangement_cue_points(song, state_version)
+    if method == "create_arrangement_cue_point":
+        time_beats = float(params["timeBeats"])
+        if any(float(cue.time) == time_beats for cue in song.cue_points):
+            raise ValueError("cue point already exists at requested time")
+        previous_time = song.current_song_time
+        try:
+            song.current_song_time = time_beats
+            song.set_or_delete_cue()
+        finally:
+            song.current_song_time = previous_time
+        cue = next(cue for cue in song.cue_points if float(cue.time) == time_beats)
+        cue.name = params["name"]
+        result = _arrangement_cue_points(song, state_version + 1)
+        result["cuePoint"] = next(record for record in result["cuePoints"] if record["timeBeats"] == time_beats)
+        return result
+    if method in ("rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point"):
+        prefix, raw_index = params["cuePointId"].split("-", 1)
+        if prefix != "cue" or not raw_index.isdigit():
+            raise ValueError("unknown cue point")
+        index = int(raw_index)
+        if index >= len(song.cue_points):
+            raise ValueError("unknown cue point")
+        cue = song.cue_points[index]
+        if method == "rename_arrangement_cue_point":
+            cue.name = params["name"]
+        elif method == "delete_arrangement_cue_point":
+            previous_time = song.current_song_time
+            try:
+                song.current_song_time = float(cue.time)
+                song.set_or_delete_cue()
+            finally:
+                song.current_song_time = previous_time
+        else:
+            cue.jump()
+        return _arrangement_cue_points(song, state_version + 1)
     if method == "set_song_musical_context":
         changes = params["changes"]
         signature = changes.get("timeSignature", {})
@@ -569,6 +615,7 @@ class SocketBridge:
         self.requests = queue.Queue()
         self.stopped = threading.Event()
         self.state_version = 1
+        self.deferred_request = False
         self.thread = threading.Thread(target=self._serve, name="CaviMcpBridge", daemon=True)
 
     def start(self):
@@ -610,15 +657,62 @@ class SocketBridge:
                     self.requests.put((client, message))
 
     def drain(self):
+        if self.deferred_request:
+            return
         while True:
             try:
                 client, request = self.requests.get_nowait()
             except queue.Empty:
+                return
+            if request.get("method") in ("create_arrangement_cue_point", "delete_arrangement_cue_point"):
+                self._defer_cue_mutation(client, request)
                 return
             try:
                 result = dispatch_request(self.control_surface.song(), request, self.state_version)
                 self.state_version = result.get("stateVersion", self.state_version)
                 response = {"id": request.get("id"), "result": result}
             except Exception as error:
-                response = {"id": request.get("id"), "error": {"message": str(error)}}
+                response = {"id": request.get("id"), "error": {"message": str(error) or error.__class__.__name__}}
             client.sendall(encode_message(response))
+
+    def _defer_cue_mutation(self, client, request):
+        song = self.control_surface.song()
+        params = request.get("params", {})
+        method = request["method"]
+        try:
+            if method == "create_arrangement_cue_point":
+                time_beats = float(params["timeBeats"])
+                if any(float(cue.time) == time_beats for cue in song.cue_points):
+                    raise ValueError("cue point already exists at requested time")
+            else:
+                prefix, raw_index = params["cuePointId"].split("-", 1)
+                if prefix != "cue" or not raw_index.isdigit() or int(raw_index) >= len(song.cue_points):
+                    raise ValueError("unknown cue point")
+                time_beats = float(song.cue_points[int(raw_index)].time)
+            previous_time = float(song.current_song_time)
+            song.current_song_time = time_beats
+            self.deferred_request = True
+            self.control_surface.schedule_message(
+                1, lambda: self._complete_cue_mutation(client, request, previous_time, time_beats)
+            )
+        except Exception as error:
+            client.sendall(encode_message({"id": request.get("id"), "error": {"message": str(error) or error.__class__.__name__}}))
+
+    def _complete_cue_mutation(self, client, request, previous_time, time_beats):
+        song = self.control_surface.song()
+        try:
+            song.set_or_delete_cue()
+            if request["method"] == "create_arrangement_cue_point":
+                cue = next(cue for cue in song.cue_points if float(cue.time) == time_beats)
+                cue.name = request["params"]["name"]
+            self.state_version += 1
+            result = _arrangement_cue_points(song, self.state_version)
+            if request["method"] == "create_arrangement_cue_point":
+                result["cuePoint"] = next(record for record in result["cuePoints"] if record["timeBeats"] == time_beats)
+            response = {"id": request.get("id"), "result": result}
+        except Exception as error:
+            response = {"id": request.get("id"), "error": {"message": str(error) or error.__class__.__name__}}
+        finally:
+            song.current_song_time = previous_time
+            self.deferred_request = False
+        client.sendall(encode_message(response))

@@ -46,6 +46,9 @@ test("stdio server initializes and lists MCP resources and tools", async () => {
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "set_song_musical_context"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_transport_recording_context"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "set_transport_recording_context"), true);
+  assert.equal(messages[2].result.tools.some((tool) => tool.name === "list_arrangement_cue_points"), true);
+  assert.equal(messages[2].result.tools.some((tool) => tool.name === "create_arrangement_cue_point"), true);
+  assert.equal(messages[2].result.tools.some((tool) => tool.name === "delete_arrangement_cue_point"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_clip_timing"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "set_clip_timing"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "create_track"), true);
