@@ -21,16 +21,26 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         groove: { amount: 1, swingAmount: 0, pool: [{ id: "groove-0", name: "Swing 16-65" }] },
         loop: { enabled: false, startBeats: 0, lengthBeats: 8 }
       };
-      if (method === "list_tracks") return { stateVersion: 4, tracks: [{ id: "track-0", name: "Synth" }] };
+      if (method === "list_tracks") return { stateVersion: 4, tracks: [
+        { id: "track-0", name: "Synth" }, { id: "track-1", name: "Empty MIDI" }
+      ] };
+      if (method === "list_devices" && params.trackId === "track-1") return {
+        stateVersion: 4, trackId: params.trackId, devices: []
+      };
       if (method === "list_devices") return { stateVersion: 4, trackId: params.trackId, devices: [
         { id: "device-0", name: "Serum 2", className: "PluginDevice", type: "instrument" },
         { id: "track-0:device-1", name: "EQ Eight", className: "Eq8", type: "audio_effect" }
       ] };
-      if (method === "list_scenes") return { stateVersion: 4, scenes: [{ id: "scene-0", name: "Verse" }] };
+      if (method === "list_scenes") return { stateVersion: 4, scenes: [
+        { id: "scene-0", name: "Verse" }, { id: "scene-1", name: "Chorus" }
+      ] };
       if (method === "list_clips") return {
         stateVersion: 4,
         trackId: params.trackId,
-        clips: [
+        clips: params.trackId === "track-1" ? [
+          { id: "track-1:clip-0", name: null, hasClip: false },
+          { id: "track-1:clip-1", name: null, hasClip: false }
+        ] : [
           { id: "track-0:clip-0", name: "Loop", hasClip: true },
           { id: "track-0:clip-1", name: null, hasClip: false }
         ]
@@ -102,6 +112,9 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         stateVersion: 5, trackId: params.trackId, clipId: params.clipId,
         notes: [...(params.changes || []), ...(params.newNotes || [])]
       };
+      if (["duplicate_session_object", "delete_session_object"].includes(method)) {
+        return { stateVersion: 5, method, ...params };
+      }
       if (method === "get_clip_parameter_envelope") return {
         stateVersion: 4,
         trackId: params.trackId,
@@ -236,6 +249,53 @@ test("session object rename resolves the exact current identity", async () => {
     expectedStateVersion: 4, targetType: "clip", trackId: "track-0",
     targetId: "track-0:clip-1", name: "Empty"
   }), /empty clip slot/);
+});
+
+test("session duplication signs exact source and destination identities", async () => {
+  const { service } = fixture();
+  const clip = await service.call("duplicate_session_object", {
+    expectedStateVersion: 4, targetType: "clip", trackId: "track-0", targetId: "track-0:clip-0"
+  });
+  assert.deepEqual(clip.plan.target, {
+    targetType: "clip", trackId: "track-0", targetId: "track-0:clip-0", name: "Loop",
+    destinationId: "track-0:clip-1"
+  });
+  const scene = await service.call("duplicate_session_object", {
+    expectedStateVersion: 4, targetType: "scene", targetId: "scene-0"
+  });
+  assert.deepEqual(scene.plan.target, {
+    targetType: "scene", targetId: "scene-0", name: "Verse", destinationId: "scene-1",
+    displaced: { id: "scene-1", name: "Chorus" }
+  });
+});
+
+test("session deletion requires explicit content authority and records destructive contents", async () => {
+  const { service } = fixture();
+  await assert.rejects(() => service.call("delete_session_object", {
+    expectedStateVersion: 4, targetType: "track", targetId: "track-0"
+  }), /allowContent/);
+  const track = await service.call("delete_session_object", {
+    expectedStateVersion: 4, targetType: "track", targetId: "track-0", allowContent: true
+  });
+  assert.equal(track.plan.target.clipCount, 1);
+  assert.equal(track.plan.target.deviceCount, 2);
+  assert.deepEqual(track.plan.target.clips, [{ id: "track-0:clip-0", name: "Loop" }]);
+  assert.deepEqual(track.plan.target.devices.map(({ id, name }) => ({ id, name })), [
+    { id: "device-0", name: "Serum 2" }, { id: "track-0:device-1", name: "EQ Eight" }
+  ]);
+  await assert.rejects(() => service.call("delete_session_object", {
+    expectedStateVersion: 4, targetType: "scene", targetId: "scene-0"
+  }), /allowContent/);
+  const scene = await service.call("delete_session_object", {
+    expectedStateVersion: 4, targetType: "scene", targetId: "scene-0", allowContent: true
+  });
+  assert.deepEqual(scene.plan.target.occupiedClips, [
+    { trackId: "track-0", clipId: "track-0:clip-0", name: "Loop" }
+  ]);
+  const clip = await service.call("delete_session_object", {
+    expectedStateVersion: 4, targetType: "clip", trackId: "track-0", targetId: "track-0:clip-0"
+  });
+  assert.equal(clip.plan.target.name, "Loop");
 });
 
 test("MIDI note inspection returns exact clip contents without mutation", async () => {

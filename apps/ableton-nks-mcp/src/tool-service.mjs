@@ -272,6 +272,8 @@ export class ToolService {
     if (name === "create_track") return this.#createTrack(args);
     if (name === "create_scene") return this.#createScene(args);
     if (name === "rename_session_object") return this.#renameSessionObject(args);
+    if (name === "duplicate_session_object") return this.#duplicateSessionObject(args);
+    if (name === "delete_session_object") return this.#deleteSessionObject(args);
     if (name === "create_midi_clip") return this.#createMidiClip(args);
     if (name === "set_clip_parameter_envelope") return this.#setClipParameterEnvelope(args);
     if (name === "set_midi_note_properties") return this.#setMidiNoteProperties(args);
@@ -510,6 +512,90 @@ export class ToolService {
     return this.#confirmedMutation({
       method: "rename_session_object", expectedStateVersion: args.expectedStateVersion,
       target: { targetType: args.targetType, targetId: args.targetId, previousName: target.name, name }
+    }, args);
+  }
+
+  async #duplicateSessionObject(args) {
+    requireExpectedState(args);
+    if (args.targetType === "clip") {
+      const observed = await this.bridge.request("list_clips", { trackId: args.trackId });
+      assertExpectedState(args, observed);
+      const index = observed.clips.findIndex(({ id }) => id === args.targetId);
+      if (index === -1) throw new Error(`unknown clip slot ${args.targetId}`);
+      const source = observed.clips[index];
+      if (!source.hasClip) throw new Error(`empty clip slot ${args.targetId}`);
+      const destination = observed.clips[index + 1];
+      if (!destination) throw new Error("clip duplication requires a following clip slot");
+      if (destination.hasClip) throw new Error(`destination clip slot ${destination.id} is occupied`);
+      return this.#confirmedMutation({
+        method: "duplicate_session_object", expectedStateVersion: args.expectedStateVersion,
+        target: { targetType: "clip", trackId: args.trackId, targetId: source.id,
+          name: source.name, destinationId: destination.id }
+      }, args);
+    }
+    if (args.targetType !== "scene") throw new Error("targetType must be scene or clip");
+    const observed = await this.bridge.request("list_scenes", {});
+    assertExpectedState(args, observed);
+    const index = observed.scenes.findIndex(({ id }) => id === args.targetId);
+    if (index === -1) throw new Error(`unknown scene ${args.targetId}`);
+    const source = observed.scenes[index];
+    return this.#confirmedMutation({
+      method: "duplicate_session_object", expectedStateVersion: args.expectedStateVersion,
+      target: { targetType: "scene", targetId: source.id, name: source.name,
+        destinationId: `scene-${index + 1}`, displaced: observed.scenes[index + 1] || null }
+    }, args);
+  }
+
+  async #deleteSessionObject(args) {
+    requireExpectedState(args);
+    if (args.targetType === "clip") {
+      const observed = await this.bridge.request("list_clips", { trackId: args.trackId });
+      assertExpectedState(args, observed);
+      const clip = observed.clips.find(({ id }) => id === args.targetId);
+      if (!clip) throw new Error(`unknown clip slot ${args.targetId}`);
+      if (!clip.hasClip) throw new Error(`empty clip slot ${args.targetId}`);
+      return this.#confirmedMutation({ method: "delete_session_object",
+        expectedStateVersion: args.expectedStateVersion,
+        target: { targetType: "clip", trackId: args.trackId, targetId: clip.id, name: clip.name }
+      }, args);
+    }
+    if (args.targetType === "track") {
+      const observed = await this.bridge.request("list_tracks", {});
+      assertExpectedState(args, observed);
+      if (observed.tracks.length <= 1) throw new Error("cannot delete the last track");
+      const track = observed.tracks.find(({ id }) => id === args.targetId);
+      if (!track) throw new Error(`unknown track ${args.targetId}`);
+      const clips = (await this.bridge.request("list_clips", { trackId: track.id })).clips
+        .filter(({ hasClip }) => hasClip).map(({ id, name }) => ({ id, name }));
+      const devices = (await this.bridge.request("list_devices", { trackId: track.id })).devices;
+      if ((clips.length || devices.length) && args.allowContent !== true) {
+        throw new Error("allowContent: true is required to delete a track containing clips or devices");
+      }
+      return this.#confirmedMutation({ method: "delete_session_object",
+        expectedStateVersion: args.expectedStateVersion,
+        target: { targetType: "track", targetId: track.id, name: track.name,
+          clipCount: clips.length, deviceCount: devices.length, clips, devices }
+      }, args);
+    }
+    if (args.targetType !== "scene") throw new Error("targetType must be track, scene, or clip");
+    const observed = await this.bridge.request("list_scenes", {});
+    assertExpectedState(args, observed);
+    if (observed.scenes.length <= 1) throw new Error("cannot delete the last scene");
+    const sceneIndex = observed.scenes.findIndex(({ id }) => id === args.targetId);
+    if (sceneIndex === -1) throw new Error(`unknown scene ${args.targetId}`);
+    const tracks = (await this.bridge.request("list_tracks", {})).tracks;
+    const occupiedClips = [];
+    for (const track of tracks) {
+      const slot = (await this.bridge.request("list_clips", { trackId: track.id })).clips[sceneIndex];
+      if (slot?.hasClip) occupiedClips.push({ trackId: track.id, clipId: slot.id, name: slot.name });
+    }
+    if (occupiedClips.length && args.allowContent !== true) {
+      throw new Error("allowContent: true is required to delete a scene containing clips");
+    }
+    const scene = observed.scenes[sceneIndex];
+    return this.#confirmedMutation({ method: "delete_session_object",
+      expectedStateVersion: args.expectedStateVersion,
+      target: { targetType: "scene", targetId: scene.id, name: scene.name, occupiedClips }
     }, args);
   }
 

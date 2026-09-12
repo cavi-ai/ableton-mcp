@@ -34,6 +34,8 @@ const toolNames = [
   "create_track",
   "create_scene",
   "rename_session_object",
+  "duplicate_session_object",
+  "delete_session_object",
   "get_automation_capabilities",
   "get_track_mixer",
   "list_factory_device_profiles",

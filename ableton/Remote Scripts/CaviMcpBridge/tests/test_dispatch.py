@@ -94,6 +94,15 @@ class Track:
             "sends": [type("Value", (), {"value": 0.2, "min": 0.0, "max": 1.0})()]
         })()
 
+    def duplicate_clip_slot(self, index):
+        source = self.clip_slots[index]
+        destination = self.clip_slots[index + 1]
+        if not source.has_clip or destination.has_clip:
+            raise RuntimeError("invalid duplicate")
+        destination.has_clip = True
+        destination.clip = Clip()
+        destination.clip.name = source.clip.name
+
 
 class Clip:
     def __init__(self):
@@ -202,6 +211,10 @@ class ClipSlot:
     def stop(self):
         self.clip.stop()
 
+    def delete_clip(self):
+        self.has_clip = False
+        self.clip = None
+
 
 class Scene:
     def __init__(self):
@@ -214,10 +227,11 @@ class Scene:
 
 class Song:
     def __init__(self):
-        self.tracks = [Track()]
+        self.tracks = [Track(), Track()]
         self.return_tracks = [type("ReturnTrack", (), {"name": "Reverb"})()]
-        self.scenes = [Scene()]
+        self.scenes = [Scene(), Scene()]
         self.tracks[0].clip_slots = [ClipSlot(), ClipSlot(False)]
+        self.tracks[1].clip_slots = [ClipSlot(False), ClipSlot(False)]
         self.tempo = 120.0
         self.is_playing = False
         self.signature_numerator = 4
@@ -248,6 +262,27 @@ class Song:
 
     def create_scene(self, index):
         self.scenes.insert(index, Scene())
+
+    def duplicate_scene(self, index):
+        scene = Scene()
+        scene.name = self.scenes[index].name
+        self.scenes.insert(index + 1, scene)
+        for track in self.tracks:
+            source = track.clip_slots[index]
+            duplicate = ClipSlot(False)
+            if source.has_clip:
+                duplicate.has_clip = True
+                duplicate.clip = Clip()
+                duplicate.clip.name = source.clip.name
+            track.clip_slots.insert(index + 1, duplicate)
+
+    def delete_track(self, index):
+        self.tracks.pop(index)
+
+    def delete_scene(self, index):
+        self.scenes.pop(index)
+        for track in self.tracks:
+            track.clip_slots.pop(index)
 
     def start_playing(self):
         self.is_playing = True
@@ -410,6 +445,32 @@ class DispatchTest(unittest.TestCase):
         }}, 5)
         self.assertEqual(renamed["target"]["name"], "Hook")
         self.assertEqual(song.tracks[0].clip_slots[0].clip.name, "Hook")
+
+    def test_session_duplicate_and_delete_return_exact_observed_state(self):
+        song = Song()
+        duplicated = dispatch_request(song, {"method": "duplicate_session_object", "params": {
+            "target": {"targetType": "clip", "trackId": "track-0", "targetId": "track-0:clip-0",
+                       "destinationId": "track-0:clip-1", "name": "Loop"}
+        }}, 3)
+        self.assertEqual(duplicated["target"]["destinationId"], "track-0:clip-1")
+        self.assertTrue(song.tracks[0].clip_slots[1].has_clip)
+        deleted_clip = dispatch_request(song, {"method": "delete_session_object", "params": {
+            "target": {"targetType": "clip", "trackId": "track-0", "targetId": "track-0:clip-1", "name": "Loop"}
+        }}, 4)
+        self.assertFalse(song.tracks[0].clip_slots[1].has_clip)
+        self.assertEqual(deleted_clip["deleted"]["targetId"], "track-0:clip-1")
+        dispatch_request(song, {"method": "duplicate_session_object", "params": {
+            "target": {"targetType": "scene", "targetId": "scene-0", "destinationId": "scene-1", "name": "Verse"}
+        }}, 5)
+        self.assertEqual(len(song.scenes), 3)
+        dispatch_request(song, {"method": "delete_session_object", "params": {
+            "target": {"targetType": "scene", "targetId": "scene-1", "name": "Verse", "occupiedClips": []}
+        }}, 6)
+        self.assertEqual(len(song.scenes), 2)
+        dispatch_request(song, {"method": "delete_session_object", "params": {
+            "target": {"targetType": "track", "targetId": "track-1", "name": "Synth", "clipCount": 0, "deviceCount": 0}
+        }}, 7)
+        self.assertEqual(len(song.tracks), 1)
 
     def test_track_mixer_read_and_write_include_named_return_sends(self):
         song = Song()

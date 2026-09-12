@@ -21,6 +21,7 @@ CAPABILITIES = (
     "get_track_mixer", "get_midi_clip_notes",
     "create_track", "create_scene", "rename_session_object",
     "get_midi_clip_notes_extended", "set_midi_note_properties", "transform_midi_notes",
+    "duplicate_session_object", "delete_session_object",
     "get_clip_parameter_envelope", "set_clip_parameter_envelope", "list_devices", "get_device_hierarchy",
     "list_device_parameters", "set_device_parameters", "create_midi_clip", "transport_play", "transport_stop",
     "set_tempo", "set_track_mixer", "arm_track", "launch_scene", "launch_clip",
@@ -293,6 +294,31 @@ def dispatch_request(song, request, state_version):
         return {"stateVersion": state_version + 1, "target": {
             **target, "name": item.name,
         }}
+    if method == "duplicate_session_object":
+        target = params["target"]
+        if target["targetType"] == "scene":
+            source_index = int(target["targetId"].removeprefix("scene-"))
+            song.duplicate_scene(source_index)
+            item = song.scenes[source_index + 1]
+        else:
+            track, source_index, _ = _clip_slot(song, target["trackId"], target["targetId"])
+            track.duplicate_clip_slot(source_index)
+            item = track.clip_slots[source_index + 1].clip
+        return {"stateVersion": state_version + 1, "target": {
+            **target, "name": item.name,
+        }}
+    if method == "delete_session_object":
+        target = params["target"]
+        if target["targetType"] == "track":
+            song.delete_track(int(target["targetId"].removeprefix("track-")))
+        elif target["targetType"] == "scene":
+            song.delete_scene(int(target["targetId"].removeprefix("scene-")))
+        else:
+            _, _, slot = _clip_slot(song, target["trackId"], target["targetId"])
+            if not slot.has_clip:
+                raise ValueError("clip slot is empty")
+            slot.delete_clip()
+        return {"stateVersion": state_version + 1, "deleted": target}
     if method == "list_clips":
         index, track = _track(song, params["trackId"])
         clips = []
