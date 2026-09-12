@@ -25,7 +25,7 @@ CAPABILITIES = (
     "list_tracks", "list_scenes", "list_clips", "get_clip_timing", "set_clip_timing", "duplicate_clip_loop",
     "duplicate_clip", "delete_clip",
     "get_audio_clip_state", "set_audio_clip_state",
-    "get_track_mixer", "get_track_routing", "set_track_routing", "get_midi_clip_notes",
+    "get_track_mixer", "get_track_routing", "set_track_routing", "set_group_fold_state", "route_tracks_to_bus", "get_midi_clip_notes",
     "create_track", "create_scene", "rename_session_object",
     "get_midi_clip_notes_extended", "set_midi_note_properties", "transform_midi_notes",
     "duplicate_session_object", "delete_session_object",
@@ -57,6 +57,24 @@ COUNT_IN_DURATION_NAMES = ("none", "one_bar", "two_bars", "four_bars")
 def _track(song, track_id):
     index = int(track_id.removeprefix("track-"))
     return index, song.tracks[index]
+
+
+def _track_record(song, track, index):
+    is_group = bool(getattr(track, "is_foldable", False))
+    is_grouped = bool(getattr(track, "is_grouped", False))
+    group_track_id = None
+    if is_grouped:
+        group_track = getattr(track, "group_track", None)
+        group_index = next((i for i, candidate in enumerate(song.tracks) if candidate == group_track), None)
+        if group_index is not None:
+            group_track_id = f"track-{group_index}"
+    return {
+        "id": f"track-{index}", "name": track.name, "mute": bool(track.mute),
+        "solo": bool(track.solo), "armed": bool(track.arm),
+        "volume": track.mixer_device.volume.value, "pan": track.mixer_device.panning.value,
+        "isGroup": is_group, "isGrouped": is_grouped, "groupTrackId": group_track_id,
+        "foldState": int(track.fold_state) if is_group else None,
+    }
 
 
 def _device(song, track_id, device_id):
@@ -468,6 +486,23 @@ def dispatch_request(song, request, state_version, application=None):
         if "monitoring" in changes:
             track.current_monitoring_state = int(changes["monitoring"]["value"]["value"])
         return _track_routing(song, params["trackId"], state_version + 1)
+    if method == "set_group_fold_state":
+        track_index, track = _track(song, params["trackId"])
+        if not bool(getattr(track, "is_foldable", False)):
+            raise ValueError("track is not a group")
+        track.fold_state = 1 if params["folded"] else 0
+        return {"stateVersion": state_version + 1, "track": _track_record(song, track, track_index)}
+    if method == "route_tracks_to_bus":
+        _, bus = _track(song, params["busTrackId"])
+        if not bool(getattr(bus, "is_foldable", False)):
+            raise ValueError("bus track is not a group")
+        routes = []
+        for route_change in params["routes"]:
+            _, track = _track(song, route_change["trackId"])
+            selected = next(option for option in track.available_output_routing_types if _routing_id(option) == route_change["outputTypeId"])
+            track.current_output_routing = selected
+            routes.append(_track_routing(song, route_change["trackId"], state_version + 1))
+        return {"stateVersion": state_version + 1, "busTrackId": params["busTrackId"], "routes": routes}
     if method == "get_factory_browser_items":
         item = _factory_browser_item(application, params["root"], params.get("path", []))
         return {
@@ -561,7 +596,7 @@ def dispatch_request(song, request, state_version, application=None):
                 setattr(song, target, loop[source])
         return _song_musical_context(song, state_version + 1)
     if method == "list_tracks":
-        return {"stateVersion": state_version, "tracks": [{"id": f"track-{i}", "name": track.name, "mute": track.mute, "solo": track.solo, "armed": track.arm, "volume": track.mixer_device.volume.value, "pan": track.mixer_device.panning.value} for i, track in enumerate(song.tracks)]}
+        return {"stateVersion": state_version, "tracks": [_track_record(song, track, i) for i, track in enumerate(song.tracks)]}
     if method == "create_track":
         index = int(params["index"])
         if params["type"] == "midi":

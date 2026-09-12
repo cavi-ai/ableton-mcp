@@ -58,6 +58,8 @@ test("stdio server initializes and lists MCP resources and tools", async () => {
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_track_mixer"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_track_routing"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "set_track_routing"), true);
+  assert.equal(messages[2].result.tools.some((tool) => tool.name === "set_group_fold_state"), true);
+  assert.equal(messages[2].result.tools.some((tool) => tool.name === "route_tracks_to_bus"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_set_mixer"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "set_master_mixer"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "set_return_mixer"), true);

@@ -314,6 +314,8 @@ export class ToolService {
     if (name === "transform_midi_notes") return this.#transformMidiNotes(args);
     if (name === "set_track_mixer") return this.#setTrackMixer(args);
     if (name === "set_track_routing") return this.#setTrackRouting(args);
+    if (name === "set_group_fold_state") return this.#setGroupFoldState(args);
+    if (name === "route_tracks_to_bus") return this.#routeTracksToBus(args);
     if (name === "load_factory_browser_item") return this.#loadFactoryBrowserItem(args);
     if (name === "set_master_mixer" || name === "set_return_mixer") return this.#setBusMixer(name, args);
     if (name === "undo" || name === "redo") return this.#historyMutation(name, args);
@@ -1002,6 +1004,45 @@ export class ToolService {
     return this.#confirmedMutation({
       method: "set_track_routing", trackId: args.trackId,
       expectedStateVersion: args.expectedStateVersion, changes
+    }, args);
+  }
+
+  async #setGroupFoldState(args) {
+    requireExpectedState(args);
+    if (typeof args.folded !== "boolean") throw new Error("folded must be a boolean");
+    const observed = await this.bridge.request("list_tracks", {});
+    assertExpectedState({ expectedStateVersion: args.expectedStateVersion }, observed);
+    const track = observed.tracks.find(({ id }) => id === args.trackId);
+    if (!track) throw new Error(`unknown trackId ${args.trackId}`);
+    if (!track.isGroup) throw new Error(`track ${args.trackId} is not a group`);
+    return this.#confirmedMutation({
+      method: "set_group_fold_state", expectedStateVersion: args.expectedStateVersion,
+      trackId: args.trackId, folded: args.folded, before: track
+    }, args);
+  }
+
+  async #routeTracksToBus(args) {
+    requireExpectedState(args);
+    if (!Array.isArray(args.trackIds) || !args.trackIds.length) throw new Error("trackIds must be a non-empty array");
+    if (new Set(args.trackIds).size !== args.trackIds.length) throw new Error("trackIds must be unique");
+    if (args.trackIds.includes(args.busTrackId)) throw new Error("a group bus cannot route to itself");
+    const observed = await this.bridge.request("list_tracks", {});
+    assertExpectedState(args, observed);
+    const bus = observed.tracks.find(({ id }) => id === args.busTrackId);
+    if (!bus) throw new Error(`unknown busTrackId ${args.busTrackId}`);
+    if (!bus.isGroup) throw new Error(`track ${args.busTrackId} is not a group bus`);
+    const routes = [];
+    for (const trackId of args.trackIds) {
+      if (!observed.tracks.some(({ id }) => id === trackId)) throw new Error(`unknown trackId ${trackId}`);
+      const routing = await this.bridge.request("get_track_routing", { trackId });
+      assertExpectedState(args, routing);
+      const matches = routing.output.availableTypes.filter(({ id, name }) => id === args.busTrackId || name === bus.name);
+      if (matches.length !== 1) throw new Error(`group bus ${args.busTrackId} is not an unambiguous output routing choice for ${trackId}`);
+      routes.push({ trackId, outputTypeId: matches[0].id, before: routing.output.type });
+    }
+    return this.#confirmedMutation({
+      method: "route_tracks_to_bus", expectedStateVersion: args.expectedStateVersion,
+      busTrackId: args.busTrackId, bus, routes
     }, args);
   }
 

@@ -63,6 +63,8 @@ const toolNames = [
   "get_track_mixer",
   "get_track_routing",
   "set_track_routing",
+  "set_group_fold_state",
+  "route_tracks_to_bus",
   "get_set_mixer",
   "set_master_mixer",
   "set_return_mixer",

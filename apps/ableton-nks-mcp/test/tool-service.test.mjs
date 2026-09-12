@@ -24,7 +24,8 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         loop: { enabled: false, startBeats: 0, lengthBeats: 8 }
       };
       if (method === "list_tracks") return { stateVersion: 4, tracks: [
-        { id: "track-0", name: "Synth" }, { id: "track-1", name: "Empty MIDI" }
+        { id: "track-0", name: "Synth", isGroup: false, isGrouped: false, groupTrackId: null, foldState: null },
+        { id: "track-1", name: "Empty MIDI", isGroup: true, isGrouped: false, groupTrackId: null, foldState: 0 }
       ] };
       if (method === "list_devices" && params.trackId === "track-1") return {
         stateVersion: 4, trackId: params.trackId, devices: []
@@ -101,12 +102,14 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         },
         output: {
           type: { id: "main", name: "Main" }, channel: { id: "post-mixer", name: "Post Mixer" },
-          availableTypes: [{ id: "main", name: "Main" }, { id: "no-output", name: "No Output" }],
+          availableTypes: [{ id: "main", name: "Main" }, { id: "no-output", name: "No Output" }, { id: "track-1", name: "Empty MIDI" }],
           availableChannels: [{ id: "post-mixer", name: "Post Mixer" }]
         },
         monitoring: { value: 1, name: "auto", choices: [{ value: 0, name: "in" }, { value: 1, name: "auto" }, { value: 2, name: "off" }] }
       };
       if (method === "set_track_routing") return { stateVersion: 5, trackId: params.trackId, changes: params.changes };
+      if (method === "set_group_fold_state") return { stateVersion: 5, track: { id: params.trackId, foldState: params.folded ? 1 : 0 } };
+      if (method === "route_tracks_to_bus") return { stateVersion: 5, busTrackId: params.busTrackId, routes: params.routes };
       if (method === "get_set_mixer") return {
         stateVersion: 4,
         master: {
@@ -311,7 +314,10 @@ test("track and scene creation sign explicit insertion context", async () => {
   });
   assert.deepEqual(track.plan, {
     method: "create_track", expectedStateVersion: 4, type: "midi", index: 1, name: "Bass",
-    before: { count: 2, previous: { id: "track-0", name: "Synth" }, next: { id: "track-1", name: "Empty MIDI" } }
+    before: { count: 2,
+      previous: { id: "track-0", name: "Synth", isGroup: false, isGrouped: false, groupTrackId: null, foldState: null },
+      next: { id: "track-1", name: "Empty MIDI", isGroup: true, isGrouped: false, groupTrackId: null, foldState: 0 }
+    }
   });
   const scene = await service.call("create_scene", {
     expectedStateVersion: 4, index: 0, name: "Intro"
@@ -614,6 +620,25 @@ test("track routing rejects unknown choices and empty changes", async () => {
   await assert.rejects(() => service.call("set_track_routing", base), /at least one routing change/);
   await assert.rejects(() => service.call("set_track_routing", { ...base, inputTypeId: "missing" }), /unknown inputTypeId/);
   await assert.rejects(() => service.call("set_track_routing", { ...base, monitoring: "sometimes" }), /unknown monitoring/);
+});
+
+test("group fold and bus routing mutations validate exact existing track identities", async () => {
+  const { service, calls } = fixture();
+  const foldArgs = { expectedStateVersion: 4, trackId: "track-1", folded: true };
+  const foldDry = await service.call("set_group_fold_state", foldArgs);
+  assert.equal(foldDry.plan.before.foldState, 0);
+  assert.equal(foldDry.plan.folded, true);
+
+  const routeArgs = { expectedStateVersion: 4, trackIds: ["track-0"], busTrackId: "track-1" };
+  const routeDry = await service.call("route_tracks_to_bus", routeArgs);
+  assert.equal(routeDry.plan.routes[0].outputTypeId, "track-1");
+  assert.equal(routeDry.plan.routes[0].before.id, "main");
+  const live = await service.call("route_tracks_to_bus", { ...routeArgs, dryRun: false, confirmationToken: routeDry.confirmation.token, planHash: routeDry.confirmation.planHash });
+  assert.equal(live.observed.stateVersion, 5);
+  assert.equal(calls.at(-1).method, "route_tracks_to_bus");
+
+  await assert.rejects(() => service.call("set_group_fold_state", { expectedStateVersion: 4, trackId: "track-0", folded: true }), /not a group/);
+  await assert.rejects(() => service.call("route_tracks_to_bus", { expectedStateVersion: 4, trackIds: ["track-1"], busTrackId: "track-1" }), /cannot route.*itself/);
 });
 
 test("set mixer exposes master and return buses and guards bounded changes", async () => {
