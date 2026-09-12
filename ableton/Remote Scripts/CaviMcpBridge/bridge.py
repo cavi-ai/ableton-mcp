@@ -82,6 +82,19 @@ def _send_records(song, track):
     } for i, send in enumerate(track.mixer_device.sends)]
 
 
+def _device_type(device):
+    return {0: "audio_effect", 1: "instrument", 2: "midi_effect"}.get(device.type, "unknown")
+
+
+def _device_record(device, track_index, index):
+    return {
+        "id": f"track-{track_index}:device-{index}", "name": device.name,
+        "className": device.class_name, "classDisplayName": device.class_display_name,
+        "type": _device_type(device), "canHaveChains": bool(device.can_have_chains),
+        "canHaveDrumPads": bool(device.can_have_drum_pads),
+    }
+
+
 def dispatch_request(song, request, state_version):
     method = request["method"]
     params = request.get("params", {})
@@ -189,7 +202,7 @@ def dispatch_request(song, request, state_version):
         }
     if method == "list_devices":
         index, track = _track(song, params["trackId"])
-        return {"stateVersion": state_version, "trackId": params["trackId"], "devices": [{"id": f"track-{index}:device-{i}", "name": device.name} for i, device in enumerate(track.devices)]}
+        return {"stateVersion": state_version, "trackId": params["trackId"], "devices": [_device_record(device, index, i) for i, device in enumerate(track.devices)]}
     if method == "list_device_parameters":
         _, _, device = _device(song, params["trackId"], params["deviceId"])
         return {"stateVersion": state_version, "trackId": params["trackId"], "deviceId": params["deviceId"], "parameters": [_parameter_record(parameter, i) for i, parameter in enumerate(device.parameters)]}
