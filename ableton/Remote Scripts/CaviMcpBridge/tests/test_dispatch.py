@@ -89,6 +89,16 @@ class Track:
         self.mute = False
         self.solo = False
         self.arm = False
+        route = lambda identifier, name: type("Route", (), {"identifier": identifier, "display_name": name})()
+        self.available_input_routing_types = [route("all-ins", "All Ins"), route("no-input", "No Input")]
+        self.available_input_routing_channels = [route("all-channels", "All Channels"), route("channel-1", "Ch. 1")]
+        self.available_output_routing_types = [route("main", "Main"), route("no-output", "No Output")]
+        self.available_output_routing_channels = [route("post-mixer", "Post Mixer")]
+        self.current_input_routing = "All Ins"
+        self.current_input_sub_routing = self.available_input_routing_channels[0]
+        self.current_output_routing = self.available_output_routing_types[0]
+        self.current_output_sub_routing = self.available_output_routing_channels[0]
+        self.current_monitoring_state = 1
         self.mixer_device = type("Mixer", (), {
             "volume": type("Value", (), {"value": 0.75, "min": 0.0, "max": 1.0})(),
             "panning": type("Value", (), {"value": 0.0, "min": -1.0, "max": 1.0})(),
@@ -382,6 +392,23 @@ class DispatchTest(unittest.TestCase):
         dispatch_request(song, {"method": "delete_arrangement_cue_point", "params": {"cuePointId": "cue-1"}}, 6)
         self.assertEqual(len(song.cue_points), 1)
         self.assertEqual(song.current_song_time, 4.0)
+
+    def test_track_routing_reads_choices_and_applies_exact_identifiers(self):
+        song = Song()
+        observed = dispatch_request(song, {"method": "get_track_routing", "params": {"trackId": "track-0"}}, 3)
+        self.assertEqual(observed["input"]["type"], {"id": "All Ins", "name": "All Ins"})
+        self.assertEqual(observed["monitoring"]["name"], "auto")
+        changed = dispatch_request(song, {"method": "set_track_routing", "params": {
+            "trackId": "track-0", "changes": {
+                "inputChannelId": {"value": {"id": "channel-1"}},
+                "outputTypeId": {"value": {"id": "no-output"}},
+                "monitoring": {"value": {"value": 2}},
+            }
+        }}, 3)
+        self.assertEqual(changed["stateVersion"], 4)
+        self.assertEqual(changed["input"]["channel"]["id"], "Ch. 1")
+        self.assertEqual(changed["output"]["type"]["id"], "No Output")
+        self.assertEqual(changed["monitoring"]["name"], "off")
 
     def test_song_musical_context_reads_and_writes_timing_key_groove_and_loop(self):
         song = Song()

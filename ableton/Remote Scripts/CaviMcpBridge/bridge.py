@@ -21,7 +21,7 @@ CAPABILITIES = (
     "list_arrangement_cue_points", "create_arrangement_cue_point", "rename_arrangement_cue_point",
     "delete_arrangement_cue_point", "jump_to_arrangement_cue_point",
     "list_tracks", "list_scenes", "list_clips", "get_clip_timing", "set_clip_timing",
-    "get_track_mixer", "get_midi_clip_notes",
+    "get_track_mixer", "get_track_routing", "set_track_routing", "get_midi_clip_notes",
     "create_track", "create_scene", "rename_session_object",
     "get_midi_clip_notes_extended", "set_midi_note_properties", "transform_midi_notes",
     "duplicate_session_object", "delete_session_object",
@@ -204,6 +204,39 @@ def _send_records(song, track):
     } for i, send in enumerate(track.mixer_device.sends)]
 
 
+def _routing_option(option):
+    name = str(getattr(option, "display_name", option))
+    identifier = getattr(option, "identifier", None)
+    return {
+        "id": str(identifier) if isinstance(identifier, (str, int, float)) else name,
+        "name": name,
+    }
+
+
+def _routing_id(option):
+    return _routing_option(option)["id"]
+
+
+def _track_routing(song, track_id, state_version):
+    _, track = _track(song, track_id)
+    return {
+        "stateVersion": state_version, "trackId": track_id,
+        "input": {
+            "type": _routing_option(track.current_input_routing),
+            "channel": _routing_option(track.current_input_sub_routing),
+            "availableTypes": [_routing_option(option) for option in track.available_input_routing_types],
+            "availableChannels": [_routing_option(option) for option in track.available_input_routing_channels],
+        },
+        "output": {
+            "type": _routing_option(track.current_output_routing),
+            "channel": _routing_option(track.current_output_sub_routing),
+            "availableTypes": [_routing_option(option) for option in track.available_output_routing_types],
+            "availableChannels": [_routing_option(option) for option in track.available_output_routing_channels],
+        },
+        "monitoring": _enum_record(track.current_monitoring_state, ("in", "auto", "off")),
+    }
+
+
 def _device_type(device):
     return {0: "audio_effect", 1: "instrument", 2: "midi_effect"}.get(device.type, "unknown")
 
@@ -299,6 +332,27 @@ def dispatch_request(song, request, state_version):
         else:
             cue.jump()
         return _arrangement_cue_points(song, state_version + 1)
+    if method == "get_track_routing":
+        return _track_routing(song, params["trackId"], state_version)
+    if method == "set_track_routing":
+        _, track = _track(song, params["trackId"])
+        changes = params["changes"]
+        properties = {
+            "inputTypeId": ("current_input_routing", track.available_input_routing_types),
+            "inputChannelId": ("current_input_sub_routing", track.available_input_routing_channels),
+            "outputTypeId": ("current_output_routing", track.available_output_routing_types),
+            "outputChannelId": ("current_output_sub_routing", track.available_output_routing_channels),
+        }
+        for key, (attribute, choices) in properties.items():
+            if key in changes:
+                identifier = changes[key]["value"]["id"]
+                selected = next(
+                    option for option in choices if _routing_id(option) == identifier
+                )
+                setattr(track, attribute, _routing_option(selected)["name"])
+        if "monitoring" in changes:
+            track.current_monitoring_state = int(changes["monitoring"]["value"]["value"])
+        return _track_routing(song, params["trackId"], state_version + 1)
     if method == "set_song_musical_context":
         changes = params["changes"]
         signature = changes.get("timeSignature", {})

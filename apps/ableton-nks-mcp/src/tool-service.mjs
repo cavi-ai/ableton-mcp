@@ -227,6 +227,7 @@ export class ToolService {
     if (name === "get_midi_clip_notes") return this.bridge.request("get_midi_clip_notes", args);
     if (name === "get_midi_clip_notes_extended") return this.bridge.request("get_midi_clip_notes_extended", args);
     if (name === "get_track_mixer") return this.bridge.request("get_track_mixer", args);
+    if (name === "get_track_routing") return this.bridge.request("get_track_routing", args);
     if (name === "list_factory_device_profiles") return { profiles: listFactoryDeviceProfiles() };
     if (name === "get_factory_device_context") {
       const devices = await this.bridge.request("list_devices", { trackId: args.trackId });
@@ -291,6 +292,7 @@ export class ToolService {
     if (name === "set_midi_note_properties") return this.#setMidiNoteProperties(args);
     if (name === "transform_midi_notes") return this.#transformMidiNotes(args);
     if (name === "set_track_mixer") return this.#setTrackMixer(args);
+    if (name === "set_track_routing") return this.#setTrackRouting(args);
     if ([
       "panic",
       "transport_play", "transport_stop", "set_tempo",
@@ -320,6 +322,8 @@ export class ToolService {
     if (uri === "komplete://automation/status") return this.komplete.request("get_status", {});
     const trackClips = uri.match(/^ableton:\/\/track\/([^/]+)\/clips$/);
     if (trackClips) return this.bridge.request("list_clips", { trackId: decodeURIComponent(trackClips[1]) });
+    const trackRouting = uri.match(/^ableton:\/\/track\/([^/]+)\/routing$/);
+    if (trackRouting) return this.bridge.request("get_track_routing", { trackId: decodeURIComponent(trackRouting[1]) });
     const clipTiming = uri.match(/^ableton:\/\/track\/([^/]+)\/clip\/([^/]+)\/timing$/);
     if (clipTiming) return this.bridge.request("get_clip_timing", {
       trackId: decodeURIComponent(clipTiming[1]), clipId: decodeURIComponent(clipTiming[2])
@@ -810,6 +814,34 @@ export class ToolService {
     this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
     const result = await this.bridge.request("set_track_mixer", plan);
     return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
+  }
+
+  async #setTrackRouting(args) {
+    requireExpectedState(args);
+    const observed = await this.bridge.request("get_track_routing", { trackId: args.trackId });
+    assertExpectedState(args, observed);
+    const changes = {};
+    for (const [argument, section, field] of [
+      ["inputTypeId", "input", "type"], ["inputChannelId", "input", "channel"],
+      ["outputTypeId", "output", "type"], ["outputChannelId", "output", "channel"]
+    ]) {
+      if (args[argument] === undefined) continue;
+      if (typeof args[argument] !== "string") throw new Error(`${argument} must be a string`);
+      const choices = observed[section][field === "type" ? "availableTypes" : "availableChannels"];
+      const selected = choices.find(({ id }) => id === args[argument]);
+      if (!selected) throw new Error(`unknown ${argument} ${args[argument]}`);
+      changes[argument] = { previous: observed[section][field], value: selected };
+    }
+    if (args.monitoring !== undefined) {
+      const selected = observed.monitoring.choices.find(({ name, value }) => name === args.monitoring || value === args.monitoring);
+      if (!selected) throw new Error(`unknown monitoring ${args.monitoring}`);
+      changes.monitoring = { previous: { value: observed.monitoring.value, name: observed.monitoring.name }, value: selected };
+    }
+    if (!Object.keys(changes).length) throw new Error("at least one routing change is required");
+    return this.#confirmedMutation({
+      method: "set_track_routing", trackId: args.trackId,
+      expectedStateVersion: args.expectedStateVersion, changes
+    }, args);
   }
 
   async #genericMutation(name, args) {

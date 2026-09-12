@@ -77,6 +77,21 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         pan: { value: 0, min: -1, max: 1 }, mute: false, solo: false,
         sends: [{ id: "send-0", returnTrackId: "return-0", name: "Reverb", value: 0.2, min: 0, max: 1 }]
       };
+      if (method === "get_track_routing") return {
+        stateVersion: 4, trackId: params.trackId,
+        input: {
+          type: { id: "all-ins", name: "All Ins" }, channel: { id: "all-channels", name: "All Channels" },
+          availableTypes: [{ id: "all-ins", name: "All Ins" }, { id: "no-input", name: "No Input" }],
+          availableChannels: [{ id: "all-channels", name: "All Channels" }, { id: "channel-1", name: "Ch. 1" }]
+        },
+        output: {
+          type: { id: "main", name: "Main" }, channel: { id: "post-mixer", name: "Post Mixer" },
+          availableTypes: [{ id: "main", name: "Main" }, { id: "no-output", name: "No Output" }],
+          availableChannels: [{ id: "post-mixer", name: "Post Mixer" }]
+        },
+        monitoring: { value: 1, name: "auto", choices: [{ value: 0, name: "in" }, { value: 1, name: "auto" }, { value: 2, name: "off" }] }
+      };
+      if (method === "set_track_routing") return { stateVersion: 5, trackId: params.trackId, changes: params.changes };
       if (method === "get_device_hierarchy") return {
         stateVersion: 4, trackId: params.trackId, device: {
           id: params.deviceId, name: "Drum Rack", className: "InstrumentGroupDevice",
@@ -476,6 +491,28 @@ test("track mixer mutation rejects unknown sends and empty changes", async () =>
   await assert.rejects(() => service.call("set_track_mixer", {
     ...base, sends: [{ id: "send-9", value: 0.5 }]
   }), /unknown send send-9/);
+});
+
+test("track routing exposes exact choices and guards identifier-based changes", async () => {
+  const { service, calls } = fixture();
+  const observed = await service.call("get_track_routing", { trackId: "track-0" });
+  assert.equal(observed.input.type.id, "all-ins");
+  const args = { expectedStateVersion: 4, trackId: "track-0", inputChannelId: "channel-1", outputTypeId: "no-output", monitoring: "off" };
+  const dry = await service.call("set_track_routing", args);
+  assert.equal(dry.plan.changes.inputChannelId.previous.id, "all-channels");
+  assert.equal(dry.plan.changes.outputTypeId.value.id, "no-output");
+  assert.equal(dry.plan.changes.monitoring.value.name, "off");
+  const live = await service.call("set_track_routing", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(live.observed.stateVersion, 5);
+  assert.equal(calls.at(-1).method, "set_track_routing");
+});
+
+test("track routing rejects unknown choices and empty changes", async () => {
+  const { service } = fixture();
+  const base = { expectedStateVersion: 4, trackId: "track-0" };
+  await assert.rejects(() => service.call("set_track_routing", base), /at least one routing change/);
+  await assert.rejects(() => service.call("set_track_routing", { ...base, inputTypeId: "missing" }), /unknown inputTypeId/);
+  await assert.rejects(() => service.call("set_track_routing", { ...base, monitoring: "sometimes" }), /unknown monitoring/);
 });
 
 test("per-note properties use a guarded exact-ID mutation plan", async () => {
