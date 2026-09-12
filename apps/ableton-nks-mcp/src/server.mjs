@@ -74,6 +74,7 @@ const toolNames = [
   "load_factory_browser_item",
   "get_browser_items",
   "load_browser_item",
+  "search_browser_items",
   "set_device_active",
   "delete_device",
   "get_device_hierarchy",

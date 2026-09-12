@@ -402,10 +402,14 @@ class Application:
     def __init__(self):
         self.loaded = []
         drift = BrowserItem("Drift", "query:Drift", True)
+        snare = BrowserItem("Snare.wav", "query:snare", True)
+        drums = BrowserItem("Drums", "query:drums", children=(snare,))
+        splice = BrowserItem("Splice", "query:splice", children=(drums,))
         self.browser = type("Browser", (), {
             "instruments": BrowserItem("Instruments", "query:instruments", children=(drift,)),
             "plugins": BrowserItem("Plug-ins", "query:plugins", children=(drift,)),
             "user_library": BrowserItem("User Library", "query:user-library", children=(drift,)),
+            "user_folders": BrowserItem("User Folders", "query:user-folders", children=(splice,)),
             "load_item": self.loaded.append,
         })()
 
@@ -561,6 +565,25 @@ class DispatchTest(unittest.TestCase):
         }}, 3, application)
         self.assertEqual(application.loaded[0].name, "Drift")
         self.assertEqual(loaded["stateVersion"], 4)
+
+    def test_live_browser_search_returns_exact_nested_splice_paths(self):
+        result = dispatch_request(Song(), {"method": "search_browser_items", "params": {
+            "root": "user_folders", "path": [], "query": "snare", "maxDepth": 3, "limit": 10,
+        }}, 3, Application())
+        self.assertEqual(result["results"], [{
+            "name": "Snare.wav", "uri": "query:snare", "loadable": True, "folder": False,
+            "path": ["Splice", "Drums", "Snare.wav"],
+        }])
+
+    def test_live_browser_search_honors_depth_and_result_limits(self):
+        shallow = dispatch_request(Song(), {"method": "search_browser_items", "params": {
+            "root": "user_folders", "path": [], "query": "snare", "maxDepth": 2, "limit": 10,
+        }}, 3, Application())
+        self.assertEqual(shallow["results"], [])
+        limited = dispatch_request(Song(), {"method": "search_browser_items", "params": {
+            "root": "user_folders", "path": [], "query": "r", "maxDepth": 3, "limit": 1,
+        }}, 3, Application())
+        self.assertEqual(len(limited["results"]), 1)
 
     def test_device_lifecycle_reports_active_state_and_checks_exact_identity(self):
         song = Song()

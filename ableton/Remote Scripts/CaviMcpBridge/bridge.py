@@ -21,7 +21,7 @@ CAPABILITIES = (
     "get_transport_recording_context", "set_transport_recording_context",
     "list_arrangement_cue_points", "create_arrangement_cue_point", "rename_arrangement_cue_point",
     "delete_arrangement_cue_point", "jump_to_arrangement_cue_point",
-    "get_browser_items", "load_browser_item", "get_factory_browser_items", "load_factory_browser_item",
+    "get_browser_items", "load_browser_item", "search_browser_items", "get_factory_browser_items", "load_factory_browser_item",
     "list_tracks", "list_scenes", "list_clips", "get_clip_timing", "set_clip_timing", "duplicate_clip_loop",
     "duplicate_clip", "delete_clip",
     "get_audio_clip_state", "set_audio_clip_state",
@@ -365,6 +365,29 @@ def _browser_item(application, root, path):
     return item
 
 
+def _search_browser_items(application, root, path, query, max_depth, limit):
+    item = _browser_item(application, root, path)
+    needle = query.casefold()
+    results = []
+
+    def visit(parent, parent_path, depth):
+        if depth >= max_depth or len(results) >= limit:
+            return
+        for child in parent.children:
+            child_path = parent_path + [child.name]
+            if needle in child.name.casefold():
+                results.append({**_browser_item_record(child), "path": child_path})
+                if len(results) >= limit:
+                    return
+            if child.is_folder:
+                visit(child, child_path, depth + 1)
+                if len(results) >= limit:
+                    return
+
+    visit(item, list(path), 0)
+    return results
+
+
 def _device_tree(device, device_id):
     record = _device_record(device, device_id)
     chains = []
@@ -512,6 +535,15 @@ def dispatch_request(song, request, state_version, application=None):
             "stateVersion": state_version, "root": params["root"], "path": params.get("path", []),
             "item": _browser_item_record(item),
             "children": [_browser_item_record(child) for child in item.children],
+        }
+    if method == "search_browser_items":
+        return {
+            "stateVersion": state_version, "root": params["root"], "path": params.get("path", []),
+            "query": params["query"],
+            "results": _search_browser_items(
+                application, params["root"], params.get("path", []), params["query"],
+                params["maxDepth"], params["limit"],
+            ),
         }
     if method in ("load_browser_item", "load_factory_browser_item"):
         item = _browser_item(application, params["root"], params["path"])
