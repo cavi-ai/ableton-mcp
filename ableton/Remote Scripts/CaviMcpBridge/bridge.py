@@ -14,6 +14,7 @@ CAPABILITIES = (
     "get_live_state", "get_song_musical_context", "set_song_musical_context",
     "list_tracks", "list_scenes", "list_clips", "get_clip_timing", "set_clip_timing",
     "get_track_mixer", "get_midi_clip_notes",
+    "create_track", "create_scene", "rename_session_object",
     "get_midi_clip_notes_extended", "set_midi_note_properties",
     "get_clip_parameter_envelope", "set_clip_parameter_envelope", "list_devices", "get_device_hierarchy",
     "list_device_parameters", "set_device_parameters", "create_midi_clip", "transport_play", "transport_stop",
@@ -234,6 +235,16 @@ def dispatch_request(song, request, state_version):
         return _song_musical_context(song, state_version + 1)
     if method == "list_tracks":
         return {"stateVersion": state_version, "tracks": [{"id": f"track-{i}", "name": track.name, "mute": track.mute, "solo": track.solo, "armed": track.arm, "volume": track.mixer_device.volume.value, "pan": track.mixer_device.panning.value} for i, track in enumerate(song.tracks)]}
+    if method == "create_track":
+        index = int(params["index"])
+        if params["type"] == "midi":
+            song.create_midi_track(index)
+        else:
+            song.create_audio_track(index)
+        song.tracks[index].name = params["name"]
+        return {"stateVersion": state_version + 1, "track": {
+            "id": f"track-{index}", "name": song.tracks[index].name, "type": params["type"],
+        }}
     if method == "get_track_mixer":
         _, track = _track(song, params["trackId"])
         return {
@@ -244,6 +255,28 @@ def dispatch_request(song, request, state_version):
         }
     if method == "list_scenes":
         return {"stateVersion": state_version, "scenes": [{"id": f"scene-{i}", "name": scene.name} for i, scene in enumerate(song.scenes)]}
+    if method == "create_scene":
+        index = int(params["index"])
+        song.create_scene(index)
+        song.scenes[index].name = params["name"]
+        return {"stateVersion": state_version + 1, "scene": {
+            "id": f"scene-{index}", "name": song.scenes[index].name,
+        }}
+    if method == "rename_session_object":
+        target = params["target"]
+        if target["targetType"] == "track":
+            _, item = _track(song, target["targetId"])
+        elif target["targetType"] == "scene":
+            item = song.scenes[int(target["targetId"].removeprefix("scene-"))]
+        else:
+            _, _, slot = _clip_slot(song, target["trackId"], target["targetId"])
+            if not slot.has_clip:
+                raise ValueError("clip slot is empty")
+            item = slot.clip
+        item.name = target["name"]
+        return {"stateVersion": state_version + 1, "target": {
+            **target, "name": item.name,
+        }}
     if method == "list_clips":
         index, track = _track(song, params["trackId"])
         clips = []

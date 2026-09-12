@@ -224,6 +224,17 @@ class Song:
             "quantization_amount": 1.0, "random_amount": 0.0,
         })()]})()
 
+    def create_midi_track(self, index):
+        self.tracks.insert(index, Track())
+
+    def create_audio_track(self, index):
+        track = Track()
+        track.name = "Audio"
+        self.tracks.insert(index, track)
+
+    def create_scene(self, index):
+        self.scenes.insert(index, Scene())
+
     def start_playing(self):
         self.is_playing = True
 
@@ -368,6 +379,23 @@ class DispatchTest(unittest.TestCase):
         self.assertTrue(song.tracks[0].clip_slots[0].clip.is_playing)
         dispatch_request(song, {"method": "arm_track", "params": {"trackId": "track-0", "armed": True}}, 6)
         self.assertTrue(song.tracks[0].arm)
+
+    def test_session_structure_creation_and_exact_rename(self):
+        song = Song()
+        created_track = dispatch_request(song, {"method": "create_track", "params": {
+            "type": "midi", "index": 1, "name": "Bass"
+        }}, 3)
+        self.assertEqual(created_track["track"], {"id": "track-1", "name": "Bass", "type": "midi"})
+        created_scene = dispatch_request(song, {"method": "create_scene", "params": {
+            "index": 0, "name": "Intro"
+        }}, 4)
+        self.assertEqual(created_scene["scene"], {"id": "scene-0", "name": "Intro"})
+        renamed = dispatch_request(song, {"method": "rename_session_object", "params": {
+            "target": {"targetType": "clip", "trackId": "track-0", "targetId": "track-0:clip-0",
+                       "previousName": "Loop", "name": "Hook"}
+        }}, 5)
+        self.assertEqual(renamed["target"]["name"], "Hook")
+        self.assertEqual(song.tracks[0].clip_slots[0].clip.name, "Hook")
 
     def test_track_mixer_read_and_write_include_named_return_sends(self):
         song = Song()
