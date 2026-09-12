@@ -190,6 +190,10 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         markers: { startBeats: 0, endBeats: 8 }
       };
       if (method === "set_audio_clip_state") return { stateVersion: 5, trackId: params.trackId, clipId: params.clipId, ...params.changes };
+      if (method === "get_transport_context") return {
+        stateVersion: 4, isPlaying: false, metronome: false,
+        countInDuration: { value: 1, name: "one_bar", choices: [{ value: 0, name: "none" }, { value: 1, name: "one_bar" }, { value: 2, name: "two_bars" }, { value: 3, name: "four_bars" }] }
+      };
       if (method === "set_clip_parameter_envelope") return {
         stateVersion: 5,
         trackId: params.trackId,
@@ -199,7 +203,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         replaced: true,
         samples: params.points.map(({ time, value }) => ({ time, value }))
       };
-      if (["transport_play", "transport_stop", "set_tempo", "set_song_musical_context", "set_transport_recording_context", "create_arrangement_cue_point", "rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point", "set_clip_timing", "set_track_mixer", "launch_scene", "launch_clip", "stop_clip", "arm_track"].includes(method)) {
+      if (["transport_play", "transport_stop", "set_tempo", "set_transport_context", "set_song_musical_context", "set_transport_recording_context", "create_arrangement_cue_point", "rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point", "set_clip_timing", "set_track_mixer", "launch_scene", "launch_clip", "stop_clip", "arm_track"].includes(method)) {
         return { stateVersion: 5, method, ...params };
       }
       throw new Error(`unexpected method ${method}`);
@@ -797,6 +801,25 @@ test("core transport, mixer, scene, and clip operations use guarded mutation pla
     assert.equal(live.dryRun, false);
     assert.equal(calls.at(-1).method, name);
   }
+});
+
+test("transport context exposes and guards metronome and count-in changes", async () => {
+  const { service, calls } = fixture();
+  const observed = await service.call("get_transport_context");
+  assert.equal(observed.countInDuration.name, "one_bar");
+  const args = { expectedStateVersion: 4, metronome: true, countInDuration: "two_bars" };
+  const dry = await service.call("set_transport_context", args);
+  assert.deepEqual(dry.plan.changes, { metronome: { previous: false, value: true }, countInDuration: { previous: 1, value: 2 } });
+  const live = await service.call("set_transport_context", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(live.dryRun, false);
+  assert.equal(calls.at(-1).method, "set_transport_context");
+});
+
+test("transport context rejects invalid and empty changes", async () => {
+  const { service } = fixture();
+  await assert.rejects(() => service.call("set_transport_context", { expectedStateVersion: 4 }), /at least one transport context change/);
+  await assert.rejects(() => service.call("set_transport_context", { expectedStateVersion: 4, metronome: "yes" }), /metronome must be boolean/);
+  await assert.rejects(() => service.call("set_transport_context", { expectedStateVersion: 4, countInDuration: "eight_bars" }), /countInDuration must be one of/);
 });
 
 test("core mutations reject stale Ableton state before issuing a plan", async () => {

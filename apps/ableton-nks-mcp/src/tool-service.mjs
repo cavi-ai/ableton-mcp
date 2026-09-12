@@ -228,6 +228,7 @@ export class ToolService {
     }
     if (name === "get_preset") return { preset: this.catalog.get(args.presetId) };
     if (name === "get_live_state") return this.bridge.request("get_live_state", {});
+    if (name === "get_transport_context") return this.bridge.request("get_transport_context", {});
     if (name === "get_song_musical_context") return this.bridge.request("get_song_musical_context", {});
     if (name === "get_transport_recording_context") return this.bridge.request("get_transport_recording_context", {});
     if (name === "list_arrangement_cue_points") return this.bridge.request("list_arrangement_cue_points", {});
@@ -295,6 +296,7 @@ export class ToolService {
     if (["create_arrangement_cue_point", "rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point"].includes(name)) {
       return this.#arrangementCuePointMutation(name, args);
     }
+    if (name === "set_transport_context") return this.#setTransportContext(args);
     if (name === "set_clip_timing") return this.#setClipTiming(args);
     if (name === "create_track") return this.#createTrack(args);
     if (name === "create_scene") return this.#createScene(args);
@@ -333,6 +335,7 @@ export class ToolService {
       };
     }
     if (uri === "ableton://live/status") return this.bridge.request("get_live_state", {});
+    if (uri === "ableton://live/transport") return this.bridge.request("get_transport_context", {});
     if (uri === "ableton://set/musical-context") return this.bridge.request("get_song_musical_context", {});
     if (uri === "ableton://set/mixer") return this.bridge.request("get_set_mixer", {});
     if (uri === "ableton://set/tracks") return this.bridge.request("list_tracks", {});
@@ -499,6 +502,26 @@ export class ToolService {
     if (!Object.keys(changes).length) throw new Error("at least one transport recording context change is required");
     return this.#confirmedMutation({
       method: "set_transport_recording_context", expectedStateVersion: args.expectedStateVersion,
+      before: observed, changes
+    }, args);
+  }
+
+  async #setTransportContext(args) {
+    requireExpectedState(args);
+    const observed = await this.bridge.request("get_transport_context", {});
+    assertExpectedState(args, observed);
+    const changes = {};
+    if (args.metronome !== undefined) {
+      if (typeof args.metronome !== "boolean") throw new Error("metronome must be boolean");
+      changes.metronome = { previous: observed.metronome, value: args.metronome };
+    }
+    if (args.countInDuration !== undefined) changes.countInDuration = {
+      previous: observed.countInDuration.value,
+      value: normalizeChoice(args.countInDuration, "countInDuration", observed.countInDuration.choices)
+    };
+    if (!Object.keys(changes).length) throw new Error("at least one transport context change is required");
+    return this.#confirmedMutation({
+      method: "set_transport_context", expectedStateVersion: args.expectedStateVersion,
       before: observed, changes
     }, args);
   }

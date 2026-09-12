@@ -16,7 +16,8 @@ except ImportError:
 
 BRIDGE_VERSION = "0.1.0"
 CAPABILITIES = (
-    "get_live_state", "get_song_musical_context", "set_song_musical_context",
+    "get_live_state", "get_transport_context", "set_transport_context",
+    "get_song_musical_context", "set_song_musical_context",
     "get_transport_recording_context", "set_transport_recording_context",
     "list_arrangement_cue_points", "create_arrangement_cue_point", "rename_arrangement_cue_point",
     "delete_arrangement_cue_point", "jump_to_arrangement_cue_point",
@@ -49,6 +50,7 @@ CLIP_QUANTIZATION_NAMES = (
     "1_4", "1_4_triplet", "1_8", "1_8_triplet", "1_16", "1_16_triplet", "1_32",
 )
 AUDIO_WARP_MODE_NAMES = ("beats", "tones", "texture", "re_pitch", "complex", "rex", "complex_pro")
+COUNT_IN_DURATION_NAMES = ("none", "one_bar", "two_bars", "four_bars")
 
 
 def _track(song, track_id):
@@ -147,6 +149,14 @@ def _arrangement_cue_points(song, state_version):
     return {
         "stateVersion": state_version,
         "cuePoints": [{"id": f"cue-{i}", "name": cue.name, "timeBeats": float(cue.time)} for i, cue in enumerate(song.cue_points)],
+    }
+
+
+def _transport_context(song, state_version):
+    return {
+        "stateVersion": state_version, "isPlaying": bool(song.is_playing),
+        "metronome": bool(song.metronome),
+        "countInDuration": _enum_record(song.count_in_duration, COUNT_IN_DURATION_NAMES),
     }
 
 
@@ -349,6 +359,15 @@ def dispatch_request(song, request, state_version, application=None):
     fingerprint = hashlib.sha256(f"{len(song.tracks)}:{song.tempo}".encode()).hexdigest()[:16]
     if method == "get_live_state":
         return {"stateVersion": state_version, "setFingerprint": fingerprint, "tempo": song.tempo, "isPlaying": song.is_playing, "bridgeVersion": BRIDGE_VERSION, "capabilities": list(CAPABILITIES)}
+    if method == "get_transport_context":
+        return _transport_context(song, state_version)
+    if method == "set_transport_context":
+        changes = params["changes"]
+        if "metronome" in changes:
+            song.metronome = bool(_change_value(changes["metronome"]))
+        if "countInDuration" in changes:
+            song.count_in_duration = int(_change_value(changes["countInDuration"]))
+        return _transport_context(song, state_version + 1)
     if method == "get_song_musical_context":
         return _song_musical_context(song, state_version)
     if method == "get_transport_recording_context":

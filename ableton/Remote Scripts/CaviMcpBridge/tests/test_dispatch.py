@@ -353,6 +353,8 @@ class Song:
         self.scenes.pop(index)
         for track in self.tracks:
             track.clip_slots.pop(index)
+        self.metronome = False
+        self.count_in_duration = 1
 
     def start_playing(self):
         self.is_playing = True
@@ -517,6 +519,18 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(changed["stateVersion"], 4)
         self.assertEqual(changed["pitch"], {"coarse": -12, "fine": 17})
         self.assertEqual(changed["markers"], {"startBeats": 1.0, "endBeats": 7.0})
+
+    def test_transport_context_reads_and_writes_metronome_and_count_in(self):
+        song = Song()
+        observed = dispatch_request(song, {"method": "get_transport_context"}, 3)
+        self.assertFalse(observed["metronome"])
+        self.assertEqual(observed["countInDuration"]["name"], "one_bar")
+        changed = dispatch_request(song, {"method": "set_transport_context", "params": {"changes": {
+            "metronome": {"value": True}, "countInDuration": {"value": 2}
+        }}}, 3)
+        self.assertEqual(changed["stateVersion"], 4)
+        self.assertTrue(song.metronome)
+        self.assertEqual(changed["countInDuration"]["name"], "two_bars")
 
     def test_song_musical_context_reads_and_writes_timing_key_groove_and_loop(self):
         song = Song()
