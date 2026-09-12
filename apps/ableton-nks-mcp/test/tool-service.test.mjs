@@ -52,6 +52,10 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
           : { name: "Instruments", uri: "query:instruments", loadable: false, folder: true },
         children: [{ name: "Drift", uri: "query:Drift", loadable: true, folder: false }]
       };
+      if (method === "search_browser_items") return {
+        stateVersion: 4, root: params.root, path: params.path, query: params.query,
+        results: [{ path: ["Splice", "Drums", "Snare.wav"], name: "Snare.wav", uri: "query:snare", loadable: true, folder: false }]
+      };
       if (method === "load_browser_item" || method === "load_factory_browser_item") return {
         stateVersion: 5, trackId: params.trackId,
         loadedItem: params.item
@@ -305,6 +309,19 @@ test("Live browser exposes plug-ins and user content through canonical guarded t
   assert.deepEqual(calls.slice(-4).map(({ method }) => method), [
     "get_browser_items", "list_devices", "get_browser_items", "load_browser_item"
   ]);
+});
+
+test("Live browser search returns exact loadable paths for user-folder content", async () => {
+  const { service } = fixture();
+  const result = await service.call("search_browser_items", {
+    root: "user_folders", query: " snare ", maxDepth: 4, limit: 25
+  });
+  assert.deepEqual(result.results[0].path, ["Splice", "Drums", "Snare.wav"]);
+  assert.equal(result.query, "snare");
+  await assert.rejects(
+    () => service.call("search_browser_items", { root: "user_folders", query: "", maxDepth: 4, limit: 25 }),
+    /query must be a non-empty string/
+  );
 });
 
 test("factory browser loading rejects non-loadable and ambiguous requests", async () => {

@@ -218,6 +218,16 @@ function normalizeBrowserPath(args) {
   return { root: args.root, path: path.map((part) => part.trim()) };
 }
 
+function normalizeBrowserSearch(args) {
+  const browserPath = normalizeBrowserPath(args);
+  if (typeof args.query !== "string" || !args.query.trim()) throw new Error("query must be a non-empty string");
+  const maxDepth = args.maxDepth ?? 6;
+  const limit = args.limit ?? 50;
+  if (!Number.isInteger(maxDepth) || maxDepth < 1 || maxDepth > 16) throw new Error("maxDepth must be an integer from 1 to 16");
+  if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new Error("limit must be an integer from 1 to 200");
+  return { ...browserPath, query: args.query.trim(), maxDepth, limit };
+}
+
 export class ToolService {
   constructor({ bridge, catalog, komplete = unavailableKomplete, confirmations = new ConfirmationStore() }) {
     this.bridge = bridge;
@@ -249,6 +259,7 @@ export class ToolService {
     if (name === "get_browser_items" || name === "get_factory_browser_items") {
       return this.bridge.request(name, normalizeBrowserPath(args));
     }
+    if (name === "search_browser_items") return this.bridge.request(name, normalizeBrowserSearch(args));
     if (name === "get_factory_device_context") {
       const devices = await this.bridge.request("list_devices", { trackId: args.trackId });
       const device = devices.devices.find(({ id }) => id === args.deviceId);
