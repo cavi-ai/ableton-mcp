@@ -51,7 +51,8 @@ class Track:
         self.arm = False
         self.mixer_device = type("Mixer", (), {
             "volume": type("Value", (), {"value": 0.75, "min": 0.0, "max": 1.0})(),
-            "panning": type("Value", (), {"value": 0.0, "min": -1.0, "max": 1.0})()
+            "panning": type("Value", (), {"value": 0.0, "min": -1.0, "max": 1.0})(),
+            "sends": [type("Value", (), {"value": 0.2, "min": 0.0, "max": 1.0})()]
         })()
 
 
@@ -154,6 +155,7 @@ class Scene:
 class Song:
     def __init__(self):
         self.tracks = [Track()]
+        self.return_tracks = [type("ReturnTrack", (), {"name": "Reverb"})()]
         self.scenes = [Scene()]
         self.tracks[0].clip_slots = [ClipSlot(), ClipSlot(False)]
         self.tempo = 120.0
@@ -221,6 +223,23 @@ class DispatchTest(unittest.TestCase):
         self.assertTrue(song.tracks[0].clip_slots[0].clip.is_playing)
         dispatch_request(song, {"method": "arm_track", "params": {"trackId": "track-0", "armed": True}}, 6)
         self.assertTrue(song.tracks[0].arm)
+
+    def test_track_mixer_read_and_write_include_named_return_sends(self):
+        song = Song()
+        observed = dispatch_request(song, {"method": "get_track_mixer", "params": {"trackId": "track-0"}}, 3)
+        self.assertEqual(observed["sends"][0], {
+            "id": "send-0", "returnTrackId": "return-0", "name": "Reverb",
+            "value": 0.2, "min": 0.0, "max": 1.0,
+        })
+        changed = dispatch_request(song, {"method": "set_track_mixer", "params": {
+            "trackId": "track-0", "changes": {
+                "volume": {"value": 0.5}, "mute": {"value": True},
+                "sends": [{"id": "send-0", "value": 0.8}],
+            }
+        }}, 3)
+        self.assertEqual(changed["stateVersion"], 4)
+        self.assertEqual(changed["volume"], 0.5)
+        self.assertEqual(changed["sends"][0]["value"], 0.8)
 
     def test_create_midi_clip_writes_notes_and_returns_observed_clip(self):
         song = Song()

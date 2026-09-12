@@ -26,6 +26,7 @@ const toolNames = [
   "get_midi_clip_notes",
   "get_midi_clip_notes_extended",
   "get_automation_capabilities",
+  "get_track_mixer",
   "get_clip_parameter_envelope",
   "list_devices",
   "list_device_parameters",

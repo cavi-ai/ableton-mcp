@@ -38,6 +38,16 @@ function fixture() {
           }
         ]
       };
+      if (method === "get_track_mixer") return {
+        stateVersion: 4, trackId: params.trackId,
+        volume: { value: 0.75, min: 0, max: 1 },
+        pan: { value: 0, min: -1, max: 1 }, mute: false, solo: false,
+        sends: [{ id: "send-0", returnTrackId: "return-0", name: "Reverb", value: 0.2, min: 0, max: 1 }]
+      };
+      if (method === "set_track_mixer") return {
+        stateVersion: 5, trackId: params.trackId, volume: 0, pan: 0, mute: true, solo: false,
+        sends: [{ id: "send-0", returnTrackId: "return-0", name: "Reverb", value: 1 }]
+      };
       if (method === "set_device_parameters") return {
         stateVersion: 5,
         trackId: "t1",
@@ -187,6 +197,42 @@ test("automation capabilities state the exact Live API boundary", async () => {
   assert.deepEqual(calls, []);
 });
 
+test("track mixer inspection exposes bounded controls and named return sends", async () => {
+  const { service } = fixture();
+  const mixer = await service.call("get_track_mixer", { trackId: "track-0" });
+  assert.deepEqual(mixer.sends[0], {
+    id: "send-0", returnTrackId: "return-0", name: "Reverb", value: 0.2, min: 0, max: 1
+  });
+});
+
+test("track mixer mutation signs before-and-after context and clamps values", async () => {
+  const { service, calls } = fixture();
+  const args = {
+    expectedStateVersion: 4, trackId: "track-0", volume: -1, mute: true,
+    sends: [{ id: "send-0", value: 2 }]
+  };
+  const dry = await service.call("set_track_mixer", args);
+  assert.deepEqual(dry.plan.changes.volume, { previousValue: 0.75, requestedValue: -1, value: 0 });
+  assert.deepEqual(dry.plan.changes.sends[0], {
+    id: "send-0", returnTrackId: "return-0", name: "Reverb",
+    previousValue: 0.2, requestedValue: 2, value: 1
+  });
+  const live = await service.call("set_track_mixer", {
+    ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash
+  });
+  assert.equal(live.observed.sends[0].value, 1);
+  assert.equal(calls.at(-1).method, "set_track_mixer");
+});
+
+test("track mixer mutation rejects unknown sends and empty changes", async () => {
+  const { service } = fixture();
+  const base = { expectedStateVersion: 4, trackId: "track-0" };
+  await assert.rejects(() => service.call("set_track_mixer", base), /at least one mixer change/);
+  await assert.rejects(() => service.call("set_track_mixer", {
+    ...base, sends: [{ id: "send-9", value: 0.5 }]
+  }), /unknown send send-9/);
+});
+
 test("per-note properties use a guarded exact-ID mutation plan", async () => {
   const { service, calls } = fixture();
   const args = {
@@ -268,7 +314,7 @@ test("clip parameter envelope replacement rejects invalid steps", async () => {
 
 test("core transport, mixer, scene, and clip operations use guarded mutation plans", async () => {
   const { service, calls } = fixture();
-  for (const name of ["transport_play", "transport_stop", "set_tempo", "set_track_mixer", "launch_scene", "launch_clip", "stop_clip", "arm_track"]) {
+  for (const name of ["transport_play", "transport_stop", "set_tempo", "launch_scene", "launch_clip", "stop_clip", "arm_track"]) {
     const dry = await service.call(name, { expectedStateVersion: 4, value: 0.5 });
     assert.equal(dry.dryRun, true);
     const live = await service.call(name, {

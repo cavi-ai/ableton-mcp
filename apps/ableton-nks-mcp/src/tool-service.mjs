@@ -109,6 +109,7 @@ export class ToolService {
     if (name === "list_clips") return this.bridge.request("list_clips", args);
     if (name === "get_midi_clip_notes") return this.bridge.request("get_midi_clip_notes", args);
     if (name === "get_midi_clip_notes_extended") return this.bridge.request("get_midi_clip_notes_extended", args);
+    if (name === "get_track_mixer") return this.bridge.request("get_track_mixer", args);
     if (name === "get_automation_capabilities") return {
       sessionClipParameterEnvelopes: { read: true, write: true, shape: "steps" },
       arrangementParameterAutomation: {
@@ -145,9 +146,10 @@ export class ToolService {
     if (name === "create_midi_clip") return this.#createMidiClip(args);
     if (name === "set_clip_parameter_envelope") return this.#setClipParameterEnvelope(args);
     if (name === "set_midi_note_properties") return this.#setMidiNoteProperties(args);
+    if (name === "set_track_mixer") return this.#setTrackMixer(args);
     if ([
       "panic",
-      "transport_play", "transport_stop", "set_tempo", "set_track_mixer",
+      "transport_play", "transport_stop", "set_tempo",
       "launch_scene", "launch_clip", "stop_clip", "arm_track"
     ].includes(name)) {
       return this.#genericMutation(name, args);
@@ -306,6 +308,57 @@ export class ToolService {
     if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
     this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
     const result = await this.bridge.request("set_midi_note_properties", plan);
+    return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
+  }
+
+  async #setTrackMixer(args) {
+    requireExpectedState(args);
+    const hasScalar = ["volume", "pan", "mute", "solo"].some((key) => args[key] !== undefined);
+    if (!hasScalar && (!Array.isArray(args.sends) || args.sends.length === 0)) {
+      throw new Error("at least one mixer change is required");
+    }
+    const observed = await this.bridge.request("get_track_mixer", { trackId: args.trackId });
+    assertExpectedState(args, observed);
+    const changes = {};
+    for (const key of ["volume", "pan"]) {
+      if (args[key] === undefined) continue;
+      const requestedValue = Number(args[key]);
+      if (!Number.isFinite(requestedValue)) throw new Error(`${key} must be finite`);
+      changes[key] = {
+        previousValue: observed[key].value, requestedValue,
+        value: Math.max(observed[key].min, Math.min(observed[key].max, requestedValue))
+      };
+    }
+    for (const key of ["mute", "solo"]) {
+      if (args[key] === undefined) continue;
+      if (typeof args[key] !== "boolean") throw new Error(`${key} must be boolean`);
+      changes[key] = { previousValue: observed[key], value: args[key] };
+    }
+    if (args.sends !== undefined) {
+      if (!Array.isArray(args.sends)) throw new Error("sends must be an array");
+      const sends = new Map(observed.sends.map((send) => [send.id, send]));
+      const seen = new Set();
+      changes.sends = args.sends.map((change) => {
+        const send = sends.get(change.id);
+        if (!send) throw new Error(`unknown send ${change.id}`);
+        if (seen.has(change.id)) throw new Error(`duplicate send ${change.id}`);
+        seen.add(change.id);
+        const requestedValue = Number(change.value);
+        if (!Number.isFinite(requestedValue)) throw new Error(`send ${change.id} value must be finite`);
+        return {
+          id: send.id, returnTrackId: send.returnTrackId, name: send.name,
+          previousValue: send.value, requestedValue,
+          value: Math.max(send.min, Math.min(send.max, requestedValue))
+        };
+      });
+    }
+    const plan = {
+      method: "set_track_mixer", trackId: args.trackId,
+      expectedStateVersion: args.expectedStateVersion, changes
+    };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
+    const result = await this.bridge.request("set_track_mixer", plan);
     return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
   }
 
