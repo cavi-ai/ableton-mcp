@@ -346,12 +346,15 @@ test("session object rename resolves the exact current identity", async () => {
 test("session duplication signs exact source and destination identities", async () => {
   const { service } = fixture();
   const track = await service.call("duplicate_session_object", {
-    expectedStateVersion: 4, targetType: "track", targetId: "track-0"
+    expectedStateVersion: 4, targetType: "track", targetId: "track-0", name: "Synth Layer"
   });
   assert.deepEqual(track.plan.target, {
-    targetType: "track", targetId: "track-0", name: "Synth", destinationId: "track-1",
+    targetType: "track", targetId: "track-0", sourceName: "Synth", name: "Synth Layer", destinationId: "track-1",
     displaced: { id: "track-1", name: "Empty MIDI", isGroup: true, isGrouped: false, groupTrackId: null, foldState: 0 }
   });
+  await assert.rejects(() => service.call("duplicate_session_object", {
+    expectedStateVersion: 4, targetType: "track", targetId: "track-0", name: "   "
+  }), /name must be a non-empty string/);
   const clip = await service.call("duplicate_session_object", {
     expectedStateVersion: 4, targetType: "clip", trackId: "track-0", targetId: "track-0:clip-0"
   });

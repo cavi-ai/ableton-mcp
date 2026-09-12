@@ -748,6 +748,9 @@ export class ToolService {
   async #duplicateSessionObject(args) {
     requireExpectedState(args);
     if (args.targetType === "track") {
+      if (args.name !== undefined && (typeof args.name !== "string" || !args.name.trim())) {
+        throw new Error("name must be a non-empty string");
+      }
       const observed = await this.bridge.request("list_tracks", {});
       assertExpectedState({ expectedStateVersion: args.expectedStateVersion }, observed);
       const index = observed.tracks.findIndex(({ id }) => id === args.targetId);
@@ -755,7 +758,7 @@ export class ToolService {
       const source = observed.tracks[index];
       return this.#confirmedMutation({
         method: "duplicate_session_object", expectedStateVersion: args.expectedStateVersion,
-        target: { targetType: "track", targetId: source.id, name: source.name,
+        target: { targetType: "track", targetId: source.id, sourceName: source.name, name: args.name?.trim() || source.name,
           destinationId: `track-${index + 1}`, displaced: observed.tracks[index + 1] || null }
       }, args);
     }

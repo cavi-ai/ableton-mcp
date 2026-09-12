@@ -645,6 +645,7 @@ def dispatch_request(song, request, state_version, application=None):
             source_index = int(target["targetId"].removeprefix("track-"))
             song.duplicate_track(source_index)
             item = song.tracks[source_index + 1]
+            item.name = target["name"]
         elif target["targetType"] == "scene":
             source_index = int(target["targetId"].removeprefix("scene-"))
             song.duplicate_scene(source_index)

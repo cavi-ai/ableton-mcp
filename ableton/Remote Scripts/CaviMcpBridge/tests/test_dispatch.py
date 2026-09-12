@@ -789,10 +789,11 @@ class DispatchTest(unittest.TestCase):
     def test_session_duplicate_and_delete_return_exact_observed_state(self):
         song = Song()
         duplicated_track = dispatch_request(song, {"method": "duplicate_session_object", "params": {
-            "target": {"targetType": "track", "targetId": "track-0", "destinationId": "track-1", "name": "Synth"}
+            "target": {"targetType": "track", "targetId": "track-0", "destinationId": "track-1",
+                       "sourceName": "Synth", "name": "Synth Layer"}
         }}, 2)
         self.assertEqual(duplicated_track["target"]["destinationId"], "track-1")
-        self.assertEqual(song.tracks[1].name, "Synth")
+        self.assertEqual(song.tracks[1].name, "Synth Layer")
         duplicated = dispatch_request(song, {"method": "duplicate_session_object", "params": {
             "target": {"targetType": "clip", "trackId": "track-0", "targetId": "track-0:clip-0",
                        "destinationId": "track-0:clip-1", "name": "Loop"}
