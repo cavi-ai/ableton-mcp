@@ -10,6 +10,9 @@ const emptyCatalog = {
   products: () => [],
   getArtwork: () => undefined,
   artworkForPreset: () => undefined,
+  metadata: () => { throw new Error("preset catalog is not configured"); },
+  planMetadataUpdate: () => { throw new Error("preset catalog is not configured"); },
+  setMetadata: () => { throw new Error("preset catalog is not configured"); },
   close: () => {}
 };
 

@@ -3,9 +3,9 @@ export class CatalogService {
     this.catalog = catalog;
   }
 
-  search({ productSlug, query = "", limit = 50 }) {
+  search({ productSlug, query = "", favorite, tags = [], limit = 50 }) {
     const boundedLimit = Math.max(1, Math.min(Number(limit) || 50, 200));
-    return this.catalog.search({ productSlug, query }).slice(0, boundedLimit);
+    return this.catalog.search({ productSlug, query, favorite, tags }).slice(0, boundedLimit);
   }
 
   get(presetId) {
@@ -28,5 +28,17 @@ export class CatalogService {
     const artwork = this.catalog.artworkForPreset(presetId);
     if (!artwork) throw new Error(`no artwork assigned to preset ${presetId}`);
     return artwork;
+  }
+
+  metadata(presetId) {
+    return this.catalog.metadata(presetId);
+  }
+
+  planMetadataUpdate(presetId, expectedRevision, changes) {
+    return this.catalog.planMetadataUpdate(presetId, expectedRevision, changes);
+  }
+
+  setMetadata(presetId, expectedRevision, changes) {
+    return this.catalog.setMetadata(presetId, expectedRevision, changes);
   }
 }
