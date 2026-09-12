@@ -404,6 +404,51 @@ class Application:
 
 
 class DispatchTest(unittest.TestCase):
+    def test_track_hierarchy_reports_group_membership_and_fold_state(self):
+        song = Song()
+        group, child = song.tracks
+        group.name = "Bass Bus"
+        group.is_foldable = True
+        group.is_grouped = False
+        group.group_track = None
+        group.fold_state = 1
+        child.name = "Sub Bass"
+        child.is_foldable = False
+        child.is_grouped = True
+        child.group_track = group
+        child.fold_state = 0
+
+        observed = dispatch_request(song, {"method": "list_tracks"}, 3)
+
+        self.assertEqual(observed["tracks"], [
+            {"id": "track-0", "name": "Bass Bus", "mute": False, "solo": False, "armed": False,
+             "volume": 0.75, "pan": 0.0, "isGroup": True, "isGrouped": False,
+             "groupTrackId": None, "foldState": 1},
+            {"id": "track-1", "name": "Sub Bass", "mute": False, "solo": False, "armed": False,
+             "volume": 0.75, "pan": 0.0, "isGroup": False, "isGrouped": True,
+             "groupTrackId": "track-0", "foldState": None},
+        ])
+
+    def test_group_fold_and_batch_bus_routing_apply_exact_existing_targets(self):
+        song = Song()
+        source, group = song.tracks
+        group.name = "Bass Bus"
+        group.is_foldable = True
+        group.is_grouped = False
+        group.fold_state = 0
+        source.is_foldable = False
+        source.is_grouped = False
+        source.available_output_routing_types.append(
+            type("Route", (), {"identifier": "track-1", "display_name": "Bass Bus"})()
+        )
+
+        folded = dispatch_request(song, {"method": "set_group_fold_state", "params": {"trackId": "track-1", "folded": True}}, 3)
+        self.assertEqual(folded["track"]["foldState"], 1)
+        routed = dispatch_request(song, {"method": "route_tracks_to_bus", "params": {
+            "busTrackId": "track-1", "routes": [{"trackId": "track-0", "outputTypeId": "track-1"}]
+        }}, 4)
+        self.assertEqual(routed["routes"][0]["output"]["type"]["id"], "track-1")
+
     def test_transport_recording_context_reads_and_writes_exact_modes(self):
         song = Song()
         observed = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
