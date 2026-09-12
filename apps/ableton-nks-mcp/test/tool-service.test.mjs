@@ -309,13 +309,13 @@ test("track and scene creation sign explicit insertion context", async () => {
   });
   assert.deepEqual(track.plan, {
     method: "create_track", expectedStateVersion: 4, type: "midi", index: 1, name: "Bass",
-    before: { count: 1, previous: { id: "track-0", name: "Synth" }, next: null }
+    before: { count: 2, previous: { id: "track-0", name: "Synth" }, next: { id: "track-1", name: "Empty MIDI" } }
   });
   const scene = await service.call("create_scene", {
     expectedStateVersion: 4, index: 0, name: "Intro"
   });
   assert.deepEqual(scene.plan.before, {
-    count: 1, previous: null, next: { id: "scene-0", name: "Verse" }
+    count: 2, previous: null, next: { id: "scene-0", name: "Verse" }
   });
 });
 

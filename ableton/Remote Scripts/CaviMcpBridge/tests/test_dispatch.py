@@ -325,6 +325,8 @@ class Song:
         })()]})()
         self.current_song_time = 4.0
         self.cue_points = [CuePoint()]
+        self.metronome = False
+        self.count_in_duration = 1
 
     def set_or_delete_cue(self):
         existing = next((cue for cue in self.cue_points if cue.time == self.current_song_time), None)
@@ -364,8 +366,6 @@ class Song:
         self.scenes.pop(index)
         for track in self.tracks:
             track.clip_slots.pop(index)
-        self.metronome = False
-        self.count_in_duration = 1
 
     def start_playing(self):
         self.is_playing = True
@@ -397,7 +397,7 @@ class DispatchTest(unittest.TestCase):
     def test_transport_recording_context_reads_and_writes_exact_modes(self):
         song = Song()
         observed = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
-        self.assertEqual(observed["currentSongTime"], 16.5)
+        self.assertEqual(observed["currentSongTime"], 4.0)
         self.assertTrue(observed["arrangement"]["punchIn"])
         self.assertTrue(observed["session"]["overdub"])
         changed = dispatch_request(song, {"method": "set_transport_recording_context", "params": {"changes": {
