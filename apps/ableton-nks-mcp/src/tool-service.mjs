@@ -747,6 +747,18 @@ export class ToolService {
 
   async #duplicateSessionObject(args) {
     requireExpectedState(args);
+    if (args.targetType === "track") {
+      const observed = await this.bridge.request("list_tracks", {});
+      assertExpectedState({ expectedStateVersion: args.expectedStateVersion }, observed);
+      const index = observed.tracks.findIndex(({ id }) => id === args.targetId);
+      if (index === -1) throw new Error(`unknown track ${args.targetId}`);
+      const source = observed.tracks[index];
+      return this.#confirmedMutation({
+        method: "duplicate_session_object", expectedStateVersion: args.expectedStateVersion,
+        target: { targetType: "track", targetId: source.id, name: source.name,
+          destinationId: `track-${index + 1}`, displaced: observed.tracks[index + 1] || null }
+      }, args);
+    }
     if (args.targetType === "clip") {
       const observed = await this.bridge.request("list_clips", { trackId: args.trackId });
       assertExpectedState(args, observed);
@@ -763,7 +775,7 @@ export class ToolService {
           name: source.name, destinationId: destination.id }
       }, args);
     }
-    if (args.targetType !== "scene") throw new Error("targetType must be scene or clip");
+    if (args.targetType !== "scene") throw new Error("targetType must be track, scene, or clip");
     const observed = await this.bridge.request("list_scenes", {});
     assertExpectedState(args, observed);
     const index = observed.scenes.findIndex(({ id }) => id === args.targetId);

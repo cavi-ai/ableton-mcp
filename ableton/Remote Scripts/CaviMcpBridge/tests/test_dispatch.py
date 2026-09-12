@@ -1,3 +1,4 @@
+import copy
 import json
 import copy
 import os
@@ -360,6 +361,10 @@ class Song:
                 duplicate.clip = Clip()
                 duplicate.clip.name = source.clip.name
             track.clip_slots.insert(index + 1, duplicate)
+
+    def duplicate_track(self, index):
+        track = copy.deepcopy(self.tracks[index])
+        self.tracks.insert(index + 1, track)
 
     def delete_track(self, index):
         self.tracks.pop(index)
@@ -783,6 +788,11 @@ class DispatchTest(unittest.TestCase):
 
     def test_session_duplicate_and_delete_return_exact_observed_state(self):
         song = Song()
+        duplicated_track = dispatch_request(song, {"method": "duplicate_session_object", "params": {
+            "target": {"targetType": "track", "targetId": "track-0", "destinationId": "track-1", "name": "Synth"}
+        }}, 2)
+        self.assertEqual(duplicated_track["target"]["destinationId"], "track-1")
+        self.assertEqual(song.tracks[1].name, "Synth")
         duplicated = dispatch_request(song, {"method": "duplicate_session_object", "params": {
             "target": {"targetType": "clip", "trackId": "track-0", "targetId": "track-0:clip-0",
                        "destinationId": "track-0:clip-1", "name": "Loop"}
@@ -805,7 +815,7 @@ class DispatchTest(unittest.TestCase):
         dispatch_request(song, {"method": "delete_session_object", "params": {
             "target": {"targetType": "track", "targetId": "track-1", "name": "Synth", "clipCount": 0, "deviceCount": 0}
         }}, 7)
-        self.assertEqual(len(song.tracks), 1)
+        self.assertEqual(len(song.tracks), 2)
 
     def test_track_mixer_read_and_write_include_named_return_sends(self):
         song = Song()

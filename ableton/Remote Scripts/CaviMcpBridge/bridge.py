@@ -641,7 +641,11 @@ def dispatch_request(song, request, state_version, application=None):
         }}
     if method == "duplicate_session_object":
         target = params["target"]
-        if target["targetType"] == "scene":
+        if target["targetType"] == "track":
+            source_index = int(target["targetId"].removeprefix("track-"))
+            song.duplicate_track(source_index)
+            item = song.tracks[source_index + 1]
+        elif target["targetType"] == "scene":
             source_index = int(target["targetId"].removeprefix("scene-"))
             song.duplicate_scene(source_index)
             item = song.scenes[source_index + 1]
