@@ -304,6 +304,8 @@ export class ToolService {
     if (name === "duplicate_session_object") return this.#duplicateSessionObject(args);
     if (name === "delete_session_object") return this.#deleteSessionObject(args);
     if (name === "set_audio_clip_state") return this.#setAudioClipState(args);
+    if (name === "duplicate_clip") return this.#duplicateClip(args);
+    if (name === "delete_clip") return this.#deleteClip(args);
     if (name === "create_midi_clip") return this.#createMidiClip(args);
     if (name === "set_clip_parameter_envelope") return this.#setClipParameterEnvelope(args);
     if (name === "set_midi_note_properties") return this.#setMidiNoteProperties(args);
@@ -622,6 +624,37 @@ export class ToolService {
     return this.#confirmedMutation({
       method: "set_audio_clip_state", trackId: args.trackId, clipId: args.clipId,
       expectedStateVersion: args.expectedStateVersion, before: observed, changes
+    }, args);
+  }
+
+  async #duplicateClip(args) {
+    requireExpectedState(args);
+    const observed = await this.bridge.request("list_clips", { trackId: args.trackId });
+    assertExpectedState(args, observed);
+    const source = observed.clips.find(({ id }) => id === args.sourceClipId);
+    const target = observed.clips.find(({ id }) => id === args.targetClipId);
+    if (!source) throw new Error(`unknown sourceClipId ${args.sourceClipId}`);
+    if (!target) throw new Error(`unknown targetClipId ${args.targetClipId}`);
+    if (!source.hasClip) throw new Error("source clip is empty");
+    if (target.hasClip) throw new Error("target clip must be empty");
+    if (source.id === target.id) throw new Error("source and target clips must differ");
+    return this.#confirmedMutation({
+      method: "duplicate_clip", trackId: args.trackId,
+      sourceClipId: source.id, targetClipId: target.id,
+      expectedStateVersion: args.expectedStateVersion, source, target
+    }, args);
+  }
+
+  async #deleteClip(args) {
+    requireExpectedState(args);
+    const observed = await this.bridge.request("list_clips", { trackId: args.trackId });
+    assertExpectedState(args, observed);
+    const clip = observed.clips.find(({ id }) => id === args.clipId);
+    if (!clip) throw new Error(`unknown clipId ${args.clipId}`);
+    if (!clip.hasClip) throw new Error("clip is empty");
+    return this.#confirmedMutation({
+      method: "delete_clip", trackId: args.trackId, clipId: clip.id,
+      expectedStateVersion: args.expectedStateVersion, before: clip
     }, args);
   }
 

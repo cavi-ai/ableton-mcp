@@ -52,6 +52,8 @@ const toolNames = [
   "delete_session_object",
   "get_audio_clip_state",
   "set_audio_clip_state",
+  "duplicate_clip",
+  "delete_clip",
   "get_automation_capabilities",
   "get_track_mixer",
   "get_track_routing",

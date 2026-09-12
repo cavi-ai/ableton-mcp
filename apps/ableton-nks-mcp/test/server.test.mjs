@@ -81,6 +81,8 @@ test("stdio server initializes and lists MCP resources and tools", async () => {
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "delete_session_object"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_transport_context"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "set_transport_context"), true);
+  assert.equal(messages[2].result.tools.some((tool) => tool.name === "duplicate_clip"), true);
+  assert.equal(messages[2].result.tools.some((tool) => tool.name === "delete_clip"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "list_tracks"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "list_devices"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "komplete_run_conversion_batch"), true);

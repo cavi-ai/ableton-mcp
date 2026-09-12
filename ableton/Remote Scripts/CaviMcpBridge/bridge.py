@@ -23,6 +23,7 @@ CAPABILITIES = (
     "delete_arrangement_cue_point", "jump_to_arrangement_cue_point",
     "get_factory_browser_items", "load_factory_browser_item",
     "list_tracks", "list_scenes", "list_clips", "get_clip_timing", "set_clip_timing",
+    "duplicate_clip", "delete_clip",
     "get_audio_clip_state", "set_audio_clip_state",
     "get_track_mixer", "get_track_routing", "set_track_routing", "get_midi_clip_notes",
     "create_track", "create_scene", "rename_session_object",
@@ -190,6 +191,19 @@ def _audio_clip_state(song, track_id, clip_id, state_version):
         "pitch": {"coarse": int(clip.pitch_coarse), "fine": int(clip.pitch_fine)},
         "warping": bool(clip.warping), "warpMode": _enum_record(clip.warp_mode, AUDIO_WARP_MODE_NAMES),
         "markers": {"startBeats": float(clip.start_marker), "endBeats": float(clip.end_marker)},
+    }
+
+
+def _clip_list(song, track_id, state_version):
+    index, track = _track(song, track_id)
+    return {
+        "stateVersion": state_version, "trackId": track_id,
+        "clips": [{
+            "id": f"track-{index}:clip-{slot_index}",
+            "name": slot.clip.name if slot.has_clip else None,
+            "hasClip": bool(slot.has_clip),
+            "isPlaying": bool(slot.clip.is_playing) if slot.has_clip else False,
+        } for slot_index, slot in enumerate(track.clip_slots)],
     }
 
 
@@ -604,11 +618,24 @@ def dispatch_request(song, request, state_version, application=None):
             slot.delete_clip()
         return {"stateVersion": state_version + 1, "deleted": target}
     if method == "list_clips":
-        index, track = _track(song, params["trackId"])
-        clips = []
-        for i, slot in enumerate(track.clip_slots):
-            clips.append({"id": f"track-{index}:clip-{i}", "name": slot.clip.name if slot.has_clip else None, "hasClip": slot.has_clip, "isPlaying": slot.clip.is_playing if slot.has_clip else False})
-        return {"stateVersion": state_version, "trackId": params["trackId"], "clips": clips}
+        return _clip_list(song, params["trackId"], state_version)
+    if method == "duplicate_clip":
+        track_id = params["trackId"]
+        _, _, source = _clip_slot(song, track_id, params["sourceClipId"])
+        _, _, target = _clip_slot(song, track_id, params["targetClipId"])
+        if not source.has_clip:
+            raise ValueError("source clip is empty")
+        if target.has_clip:
+            raise ValueError("target clip must be empty")
+        source.duplicate_clip_to(target)
+        return _clip_list(song, track_id, state_version + 1)
+    if method == "delete_clip":
+        track_id = params["trackId"]
+        _, _, slot = _clip_slot(song, track_id, params["clipId"])
+        if not slot.has_clip:
+            raise ValueError("clip is empty")
+        slot.delete_clip()
+        return _clip_list(song, track_id, state_version + 1)
     if method == "get_clip_timing":
         return _clip_timing(song, params["trackId"], params["clipId"], state_version)
     if method == "set_clip_timing":

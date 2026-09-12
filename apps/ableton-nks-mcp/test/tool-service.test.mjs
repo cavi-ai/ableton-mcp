@@ -136,6 +136,9 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         trackId: params.trackId,
         clip: { id: params.clipId, name: params.name, hasClip: true, lengthBeats: params.lengthBeats, noteCount: params.notes.length }
       };
+      if (method === "duplicate_clip" || method === "delete_clip") return {
+        stateVersion: 5, trackId: params.trackId, method, clips: []
+      };
       if (method === "get_midi_clip_notes") return {
         stateVersion: 4,
         trackId: params.trackId,
@@ -852,6 +855,30 @@ test("MIDI clip creation validates and signs an empty-slot plan", async () => {
   });
   assert.equal(live.observed.clip.noteCount, 1);
   assert.equal(calls.at(-1).method, "create_midi_clip");
+});
+
+test("clip duplication requires an occupied source and empty target", async () => {
+  const { service, calls } = fixture();
+  const args = { expectedStateVersion: 4, trackId: "track-0", sourceClipId: "track-0:clip-0", targetClipId: "track-0:clip-1" };
+  const dry = await service.call("duplicate_clip", args);
+  assert.equal(dry.plan.source.name, "Loop");
+  assert.equal(dry.plan.target.hasClip, false);
+  const live = await service.call("duplicate_clip", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(live.dryRun, false);
+  assert.equal(calls.at(-1).method, "duplicate_clip");
+  await assert.rejects(() => service.call("duplicate_clip", { ...args, sourceClipId: "track-0:clip-1" }), /source clip is empty/);
+  await assert.rejects(() => service.call("duplicate_clip", { ...args, targetClipId: "track-0:clip-0" }), /target clip must be empty/);
+});
+
+test("clip deletion requires an occupied exact clip", async () => {
+  const { service, calls } = fixture();
+  const args = { expectedStateVersion: 4, trackId: "track-0", clipId: "track-0:clip-0" };
+  const dry = await service.call("delete_clip", args);
+  assert.equal(dry.plan.before.name, "Loop");
+  const live = await service.call("delete_clip", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(live.dryRun, false);
+  assert.equal(calls.at(-1).method, "delete_clip");
+  await assert.rejects(() => service.call("delete_clip", { ...args, clipId: "track-0:clip-1" }), /clip is empty/);
 });
 
 test("MIDI clip creation refuses occupied slots and invalid notes", async () => {

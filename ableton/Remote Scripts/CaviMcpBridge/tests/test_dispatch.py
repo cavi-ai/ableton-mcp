@@ -1,4 +1,5 @@
 import json
+import copy
 import os
 import sys
 import unittest
@@ -239,6 +240,12 @@ class ClipSlot:
 
     def stop(self):
         self.clip.stop()
+
+    def duplicate_clip_to(self, target):
+        if target.has_clip:
+            raise RuntimeError("occupied")
+        target.has_clip = True
+        target.clip = copy.deepcopy(self.clip)
 
     def delete_clip(self):
         self.has_clip = False
@@ -531,6 +538,18 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(changed["stateVersion"], 4)
         self.assertTrue(song.metronome)
         self.assertEqual(changed["countInDuration"]["name"], "two_bars")
+
+    def test_clip_duplication_and_deletion_return_observed_slots(self):
+        song = Song()
+        duplicated = dispatch_request(song, {"method": "duplicate_clip", "params": {
+            "trackId": "track-0", "sourceClipId": "track-0:clip-0", "targetClipId": "track-0:clip-1"
+        }}, 3)
+        self.assertEqual(duplicated["stateVersion"], 4)
+        self.assertEqual(duplicated["clips"][1]["name"], "Loop")
+        deleted = dispatch_request(song, {"method": "delete_clip", "params": {
+            "trackId": "track-0", "clipId": "track-0:clip-1"
+        }}, 4)
+        self.assertFalse(deleted["clips"][1]["hasClip"])
 
     def test_song_musical_context_reads_and_writes_timing_key_groove_and_loop(self):
         song = Song()
