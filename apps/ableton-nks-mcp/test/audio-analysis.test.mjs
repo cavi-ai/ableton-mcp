@@ -9,6 +9,30 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+test("waveform overview covers the complete source window with bounded extrema and RMS", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cavi-waveform-"));
+  try {
+    const sourcePath = join(directory, "levels.wav");
+    await promisify(execFile)("ffmpeg", ["-nostdin", "-v", "error", "-f", "lavfi", "-i",
+      "aevalsrc=if(lt(t\\,0.5)\\,0.25\\,-0.5):s=48000:d=1", "-c:a", "pcm_f32le", sourcePath]);
+    const result = await analyzeAudioFile(sourcePath, { includeWaveform: true });
+    const waveform = result.waveform;
+    assert.equal(waveform.buckets.length, 1024);
+    assert.equal(waveform.sampleCount, 48000);
+    assert.equal(waveform.buckets[0].startSeconds, 0);
+    assert.equal(waveform.buckets.at(-1).endSeconds, 1);
+    assert.equal(waveform.buckets[0].min, 0.25);
+    assert.equal(waveform.buckets[0].max, 0.25);
+    assert.equal(waveform.buckets[0].rms, 0.25);
+    assert.equal(waveform.buckets.at(-1).min, -0.5);
+    assert.equal(waveform.buckets.at(-1).rms, 0.5);
+    for (let i = 1; i < waveform.buckets.length; i++)
+      assert.equal(waveform.buckets[i].startSeconds, waveform.buckets[i - 1].endSeconds);
+    assert.equal((await analyzeAudioFile(sourcePath)).waveform, undefined);
+    await assert.rejects(() => analyzeAudioFile(sourcePath, { includeWaveform: "yes" }), /includeWaveform/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("pitch analysis distinguishes the fundamental from a louder second harmonic", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cavi-harmonics-"));
   try {

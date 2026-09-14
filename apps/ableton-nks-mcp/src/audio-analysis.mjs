@@ -8,13 +8,14 @@ import { estimateMonophonicPitch } from "./audio-pitch.mjs";
 const run = promisify(execFile);
 const limits = { timeout: 30000, maxBuffer: 2 * 1024 * 1024 };
 
-export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationSeconds = 10, includeSpectrum = false, includePitch = false, includeSpectrogram = false } = {}) {
+export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationSeconds = 10, includeSpectrum = false, includePitch = false, includeSpectrogram = false, includeWaveform = false } = {}) {
   if (typeof sourcePath !== "string" || !isAbsolute(sourcePath)) throw new Error("source must be an absolute local file path");
   if (!Number.isFinite(startSeconds) || startSeconds < 0) throw new Error("startSeconds must be finite and nonnegative");
   if (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || durationSeconds > 60) throw new Error("durationSeconds must be greater than zero and at most 60");
   if (typeof includeSpectrum !== "boolean") throw new Error("includeSpectrum must be boolean");
   if (typeof includePitch !== "boolean") throw new Error("includePitch must be boolean");
   if (typeof includeSpectrogram !== "boolean") throw new Error("includeSpectrogram must be boolean");
+  if (typeof includeWaveform !== "boolean") throw new Error("includeWaveform must be boolean");
   const path = await realpath(sourcePath);
   const before = await stat(path, { bigint: true });
   if (!before.isFile()) throw new Error("audio source must be a regular file");
@@ -75,6 +76,28 @@ export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationS
       channelIndex: 0, window: "periodic_hann", floorDbfs: -120, frames,
       limitation: "Up to 64 evenly spaced full frames of first-channel source audio resampled to 48 kHz; sparse sampling can miss transients. Bin amplitudes are not resonance classifications." };
   }
+  let waveform;
+  if (includeWaveform) {
+    const sampleRate = 48000;
+    const decoded = await run("ffmpeg", ["-nostdin", "-v", "error", "-protocol_whitelist", "file,pipe", "-ss", String(startSeconds), "-i", path, "-t", String(windowSeconds), "-map", "0:a:0", "-af", "pan=mono|c0=c0", "-ar", String(sampleRate), "-c:a", "pcm_f32le", "-f", "f32le", "pipe:1"], { ...limits, maxBuffer: 12 * 1024 * 1024, encoding: "buffer" });
+    const sampleCount = Math.floor(decoded.stdout.length / 4);
+    if (!sampleCount) throw new Error("waveform requires decoded source samples");
+    const bucketCount = Math.min(1024, sampleCount);
+    const buckets = Array.from({ length: bucketCount }, (_, index) => {
+      const begin = Math.floor(index * sampleCount / bucketCount);
+      const end = Math.floor((index + 1) * sampleCount / bucketCount);
+      let min = Infinity, max = -Infinity, squares = 0;
+      for (let i = begin; i < end; i++) {
+        const value = decoded.stdout.readFloatLE(i * 4);
+        if (!Number.isFinite(value)) throw new Error("waveform source contains nonfinite samples");
+        min = Math.min(min, value); max = Math.max(max, value); squares += value * value;
+      }
+      return { startSeconds: startSeconds + begin / sampleRate, endSeconds: startSeconds + end / sampleRate,
+        min, max, rms: Math.sqrt(squares / (end - begin)) };
+    });
+    waveform = { sampleRate, sampleCount, channelIndex: 0, buckets,
+      limitation: "Complete first-channel source window resampled to 48 kHz, summarized into at most 1024 contiguous buckets. Not rendered Live audio or native-rate sample-accurate editing data." };
+  }
   const after = await stat(path, { bigint: true });
   if (["dev", "ino", "size", "mtimeNs"].some(key => before[key] !== after[key])) throw new Error("audio source changed during analysis");
   const finite = value => Number.isFinite(Number(value)) ? Number(value) : null;
@@ -83,5 +106,5 @@ export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationS
     window: { startSeconds, durationSeconds: windowSeconds },
     integratedLufs: finite(measured.input_i), truePeakDbtp: finite(measured.input_tp),
     loudnessRangeLu: finite(measured.input_lra), ...(spectrum ? { spectrum } : {}),
-    ...(monophonicPitch ? { monophonicPitch } : {}), ...(spectrogram ? { spectrogram } : {}) };
+    ...(monophonicPitch ? { monophonicPitch } : {}), ...(spectrogram ? { spectrogram } : {}), ...(waveform ? { waveform } : {}) };
 }
