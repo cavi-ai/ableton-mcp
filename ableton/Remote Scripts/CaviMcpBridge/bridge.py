@@ -1106,11 +1106,13 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "move_device_to_chain":
         owner, _, device = _device(song, params["trackId"], params["deviceId"])
         chain_id = params["targetChainId"]
-        rack_id, separator, suffix = chain_id.rpartition("/chain-")
+        chain_kind = "return-chain" if chain_id.rsplit("/", 1)[-1].startswith("return-chain-") else "chain"
+        rack_id, separator, suffix = chain_id.rpartition("/" + chain_kind + "-")
         if not separator or not suffix.isdigit():
             raise ValueError("invalid target chain ID")
         _, _, rack = _device(song, params["targetTrackId"], rack_id)
-        if not rack.can_have_chains or int(suffix) >= len(rack.chains):
+        chains = getattr(rack, "return_chains", ()) if chain_kind == "return-chain" else rack.chains
+        if not rack.can_have_chains or int(suffix) >= len(chains):
             raise ValueError("unknown target chain")
         if _device_tree(device, params["deviceId"]) != params["beforeDevice"]:
             raise ValueError("source device state changed")
@@ -1118,7 +1120,7 @@ def dispatch_request(song, request, state_version, application=None):
             raise ValueError("target rack state changed")
         if chain_id.startswith(params["deviceId"] + "/"):
             raise ValueError("cannot move a rack into its own descendant")
-        target = rack.chains[int(suffix)]
+        target = chains[int(suffix)]
         position = params["targetPosition"]
         if type(position) is not int or not 0 <= position <= len(target.devices):
             raise ValueError("invalid target chain insertion index")
@@ -1136,15 +1138,16 @@ def dispatch_request(song, request, state_version, application=None):
                 if candidate == rack:
                     return candidate_id
                 if candidate.can_have_chains:
-                    for chain_index, chain in enumerate(candidate.chains):
-                        found = find_rack(chain.devices, f"{candidate_id}/chain-{chain_index}/device-")
-                        if found is not None:
-                            return found
+                    for kind, children in (("chain", candidate.chains), ("return-chain", getattr(candidate, "return_chains", ()))):
+                        for chain_index, chain in enumerate(children):
+                            found = find_rack(chain.devices, f"{candidate_id}/{kind}-{chain_index}/device-")
+                            if found is not None:
+                                return found
             return None
         current_rack_id = find_rack(target_track.devices, params["targetTrackId"] + ":device-")
         if current_rack_id is None:
             raise RuntimeError("moved device target rack could not be resolved; use Live undo")
-        new_id = f"{current_rack_id}/chain-{int(suffix)}/device-{actual}"
+        new_id = f"{current_rack_id}/{chain_kind}-{int(suffix)}/device-{actual}"
         return {"stateVersion": state_version + 1, "trackId": params["targetTrackId"],
                 "requestedPosition": position, "actualPosition": actual,
                 "device": _device_tree(device, new_id),

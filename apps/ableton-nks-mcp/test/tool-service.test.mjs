@@ -28,21 +28,22 @@ test("unwarped loop plans preserve seconds and reject incompatible units", async
   await assert.rejects(() => service.call("set_clip_timing", args), /require unwarped audio/);
 });
 
-test("device-to-chain movement signs source and target hierarchies", async () => {
+for (const kind of ["chain", "return-chain"]) test(`device-to-${kind} movement signs source and target hierarchies`, async () => {
   const source = { id: "track-0:device-1", chains: [] };
-  const rack = { id: "track-1:device-0", canHaveChains: true, chains: [{ id: "track-1:device-0/chain-0", devices: [] }] };
+  const destination = { id: `track-1:device-0/${kind}-0`, devices: [] };
+  const rack = { id: "track-1:device-0", canHaveChains: true, chains: kind === "chain" ? [destination] : [], returnChains: kind === "return-chain" ? [destination] : [] };
   const service = new ToolService({ bridge: { async request(method, params) {
     if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: params.trackId, device: params.deviceId === source.id ? source : rack };
-    if (method === "move_device_to_chain") return { stateVersion: 5, device: { id: `${rack.chains[0].id}/device-0` } };
+    if (method === "move_device_to_chain") return { stateVersion: 5, device: { id: `${destination.id}/device-0` } };
     throw new Error(method);
   } } });
-  const args = { trackId: "track-0", deviceId: source.id, targetTrackId: "track-1", targetChainId: rack.chains[0].id, targetPosition: 0, expectedStateVersion: 4 };
+  const args = { trackId: "track-0", deviceId: source.id, targetTrackId: "track-1", targetChainId: destination.id, targetPosition: 0, expectedStateVersion: 4 };
   const dry = await service.call("move_device_to_chain", args);
   assert.deepEqual(dry.plan.beforeDevice, source);
   assert.deepEqual(dry.plan.beforeTargetRack, rack);
   await assert.rejects(() => service.call("move_device_to_chain", { ...args, targetPosition: 2 }), /insertion index/);
   const result = await service.call("move_device_to_chain", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
-  assert.equal(result.observed.device.id, "track-1:device-0/chain-0/device-0");
+  assert.equal(result.observed.device.id, `${destination.id}/device-0`);
 });
 
 test("rack chain creation confirms exact hierarchy and validates insertion", async () => {

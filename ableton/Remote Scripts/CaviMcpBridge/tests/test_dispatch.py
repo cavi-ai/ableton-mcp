@@ -1370,6 +1370,31 @@ class DispatchTest(unittest.TestCase):
         self.assertIs(rack.chains[0].devices[1], source)
         self.assertEqual(result["device"]["id"], "track-0:device-0/chain-0/device-1")
 
+    def test_move_device_into_return_chain_of_nested_return_rack(self):
+        song = Song()
+        source, outer, rack = Device(), DrumRack(), DrumRack()
+        outer.return_chains = [SimpleNamespace(name="Bus", devices=[rack])]
+        target = SimpleNamespace(name="FX", devices=[])
+        rack.return_chains = [target]
+        song.tracks[0].devices = [outer, source]
+        song.begin_undo_step = lambda: None
+        song.end_undo_step = lambda: None
+        def move(device, destination, position):
+            song.tracks[0].devices.remove(device)
+            destination.devices.insert(position, device)
+            return position
+        song.move_device = move
+        rack_id = "track-0:device-0/return-chain-0/device-0"
+        ids = {"trackId": "track-0", "deviceId": "track-0:device-1"}
+        before = dispatch_request(song, {"method": "get_device_hierarchy", "params": ids}, 3)["device"]
+        destination = dispatch_request(song, {"method": "get_device_hierarchy", "params": {
+            "trackId": "track-0", "deviceId": rack_id}}, 3)["device"]
+        result = dispatch_request(song, {"method": "move_device_to_chain", "params": {
+            **ids, "targetTrackId": "track-0", "targetChainId": rack_id + "/return-chain-0",
+            "targetPosition": 0, "beforeDevice": before, "beforeTargetRack": destination}}, 3)
+        self.assertIs(target.devices[0], source)
+        self.assertEqual(result["device"]["id"], rack_id + "/return-chain-0/device-0")
+
     def test_nested_device_parameter_paths_resolve_exact_rack_children(self):
         song = Song()
         outer = DrumRack()
