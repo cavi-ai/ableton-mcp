@@ -20,6 +20,13 @@ test("pitch analysis selects the requested source channel and rejects absent cha
     assert.ok(Math.abs(left.monophonicPitch.estimate.frequencyHz - 220) < 1);
     assert.ok(Math.abs(right.monophonicPitch.estimate.frequencyHz - 440) < 1);
     assert.equal(right.monophonicPitch.channelIndex, 1);
+    const route = createRouter(new ToolService({}));
+    const reply = await route({ id: 1, method: "tools/call", params: {
+      name: "analyze_audio_file", arguments: { sourcePath, includePitch: true, channelIndex: 1 }
+    } });
+    assert.equal(reply.error, undefined);
+    assert.equal(reply.result.structuredContent.monophonicPitch.channelIndex, 1);
+    assert.ok(Math.abs(reply.result.structuredContent.monophonicPitch.estimate.frequencyHz - 440) < 1);
     await assert.rejects(() => analyzeAudioFile(sourcePath, { channelIndex: 2 }), /channelIndex/);
     await assert.rejects(() => analyzeAudioFile(sourcePath, { channelIndex: 0.5 }), /channelIndex/);
   } finally { await rm(directory, { recursive: true, force: true }); }
