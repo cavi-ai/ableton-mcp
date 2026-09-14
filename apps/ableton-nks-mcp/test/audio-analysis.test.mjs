@@ -16,6 +16,12 @@ test("waveform overview covers the complete source window with bounded extrema a
     await promisify(execFile)("ffmpeg", ["-nostdin", "-v", "error", "-f", "lavfi", "-i",
       "aevalsrc=if(lt(t\\,0.5)\\,0.25\\,-0.5):s=48000:d=1", "-c:a", "pcm_f32le", sourcePath]);
     const result = await analyzeAudioFile(sourcePath, { includeWaveform: true });
+    const route = createRouter(new ToolService({}));
+    const reply = await route({ id: 1, method: "tools/call", params: {
+      name: "analyze_audio_file", arguments: { sourcePath, includeWaveform: true }
+    } });
+    assert.equal(reply.error, undefined);
+    assert.deepEqual(reply.result.structuredContent.waveform, result.waveform);
     const waveform = result.waveform;
     assert.equal(waveform.buckets.length, 1024);
     assert.equal(waveform.sampleCount, 48000);
