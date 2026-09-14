@@ -5,8 +5,25 @@ import { getFactoryDeviceProfile, listFactoryDeviceProfiles, groupDeviceParamete
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter"
   ]);
+});
+
+test("bus dynamics profiles retain sidechain and limiting control identities", () => {
+  const glue = getFactoryDeviceProfile({ className: "GlueCompressor", name: "Bus Glue" });
+  assert.equal(glue?.id, "glue-compressor");
+  const grouped = groupDeviceParameters(glue, [{ id: "sc", name: "S/C EQ Gain" }, { id: "out", name: "Output" }, { id: "attack", name: "Attack" }, { id: "ratio", name: "Ratio" }]);
+  assert.deepEqual(grouped.sidechain.map(p => p.id), ["sc"]);
+  assert.deepEqual(grouped.gain.map(p => p.id), ["out"]);
+  assert.deepEqual(grouped.timing.map(p => p.id), ["attack"]);
+  assert.deepEqual(grouped.dynamics.map(p => p.id), ["ratio"]);
+  const limiter = getFactoryDeviceProfile({ className: "Limiter", name: "Final Peaks" });
+  assert.equal(limiter?.id, "limiter");
+  const limiting = groupDeviceParameters(limiter, [{ id: "mode", name: "Mode" }, { id: "link", name: "M/S Link" }, { id: "ceiling", name: "Ceiling" }, { id: "look", name: "Lookahead" }]);
+  assert.deepEqual(limiting.mode.map(p => p.id), ["mode"]);
+  assert.deepEqual(limiting.stereo.map(p => p.id), ["link"]);
+  assert.deepEqual(limiting.dynamics.map(p => p.id), ["ceiling"]);
+  assert.deepEqual(limiting.timing.map(p => p.id), ["look"]);
 });
 
 test("Auto Shift separates correction, transposition and expression routing", () => {
