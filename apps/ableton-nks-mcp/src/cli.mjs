@@ -8,6 +8,7 @@ import { defaultRemoteScriptRoots, resolveRuntimeConfig } from "./paths.mjs";
 import { createConfiguredService } from "./runtime.mjs";
 import { runStdio } from "./server.mjs";
 import { UnixBridgeClient } from "./bridge-client.mjs";
+import { validateToolArguments } from "./tool-validation.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -101,9 +102,10 @@ export async function runCli(argv, dependencies = {}) {
     const name = parsed.args[0];
     if (!name) throw new Error("call requires a tool name");
     const encodedArgs = option(parsed.args, "--args") || "{}";
+    const args = validateToolArguments(name, JSON.parse(encodedArgs));
     const runtime = runtimeFactory(env, { persistentConfirmations: true });
     try {
-      const result = await runtime.service.call(name, JSON.parse(encodedArgs));
+      const result = await runtime.service.call(name, args);
       print(result, parsed.json, stdout);
       return result;
     } finally { runtime.close(); }

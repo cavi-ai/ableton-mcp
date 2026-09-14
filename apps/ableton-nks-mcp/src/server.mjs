@@ -3,7 +3,7 @@ import { pathToFileURL } from "node:url";
 import { ToolService } from "./tool-service.mjs";
 import { createConfiguredService } from "./runtime.mjs";
 import { toolContracts } from "./tool-contracts.mjs";
-import Ajv from "ajv";
+import { validateToolArguments } from "./tool-validation.mjs";
 
 const resources = [
   "nks://catalog/products",
@@ -107,8 +107,6 @@ const toolNames = [
   "komplete_pause_batch"
 ];
 const tools = toolNames.map((name) => ({ name, ...toolContracts[name] }));
-const ajv = new Ajv({ strict: true, coerceTypes: false, useDefaults: false, removeAdditional: false });
-const validators = new Map(tools.map((tool) => [tool.name, ajv.compile(tool.inputSchema)]));
 
 function fixtureService() {
   const catalog = { search: ({ query }) => [{ id: "serum-2:fixture", name: query || "Deep" }] };
@@ -134,12 +132,8 @@ export function createRouter(service) {
       }
       else if (method === "tools/list") result = { tools };
       else if (method === "tools/call") {
-        const validate = validators.get(params.name);
-        if (!validate) throw Object.assign(new Error("unknown tool"), { code: -32602 });
         const args = params.arguments === undefined ? {} : params.arguments;
-        if (!validate(args)) {
-          throw Object.assign(new Error(`invalid tool arguments: ${ajv.errorsText(validate.errors)}`), { code: -32602 });
-        }
+        validateToolArguments(params.name, args);
         const value = await service.call(params.name, args);
         result = { content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value };
       } else throw Object.assign(new Error(`method not found: ${method}`), { code: -32601 });
