@@ -458,6 +458,20 @@ class DispatchTest(unittest.TestCase):
                 "trackId": "track-0", "clipId": "track-0:clip-2", "startBeats": 8
             }}, 3)
 
+    def test_track_listing_does_not_read_arm_on_non_armable_tracks(self):
+        class NonArmableTrack(Track):
+            can_be_armed = False
+            @property
+            def arm(self):
+                raise RuntimeError("Main and Return Tracks have no Arm state")
+            @arm.setter
+            def arm(self, value):
+                pass
+        song = Song()
+        song.tracks[0] = NonArmableTrack()
+        observed = dispatch_request(song, {"method": "list_tracks"}, 3)
+        self.assertFalse(observed["tracks"][0]["armed"])
+
     def test_track_hierarchy_reports_group_membership_and_fold_state(self):
         song = Song()
         group, child = song.tracks

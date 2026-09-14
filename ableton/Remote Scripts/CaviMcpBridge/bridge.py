@@ -53,7 +53,7 @@ def _track_record(song, track, index):
             group_track_id = f"track-{group_index}"
     return {
         "id": f"track-{index}", "name": track.name, "mute": bool(track.mute),
-        "solo": bool(track.solo), "armed": bool(track.arm),
+        "solo": bool(track.solo), "armed": bool(track.arm) if getattr(track, "can_be_armed", True) else False,
         "volume": track.mixer_device.volume.value, "pan": track.mixer_device.panning.value,
         "isGroup": is_group, "isGrouped": is_grouped, "groupTrackId": group_track_id,
         "foldState": int(track.fold_state) if is_group else None,
