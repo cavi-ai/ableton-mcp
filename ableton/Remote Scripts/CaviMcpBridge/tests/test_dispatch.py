@@ -1307,6 +1307,21 @@ class DispatchTest(unittest.TestCase):
             }
         ])
 
+    def test_continuous_parameters_do_not_read_quantized_value_items(self):
+        class ContinuousParameter(Parameter):
+            @property
+            def value_items(self):
+                raise RuntimeError("Only quantized parameters have value items")
+            @value_items.setter
+            def value_items(self, value):
+                pass
+        song = Song()
+        song.tracks[0].devices[0].parameters = [ContinuousParameter()]
+        result = dispatch_request(song, {"method": "list_device_parameters", "params": {
+            "trackId": "track-0", "deviceId": "track-0:device-0"}}, 3)
+        self.assertEqual(result["parameters"][0]["valueItems"], [])
+        self.assertEqual(result["parameters"][0]["value"], 0.4)
+
     def test_status_and_parameter_write_return_observed_state(self):
         song = Song()
         status = dispatch_request(song, {"method": "get_live_state", "params": {}}, 4)

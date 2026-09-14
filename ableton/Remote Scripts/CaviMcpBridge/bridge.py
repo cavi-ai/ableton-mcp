@@ -283,7 +283,7 @@ def _parameter_record(parameter, index):
         "displayValue": parameter.str_for_value(parameter.value),
         "enabled": parameter.is_enabled,
         "quantized": parameter.is_quantized,
-        "valueItems": list(parameter.value_items),
+        "valueItems": list(parameter.value_items) if parameter.is_quantized else [],
     }
 
 
