@@ -89,6 +89,8 @@ const toolNames = [
   "set_device_active",
   "delete_device",
   "get_device_hierarchy",
+  "create_rack_chain",
+  "move_device_to_chain",
   "get_clip_parameter_envelope",
   "list_devices",
   "list_device_parameters",
