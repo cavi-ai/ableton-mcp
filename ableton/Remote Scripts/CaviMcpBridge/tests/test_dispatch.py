@@ -828,6 +828,7 @@ class DispatchTest(unittest.TestCase):
         song = Song()
         clip = song.tracks[0].clip_slots[2].clip
         clip.warping = False
+        clip.looping = False
         params = {"trackId": "track-0", "clipId": "track-0:clip-2"}
         observed = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
         self.assertEqual(observed["markers"]["unit"], "seconds")
@@ -841,6 +842,7 @@ class DispatchTest(unittest.TestCase):
             "startMarkerSeconds": {"value": 1}, "endMarkerSeconds": {"value": 7}
         }}}, 3)
         self.assertEqual(changed["markers"], {"unit": "seconds", "startSeconds": 1.0, "endSeconds": 7.0})
+        self.assertEqual((clip.loop_start, clip.loop_end), (1.0, 7.0))
 
     def test_transport_context_reads_and_writes_metronome_and_count_in(self):
         song = Song()

@@ -661,6 +661,13 @@ def dispatch_request(song, request, state_version, application=None):
             if source in changes:
                 setattr(clip, target, _change_value(changes[source]))
         if requested_markers:
+            if not clip.looping:
+                if start >= clip.loop_end:
+                    clip.loop_end = end
+                    clip.loop_start = start
+                else:
+                    clip.loop_start = start
+                    clip.loop_end = end
             if start >= clip.end_marker:
                 clip.end_marker = end
                 clip.start_marker = start
