@@ -41,6 +41,8 @@ for (const kind of ["chain", "return-chain"]) test(`device-to-${kind} movement s
   const dry = await service.call("move_device_to_chain", args);
   assert.deepEqual(dry.plan.beforeDevice, source);
   assert.deepEqual(dry.plan.beforeTargetRack, rack);
+  assert.match(dry.plan.warning, /macro mappings/);
+  assert.match(dry.plan.warning, /does not restore/);
   await assert.rejects(() => service.call("move_device_to_chain", { ...args, targetPosition: 2 }), /insertion index/);
   const result = await service.call("move_device_to_chain", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
   assert.equal(result.observed.device.id, `${destination.id}/device-0`);

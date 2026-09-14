@@ -332,6 +332,7 @@ export class ToolService {
       if (!Number.isSafeInteger(args.targetPosition) || args.targetPosition < 0 || args.targetPosition > chain.devices.length) throw new Error("invalid target chain insertion index");
       return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
         targetTrackId: args.targetTrackId, targetChainId: args.targetChainId, targetPosition: args.targetPosition,
+        warning: "Moving devices between rack chains may remove macro mappings. Moving the device back does not restore those mappings. Save a rack preset before moving mapped devices; reload that preset for full recall. Inspect parameter enabled states and macro behavior after movement.",
         expectedStateVersion: args.expectedStateVersion, beforeDevice: source.device, beforeTargetRack: target.device }, args);
     }
     if (name === "set_drum_pad_state") {
