@@ -1405,6 +1405,7 @@ export class ToolService {
       changes[argument] = { previous: observed[section][field], value: selected };
     }
     if (args.monitoring !== undefined) {
+      if (!observed.monitoring) throw new Error("monitoring is not supported on this track");
       const selected = observed.monitoring.choices.find(({ name, value }) => name === args.monitoring || value === args.monitoring);
       if (!selected) throw new Error(`unknown monitoring ${args.monitoring}`);
       changes.monitoring = { previous: { value: observed.monitoring.value, name: observed.monitoring.name }, value: selected };

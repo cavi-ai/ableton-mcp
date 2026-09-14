@@ -403,7 +403,7 @@ def _track_routing(song, track_id, state_version):
             "availableTypes": [_routing_option(option) for option in track.available_output_routing_types],
             "availableChannels": [_routing_option(option) for option in track.available_output_routing_channels],
         },
-        "monitoring": _enum_record(track.current_monitoring_state, ("in", "auto", "off")),
+        "monitoring": None if bool(getattr(track, "is_foldable", False)) else _enum_record(track.current_monitoring_state, ("in", "auto", "off")),
     }
 
 
@@ -692,6 +692,8 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "set_track_routing":
         _, track = _track(song, params["trackId"])
         changes = params["changes"]
+        if "monitoring" in changes and bool(getattr(track, "is_foldable", False)):
+            raise ValueError("monitoring is not supported on Group Tracks")
         properties = {
             "inputTypeId": ("current_input_routing", track.available_input_routing_types),
             "inputChannelId": ("current_input_sub_routing", track.available_input_routing_channels),

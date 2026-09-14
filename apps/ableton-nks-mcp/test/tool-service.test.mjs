@@ -846,6 +846,14 @@ test("track routing rejects unknown choices and empty changes", async () => {
   await assert.rejects(() => service.call("set_track_routing", { ...base, monitoring: "sometimes" }), /unknown monitoring/);
 });
 
+test("Group Track monitoring is rejected before mutation planning", async () => {
+  const service = new ToolService({ bridge: { async request(method) {
+    assert.equal(method, "get_track_routing");
+    return { stateVersion: 4, trackId: "track-0", monitoring: null };
+  } } });
+  await assert.rejects(service.call("set_track_routing", { trackId: "track-0", expectedStateVersion: 4, monitoring: "in" }), /monitoring is not supported/);
+});
+
 test("group fold and bus routing mutations validate exact existing track identities", async () => {
   const { service, calls } = fixture();
   const foldArgs = { expectedStateVersion: 4, trackId: "track-1", folded: true };

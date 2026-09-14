@@ -618,6 +618,20 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(changed["output"]["type"]["id"], "No Output")
         self.assertEqual(changed["monitoring"]["name"], "off")
 
+    def test_group_routing_does_not_access_unsupported_monitoring(self):
+        song = Song()
+        group = song.tracks[0]
+        group.is_foldable = True
+        del group.current_monitoring_state
+        observed = dispatch_request(song, {"method": "get_track_routing", "params": {"trackId": "track-0"}}, 3)
+        self.assertIsNone(observed["monitoring"])
+        previous = group.current_output_routing
+        with self.assertRaisesRegex(ValueError, "monitoring is not supported"):
+            dispatch_request(song, {"method": "set_track_routing", "params": {"trackId": "track-0", "changes": {
+                "outputTypeId": {"value": {"id": "no-output"}}, "monitoring": {"value": {"value": 0}}
+            }}}, 3)
+        self.assertEqual(group.current_output_routing, previous)
+
     def test_factory_browser_lists_one_level_and_loads_an_exact_item(self):
         song = Song()
         application = Application()
