@@ -27,9 +27,12 @@ export function listFactoryDeviceProfiles() {
 }
 
 export function getFactoryDeviceProfile(identity = {}) {
-  const values = [identity.name, identity.className, identity.classDisplayName].map(normalize).filter(Boolean);
-  const profile = profiles.find((candidate) => candidate.match.some((name) => values.includes(name)));
-  return profile ? publicProfile(profile) : undefined;
+  const values = [identity.className, identity.classDisplayName, identity.name].map(normalize).filter(Boolean);
+  for (const value of values) {
+    const profile = profiles.find((candidate) => candidate.match.includes(value));
+    if (profile) return publicProfile(profile);
+  }
+  return undefined;
 }
 
 export function groupDeviceParameters(profile, parameters = []) {

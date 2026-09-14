@@ -18,6 +18,12 @@ test("renamed instrument racks are not mistaken for drum racks", () => {
   assert.deepEqual(groups.chain.map(p => p.id), ["selector"]);
 });
 
+test("native class identity takes precedence over conflicting editable names", () => {
+  assert.equal(getFactoryDeviceProfile({ name: "Drum Rack", className: "InstrumentGroupDevice" }).id, "instrument-rack");
+  assert.equal(getFactoryDeviceProfile({ name: "EQ Eight", className: "Delay" }).id, "delay");
+  assert.equal(getFactoryDeviceProfile({ name: "Drum Rack", classDisplayName: "Instrument Rack" }).id, "instrument-rack");
+});
+
 test("bus dynamics profiles retain sidechain and limiting control identities", () => {
   const glue = getFactoryDeviceProfile({ className: "GlueCompressor", name: "Bus Glue" });
   assert.equal(glue?.id, "glue-compressor");
@@ -50,7 +56,7 @@ test("Auto Shift separates correction, transposition and expression routing", ()
 
 test("factory-device lookup accepts Live display and class identities", () => {
   assert.equal(getFactoryDeviceProfile({ name: "EQ Eight" }).id, "eq-eight");
-  assert.equal(getFactoryDeviceProfile({ className: "InstrumentGroupDevice", name: "Drum Rack" }).id, "drum-rack");
+  assert.equal(getFactoryDeviceProfile({ className: "DrumGroupDevice", name: "Drum Rack" }).id, "drum-rack");
   assert.equal(getFactoryDeviceProfile({ className: "OriginalSimpler", name: "Kick" }).id, "simpler");
   assert.equal(getFactoryDeviceProfile({ className: "MultiSampler", name: "Strings" }).id, "sampler");
   assert.equal(getFactoryDeviceProfile({ className: "UltraAnalog", name: "Warm Pad" }).id, "analog");
