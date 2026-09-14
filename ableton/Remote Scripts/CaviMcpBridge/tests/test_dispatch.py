@@ -1347,6 +1347,13 @@ class DispatchTest(unittest.TestCase):
         self.assertIn("notes", result["source"]["content"])
         self.assertEqual(result["musicalContext"]["groove"]["pool"][0]["velocityAmount"], -25)
         self.assertEqual(result["timing"]["clipId"], target["clipId"])
+        audio_target = {"trackId": "track-0", "clipId": "track-0:clip-2"}
+        audio = dispatch_request(song, {"method": "get_clip_groove_context", "params": audio_target}, 3)
+        self.assertEqual(audio["source"]["type"], "audio")
+        self.assertEqual(audio["source"]["content"], dispatch_request(song, {"method": "get_audio_clip_state", "params": audio_target}, 3))
+        song.tracks[0].clip_slots[0].has_clip = False
+        with self.assertRaisesRegex(ValueError, "empty"):
+            dispatch_request(song, {"method": "get_clip_groove_context", "params": target}, 3)
 
     def test_groove_edit_binds_pool_and_balances_undo(self):
         song = Song()
