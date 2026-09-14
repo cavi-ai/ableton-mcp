@@ -764,7 +764,18 @@ def dispatch_request(song, request, state_version, application=None):
             if isinstance(sample, bool) or not isinstance(sample, (int, float)) or not math.isfinite(sample) or sample < 0:
                 raise ValueError("sampleTime must be a finite nonnegative number")
             marker["sample_time"] = sample
-        clip.add_warp_marker(marker)
+        else:
+            convert_time = getattr(clip, "beat_to_sample_time", None)
+            if not callable(convert_time):
+                raise ValueError("native beat-to-sample conversion API required")
+            sample_rate = getattr(clip, "sample_rate", None)
+            if not isinstance(sample_rate, (int, float)) or not math.isfinite(sample_rate) or sample_rate <= 0:
+                raise ValueError("native source sample rate unavailable")
+            marker["sample_time"] = convert_time(beat) / sample_rate
+        native_markers = clip.warp_markers
+        if not native_markers:
+            raise ValueError("native warp marker specification type unavailable")
+        clip.add_warp_marker(type(native_markers[0])(**marker))
         return _audio_clip_state(song, track_id, clip_id, state_version + 1)
     if method == "remove_audio_warp_marker":
         track_id, clip_id = params["trackId"], params["clipId"]

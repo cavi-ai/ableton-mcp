@@ -937,8 +937,10 @@ class DispatchTest(unittest.TestCase):
         clip = song.tracks[0].clip_slots[2].clip
         clip.warp_markers = (SimpleNamespace(sample_time=0, beat_time=0), SimpleNamespace(sample_time=2, beat_time=4))
         def add(marker):
+            if not isinstance(marker, SimpleNamespace):
+                raise TypeError("native warp marker object required")
             clip.warp_markers = (clip.warp_markers[0], SimpleNamespace(
-                sample_time=marker["sample_time"], beat_time=marker["beat_time"]), clip.warp_markers[-1])
+                sample_time=marker.sample_time, beat_time=marker.beat_time), clip.warp_markers[-1])
         clip.add_warp_marker = add
         params = {"trackId": "track-0", "clipId": "track-0:clip-2", "beatTime": 1, "sampleTime": 0.6}
         before = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
@@ -946,6 +948,22 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(result["warpMarkers"]["markers"][1], {"sampleTime": 0.6, "beatTime": 1.0})
         with self.assertRaisesRegex(ValueError, "state changed"):
             dispatch_request(song, {"method": "add_audio_warp_marker", "params": {**params, "before": before}}, 3)
+
+    def test_add_audio_warp_marker_uses_native_time_conversion_when_sample_omitted(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[2].clip
+        class Marker:
+            def __init__(self, sample_time, beat_time):
+                self.sample_time, self.beat_time = sample_time, beat_time
+        clip.warp_markers = (Marker(0, 0), Marker(2, 4))
+        clip.sample_rate = 48000
+        clip.beat_to_sample_time = lambda beat: 24000 * beat
+        clip.add_warp_marker = lambda marker: setattr(clip, "warp_markers", (
+            clip.warp_markers[0], marker, clip.warp_markers[-1]))
+        params = {"trackId": "track-0", "clipId": "track-0:clip-2", "beatTime": 1}
+        before = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
+        result = dispatch_request(song, {"method": "add_audio_warp_marker", "params": {**params, "before": before}}, 3)
+        self.assertEqual(result["warpMarkers"]["markers"][1], {"sampleTime": 0.5, "beatTime": 1.0})
 
     def test_remove_audio_warp_marker_returns_remaining_native_positions(self):
         song = Song()
