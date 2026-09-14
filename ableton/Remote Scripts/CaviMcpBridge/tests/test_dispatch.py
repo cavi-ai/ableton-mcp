@@ -1338,6 +1338,16 @@ class DispatchTest(unittest.TestCase):
             self.assertEqual(result["groove"]["pool"][0]["base"], 14)
             self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
+    def test_clip_groove_context_captures_source_and_shared_dependencies(self):
+        song = Song()
+        target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        result = dispatch_request(song, {"method": "get_clip_groove_context", "params": target}, 3)
+        self.assertEqual(result["stateVersion"], 3)
+        self.assertEqual(result["source"]["type"], "midi")
+        self.assertIn("notes", result["source"]["content"])
+        self.assertEqual(result["musicalContext"]["groove"]["pool"][0]["velocityAmount"], -25)
+        self.assertEqual(result["timing"]["clipId"], target["clipId"])
+
     def test_groove_edit_binds_pool_and_balances_undo(self):
         song = Song()
         before = dispatch_request(song, {"method": "get_song_musical_context"}, 3)

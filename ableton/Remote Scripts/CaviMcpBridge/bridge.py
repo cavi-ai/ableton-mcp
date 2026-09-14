@@ -590,6 +590,19 @@ def dispatch_request(song, request, state_version, application=None):
         return {"stateVersion": state_version + 1, "canUndo": bool(song.can_undo), "canRedo": bool(song.can_redo)}
     if method == "get_song_musical_context":
         return _song_musical_context(song, state_version)
+    if method == "get_clip_groove_context":
+        _, track = _track(song, params["trackId"])
+        _, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
+        if not slot.has_clip:
+            raise ValueError("clip slot is empty")
+        clip = slot.clip
+        audio = bool(getattr(clip, "is_audio_clip", False))
+        source_method = "get_audio_clip_state" if audio else "get_midi_clip_notes_extended"
+        return {"stateVersion": state_version, "trackId": params["trackId"], "clipId": params["clipId"],
+            "trackName": track.name, "clipName": clip.name,
+            "source": {"type": "audio" if audio else "midi", "content": dispatch_request(song, {"method": source_method, "params": params}, state_version)},
+            "timing": _clip_timing(song, params["trackId"], params["clipId"], state_version),
+            "musicalContext": _song_musical_context(song, state_version)}
     if method == "set_groove":
         if _song_musical_context(song, state_version) != params["before"]:
             raise ValueError("groove pool or musical context changed")

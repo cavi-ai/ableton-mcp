@@ -37,6 +37,7 @@ const toolNames = [
   "undo",
   "redo",
   "get_song_musical_context",
+  "get_clip_groove_context",
   "set_song_musical_context",
   "set_groove",
   "get_transport_recording_context",

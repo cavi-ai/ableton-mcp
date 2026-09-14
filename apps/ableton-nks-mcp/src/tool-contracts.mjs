@@ -84,6 +84,7 @@ export const toolContracts = {
   get_midi_clip_notes: { description: "Read standard MIDI notes from one Session clip.", inputSchema: clip },
   get_midi_clip_notes_extended: { description: "Read stable note IDs, probability, release velocity, deviation, and other per-note fields.", inputSchema: clip },
   get_clip_timing: { description: "Read clip loop, signature, launch quantization, and groove assignment.", inputSchema: clip },
+  get_clip_groove_context: { description: "Read one native callback snapshot of exact clip/track names, MIDI note IDs and expression metadata or audio state, clip timing, complete Groove Pool and global musical context. Supports before/after validation of UI-only extraction and baking; does not execute them.", inputSchema: clip },
   set_clip_timing: { description: "Plan or apply guarded clip loop, signature, quantization, and groove changes.", inputSchema: guarded({
     trackId: ids.trackId, clipId: ids.clipId,
     loop: object({ enabled: boolean("Clip loop enabled."), startBeats: number("MIDI or warped audio loop start in beats.", { minimum: 0 }), endBeats: number("MIDI or warped audio loop end in beats.", { exclusiveMinimum: 0 }), startSeconds: number("Unwarped audio loop start in seconds.", { minimum: 0 }), endSeconds: number("Unwarped audio loop end in seconds.", { exclusiveMinimum: 0 }) }),

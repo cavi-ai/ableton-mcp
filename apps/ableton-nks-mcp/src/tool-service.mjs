@@ -257,6 +257,7 @@ export class ToolService {
     if (name === "get_transport_context") return this.bridge.request("get_transport_context", {});
     if (name === "get_history_state") return this.bridge.request("get_history_state", {});
     if (name === "get_song_musical_context") return this.bridge.request("get_song_musical_context", {});
+    if (name === "get_clip_groove_context") return this.bridge.request("get_clip_groove_context", args);
     if (name === "get_transport_recording_context") return this.bridge.request("get_transport_recording_context", {});
     if (name === "list_arrangement_cue_points") return this.bridge.request("list_arrangement_cue_points", {});
     if (name === "list_tracks") return this.bridge.request("list_tracks", {});
