@@ -1148,6 +1148,16 @@ class DispatchTest(unittest.TestCase):
         song.tracks[0].devices = [Device()]
         self.assertIsNone(dispatch_request(song, request, 3)["device"]["sampleSource"])
 
+    def test_device_hierarchy_distinguishes_native_multisample_mode(self):
+        song = Song()
+        device = song.tracks[0].devices[0]
+        request = {"method": "get_device_hierarchy", "params": {
+            "trackId": "track-0", "deviceId": "track-0:device-0"}}
+        self.assertIsNone(dispatch_request(song, request, 3)["device"].get("multiSampleMode"))
+        for value in (True, False):
+            device.multi_sample_mode = value
+            self.assertIs(dispatch_request(song, request, 3)["device"].get("multiSampleMode"), value)
+
     def test_drum_pad_state_changes_exact_note(self):
         song = Song()
         rack = DrumRack()
@@ -1299,6 +1309,7 @@ class DispatchTest(unittest.TestCase):
             "classDisplayName": "Plug-in", "type": "instrument", "active": True,
             "canHaveChains": False, "canHaveDrumPads": False,
             "sampleSource": None,
+            "multiSampleMode": None,
             "chains": [], "drumPads": [],
         })
 

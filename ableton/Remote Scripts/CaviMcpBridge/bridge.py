@@ -396,6 +396,7 @@ def _device_record(device, device_id):
         "canHaveChains": bool(device.can_have_chains),
         "canHaveDrumPads": bool(device.can_have_drum_pads),
         "sampleSource": {"path": sample.file_path} if sample is not None else None,
+        "multiSampleMode": bool(device.multi_sample_mode) if hasattr(device, "multi_sample_mode") else None,
     }
 
 
