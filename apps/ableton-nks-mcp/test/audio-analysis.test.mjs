@@ -106,6 +106,19 @@ test("pitch analysis reports time-varying notes and unvoiced frames across the s
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+test("pure sine pitch analysis does not label numerical residue as higher harmonics", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cavi-harmonic-noise-"));
+  try {
+    const sourcePath = join(directory, "sine.wav");
+    await promisify(execFile)("ffmpeg", ["-nostdin", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=220:sample_rate=48000:duration=1", sourcePath]);
+    const result = await analyzeAudioFile(sourcePath, { durationSeconds: 1, includePitch: true });
+    assert.ok(result.monophonicPitch.frames.every(frame => frame.harmonicPeaks.length === 1 && frame.harmonicPeaks[0].harmonicNumber === 1));
+    assert.equal(result.monophonicPitch.harmonicDynamicRangeDb, 80);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("pitch analysis distinguishes the fundamental from a louder second harmonic", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cavi-harmonics-"));
   try {

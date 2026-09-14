@@ -50,13 +50,19 @@ export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationS
     if (decoded.stdout.length < 4096 * 4) throw new Error("pitch analysis requires a full 4096-sample frame");
     const samples = Float64Array.from({ length: 4096 }, (_, i) => decoded.stdout.readFloatLE(i * 4));
     const estimate = estimateMonophonicPitch(samples, 16000);
-    const matchHarmonics = (frame, pitch) => pitch ? analyzeSpectrum(frame, 16000).peaks.flatMap(peak => {
-      const harmonicNumber = Math.round(peak.estimatedFrequencyHz / pitch.frequencyHz);
-      if (harmonicNumber < 1 || harmonicNumber > 32) return [];
-      const expectedFrequencyHz = harmonicNumber * pitch.frequencyHz;
-      const centsFromHarmonic = 1200 * Math.log2(peak.estimatedFrequencyHz / expectedFrequencyHz);
-      return Math.abs(centsFromHarmonic) <= 50 ? [{ ...peak, harmonicNumber, expectedFrequencyHz, centsFromHarmonic }] : [];
-    }) : [];
+    const matchHarmonics = (frame, pitch) => {
+      if (!pitch) return [];
+      const peaks = analyzeSpectrum(frame, 16000).peaks;
+      const thresholdDbfs = Math.max(...peaks.map(peak => peak.amplitudeDbfs)) - 80;
+      return peaks.flatMap(peak => {
+        if (peak.amplitudeDbfs < thresholdDbfs) return [];
+        const harmonicNumber = Math.round(peak.estimatedFrequencyHz / pitch.frequencyHz);
+        if (harmonicNumber < 1 || harmonicNumber > 32) return [];
+        const expectedFrequencyHz = harmonicNumber * pitch.frequencyHz;
+        const centsFromHarmonic = 1200 * Math.log2(peak.estimatedFrequencyHz / expectedFrequencyHz);
+        return Math.abs(centsFromHarmonic) <= 50 ? [{ ...peak, harmonicNumber, expectedFrequencyHz, centsFromHarmonic }] : [];
+      });
+    };
     const sampleCount = Math.floor(decoded.stdout.length / 4);
     const offsets = [];
     for (let offset = 0; offset <= sampleCount - 4096; offset += 2048) offsets.push(offset);
@@ -68,7 +74,7 @@ export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationS
         estimate: frameEstimate, harmonicPeaks: matchHarmonics(frame, frameEstimate) };
     });
     const harmonicPeaks = frames[0].harmonicPeaks;
-    monophonicPitch = { estimate, frames, harmonicPeaks, harmonicToleranceCents: 50, sampleRate: 16000,
+    monophonicPitch = { estimate, frames, harmonicPeaks, harmonicToleranceCents: 50, harmonicDynamicRangeDb: 80, sampleRate: 16000,
       frameSize: 4096, channelIndex, startSeconds,
       hopSize: 2048,
       limitation: "Overlapping 256-ms frames every 128 ms, plus a final tail frame, cover the complete selected-channel source window resampled to 16 kHz. Short notes and transitions can remain unreliable within mixed frames. Null means no reliable periodicity. Top-level estimate and harmonic peaks describe only the first frame; each frame includes its own matches. Harmonic matches within 50 cents are not resonance or timbre classifications. Not polyphonic analysis or pitch correction." };
