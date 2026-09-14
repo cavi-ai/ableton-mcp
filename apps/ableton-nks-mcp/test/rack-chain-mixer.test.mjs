@@ -2,6 +2,30 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ToolService } from "../src/tool-service.mjs";
 
+test("rack sends require exact available enabled indices and confirmation", async () => {
+  const deviceId = "track-0:device-0", chainId = `${deviceId}/chain-0`;
+  const rack = { id: deviceId, canHaveChains: true, chains: [{ id: chainId,
+    mixer: { sends: [{ index: 0, value: 0, min: 0, max: 1, enabled: true },
+      { index: 1, value: 0, min: 0, max: 1, enabled: false }] } }] };
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
+    assert.equal(method, "set_rack_chain_mixer");
+    return { stateVersion: 5, mixer: { sends: params.changes.sends } };
+  } } });
+  const args = { trackId: "track-0", deviceId, chainId, expectedStateVersion: 4,
+    sends: [{ index: 0, value: 0.5 }] };
+  const dry = await service.call("set_rack_chain_mixer", args);
+  assert.deepEqual(dry.plan.changes, { sends: [{ index: 0, value: 0.5 }] });
+  const result = await service.call("set_rack_chain_mixer", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.deepEqual(result.observed.mixer.sends, [{ index: 0, value: 0.5 }]);
+  for (const sends of [[], [{ index: 9, value: 0.5 }], [{ index: 1, value: 0.5 }],
+    [{ index: 0, value: 2 }], [{ index: 0, value: NaN }], [{ index: "0", value: 0.5 }],
+    [{ index: 0, value: 0.5 }, { index: 0, value: 0.6 }]]) {
+    await assert.rejects(() => service.call("set_rack_chain_mixer", { ...args, sends }), /send/);
+  }
+});
+
 test("rack return mixer plans select the return rather than an ordinary chain", async () => {
   const deviceId = "track-0:device-0", chainId = `${deviceId}/return-chain-0`;
   const rack = { id: deviceId, canHaveChains: true, canHaveDrumPads: true,

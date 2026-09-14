@@ -394,10 +394,23 @@ export class ToolService {
         } else if (!Number.isFinite(args[key]) || !native?.enabled || args[key] < native.min || args[key] > native.max) throw new Error(`${key} is outside the writable native range`);
         changes[key] = args[key];
       }
+      if (args.sends !== undefined) {
+        if (!Array.isArray(args.sends) || !args.sends.length) throw new Error("send changes must be a nonempty array");
+        const seen = new Set();
+        changes.sends = args.sends.map(change => {
+          if (!change || typeof change !== "object" || Object.keys(change).sort().join(",") !== "index,value") throw new Error("invalid send change");
+          const native = chain.mixer?.sends?.find(send => send.index === change.index);
+          if (!Number.isSafeInteger(change.index) || change.index < 0 || seen.has(change.index) || !native) throw new Error("unknown or duplicate send index");
+          seen.add(change.index);
+          if (!native.enabled || !Number.isFinite(change.value) || change.value < native.min || change.value > native.max) throw new Error("send is outside the writable native range");
+          return { index: change.index, value: change.value };
+        });
+      }
       if (!Object.keys(changes).length) throw new Error("no chain mixer changes requested");
       return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
         chainId: args.chainId, expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, changes,
-        undoLimitation: "Live undo restores chain volume, pan, and mute, but not solo. Restore solo explicitly from beforeDevice when needed." }, args);
+        undoLimitation: "Live undo restores chain volume, pan, and mute, but not solo. Restore solo explicitly from beforeDevice when needed.",
+        ...(changes.sends ? { warning: "Send indices follow native rack-return order. Return-to-return sends may create feedback; inspect the full return routing before confirming. Restore observed send values explicitly when needed." } : {}) }, args);
     }
     if (name === "create_rack_chain") {
       requireExpectedState(args);
