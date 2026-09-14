@@ -5,6 +5,29 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ToolService } from "../src/tool-service.mjs";
 
+test("unwarped loop plans preserve seconds and reject incompatible units", async () => {
+  const observed = {
+    stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-0",
+    loop: { enabled: true, unit: "seconds", startSeconds: 0.25, endSeconds: 1.75 }
+  };
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_clip_timing") return observed;
+    if (method === "set_clip_timing") return { ...observed, stateVersion: 5, loop: { ...observed.loop, ...params.changes.loop } };
+    throw new Error(method);
+  } } });
+  const args = { trackId: observed.trackId, clipId: observed.clipId, expectedStateVersion: 4,
+    loop: { startSeconds: 0.5, endSeconds: 2 } };
+  const dry = await service.call("set_clip_timing", args);
+  assert.deepEqual(dry.plan.changes.loop, { startSeconds: 0.5, endSeconds: 2 });
+  const applied = await service.call("set_clip_timing", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.deepEqual(applied.observed.loop, { enabled: true, unit: "seconds", startSeconds: 0.5, endSeconds: 2 });
+  await assert.rejects(() => service.call("set_clip_timing", { ...args, loop: { startBeats: 1, endSeconds: 2 } }), /unwarped audio/);
+  await assert.rejects(() => service.call("set_clip_timing", { ...args, loop: { startSeconds: 2, endSeconds: 1 } }), /greater than/);
+  observed.loop = { enabled: true, startBeats: 0, endBeats: 4 };
+  await assert.rejects(() => service.call("set_clip_timing", args), /require unwarped audio/);
+});
+
 test("device-to-chain movement signs source and target hierarchies", async () => {
   const source = { id: "track-0:device-1", chains: [] };
   const rack = { id: "track-1:device-0", canHaveChains: true, chains: [{ id: "track-1:device-0/chain-0", devices: [] }] };
