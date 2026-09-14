@@ -304,6 +304,24 @@ export class ToolService {
     if (name === "get_audio_clip_state") return this.bridge.request("get_audio_clip_state", args);
     if (name === "list_devices") return this.bridge.request("list_devices", args);
     if (name === "get_device_hierarchy") return this.bridge.request("get_device_hierarchy", args);
+    if (name === "move_device_to_chain") {
+      requireExpectedState(args);
+      const match = typeof args.targetChainId === "string" && /^(.*)\/chain-(\d+)$/.exec(args.targetChainId);
+      if (!match) throw new Error("invalid target chain ID");
+      if (args.targetChainId.startsWith(`${args.deviceId}/`)) throw new Error("cannot move a rack into its own descendant");
+      const source = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState({ expectedStateVersion: args.expectedStateVersion, trackId: args.trackId }, source);
+      if (source.device?.id !== args.deviceId) throw new Error("source device identity mismatch");
+      const target = await this.bridge.request("get_device_hierarchy", { trackId: args.targetTrackId, deviceId: match[1] });
+      assertExpectedState({ expectedStateVersion: args.expectedStateVersion, trackId: args.targetTrackId }, target);
+      if (target.device?.id !== match[1] || !target.device.canHaveChains) throw new Error("target rack identity mismatch");
+      const chain = target.device.chains.find((item) => item.id === args.targetChainId);
+      if (!chain) throw new Error("unknown target chain");
+      if (!Number.isSafeInteger(args.targetPosition) || args.targetPosition < 0 || args.targetPosition > chain.devices.length) throw new Error("invalid target chain insertion index");
+      return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+        targetTrackId: args.targetTrackId, targetChainId: args.targetChainId, targetPosition: args.targetPosition,
+        expectedStateVersion: args.expectedStateVersion, beforeDevice: source.device, beforeTargetRack: target.device }, args);
+    }
     if (name === "create_rack_chain") {
       requireExpectedState(args);
       const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });

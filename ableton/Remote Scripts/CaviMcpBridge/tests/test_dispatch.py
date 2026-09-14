@@ -987,6 +987,30 @@ class DispatchTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "rack state changed"):
             dispatch_request(song, {"method": "create_rack_chain", "params": params}, 4)
 
+    def test_move_device_into_rack_chain_preserves_object_and_returns_nested_id(self):
+        song = Song()
+        source = Device()
+        rack = DrumRack()
+        song.tracks[0].devices = [rack, source]
+        song.begin_undo_step = lambda: None
+        song.end_undo_step = lambda: None
+        def move(device, target, position):
+            song.tracks[0].devices.remove(device)
+            target.devices.insert(position, device)
+            return position
+        song.move_device = move
+        ids = {"trackId": "track-0", "deviceId": "track-0:device-1"}
+        destination = dispatch_request(song, {"method": "get_device_hierarchy", "params": {
+            "trackId": "track-0", "deviceId": "track-0:device-0"
+        }}, 3)["device"]
+        before = dispatch_request(song, {"method": "get_device_hierarchy", "params": ids}, 3)["device"]
+        result = dispatch_request(song, {"method": "move_device_to_chain", "params": {
+            **ids, "targetTrackId": "track-0", "targetChainId": "track-0:device-0/chain-0",
+            "targetPosition": 1, "beforeDevice": before, "beforeTargetRack": destination
+        }}, 3)
+        self.assertIs(rack.chains[0].devices[1], source)
+        self.assertEqual(result["device"]["id"], "track-0:device-0/chain-0/device-1")
+
     def test_nested_device_parameter_paths_resolve_exact_rack_children(self):
         song = Song()
         outer = DrumRack()
