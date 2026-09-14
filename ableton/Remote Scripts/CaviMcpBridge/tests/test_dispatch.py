@@ -1150,6 +1150,25 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(returns[0]["devices"][0]["className"], "Eq8")
         self.assertEqual(returns[0]["devices"][0].get("returnChains"), [])
 
+    def test_return_chain_device_parameters_are_addressable(self):
+        song = Song()
+        rack = DrumRack()
+        nested = DrumRack()
+        rack.return_chains = [Chain("Mix Bus", [nested])]
+        song.tracks[0].devices = [rack]
+        path = "track-0:device-0/return-chain-0/device-0/chain-0/device-0"
+        ids = {"trackId": "track-0", "deviceId": path}
+        result = dispatch_request(song, {"method": "list_device_parameters", "params": ids}, 3)
+        self.assertEqual(result["deviceId"], path)
+        dispatch_request(song, {"method": "set_device_parameters", "params": {
+            **ids, "changes": [{"id": "parameter-0", "value": 0.7}]}}, 3)
+        self.assertEqual(nested.chains[0].devices[0].parameters[0].value, 0.7)
+        self.assertEqual(rack.chains[0].devices[0].parameters[0].value, 0.4)
+        for bad in ("return-chain--1", "return-chain-x", "return-chain-99", "returns-0"):
+            with self.assertRaises(ValueError):
+                dispatch_request(song, {"method": "list_device_parameters", "params": {
+                    "trackId": "track-0", "deviceId": f"track-0:device-0/{bad}/device-0"}}, 3)
+
     def test_device_hierarchy_reads_native_sample_source(self):
         song = Song()
         simpler = NestedDevice("Kick", "OriginalSimpler")

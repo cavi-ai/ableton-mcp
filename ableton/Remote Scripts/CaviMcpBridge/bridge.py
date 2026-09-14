@@ -74,15 +74,17 @@ def _device(song, track_id, device_id):
         device = owner.devices[index]
         for position in range(1, len(parts), 2):
             chain_part, device_part = parts[position:position + 2]
-            if not chain_part.startswith("chain-") or not device_part.startswith("device-"):
+            chain_prefix = "return-chain-" if chain_part.startswith("return-chain-") else "chain-"
+            if not chain_part.startswith(chain_prefix) or not device_part.startswith("device-"):
                 raise ValueError("invalid device path")
-            chain_index = chain_part.removeprefix("chain-")
+            chain_index = chain_part.removeprefix(chain_prefix)
             child_index = device_part.removeprefix("device-")
             if not chain_index.isdigit() or not child_index.isdigit():
                 raise ValueError("invalid device path")
             if not device.can_have_chains:
                 raise ValueError("device has no chains")
-            owner = device.chains[int(chain_index)]
+            chains = device.return_chains if chain_prefix == "return-chain-" else device.chains
+            owner = chains[int(chain_index)]
             index = int(child_index)
             device = owner.devices[index]
     except (IndexError, AttributeError):
