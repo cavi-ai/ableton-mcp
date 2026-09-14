@@ -58,6 +58,13 @@ test("pitch analysis selects the requested source channel and rejects absent cha
     assert.equal(reply.error, undefined);
     assert.equal(reply.result.structuredContent.monophonicPitch.channelIndex, 1);
     assert.ok(Math.abs(reply.result.structuredContent.monophonicPitch.estimate.frequencyHz - 440) < 1);
+    const tuning = await route({ id: 2, method: "tools/call", params: { name: "analyze_audio_file",
+      arguments: { sourcePath, targetMidiNote: 69, channelIndex: 1 } } });
+    assert.equal(tuning.error, undefined);
+    assert.equal(tuning.result.structuredContent.tuningMeasurement.pitchCorrectionApplied, false);
+    assert.equal(tuning.result.structuredContent.tuningMeasurement.channelIndex, 1);
+    assert.ok(Math.abs(tuning.result.structuredContent.tuningMeasurement.medianCentsFromTarget) < 2);
+    assert.equal(tuning.result.structuredContent.tuningMeasurement.measuredFrameFraction, 1);
     await assert.rejects(() => analyzeAudioFile(sourcePath, { channelIndex: 2 }), /channelIndex/);
     await assert.rejects(() => analyzeAudioFile(sourcePath, { channelIndex: 0.5 }), /channelIndex/);
   } finally { await rm(directory, { recursive: true, force: true }); }

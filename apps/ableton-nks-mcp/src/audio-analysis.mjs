@@ -5,11 +5,12 @@ import { isAbsolute } from "node:path";
 import { analyzeSpectrum } from "./audio-spectrum.mjs";
 import { estimateMonophonicPitch } from "./audio-pitch.mjs";
 import { inspectSpectralPersistence } from "./audio-resonance.mjs";
+import { measureTargetNoteDeviation } from "./audio-tuning.mjs";
 
 const run = promisify(execFile);
 const limits = { timeout: 30000, maxBuffer: 2 * 1024 * 1024 };
 
-export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationSeconds = 10, includeSpectrum = false, includePitch = false, includeSpectrogram = false, includeWaveform = false, includeResonanceCandidates = false, channelIndex = 0 } = {}) {
+export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationSeconds = 10, includeSpectrum = false, includePitch = false, includeSpectrogram = false, includeWaveform = false, includeResonanceCandidates = false, targetMidiNote, channelIndex = 0 } = {}) {
   if (typeof sourcePath !== "string" || !isAbsolute(sourcePath)) throw new Error("source must be an absolute local file path");
   if (!Number.isFinite(startSeconds) || startSeconds < 0) throw new Error("startSeconds must be finite and nonnegative");
   if (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || durationSeconds > 60) throw new Error("durationSeconds must be greater than zero and at most 60");
@@ -18,6 +19,7 @@ export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationS
   if (typeof includeSpectrogram !== "boolean") throw new Error("includeSpectrogram must be boolean");
   if (typeof includeWaveform !== "boolean") throw new Error("includeWaveform must be boolean");
   if (typeof includeResonanceCandidates !== "boolean") throw new Error("includeResonanceCandidates must be boolean");
+  if (targetMidiNote !== undefined && (!Number.isInteger(targetMidiNote) || targetMidiNote < 0 || targetMidiNote > 127)) throw new Error("target MIDI note must be an integer from 0 to 127");
   if (!Number.isInteger(channelIndex) || channelIndex < 0) throw new Error("channelIndex must be a nonnegative integer");
   const path = await realpath(sourcePath);
   const before = await stat(path, { bigint: true });
@@ -46,7 +48,7 @@ export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationS
       limitation: "Single-frame spectral peaks, not fundamental or resonance classification." };
   }
   let monophonicPitch;
-  if (includePitch) {
+  if (includePitch || targetMidiNote !== undefined) {
     if (windowSeconds < 4096 / 16000) throw new Error("pitch analysis requires a 0.256-second source window");
     const decoded = await run("ffmpeg", ["-nostdin", "-v", "error", "-protocol_whitelist", "file,pipe", "-ss", String(startSeconds), "-i", path, "-t", String(windowSeconds), "-map", "0:a:0", "-af", channelFilter, "-ar", "16000", "-c:a", "pcm_f32le", "-f", "f32le", "pipe:1"], { ...limits, maxBuffer: 4 * 1024 * 1024, encoding: "buffer" });
     if (decoded.stdout.length < 4096 * 4) throw new Error("pitch analysis requires a full 4096-sample frame");
@@ -131,5 +133,5 @@ export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationS
     window: { startSeconds, durationSeconds: windowSeconds },
     integratedLufs: finite(measured.input_i), truePeakDbtp: finite(measured.input_tp),
     loudnessRangeLu: finite(measured.input_lra), ...(spectrum ? { spectrum } : {}),
-    ...(monophonicPitch ? { monophonicPitch } : {}), ...(spectrogram && includeSpectrogram ? { spectrogram } : {}), ...(resonanceCandidates ? { resonanceCandidates } : {}), ...(waveform ? { waveform } : {}) };
+    ...(monophonicPitch ? { monophonicPitch } : {}), ...(targetMidiNote !== undefined ? { tuningMeasurement: { ...measureTargetNoteDeviation(monophonicPitch.frames, targetMidiNote), channelIndex } } : {}), ...(spectrogram && includeSpectrogram ? { spectrogram } : {}), ...(resonanceCandidates ? { resonanceCandidates } : {}), ...(waveform ? { waveform } : {}) };
 }
