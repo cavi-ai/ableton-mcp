@@ -4,9 +4,11 @@ import copy
 import os
 import sys
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from bridge import SocketBridge, dispatch_request
+from bridge import SocketBridge, dispatch_request, _device_type
 
 
 class Parameter:
@@ -642,6 +644,13 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(result["device"]["id"], "track-0:device-0")
         self.assertIs(song.tracks[0].devices[0], second)
 
+    def test_device_types_use_live_enum_constants_not_assumed_ordinals(self):
+        enum = SimpleNamespace(instrument=11, audio_effect=22, midi_effect=44)
+        live = SimpleNamespace(Device=SimpleNamespace(DeviceType=enum))
+        with patch("bridge.Live", live):
+            for value, name in ((11, "instrument"), (22, "audio_effect"), (44, "midi_effect"), (99, "unknown")):
+                self.assertEqual(_device_type(SimpleNamespace(type=value)), name)
+
     def test_master_and_return_mixer_lifecycle(self):
         song = Song()
         observed = dispatch_request(song, {"method": "get_set_mixer"}, 3)
@@ -810,9 +819,11 @@ class DispatchTest(unittest.TestCase):
                     "params": {"trackId": "track-0", "deviceId": invalid}}, 3)
 
     def test_device_listing_exposes_stable_identity_and_structure(self):
-        result = dispatch_request(Song(), {
-            "method": "list_devices", "params": {"trackId": "track-0"}
-        }, 3)
+        enum = SimpleNamespace(instrument=1, audio_effect=2, midi_effect=4)
+        with patch("bridge.Live", SimpleNamespace(Device=SimpleNamespace(DeviceType=enum))):
+            result = dispatch_request(Song(), {
+                "method": "list_devices", "params": {"trackId": "track-0"}
+            }, 3)
 
         self.assertEqual(result["devices"][0], {
             "id": "track-0:device-0", "name": "Serum 2", "className": "PluginDevice",

@@ -336,7 +336,11 @@ def _set_mixer(song, state_version):
 
 
 def _device_type(device):
-    return {0: "audio_effect", 1: "instrument", 2: "midi_effect"}.get(device.type, "unknown")
+    if Live is None:
+        return "unknown"
+    enum = Live.Device.DeviceType
+    return {enum.audio_effect: "audio_effect", enum.instrument: "instrument",
+            enum.midi_effect: "midi_effect"}.get(device.type, "unknown")
 
 
 def _device_record(device, device_id):
