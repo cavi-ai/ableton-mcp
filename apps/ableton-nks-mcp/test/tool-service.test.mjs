@@ -1531,6 +1531,24 @@ test("mutations require an explicit expected state version", async () => {
   assert.deepEqual(calls, []);
 });
 
+test("parameter planning rejects disabled controls without issuing confirmation", async () => {
+  let issued = false;
+  const service = new ToolService({
+    confirmations: { issue() { issued = true; return {}; } },
+    bridge: { async request(method) {
+      assert.equal(method, "list_device_parameters");
+      return { stateVersion: 4, trackId: "track-0", deviceId: "track-0:device-0", nameAmbiguities: [], parameters: [
+        { id: "parameter-0", name: "Cutoff", originalName: "Filter Freq", min: 0, max: 1, value: 0.4, displayValue: "400 Hz", enabled: false, quantized: false, valueItems: [] }
+      ] };
+    } }
+  });
+  await assert.rejects(() => service.call("set_device_parameters", {
+    trackId: "track-0", deviceId: "track-0:device-0", expectedStateVersion: 4,
+    changes: [{ id: "parameter-0", value: 0.8 }]
+  }), /parameter parameter-0 is disabled/);
+  assert.equal(issued, false);
+});
+
 test("parameter mutation defaults to dry-run, clamps, confirms once, and returns observed state", async () => {
   const { service, calls } = fixture();
   const args = { trackId: "t1", deviceId: "d1", expectedStateVersion: 4, changes: [{ id: "cutoff", value: 2 }] };

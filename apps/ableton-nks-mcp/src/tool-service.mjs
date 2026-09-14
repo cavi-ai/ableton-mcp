@@ -567,6 +567,7 @@ export class ToolService {
     const changes = args.changes.map((change) => {
       const parameter = allowed.get(change.id);
       if (!parameter) throw new Error(`parameter ${change.id} is not allowlisted`);
+      if (!parameter.enabled) throw new Error(`parameter ${change.id} is disabled`);
       const value = Math.max(parameter.min, Math.min(parameter.max, Number(change.value)));
       return {
         id: change.id,

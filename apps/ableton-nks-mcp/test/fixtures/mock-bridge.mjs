@@ -9,7 +9,7 @@ export async function startMockBridge(socketPath) {
       buffer = decoded.remainder;
       for (const request of decoded.messages) {
         let result;
-        if (request.method === "list_device_parameters") result = { stateVersion: 4, trackId: "t1", deviceId: "d1", parameters: [{ id: "cutoff", min: 0, max: 1, value: 0.4 }] };
+        if (request.method === "list_device_parameters") result = { stateVersion: 4, trackId: "t1", deviceId: "d1", nameAmbiguities: [], parameters: [{ id: "cutoff", name: "Cutoff", originalName: "Filter Freq", min: 0, max: 1, value: 0.4, displayValue: "400 Hz", enabled: true, quantized: false, valueItems: [] }] };
         else if (request.method === "set_device_parameters") result = { stateVersion: 5, trackId: "t1", deviceId: "d1", observedChanges: request.params.changes };
         else if (request.method === "get_live_state") result = { stateVersion: 4, setFingerprint: "mock:set" };
         else result = { stateVersion: 4 };
