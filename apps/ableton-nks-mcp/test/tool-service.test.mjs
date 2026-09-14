@@ -1118,6 +1118,8 @@ test("warp marker movement signs exact audio state and requires confirmation", a
   const applied = await service.call("move_audio_warp_marker", { ...args, dryRun: false,
     confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
   assert.equal(applied.observed.warpMarkers.markers[1].beatTime, 1);
+  const terminalMove = await service.call("move_audio_warp_marker", { ...args, beatTime: 4, targetBeatTime: 5 });
+  assert.equal(terminalMove.plan.targetBeatTime, 5);
   for (const changes of [{ beatTime: 3 }, { targetBeatTime: 4 }, { beatTime: 4.02, targetBeatTime: 4.01 }]) {
     await assert.rejects(() => service.call("move_audio_warp_marker", { ...args, ...changes }), /marker|neighbor/);
   }

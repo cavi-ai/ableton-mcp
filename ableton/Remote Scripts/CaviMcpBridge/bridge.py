@@ -760,7 +760,7 @@ def dispatch_request(song, request, state_version, application=None):
         index = next((i for i, marker in enumerate(markers) if marker["beatTime"] == beat), -1)
         if index < 0 or index == len(markers) - 1:
             raise ValueError("unknown or hidden terminal warp marker")
-        if (index > 0 and target <= markers[index - 1]["beatTime"]) or target >= markers[index + 1]["beatTime"]:
+        if (index > 0 and target <= markers[index - 1]["beatTime"]) or (index < len(markers) - 2 and target >= markers[index + 1]["beatTime"]):
             raise ValueError("warp marker cannot cross or overlap a neighbor")
         if beat == target:
             raise ValueError("warp marker movement must change beat time")

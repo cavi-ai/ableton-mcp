@@ -834,7 +834,7 @@ export class ToolService {
     const markers = before.warpMarkers.markers;
     const index = markers.findIndex(marker => marker.beatTime === beatTime);
     if (index < 0 || index === markers.length - 1) throw new Error("unknown or hidden terminal warp marker");
-    if ((index > 0 && targetBeatTime <= markers[index - 1].beatTime) || targetBeatTime >= markers[index + 1].beatTime) {
+    if ((index > 0 && targetBeatTime <= markers[index - 1].beatTime) || (index < markers.length - 2 && targetBeatTime >= markers[index + 1].beatTime)) {
       throw new Error("warp marker cannot cross or overlap a neighbor");
     }
     if (beatTime === targetBeatTime) throw new Error("warp marker movement must change beat time");
