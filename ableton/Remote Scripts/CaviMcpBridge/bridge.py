@@ -252,6 +252,10 @@ def _audio_clip_state(song, track_id, clip_id, state_version):
         "gain": {"value": float(clip.gain), "min": 0.0, "max": 1.0, "displayValue": clip.gain_display_string},
         "pitch": {"coarse": int(clip.pitch_coarse), "fine": int(clip.pitch_fine)},
         "warping": bool(clip.warping), "warpMode": _enum_record(clip.warp_mode, AUDIO_WARP_MODE_NAMES),
+        "warpMarkers": {"supported": hasattr(clip, "warp_markers"), "markers": [
+            {"sampleTime": float(marker.sample_time), "beatTime": float(marker.beat_time)}
+            for marker in getattr(clip, "warp_markers", ())
+        ]},
         "markers": {"unit": "beats" if clip.warping else "seconds",
                     "startBeats" if clip.warping else "startSeconds": float(clip.start_marker),
                     "endBeats" if clip.warping else "endSeconds": float(clip.end_marker)},

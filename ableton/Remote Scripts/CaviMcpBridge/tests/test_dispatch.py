@@ -932,6 +932,29 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(changed["pitch"], {"coarse": -12, "fine": 17})
         self.assertEqual(changed["markers"], {"unit": "beats", "startBeats": 1.0, "endBeats": 7.0})
 
+    def test_audio_state_exposes_native_warp_marker_positions(self):
+        song = Song()
+        song.tracks[0].clip_slots[2].clip.warp_markers = (
+            SimpleNamespace(sample_time=0.13, beat_time=0.0),
+            SimpleNamespace(sample_time=0.64, beat_time=1.0),
+        )
+        result = dispatch_request(song, {"method": "get_audio_clip_state", "params": {
+            "trackId": "track-0", "clipId": "track-0:clip-2"
+        }}, 3)
+        self.assertEqual(result["warpMarkers"], {"supported": True, "markers": [
+            {"sampleTime": 0.13, "beatTime": 0.0},
+            {"sampleTime": 0.64, "beatTime": 1.0},
+        ]})
+
+    def test_audio_state_distinguishes_empty_warp_markers_from_unavailable_api(self):
+        song = Song()
+        params = {"trackId": "track-0", "clipId": "track-0:clip-2"}
+        result = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
+        self.assertEqual(result["warpMarkers"], {"supported": False, "markers": []})
+        song.tracks[0].clip_slots[2].clip.warp_markers = ()
+        result = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
+        self.assertEqual(result["warpMarkers"], {"supported": True, "markers": []})
+
     def test_unwarped_audio_markers_use_seconds_and_reject_beats_before_mutation(self):
         song = Song()
         clip = song.tracks[0].clip_slots[2].clip
