@@ -18,6 +18,12 @@ Double-clicking that browser item loaded another EQ Three into the selected trac
 
 For recall acceptance, compare native class identity and every exposed parameter's original name and raw value before saving and after loading. EQ Three's ten exposed parameter values matched exactly in the exercised save/load workflow. This does not prove audio equivalence, hidden third-party state, sample portability, macro mappings, or full track-template recall.
 
+## MCP recall of a saved User Library preset
+
+Saved native device presets can already be found with `search_browser_items` and loaded with guarded `load_browser_item`. Search `root: "user_library"` below the exact device folder, then use the returned path without guessing spelling or filename extensions. For example, the exercised EQ Three preset was found below `["Presets", "Audio Effects", "EQ Three"]` and loaded using the returned four-segment path including its `.adv` filename.
+
+Read the current state version, obtain the load dry-run plan, then execute with its confirmation token and plan hash. Observe the chain again afterward. The exercised MCP load added a third EQ Three to the acceptance track; all ten exposed parameter names and raw values matched the source. It did not replace either existing device. Saving still required native UI.
+
 ## Boundaries
 
 - A device preset is not a complete track or shared-bus system.
