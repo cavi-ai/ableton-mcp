@@ -5,8 +5,19 @@ import { getFactoryDeviceProfile, listFactoryDeviceProfiles, groupDeviceParamete
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack"
   ]);
+});
+
+test("effect rack profiles preserve their native audio and MIDI signal domains", () => {
+  for (const [className, id, type] of [["AudioEffectGroupDevice", "audio-effect-rack", "audio_effect"], ["MidiEffectGroupDevice", "midi-effect-rack", "midi_effect"]]) {
+    const profile = getFactoryDeviceProfile({ className, name: "Custom Chain" });
+    assert.equal(profile?.id, id);
+    assert.equal(profile.type, type);
+    const groups = groupDeviceParameters(profile, [{ id: "macro", name: "Macro 1" }, { id: "chain", name: "Chain Selector" }]);
+    assert.deepEqual(groups.macro.map(p => p.id), ["macro"]);
+    assert.deepEqual(groups.chain.map(p => p.id), ["chain"]);
+  }
 });
 
 test("renamed instrument racks are not mistaken for drum racks", () => {

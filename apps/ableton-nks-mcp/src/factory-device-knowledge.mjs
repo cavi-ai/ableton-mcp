@@ -17,6 +17,8 @@ const profiles = [
   ,{ id: "glue-compressor", name: "Glue Compressor", type: "audio_effect", family: "compressor", match: ["glue compressor", "gluecompressor"], roles: { ...globalRoles, sidechain: ["s/c"], dynamics: ["threshold", "range", "ratio", "peak clip"], timing: ["attack", "release"], gain: ["output"], mix: ["dry/wet"] } }
   ,{ id: "limiter", name: "Limiter", type: "audio_effect", family: "limiter", match: ["limiter"], roles: { ...globalRoles, timing: ["release", "auto", "lookahead"], stereo: ["link", "routing"], mode: ["mode", "maximize"], dynamics: ["ceiling", "threshold"], gain: ["input gain", "output"] } }
   ,{ id: "instrument-rack", name: "Instrument Rack", type: "instrument", family: "rack", match: ["instrument rack", "instrumentgroupdevice"], roles: { ...globalRoles, macro: ["macro"], chain: ["chain", "selector"], mix: ["volume", "pan", "send"] } }
+  ,{ id: "audio-effect-rack", name: "Audio Effect Rack", type: "audio_effect", family: "rack", match: ["audio effect rack", "audioeffectgroupdevice"], roles: { ...globalRoles, macro: ["macro"], chain: ["chain", "selector"], mix: ["volume", "pan", "send"] } }
+  ,{ id: "midi-effect-rack", name: "MIDI Effect Rack", type: "midi_effect", family: "rack", match: ["midi effect rack", "midieffectgroupdevice"], roles: { ...globalRoles, macro: ["macro"], chain: ["chain", "selector"] } }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });
