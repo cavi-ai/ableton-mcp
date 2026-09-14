@@ -571,6 +571,7 @@ class DispatchTest(unittest.TestCase):
         })
         loaded = dispatch_request(song, {"method": "load_factory_browser_item", "params": {
             "root": "instruments", "path": ["Drift"], "trackId": "track-0",
+            "before": dispatch_request(song, {"method": "list_devices", "params": {"trackId": "track-0"}}, 3),
         }}, 3, application)
         self.assertEqual(application.loaded[0].name, "Drift")
         self.assertEqual(loaded["stateVersion"], 4)
@@ -584,9 +585,20 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(listing["root"], "plugins")
         loaded = dispatch_request(song, {"method": "load_browser_item", "params": {
             "root": "user_library", "path": ["Drift"], "trackId": "track-0",
+            "before": dispatch_request(song, {"method": "list_devices", "params": {"trackId": "track-0"}}, 3),
         }}, 3, application)
         self.assertEqual(application.loaded[0].name, "Drift")
         self.assertEqual(loaded["stateVersion"], 4)
+
+    def test_browser_load_rejects_changed_target_devices_before_loading(self):
+        song, application = Song(), Application()
+        before = dispatch_request(song, {"method": "list_devices", "params": {"trackId": "track-0"}}, 3)
+        song.tracks[0].devices[0].name = "Changed instrument"
+        with self.assertRaisesRegex(ValueError, "target device chain changed"):
+            dispatch_request(song, {"method": "load_factory_browser_item", "params": {
+                "root": "instruments", "path": ["Drift"], "trackId": "track-0", "before": before
+            }}, 3, application)
+        self.assertEqual(application.loaded, [])
 
     def test_live_browser_search_returns_exact_nested_splice_paths(self):
         result = dispatch_request(Song(), {"method": "search_browser_items", "params": {
