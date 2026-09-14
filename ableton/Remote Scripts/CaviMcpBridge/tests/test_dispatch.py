@@ -1543,6 +1543,21 @@ class DispatchTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             dispatch_request(song, {"method": "get_audio_clip_state", "params": {"trackId": "track-0", "clipId": "track-0:arrangement-clip-00"}}, 1)
 
+    def test_midi_rack_hierarchy_does_not_read_audio_only_mixer_properties(self):
+        class MidiMixer:
+            @property
+            def volume(self):
+                raise RuntimeError("MIDI chains don't have a volume parameter!")
+        rack = NestedDevice("MIDI Effect Rack", "MidiEffectGroupDevice", 4)
+        rack.can_have_chains = True
+        chain = Chain("Arpeggiated", [])
+        chain.mixer_device = MidiMixer()
+        rack.chains = [chain]
+        song = Song()
+        song.tracks[0].devices = [rack]
+        result = dispatch_request(song, {"method": "get_device_hierarchy", "params": {"trackId": "track-0", "deviceId": "track-0:device-0"}}, 1)
+        self.assertEqual(result["device"]["chains"][0]["mixer"], {"volume": None, "pan": None, "sends": [], "mute": None, "solo": None})
+
     def test_status_and_parameter_write_return_observed_state(self):
         song = Song()
         status = dispatch_request(song, {"method": "get_live_state", "params": {}}, 4)

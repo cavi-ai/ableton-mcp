@@ -465,8 +465,8 @@ def _search_browser_items(application, root, path, query, max_depth, limit):
     return results
 
 
-def _chain_mixer(chain):
-    mixer = getattr(chain, "mixer_device", None)
+def _chain_mixer(chain, audio=True):
+    mixer = getattr(chain, "mixer_device", None) if audio else None
     def parameter_state(name):
         parameter = getattr(mixer, name, None)
         return None if parameter is None else {
@@ -492,7 +492,7 @@ def _device_tree(device, device_id):
             chains.append({
                 "id": chain_id, "name": chain.name,
                 "apiSupport": {"deleteDevice": callable(getattr(chain, "delete_device", None))},
-                "mixer": _chain_mixer(chain),
+                "mixer": _chain_mixer(chain, audio=record["className"] != "MidiEffectGroupDevice"),
                 "noteRouting": {"inputNote": getattr(chain, "in_note", None),
                                 "outputNote": getattr(chain, "out_note", None)},
                 "devices": [_device_tree(child, f"{chain_id}/device-{child_index}")
