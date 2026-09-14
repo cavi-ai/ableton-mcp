@@ -1134,6 +1134,20 @@ class DispatchTest(unittest.TestCase):
             "chainIds": ["track-0:device-0/chain-0"]
         }])
 
+    def test_device_hierarchy_reads_native_sample_source(self):
+        song = Song()
+        simpler = NestedDevice("Kick", "OriginalSimpler")
+        simpler.sample = type("Sample", (), {"file_path": "/library/kick.wav"})()
+        song.tracks[0].devices = [simpler]
+        request = {"method": "get_device_hierarchy", "params": {
+            "trackId": "track-0", "deviceId": "track-0:device-0"}}
+        self.assertEqual(dispatch_request(song, request, 3)["device"]["sampleSource"],
+                         {"path": "/library/kick.wav"})
+        simpler.sample = None
+        self.assertIsNone(dispatch_request(song, request, 3)["device"]["sampleSource"])
+        song.tracks[0].devices = [Device()]
+        self.assertIsNone(dispatch_request(song, request, 3)["device"]["sampleSource"])
+
     def test_drum_pad_state_changes_exact_note(self):
         song = Song()
         rack = DrumRack()
@@ -1284,6 +1298,7 @@ class DispatchTest(unittest.TestCase):
             "id": "track-0:device-0", "name": "Serum 2", "className": "PluginDevice",
             "classDisplayName": "Plug-in", "type": "instrument", "active": True,
             "canHaveChains": False, "canHaveDrumPads": False,
+            "sampleSource": None,
             "chains": [], "drumPads": [],
         })
 

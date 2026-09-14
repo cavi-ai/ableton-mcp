@@ -388,12 +388,14 @@ def _device_type(device):
 
 
 def _device_record(device, device_id):
+    sample = getattr(device, "sample", None)
     return {
         "id": device_id, "name": device.name,
         "className": device.class_name, "classDisplayName": device.class_display_name,
         "type": _device_type(device), "active": bool(device.is_active),
         "canHaveChains": bool(device.can_have_chains),
         "canHaveDrumPads": bool(device.can_have_drum_pads),
+        "sampleSource": {"path": sample.file_path} if sample is not None else None,
     }
 
 
