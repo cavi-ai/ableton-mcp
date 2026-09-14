@@ -5,8 +5,17 @@ import { getFactoryDeviceProfile, listFactoryDeviceProfiles, groupDeviceParamete
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack"
   ]);
+});
+
+test("renamed instrument racks are not mistaken for drum racks", () => {
+  assert.equal(getFactoryDeviceProfile({ name: "Layered Bass", className: "InstrumentGroupDevice" })?.id, "instrument-rack");
+  assert.equal(getFactoryDeviceProfile({ name: "Custom Kit", className: "DrumGroupDevice" })?.id, "drum-rack");
+  assert.equal(getFactoryDeviceProfile({ name: "Instrument Rack" })?.id, "instrument-rack");
+  const groups = groupDeviceParameters(getFactoryDeviceProfile({ name: "Layered Bass", className: "InstrumentGroupDevice" }), [{ id: "macro", name: "Macro 1" }, { id: "selector", name: "Chain Selector" }]);
+  assert.deepEqual(groups.macro.map(p => p.id), ["macro"]);
+  assert.deepEqual(groups.chain.map(p => p.id), ["selector"]);
 });
 
 test("bus dynamics profiles retain sidechain and limiting control identities", () => {
