@@ -524,6 +524,28 @@ test("track mixer inspection exposes bounded controls and named return sends", a
   });
 });
 
+test("nested rack devices support factory context and guarded activation", async () => {
+  const deviceId = "track-0:device-0/chain-0/device-0";
+  const device = { id: deviceId, name: "Operator", className: "Operator", classDisplayName: "Operator", active: true };
+  const service = new ToolService({ catalog: {}, bridge: { request: async (method, args) => {
+    if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device };
+    if (method === "list_devices") return { stateVersion: 4, devices: [] };
+    if (method === "list_device_parameters") return { stateVersion: 4, parameters: [] };
+    if (method === "set_device_active") return { stateVersion: 5, device: { ...device, active: args.active } };
+    throw new Error(`unexpected method ${method}`);
+  } } });
+  const base = { trackId: "track-0", deviceId, expectedStateVersion: 4 };
+  const context = await service.call("get_factory_device_context", base);
+  assert.equal(context.device.id, deviceId);
+  assert.equal(context.profile.id, "operator");
+  const dry = await service.call("set_device_active", { ...base, active: false });
+  assert.equal(dry.plan.beforeDevice.id, deviceId);
+  const applied = await service.call("set_device_active", { ...base, active: false, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(applied.observed.device.active, false);
+  await assert.rejects(() => service.call("delete_device", base), /nested device deletion/);
+});
+
 test("factory device context combines stable identity, knowledge, and live parameters", async () => {
   const { service } = fixture();
   const context = await service.call("get_factory_device_context", {

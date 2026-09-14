@@ -270,9 +270,7 @@ export class ToolService {
     }
     if (name === "search_browser_items") return this.bridge.request(name, normalizeBrowserSearch(args));
     if (name === "get_factory_device_context") {
-      const devices = await this.bridge.request("list_devices", { trackId: args.trackId });
-      const device = devices.devices.find(({ id }) => id === args.deviceId);
-      if (!device) throw new Error(`unknown device ${args.deviceId}`);
+      const { device } = await this.#observeDevice(args);
       const profile = getFactoryDeviceProfile(device);
       const observed = await this.bridge.request("list_device_parameters", args);
       return {
@@ -442,13 +440,25 @@ export class ToolService {
     };
   }
 
+  async #observeDevice(args) {
+    if (typeof args.deviceId === "string" && args.deviceId.includes("/")) {
+      const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
+      if (observed.device?.id !== args.deviceId) throw new Error(`unknown device ${args.deviceId}`);
+      return observed;
+    }
+    const observed = await this.bridge.request("list_devices", { trackId: args.trackId });
+    const device = observed.devices.find(({ id }) => id === args.deviceId);
+    if (!device) throw new Error(`unknown device ${args.deviceId}`);
+    return { ...observed, device };
+  }
+
   async #deviceLifecycle(method, args) {
     requireExpectedState(args);
     if (method === "set_device_active" && typeof args.active !== "boolean") throw new Error("active must be boolean");
-    const observed = await this.bridge.request("list_devices", { trackId: args.trackId });
+    if (method === "delete_device" && args.deviceId?.includes("/")) throw new Error("nested device deletion is not supported");
+    const observed = await this.#observeDevice(args);
     assertExpectedState({ expectedStateVersion: args.expectedStateVersion, trackId: args.trackId }, observed);
-    const device = observed.devices.find(({ id }) => id === args.deviceId);
-    if (!device) throw new Error(`unknown device ${args.deviceId}`);
+    const device = observed.device;
     const plan = {
       method, trackId: args.trackId, deviceId: args.deviceId,
       expectedStateVersion: args.expectedStateVersion, beforeDevice: device
