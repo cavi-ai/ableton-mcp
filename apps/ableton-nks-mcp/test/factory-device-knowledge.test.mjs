@@ -2,6 +2,17 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { getFactoryDeviceProfile, listFactoryDeviceProfiles, groupDeviceParameters } from "../src/factory-device-knowledge.mjs";
 
+test("EQ Three preserves native band gains, crossovers and band switches", () => {
+  const profile = getFactoryDeviceProfile({ className: "FilterEQ3", name: "Renamed Crossover" });
+  assert.equal(profile?.id, "eq-three");
+  const names = ["Device On", "GainLo", "GainMid", "GainHi", "FreqLo", "FreqHi", "LowOn", "MidOn", "HighOn", "Slope", "Future Control"];
+  const groups = groupDeviceParameters(profile, names.map((name, i) => ({ id: `parameter-${i}`, name })));
+  for (const [role, indices] of Object.entries({ global: [0], gain: [1, 2, 3], crossover: [4, 5], bandEnabled: [6, 7, 8], slope: [9], other: [10] })) {
+    assert.deepEqual(groups[role].map(p => p.id), indices.map(i => `parameter-${i}`), role);
+  }
+  assert.equal(Object.values(groups).flat().length, names.length);
+});
+
 test("Wavetable native identity separates envelope and filter destinations", () => {
   const profile = getFactoryDeviceProfile({ className: "InstrumentVector", name: "Renamed Bass" });
   assert.equal(profile?.id, "wavetable");
@@ -44,7 +55,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
-    "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
+    "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
     "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate"
   ]);
 });
