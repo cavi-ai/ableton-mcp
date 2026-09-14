@@ -251,7 +251,7 @@ def _clip_list(song, track_id, state_version):
             "hasClip": bool(slot.has_clip),
             "durationUnit": ("seconds" if getattr(slot.clip, "is_audio_clip", False) and not slot.clip.warping else "beats") if slot.has_clip else None,
             "lengthBeats": float(slot.clip.length) if slot.has_clip and not (getattr(slot.clip, "is_audio_clip", False) and not slot.clip.warping) else None,
-            "lengthSeconds": float(slot.clip.loop_end - slot.clip.loop_start if slot.clip.looping else slot.clip.end_marker - slot.clip.start_marker) if slot.has_clip and getattr(slot.clip, "is_audio_clip", False) and not slot.clip.warping else None,
+            "lengthSeconds": float(slot.clip.loop_end - slot.clip.loop_start) if slot.has_clip and getattr(slot.clip, "is_audio_clip", False) and not slot.clip.warping else None,
             "isPlaying": bool(slot.clip.is_playing) if slot.has_clip else False,
         } for slot_index, slot in enumerate(track.clip_slots)],
     }

@@ -429,7 +429,9 @@ class DispatchTest(unittest.TestCase):
         clip.warping = False
         clip.looping = False
         clip.start_marker = 0.25
-        clip.end_marker = 2.0
+        clip.loop_start = 0.25
+        clip.loop_end = 2.0
+        clip.end_marker = 4.0
         observed = dispatch_request(song, {"method": "list_clips", "params": {"trackId": "track-0"}}, 3)
         record = observed["clips"][2]
         self.assertIsNone(record["lengthBeats"])
