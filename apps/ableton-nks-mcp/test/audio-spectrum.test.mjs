@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { analyzeSpectrum } from "../src/audio-spectrum.mjs";
+import { analyzeSpectrum, frequencyPitchReference } from "../src/audio-spectrum.mjs";
 
 test("spectral peaks resolve a known tone and preserve amplitude scale", () => {
   const samples = Float64Array.from({ length: 4096 }, (_, i) => 0.5 * Math.sin(2 * Math.PI * 440 * i / 4096));
@@ -8,6 +8,15 @@ test("spectral peaks resolve a known tone and preserve amplitude scale", () => {
   assert.equal(result.peaks[0].frequencyHz, 440);
   assert.ok(Math.abs(result.peaks[0].amplitudeDbfs + 6.0206) < 0.01);
   assert.equal(result.frequencyResolutionHz, 1);
+});
+
+test("frequency pitch references identify equal-tempered notes and cents", () => {
+  assert.deepEqual(frequencyPitchReference(440), { midiNote: 69, noteName: "A4", centsFromNote: 0, referenceA4Hz: 440 });
+  const sharp = frequencyPitchReference(442);
+  assert.equal(sharp.noteName, "A4");
+  assert.ok(Math.abs(sharp.centsFromNote - 7.8514) < 0.001);
+  assert.equal(frequencyPitchReference(261.625565).noteName, "C4");
+  assert.throws(() => frequencyPitchReference(0), /positive/);
 });
 
 test("spectral silence has no peaks and invalid frames are rejected", () => {

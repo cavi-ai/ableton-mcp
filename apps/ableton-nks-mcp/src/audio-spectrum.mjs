@@ -1,3 +1,12 @@
+export function frequencyPitchReference(frequencyHz) {
+  if (!Number.isFinite(frequencyHz) || frequencyHz <= 0) throw new Error("frequency must be finite and positive");
+  const fractionalNote = 69 + 12 * Math.log2(frequencyHz / 440);
+  const midiNote = Math.round(fractionalNote);
+  const names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+  return { midiNote, noteName: names[((midiNote % 12) + 12) % 12] + (Math.floor(midiNote / 12) - 1),
+    centsFromNote: 100 * (fractionalNote - midiNote), referenceA4Hz: 440 };
+}
+
 export function analyzeSpectrum(samples, sampleRate) {
   const n = samples.length;
   if (!Number.isInteger(n) || n < 16 || n > 32768 || (n & (n - 1))) throw new Error("frame size must be a power of two between 16 and 32768");
@@ -39,6 +48,7 @@ export function analyzeSpectrum(samples, sampleRate) {
       const offset = curvature === 0 ? 0 : Math.max(-0.5, Math.min(0.5, 0.5 * (left - right) / curvature));
       peaks.push({ frequencyHz: i * sampleRate / n,
         estimatedFrequencyHz: (i + offset) * sampleRate / n,
+        pitchReference: frequencyPitchReference((i + offset) * sampleRate / n),
         amplitudeDbfs: 20 * Math.log10(amplitudes[i]) });
     }
   }
