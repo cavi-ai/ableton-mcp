@@ -15,7 +15,10 @@ test("rack return mixer plans select the return rather than an ordinary chain", 
   const dry = await service.call("set_rack_chain_mixer", args);
   assert.deepEqual(dry.plan.changes, { volume: 0.5 });
   assert.equal(dry.plan.chainId, chainId);
-  assert.equal((await service.call("rename_rack_chain", { ...args, name: "Room" })).plan.name, "Room");
+  const renamed = (await service.call("rename_rack_chain", { ...args, name: "b Room" })).plan;
+  assert.equal(renamed.name, "b Room");
+  assert.equal(renamed.nameBehavior, "raw-return-label");
+  assert.match(renamed.warning, /adds.*letter prefix/);
   await assert.rejects(() => service.call("set_rack_chain_note_routing", { ...args, inputNote: 36 }), /unknown rack chain/);
 });
 

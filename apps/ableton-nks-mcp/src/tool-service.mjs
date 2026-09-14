@@ -379,8 +379,11 @@ export class ToolService {
       }
       if (name === "rename_rack_chain") {
         if (typeof args.name !== "string" || !args.name.trim()) throw new Error("chain name must not be empty");
+        const isReturn = (rack.returnChains ?? []).some(item => item.id === args.chainId);
         return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
-          chainId: args.chainId, expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, name: args.name }, args);
+          chainId: args.chainId, expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, name: args.name,
+          ...(isReturn ? { nameBehavior: "raw-return-label",
+            warning: "Live adds the return letter prefix to the requested raw label. Read the observed name; do not restore a prefixed display name verbatim, or its prefix will be duplicated. Requested text is never stripped automatically." } : {}) }, args);
       }
       const changes = {};
       for (const key of ["volume", "pan", "mute", "solo"]) {
