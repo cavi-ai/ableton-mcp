@@ -48,7 +48,7 @@ export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationS
     const samples = Float64Array.from({ length: 4096 }, (_, i) => decoded.stdout.readFloatLE(i * 4));
     const estimate = estimateMonophonicPitch(samples, 16000);
     const sampleCount = Math.floor(decoded.stdout.length / 4);
-    const frameCount = Math.min(64, Math.floor(sampleCount / 4096));
+    const frameCount = Math.min(64, Math.ceil(sampleCount / 4096));
     const frames = Array.from({ length: frameCount }, (_, index) => {
       const offset = frameCount === 1 ? 0 : Math.floor(index * (sampleCount - 4096) / (frameCount - 1));
       const frame = Float64Array.from({ length: 4096 }, (_, i) => decoded.stdout.readFloatLE((offset + i) * 4));

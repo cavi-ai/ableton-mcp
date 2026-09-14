@@ -56,6 +56,16 @@ test("pitch analysis reports time-varying notes and unvoiced frames across the s
     assert.ok(Math.abs(frames.at(-1).endSeconds - 2) < 0.001);
     assert.ok(frames.some(frame => frame.startSeconds > 0.7 && frame.endSeconds < 1.3 && frame.estimate === null));
     assert.ok(frames.every((frame, index) => index === 0 || frame.startSeconds > frames[index - 1].startSeconds));
+    const route = createRouter(new ToolService({}));
+    const reply = await route({ id: 1, method: "tools/call", params: {
+      name: "analyze_audio_file", arguments: { sourcePath, startSeconds: 1.5, durationSeconds: 0.5, includePitch: true }
+    } });
+    assert.equal(reply.error, undefined);
+    const tailFrames = reply.result.structuredContent.monophonicPitch.frames;
+    assert.equal(tailFrames.length, 2);
+    assert.equal(tailFrames[0].startSeconds, 1.5);
+    assert.equal(tailFrames.at(-1).endSeconds, 2);
+    assert.ok(tailFrames.every(frame => frame.estimate.pitchReference.noteName === "A5"));
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
