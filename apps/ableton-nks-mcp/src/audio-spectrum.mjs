@@ -32,9 +32,16 @@ export function analyzeSpectrum(samples, sampleRate) {
   const peaks = [];
   for (let i = 1; i < n / 2; i++) {
     if (amplitudes[i] > 1e-6 && amplitudes[i] > amplitudes[i - 1] && amplitudes[i] >= amplitudes[i + 1]) {
-      peaks.push({ frequencyHz: i * sampleRate / n, amplitudeDbfs: 20 * Math.log10(amplitudes[i]) });
+      const left = Math.log(Math.max(amplitudes[i - 1], Number.MIN_VALUE));
+      const center = Math.log(amplitudes[i]);
+      const right = Math.log(Math.max(amplitudes[i + 1], Number.MIN_VALUE));
+      const curvature = left - 2 * center + right;
+      const offset = curvature === 0 ? 0 : Math.max(-0.5, Math.min(0.5, 0.5 * (left - right) / curvature));
+      peaks.push({ frequencyHz: i * sampleRate / n,
+        estimatedFrequencyHz: (i + offset) * sampleRate / n,
+        amplitudeDbfs: 20 * Math.log10(amplitudes[i]) });
     }
   }
   peaks.sort((a, b) => b.amplitudeDbfs - a.amplitudeDbfs);
-  return { frameSize: n, sampleRate, frequencyResolutionHz: sampleRate / n, window: "periodic_hann", peaks: peaks.slice(0, 10) };
+  return { frameSize: n, sampleRate, frequencyResolutionHz: sampleRate / n, window: "periodic_hann", frequencyEstimator: "log_magnitude_parabolic_interpolation", peaks: peaks.slice(0, 10) };
 }

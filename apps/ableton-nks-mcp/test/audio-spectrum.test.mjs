@@ -15,3 +15,11 @@ test("spectral silence has no peaks and invalid frames are rejected", () => {
   assert.throws(() => analyzeSpectrum([0, 1, 0], 48000), /power of two/);
   assert.throws(() => analyzeSpectrum(new Float64Array(1024), 0), /sample rate/);
 });
+
+test("off-bin spectral frequency is estimated without hiding bin resolution", () => {
+  const samples = Float64Array.from({ length: 4096 }, (_, i) => 0.5 * Math.sin(2 * Math.PI * 440.35 * i / 4096));
+  const result = analyzeSpectrum(samples, 4096);
+  assert.equal(result.peaks[0].frequencyHz, 440);
+  assert.ok(Math.abs(result.peaks[0].estimatedFrequencyHz - 440.35) < 0.03);
+  assert.equal(result.frequencyResolutionHz, 1);
+});
