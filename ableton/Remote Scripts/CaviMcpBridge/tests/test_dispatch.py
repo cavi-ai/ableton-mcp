@@ -1507,6 +1507,22 @@ class DispatchTest(unittest.TestCase):
         result = dispatch_request(song, {"method": "get_live_state"}, 4)
         self.assertFalse(result["nativeApiSupport"]["groupTracks"])
 
+    def test_duplicate_parameter_names_report_exact_ambiguous_ids(self):
+        song = Song()
+        parameters = [Parameter(), Parameter(), Parameter()]
+        parameters[0].name = "Win"
+        parameters[1].name = "Win"
+        parameters[2].name = "Activate"
+        song.tracks[0].devices[0].parameters = parameters
+        result = dispatch_request(song, {"method": "list_device_parameters", "params": {
+            "trackId": "track-0", "deviceId": "track-0:device-0"}}, 1)
+        self.assertEqual(result.get("nameAmbiguities"), [{"name": "Win", "parameterIds": ["parameter-0", "parameter-1"]}])
+        self.assertEqual([p["id"] for p in result["parameters"]], ["parameter-0", "parameter-1", "parameter-2"])
+        parameters[1].name = "Other"
+        result = dispatch_request(song, {"method": "list_device_parameters", "params": {
+            "trackId": "track-0", "deviceId": "track-0:device-0"}}, 1)
+        self.assertEqual(result["nameAmbiguities"], [])
+
     def test_status_and_parameter_write_return_observed_state(self):
         song = Song()
         status = dispatch_request(song, {"method": "get_live_state", "params": {}}, 4)

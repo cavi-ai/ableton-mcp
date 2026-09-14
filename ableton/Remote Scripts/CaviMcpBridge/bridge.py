@@ -1286,7 +1286,14 @@ def dispatch_request(song, request, state_version, application=None):
         }
     if method == "list_device_parameters":
         _, _, device = _device(song, params["trackId"], params["deviceId"])
-        return {"stateVersion": state_version, "trackId": params["trackId"], "deviceId": params["deviceId"], "parameters": [_parameter_record(parameter, i) for i, parameter in enumerate(device.parameters)]}
+        parameters = [_parameter_record(parameter, i) for i, parameter in enumerate(device.parameters)]
+        names = {}
+        for parameter in parameters:
+            names.setdefault(parameter["name"], []).append(parameter["id"])
+        ambiguities = [{"name": name, "parameterIds": identifiers}
+                       for name, identifiers in names.items() if len(identifiers) > 1]
+        return {"stateVersion": state_version, "trackId": params["trackId"], "deviceId": params["deviceId"],
+                "parameters": parameters, "nameAmbiguities": ambiguities}
     if method == "set_device_parameters":
         _, _, device = _device(song, params["trackId"], params["deviceId"])
         observed = []
