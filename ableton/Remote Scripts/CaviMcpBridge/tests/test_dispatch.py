@@ -744,6 +744,25 @@ class DispatchTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "already contains"):
                 dispatch_request(song, {"method": "create_audio_clip", "params": params}, 4)
 
+    def test_arrangement_audio_state_targets_only_the_exact_timeline_clip(self):
+        song = Song()
+        audio = AudioClip()
+        audio.start_time = 8.0
+        audio.end_time = 12.0
+        song.tracks[0].arrangement_clips = [audio]
+        params = {"trackId": "track-0", "clipId": "track-0:arrangement-clip-0"}
+        observed = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
+        self.assertEqual(observed["location"], "arrangement")
+        self.assertEqual(observed["timeline"]["startBeats"], 8.0)
+        result = dispatch_request(song, {"method": "set_audio_clip_state", "params": {
+            **params, "before": observed, "changes": {"pitchCoarse": {"value": -7}},
+        }}, 3)
+        self.assertEqual(result["pitch"]["coarse"], -7)
+        self.assertEqual(result["timeline"]["startBeats"], 8.0)
+        for invalid in ("track-0:arrangement-clip--1", "track-1:arrangement-clip-0", "track-0:arrangement-clip-99"):
+            with self.assertRaises(ValueError):
+                dispatch_request(song, {"method": "get_audio_clip_state", "params": {**params, "clipId": invalid}}, 3)
+
     def test_arrangement_move_supports_self_overlap_and_preserves_contents(self):
         song = Song()
         track = song.tracks[0]
@@ -796,7 +815,7 @@ class DispatchTest(unittest.TestCase):
         params = {"trackId": "track-0", "clipId": "track-0:clip-2"}
         observed = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
         self.assertEqual(observed["warpMode"]["name"], "beats")
-        changed = dispatch_request(song, {"method": "set_audio_clip_state", "params": {**params, "changes": {
+        changed = dispatch_request(song, {"method": "set_audio_clip_state", "params": {**params, "before": observed, "changes": {
             "gain": {"value": 0.75}, "pitchCoarse": {"value": -12}, "pitchFine": {"value": 17},
             "warping": {"value": False}, "warpMode": {"value": 6},
             "startMarkerBeats": {"value": 1}, "endMarkerBeats": {"value": 7},

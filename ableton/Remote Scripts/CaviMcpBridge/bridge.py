@@ -200,15 +200,32 @@ def _clip_timing(song, track_id, clip_id, state_version):
     }
 
 
-def _audio_clip_state(song, track_id, clip_id, state_version):
-    _, _, slot = _clip_slot(song, track_id, clip_id)
-    if not slot.has_clip:
-        raise ValueError("clip slot is empty")
-    clip = slot.clip
+def _audio_clip(song, track_id, clip_id):
+    timeline = None
+    if ":arrangement-clip-" in clip_id:
+        _, track = _track(song, track_id)
+        prefix = f"{track_id}:arrangement-clip-"
+        suffix = clip_id[len(prefix):] if clip_id.startswith(prefix) else ""
+        if not suffix.isdigit() or int(suffix) >= len(track.arrangement_clips):
+            raise ValueError("unknown Arrangement clip ID")
+        index = int(suffix)
+        clip = track.arrangement_clips[index]
+        timeline = _arrangement_clip_record(clip, track_id, index)
+    else:
+        _, _, slot = _clip_slot(song, track_id, clip_id)
+        if not slot.has_clip:
+            raise ValueError("clip slot is empty")
+        clip = slot.clip
     if not getattr(clip, "is_audio_clip", False):
         raise ValueError("clip is not an audio clip")
+    return clip, timeline
+
+
+def _audio_clip_state(song, track_id, clip_id, state_version):
+    clip, timeline = _audio_clip(song, track_id, clip_id)
     return {
         "stateVersion": state_version, "trackId": track_id, "clipId": clip_id,
+        "location": "arrangement" if timeline is not None else "session", "timeline": timeline,
         "gain": {"value": float(clip.gain), "min": 0.0, "max": 1.0, "displayValue": clip.gain_display_string},
         "pitch": {"coarse": int(clip.pitch_coarse), "fine": int(clip.pitch_fine)},
         "warping": bool(clip.warping), "warpMode": _enum_record(clip.warp_mode, AUDIO_WARP_MODE_NAMES),
@@ -622,24 +639,24 @@ def dispatch_request(song, request, state_version, application=None):
         return _audio_clip_state(song, params["trackId"], params["clipId"], state_version)
     if method == "set_audio_clip_state":
         track_id, clip_id = params["trackId"], params["clipId"]
-        _, _, slot = _clip_slot(song, track_id, clip_id)
-        if not slot.has_clip or not getattr(slot.clip, "is_audio_clip", False):
-            raise ValueError("clip is not an audio clip")
-        clip = slot.clip
+        clip, _ = _audio_clip(song, track_id, clip_id)
+        if _audio_clip_state(song, track_id, clip_id, state_version) != params["before"]:
+            raise ValueError("audio clip identity or state changed")
         changes = params["changes"]
         for source, target in (("gain", "gain"), ("pitchCoarse", "pitch_coarse"),
                                ("pitchFine", "pitch_fine"), ("warping", "warping"),
                                ("warpMode", "warp_mode")):
             if source in changes:
                 setattr(clip, target, _change_value(changes[source]))
-        start = _change_value(changes["startMarkerBeats"]) if "startMarkerBeats" in changes else clip.start_marker
-        end = _change_value(changes["endMarkerBeats"]) if "endMarkerBeats" in changes else clip.end_marker
-        if start >= clip.end_marker:
-            clip.end_marker = end
-            clip.start_marker = start
-        else:
-            clip.start_marker = start
-            clip.end_marker = end
+        if "startMarkerBeats" in changes or "endMarkerBeats" in changes:
+            start = _change_value(changes["startMarkerBeats"]) if "startMarkerBeats" in changes else clip.start_marker
+            end = _change_value(changes["endMarkerBeats"]) if "endMarkerBeats" in changes else clip.end_marker
+            if start >= clip.end_marker:
+                clip.end_marker = end
+                clip.start_marker = start
+            else:
+                clip.start_marker = start
+                clip.end_marker = end
         return _audio_clip_state(song, track_id, clip_id, state_version + 1)
     if method == "set_song_musical_context":
         changes = params["changes"]

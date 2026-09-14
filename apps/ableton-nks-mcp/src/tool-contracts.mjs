@@ -89,7 +89,7 @@ export const toolContracts = {
     timeSignature: object({ numerator: { type: "integer", minimum: 1 }, denominator: { type: "integer", enum: [1, 2, 4, 8, 16] } }),
     launchQuantization: choice("Launch quantization value or name."), grooveId: string("Groove ID returned by get_clip_timing."),
   }, ["trackId", "clipId"]) },
-  get_audio_clip_state: { description: "Read gain, pitch, warp, and marker state for one exact audio clip.", inputSchema: clip },
+  get_audio_clip_state: { description: "Read gain, pitch, warp, and marker state for one exact Session or Arrangement audio clip, including timeline identity for Arrangement clips.", inputSchema: clip },
   set_audio_clip_state: { description: "Plan or apply guarded audio-clip gain, pitch, warp, and marker changes.", inputSchema: guarded({ trackId: ids.trackId, clipId: ids.clipId, gain: number("Clip gain."), pitchCoarse: { type: "integer", minimum: -48, maximum: 48 }, pitchFine: { type: "integer", minimum: -50, maximum: 50 }, warping: boolean("Warp enabled."), warpMode: choice("Warp mode value or name."), startMarkerBeats: number("Start marker in beats.", { minimum: 0 }), endMarkerBeats: number("End marker in beats.", { minimum: 0 }) }, ["trackId", "clipId"]) },
   duplicate_clip: { description: "Plan or duplicate an exact occupied Session clip into an exact empty slot.", inputSchema: guarded({ trackId: ids.trackId, clipId: ids.clipId, destinationClipId: ids.clipId }, ["trackId", "clipId", "destinationClipId"]) },
   delete_clip: { description: "Plan or delete one exact occupied Session clip.", inputSchema: guarded({ trackId: ids.trackId, clipId: ids.clipId }, ["trackId", "clipId"]) },
