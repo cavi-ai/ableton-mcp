@@ -43,10 +43,18 @@ export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationS
   let monophonicPitch;
   if (includePitch) {
     if (windowSeconds < 4096 / 16000) throw new Error("pitch analysis requires a 0.256-second source window");
-    const decoded = await run("ffmpeg", ["-nostdin", "-v", "error", "-protocol_whitelist", "file,pipe", "-ss", String(startSeconds), "-i", path, "-t", "0.256", "-map", "0:a:0", "-af", "pan=mono|c0=c0", "-ar", "16000", "-c:a", "pcm_f32le", "-f", "f32le", "pipe:1"], { ...limits, encoding: "buffer" });
+    const decoded = await run("ffmpeg", ["-nostdin", "-v", "error", "-protocol_whitelist", "file,pipe", "-ss", String(startSeconds), "-i", path, "-t", String(windowSeconds), "-map", "0:a:0", "-af", "pan=mono|c0=c0", "-ar", "16000", "-c:a", "pcm_f32le", "-f", "f32le", "pipe:1"], { ...limits, maxBuffer: 4 * 1024 * 1024, encoding: "buffer" });
     if (decoded.stdout.length < 4096 * 4) throw new Error("pitch analysis requires a full 4096-sample frame");
     const samples = Float64Array.from({ length: 4096 }, (_, i) => decoded.stdout.readFloatLE(i * 4));
     const estimate = estimateMonophonicPitch(samples, 16000);
+    const sampleCount = Math.floor(decoded.stdout.length / 4);
+    const frameCount = Math.min(64, Math.floor(sampleCount / 4096));
+    const frames = Array.from({ length: frameCount }, (_, index) => {
+      const offset = frameCount === 1 ? 0 : Math.floor(index * (sampleCount - 4096) / (frameCount - 1));
+      const frame = Float64Array.from({ length: 4096 }, (_, i) => decoded.stdout.readFloatLE((offset + i) * 4));
+      return { startSeconds: startSeconds + offset / 16000, endSeconds: startSeconds + (offset + 4096) / 16000,
+        estimate: index === 0 ? estimate : estimateMonophonicPitch(frame, 16000) };
+    });
     const harmonicPeaks = estimate ? analyzeSpectrum(samples, 16000).peaks.flatMap(peak => {
       const harmonicNumber = Math.round(peak.estimatedFrequencyHz / estimate.frequencyHz);
       if (harmonicNumber < 1 || harmonicNumber > 32) return [];
@@ -54,9 +62,9 @@ export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationS
       const centsFromHarmonic = 1200 * Math.log2(peak.estimatedFrequencyHz / expectedFrequencyHz);
       return Math.abs(centsFromHarmonic) <= 50 ? [{ ...peak, harmonicNumber, expectedFrequencyHz, centsFromHarmonic }] : [];
     }) : [];
-    monophonicPitch = { estimate, harmonicPeaks, harmonicToleranceCents: 50, sampleRate: 16000,
+    monophonicPitch = { estimate, frames, harmonicPeaks, harmonicToleranceCents: 50, sampleRate: 16000,
       frameSize: 4096, channelIndex: 0, startSeconds,
-      limitation: "First-channel monophonic estimate after resampling; null means no reliable periodicity. Harmonic peaks are spectral matches within 50 cents, not resonance or timbre classifications. Not polyphonic analysis or pitch correction." };
+      limitation: "Up to 64 evenly spaced 256-ms frames of first-channel source audio resampled to 16 kHz; sparse sampling can miss short notes. Null means no reliable periodicity. Top-level estimate and harmonic peaks describe only the first frame; harmonic matches within 50 cents are not resonance or timbre classifications. Not polyphonic analysis or pitch correction." };
   }
   let spectrogram;
   if (includeSpectrogram) {

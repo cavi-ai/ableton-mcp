@@ -39,6 +39,26 @@ test("waveform overview covers the complete source window with bounded extrema a
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+test("pitch analysis reports time-varying notes and unvoiced frames across the source window", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cavi-pitch-trajectory-"));
+  try {
+    const sourcePath = join(directory, "notes.wav");
+    await promisify(execFile)("ffmpeg", ["-nostdin", "-v", "error", "-f", "lavfi", "-i",
+      "aevalsrc=if(lt(t\\,0.7)\\,0.5*sin(2*PI*440*t)\\,if(lt(t\\,1.3)\\,0\\,0.5*sin(2*PI*880*t))):s=48000:d=2", sourcePath]);
+    const result = await analyzeAudioFile(sourcePath, { includePitch: true });
+    const frames = result.monophonicPitch.frames;
+    assert.ok(Array.isArray(frames));
+    assert.ok(frames.length > 1 && frames.length <= 64);
+    assert.equal(frames[0].startSeconds, 0);
+    assert.ok(Math.abs(frames[0].estimate.frequencyHz - 440) < 1);
+    assert.equal(frames.at(-1).estimate.pitchReference.noteName, "A5");
+    assert.ok(Math.abs(frames.at(-1).estimate.pitchReference.centsFromNote) < 3);
+    assert.ok(Math.abs(frames.at(-1).endSeconds - 2) < 0.001);
+    assert.ok(frames.some(frame => frame.startSeconds > 0.7 && frame.endSeconds < 1.3 && frame.estimate === null));
+    assert.ok(frames.every((frame, index) => index === 0 || frame.startSeconds > frames[index - 1].startSeconds));
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("pitch analysis distinguishes the fundamental from a louder second harmonic", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cavi-harmonics-"));
   try {
