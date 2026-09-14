@@ -955,6 +955,19 @@ class DispatchTest(unittest.TestCase):
         result = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
         self.assertEqual(result["warpMarkers"], {"supported": True, "markers": []})
 
+    def test_audio_mutation_rejects_native_warp_marker_changes_after_planning(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[2].clip
+        clip.warp_markers = (SimpleNamespace(sample_time=0.13, beat_time=0.25),)
+        params = {"trackId": "track-0", "clipId": "track-0:clip-2"}
+        before = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
+        clip.warp_markers = (SimpleNamespace(sample_time=0.13, beat_time=0.0),)
+        with self.assertRaisesRegex(ValueError, "audio clip identity or state changed"):
+            dispatch_request(song, {"method": "set_audio_clip_state", "params": {
+                **params, "before": before, "changes": {"gain": {"value": 0.75}}
+            }}, 3)
+        self.assertEqual(clip.gain, before["gain"]["value"])
+
     def test_unwarped_audio_markers_use_seconds_and_reject_beats_before_mutation(self):
         song = Song()
         clip = song.tracks[0].clip_slots[2].clip
