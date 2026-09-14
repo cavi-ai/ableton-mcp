@@ -59,6 +59,7 @@ const toolNames = [
   "delete_session_object",
   "get_audio_clip_state",
   "get_device_sidechain_routing",
+  "set_device_sidechain_routing",
   "analyze_audio_file",
   "analyze_audio_clip",
   "set_audio_clip_state",

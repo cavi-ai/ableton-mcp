@@ -739,6 +739,26 @@ def dispatch_request(song, request, state_version, application=None):
         return {"stateVersion": state_version + 1, "return": _return_mixer_record(track, index)}
     if method == "get_device_sidechain_routing":
         return _device_sidechain_routing(song, params["trackId"], params["deviceId"], state_version)
+    if method == "set_device_sidechain_routing":
+        track_id, device_id = params["trackId"], params["deviceId"]
+        current = _device_sidechain_routing(song, track_id, device_id, state_version)
+        if current != params["before"]:
+            raise ValueError("device sidechain identity or state changed")
+        if not current["sidechain"]["supported"]:
+            raise ValueError("device sidechain routing is unsupported")
+        changes = params["changes"]
+        if len(changes) != 1 or not set(changes).issubset({"sourceTypeId", "sourceChannelId"}):
+            raise ValueError("exactly one sidechain routing change is required")
+        _, _, device = _device(song, track_id, device_id)
+        key = next(iter(changes))
+        is_type = key == "sourceTypeId"
+        choices = device.available_input_routing_types if is_type else device.available_input_routing_channels
+        matches = [option for option in choices if _routing_option(option) == changes[key]["value"]]
+        if len(matches) != 1:
+            raise ValueError("unknown or ambiguous sidechain routing choice")
+        with _undo_step(song):
+            setattr(device, "input_routing_type" if is_type else "input_routing_channel", matches[0])
+        return _device_sidechain_routing(song, track_id, device_id, state_version + 1)
     if method == "get_audio_clip_state":
         return _audio_clip_state(song, params["trackId"], params["clipId"], state_version)
     if method == "set_audio_clip_state":

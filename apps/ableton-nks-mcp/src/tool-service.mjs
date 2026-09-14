@@ -472,6 +472,7 @@ export class ToolService {
     if (name === "transform_midi_notes") return this.#transformMidiNotes(args);
     if (name === "set_track_mixer") return this.#setTrackMixer(args);
     if (name === "set_track_routing") return this.#setTrackRouting(args);
+    if (name === "set_device_sidechain_routing") return this.#setDeviceSidechainRouting(args);
     if (name === "set_group_fold_state") return this.#setGroupFoldState(args);
     if (name === "route_tracks_to_bus") return this.#routeTracksToBus(args);
     if (name === "load_browser_item" || name === "load_factory_browser_item") return this.#loadBrowserItem(name, args);
@@ -1335,6 +1336,24 @@ export class ToolService {
     this.#consumeConfirmation(plan, args);
     const result = await this.bridge.request("set_track_mixer", plan);
     return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
+  }
+
+  async #setDeviceSidechainRouting(args) {
+    requireExpectedState(args);
+    const keys = ["sourceTypeId", "sourceChannelId"].filter(key => args[key] !== undefined);
+    if (keys.length !== 1) throw new Error("exactly one sidechain source type or channel change is required");
+    const key = keys[0];
+    if (typeof args[key] !== "string") throw new Error(`${key} must be a string`);
+    const before = await this.bridge.request("get_device_sidechain_routing", { trackId: args.trackId, deviceId: args.deviceId });
+    assertExpectedState(args, before);
+    if (!before.sidechain.supported) throw new Error("device sidechain routing is unsupported");
+    const isType = key === "sourceTypeId";
+    const matches = before.sidechain[isType ? "availableTypes" : "availableChannels"].filter(option => option.id === args[key]);
+    if (!matches.length) throw new Error(`unknown ${key} ${args[key]}`);
+    if (matches.length !== 1) throw new Error(`ambiguous ${key} ${args[key]}`);
+    return this.#confirmedMutation({ method: "set_device_sidechain_routing", trackId: args.trackId,
+      deviceId: args.deviceId, expectedStateVersion: args.expectedStateVersion, before,
+      changes: { [key]: { previous: before.sidechain[isType ? "type" : "channel"], value: matches[0] } } }, args);
   }
 
   async #setTrackRouting(args) {

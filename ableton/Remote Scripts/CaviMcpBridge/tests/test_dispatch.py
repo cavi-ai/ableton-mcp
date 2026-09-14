@@ -957,6 +957,25 @@ class DispatchTest(unittest.TestCase):
             "availableChannels": [{"id": "post-fx", "name": "Post FX"}]})
         self.assertEqual(result["deviceId"], "track-0:device-0")
 
+    def test_sidechain_mutation_binds_state_and_assigns_native_object(self):
+        song = Song()
+        device = song.tracks[0].devices[0]
+        source = SimpleNamespace(identifier="bass", display_name="Bass")
+        original = SimpleNamespace(identifier="none", display_name="No Input")
+        channel = SimpleNamespace(identifier="post", display_name="Post FX")
+        device.available_input_routing_types = (original, source)
+        device.available_input_routing_channels = (channel,)
+        device.input_routing_type, device.input_routing_channel = original, channel
+        params = {"trackId": "track-0", "deviceId": "track-0:device-0"}
+        before = dispatch_request(song, {"method": "get_device_sidechain_routing", "params": params}, 3)
+        change = {**params, "before": before, "changes": {"sourceTypeId": {"value": {"id": "bass", "name": "Bass"}}}}
+        result = dispatch_request(song, {"method": "set_device_sidechain_routing", "params": change}, 3)
+        self.assertIs(device.input_routing_type, source)
+        self.assertEqual(result["stateVersion"], 4)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+        with self.assertRaisesRegex(ValueError, "changed"):
+            dispatch_request(song, {"method": "set_device_sidechain_routing", "params": change}, 3)
+
     def test_audio_mutations_have_isolated_undo_boundaries(self):
         for method, extra in (
             ("set_audio_clip_state", {"changes": {"gain": {"value": 0.25}}}),

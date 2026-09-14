@@ -1,6 +1,7 @@
 [
   "get_live_state", "get_history_state", "undo", "redo", "get_transport_context", "set_transport_context",
   "get_device_sidechain_routing",
+  "set_device_sidechain_routing",
   "get_song_musical_context", "set_song_musical_context", "get_transport_recording_context", "set_transport_recording_context",
   "list_arrangement_cue_points", "create_arrangement_cue_point", "rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point",
   "get_browser_items", "load_browser_item", "search_browser_items", "get_factory_browser_items", "load_factory_browser_item",

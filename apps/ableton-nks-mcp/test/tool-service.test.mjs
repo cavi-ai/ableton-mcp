@@ -1107,6 +1107,35 @@ test("device sidechain readback preserves exact native routing identity", async 
   assert.deepEqual(await service.call("get_device_sidechain_routing", { trackId: "track-0", deviceId: "track-0:device-0" }), state);
 });
 
+test("device sidechain changes bind full native state and reject ambiguous sources", async () => {
+  const before = { stateVersion: 4, trackId: "track-0", deviceId: "track-0:device-0",
+    device: { name: "Compressor", className: "Compressor2" },
+    sidechain: { supported: true, type: { id: "none", name: "No Input" },
+      channel: { id: "", name: "" }, availableTypes: [{ id: "bass", name: "Bass" }], availableChannels: [{ id: "", name: "" }] } };
+  let mutations = 0;
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_device_sidechain_routing") return structuredClone(before);
+    if (method === "set_device_sidechain_routing") {
+      assert.deepEqual(params.before, before);
+      assert.deepEqual(params.changes, { sourceTypeId: { previous: before.sidechain.type, value: { id: "bass", name: "Bass" } } });
+      mutations++;
+      return { ...before, stateVersion: 5 };
+    }
+    throw new Error(method);
+  } } });
+  const args = { trackId: before.trackId, deviceId: before.deviceId, expectedStateVersion: 4, sourceTypeId: "bass" };
+  const preview = await service.call("set_device_sidechain_routing", args);
+  assert.equal(mutations, 0);
+  await service.call("set_device_sidechain_routing", { ...args, dryRun: false,
+    confirmationToken: preview.confirmation.token, planHash: preview.confirmation.planHash });
+  assert.equal(mutations, 1);
+  await assert.rejects(service.call("set_device_sidechain_routing", { ...args, sourceChannelId: "" }), /exactly one/);
+  before.sidechain.availableTypes.push({ id: "bass", name: "Other Bass" });
+  await assert.rejects(service.call("set_device_sidechain_routing", args), /ambiguous/);
+  before.sidechain.supported = false;
+  await assert.rejects(service.call("set_device_sidechain_routing", args), /unsupported/);
+});
+
 test("audio crop confirms the native selected interval and rejects changed loop", async () => {
   const before = { stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-2", warping: true,
     markers: { unit: "beats", startBeats: 0, endBeats: 4 },
