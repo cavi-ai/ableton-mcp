@@ -820,6 +820,25 @@ test("Arrangement deletion carries exact identity and requires confirmation", as
   assert.equal(mutations.length, 1);
 });
 
+test("Arrangement moves allow self-overlap but reject other timeline material", async () => {
+  const { service } = fixture();
+  const clip = { id: "track-0:arrangement-clip-0", name: "A", startBeats: 8, endBeats: 12, lengthBeats: 4, type: "midi" };
+  let clips = [clip];
+  service.bridge.request = async (method, params) => {
+    if (method === "list_arrangement_clips") return { stateVersion: 4, trackId: "track-0", clips };
+    if (method === "move_arrangement_clip") return { stateVersion: 5, movedClip: { ...clip, startBeats: params.startBeats, endBeats: params.startBeats + 4 } };
+    throw new Error(`unexpected ${method}`);
+  };
+  const args = { trackId: "track-0", clipId: clip.id, expectedStateVersion: 4, startBeats: 10 };
+  const dry = await service.call("move_arrangement_clip", args);
+  assert.equal(dry.plan.startBeats, 10);
+  assert.deepEqual(dry.plan.before, clip);
+  const result = await service.call("move_arrangement_clip", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.observed.movedClip.startBeats, 10);
+  clips = [clip, { id: "track-0:arrangement-clip-1", startBeats: 13, endBeats: 17 }];
+  await assert.rejects(() => service.call("move_arrangement_clip", args), /overlap another/);
+});
+
 test("set mixer exposes master and return buses and guards bounded changes", async () => {
   const { service, calls } = fixture();
   const observed = await service.call("get_set_mixer");

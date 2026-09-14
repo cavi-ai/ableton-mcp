@@ -261,7 +261,7 @@ export class ToolService {
     if (name === "list_clips") return this.bridge.request("list_clips", args);
     if (name === "list_arrangement_clips") return this.bridge.request(name, args);
     if (name === "place_session_clip_in_arrangement") return this.#placeSessionClipInArrangement(args);
-    if (name === "delete_arrangement_clip") return this.#deleteArrangementClip(args);
+    if (name === "delete_arrangement_clip" || name === "move_arrangement_clip") return this.#mutateArrangementClip(name, args);
     if (name === "get_midi_clip_notes") return this.bridge.request("get_midi_clip_notes", args);
     if (name === "get_midi_clip_notes_extended") return this.bridge.request("get_midi_clip_notes_extended", args);
     if (name === "get_track_mixer") return this.bridge.request("get_track_mixer", args);
@@ -736,14 +736,21 @@ export class ToolService {
     }, args);
   }
 
-  async #deleteArrangementClip(args) {
+  async #mutateArrangementClip(method, args) {
     requireExpectedState(args);
     const observed = await this.bridge.request("list_arrangement_clips", { trackId: args.trackId });
     assertExpectedState(args, observed);
     const before = observed.clips.find(({ id }) => id === args.clipId);
     if (!before) throw new Error(`unknown Arrangement clip ID ${args.clipId}`);
-    return this.#confirmedMutation({ method: "delete_arrangement_clip", trackId: args.trackId,
-      clipId: args.clipId, expectedStateVersion: args.expectedStateVersion, before }, args);
+    const plan = { method, trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion, before };
+    if (method === "move_arrangement_clip") {
+      plan.startBeats = finiteRange(args.startBeats, "startBeats", 0, Number.MAX_SAFE_INTEGER);
+      const end = plan.startBeats + before.lengthBeats;
+      if (!Number.isFinite(end) || end > Number.MAX_SAFE_INTEGER || before.lengthBeats <= 0) throw new Error("move interval is invalid");
+      if (observed.clips.some((clip) => clip.id !== before.id && plan.startBeats < clip.endBeats && end > clip.startBeats)) throw new Error("move would overlap another Arrangement clip");
+      plan.beforeArrangement = observed.clips;
+    }
+    return this.#confirmedMutation(plan, args);
   }
 
   async #duplicateClipLoop(args) {

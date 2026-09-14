@@ -8,5 +8,5 @@
   "get_midi_clip_notes", "create_track", "create_scene", "rename_session_object", "get_midi_clip_notes_extended", "set_midi_note_properties", "transform_midi_notes",
   "duplicate_session_object", "delete_session_object", "get_set_mixer", "set_master_mixer", "set_return_mixer",
   "get_clip_parameter_envelope", "set_clip_parameter_envelope", "list_devices", "get_device_hierarchy", "set_device_active", "delete_device",
-  "delete_arrangement_clip", "list_arrangement_clips", "place_session_clip_in_arrangement", "move_device", "list_device_parameters", "set_device_parameters", "create_midi_clip", "transport_play", "transport_stop", "set_tempo", "set_track_mixer", "arm_track", "launch_scene", "launch_clip", "stop_clip", "panic"
+  "move_arrangement_clip", "delete_arrangement_clip", "list_arrangement_clips", "place_session_clip_in_arrangement", "move_device", "list_device_parameters", "set_device_parameters", "create_midi_clip", "transport_play", "transport_stop", "set_tempo", "set_track_mixer", "arm_track", "launch_scene", "launch_clip", "stop_clip", "panic"
 ]
