@@ -1036,8 +1036,6 @@ def dispatch_request(song, request, state_version, application=None):
         index, track = _track(song, params["trackId"])
         return {"stateVersion": state_version, "trackId": params["trackId"], "devices": [_device_tree(device, f"track-{index}:device-{i}") for i, device in enumerate(track.devices)]}
     if method in ("set_device_active", "delete_device", "move_device"):
-        if method == "delete_device" and "/" in params["deviceId"]:
-            raise ValueError("nested device deletion is not supported")
         track, index, device = _device(song, params["trackId"], params["deviceId"])
         before = params["beforeDevice"]
         if device.name != before["name"] or device.class_name != before["className"]:
@@ -1065,11 +1063,14 @@ def dispatch_request(song, request, state_version, application=None):
                 "stateVersion": state_version + 1, "trackId": params["trackId"],
                 "device": _device_record(device, params["deviceId"]),
             }
+        if not callable(getattr(track, "delete_device", None)):
+            raise ValueError("device owner has no native deletion API")
         track.delete_device(index)
+        owner_path = params["deviceId"].rsplit("/device-", 1)[0] + "/device-" if "/" in params["deviceId"] else f"{params['trackId']}:device-"
         return {
             "stateVersion": state_version + 1, "trackId": params["trackId"],
             "deletedDevice": deleted,
-            "devices": [_device_record(item, f"track-{int(params['trackId'].removeprefix('track-'))}:device-{i}") for i, item in enumerate(track.devices)],
+            "devices": [_device_record(item, f"{owner_path}{i}") for i, item in enumerate(track.devices)],
         }
     if method == "move_device_to_chain":
         owner, _, device = _device(song, params["trackId"], params["deviceId"])

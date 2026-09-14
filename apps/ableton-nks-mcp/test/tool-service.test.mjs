@@ -608,7 +608,9 @@ test("nested rack devices support factory context and guarded activation", async
   const applied = await service.call("set_device_active", { ...base, active: false, dryRun: false,
     confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
   assert.equal(applied.observed.device.active, false);
-  await assert.rejects(() => service.call("delete_device", base), /nested device deletion/);
+  const deletion = await service.call("delete_device", base);
+  assert.equal(deletion.plan.deviceId, deviceId);
+  assert.equal(deletion.plan.beforeDevice.id, deviceId);
 });
 
 test("factory device context combines stable identity, knowledge, and live parameters", async () => {

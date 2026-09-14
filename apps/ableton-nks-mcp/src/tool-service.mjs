@@ -503,7 +503,6 @@ export class ToolService {
   async #deviceLifecycle(method, args) {
     requireExpectedState(args);
     if (method === "set_device_active" && typeof args.active !== "boolean") throw new Error("active must be boolean");
-    if (method === "delete_device" && args.deviceId?.includes("/")) throw new Error("nested device deletion is not supported");
     const observed = await this.#observeDevice(args);
     assertExpectedState({ expectedStateVersion: args.expectedStateVersion, trackId: args.trackId }, observed);
     const device = observed.device;

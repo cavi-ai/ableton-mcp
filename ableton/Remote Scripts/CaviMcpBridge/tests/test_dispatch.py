@@ -688,6 +688,22 @@ class DispatchTest(unittest.TestCase):
         }}, 4)
         self.assertEqual(deleted["devices"], [])
 
+    def test_nested_device_deletion_preserves_owner_path(self):
+        song = Song()
+        rack = DrumRack()
+        song.tracks[0].devices = [rack]
+        chain = rack.chains[0]
+        second = NestedDevice("EQ Eight", "Eq8", 0)
+        chain.devices.append(second)
+        chain.delete_device = lambda index: chain.devices.pop(index)
+        ids = {"trackId": "track-0", "deviceId": "track-0:device-0/chain-0/device-0"}
+        before = dispatch_request(song, {"method": "get_device_hierarchy", "params": ids}, 3)["device"]
+        result = dispatch_request(song, {"method": "delete_device", "params": {**ids, "beforeDevice": before}}, 3)
+        self.assertEqual(result["deletedDevice"]["id"], ids["deviceId"])
+        self.assertEqual(result["devices"][0]["id"], "track-0:device-0/chain-0/device-0")
+        self.assertEqual(result["devices"][0]["className"], "Eq8")
+        self.assertEqual(song.tracks[0].devices, [rack])
+
     def test_device_reorder_returns_actual_position_and_new_id(self):
         song = Song()
         first = Device()
