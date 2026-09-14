@@ -1132,6 +1132,26 @@ def dispatch_request(song, request, state_version, application=None):
                 "requestedPosition": position, "actualPosition": actual,
                 "device": _device_tree(device, new_id),
                 "targetRack": _device_tree(rack, current_rack_id)}
+    if method == "set_drum_pad_state":
+        _, _, rack = _device(song, params["trackId"], params["deviceId"])
+        if not rack.can_have_drum_pads:
+            raise ValueError("device has no drum pads")
+        if _device_tree(rack, params["deviceId"]) != params["beforeDevice"]:
+            raise ValueError("rack state changed")
+        note = params["note"]
+        if type(note) is not int or not 0 <= note <= 127:
+            raise ValueError("pad note must be an integer from 0 to 127")
+        pad = next((pad for pad in rack.drum_pads if pad.note == note and pad.chains), None)
+        if pad is None:
+            raise ValueError("unknown populated drum pad")
+        changes = params["changes"]
+        if not changes or set(changes) - {"mute", "solo"} or any(type(value) is not bool for value in changes.values()):
+            raise ValueError("invalid drum pad changes")
+        for key, value in changes.items():
+            setattr(pad, key, value)
+        device = _device_tree(rack, params["deviceId"])
+        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                "pad": next(pad for pad in device["drumPads"] if pad["note"] == note), "device": device}
     if method in ("set_rack_chain_mixer", "rename_rack_chain"):
         _, _, rack = _device(song, params["trackId"], params["deviceId"])
         if _device_tree(rack, params["deviceId"]) != params["beforeDevice"]:

@@ -1134,6 +1134,20 @@ class DispatchTest(unittest.TestCase):
             "chainIds": ["track-0:device-0/chain-0"]
         }])
 
+    def test_drum_pad_state_changes_exact_note(self):
+        song = Song()
+        rack = DrumRack()
+        song.tracks[0].devices = [rack]
+        ids = {"trackId": "track-0", "deviceId": "track-0:device-0"}
+        before = dispatch_request(song, {"method": "get_device_hierarchy", "params": ids}, 3)["device"]
+        result = dispatch_request(song, {"method": "set_drum_pad_state", "params": {
+            **ids, "beforeDevice": before, "note": 36, "changes": {"mute": True, "solo": True}}}, 3)
+        self.assertTrue(result["pad"]["mute"])
+        self.assertTrue(result["pad"]["solo"])
+        with self.assertRaisesRegex(ValueError, "rack state changed"):
+            dispatch_request(song, {"method": "set_drum_pad_state", "params": {
+                **ids, "beforeDevice": before, "note": 36, "changes": {"mute": False}}}, 4)
+
     def test_create_rack_chain_inserts_named_empty_chain_and_rejects_stale_rack(self):
         song = Song()
         song.begin_undo_step = lambda: None
