@@ -1017,6 +1017,19 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(clip.signature_numerator, 3)
         self.assertIs(clip.groove, song.groove_pool.grooves[0])
 
+    def test_clip_timing_rejects_changed_observation_before_mutation(self):
+        song = Song()
+        params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_clip_timing", "params": params}, 3)
+        clip = song.tracks[0].clip_slots[0].clip
+        clip.loop_end = 8.0
+        with self.assertRaisesRegex(ValueError, "timing changed"):
+            dispatch_request(song, {"method": "set_clip_timing", "params": {
+                **params, "before": before, "changes": {"loop": {"enabled": False}}
+            }}, 3)
+        self.assertTrue(clip.looping)
+        self.assertEqual(clip.loop_end, 8.0)
+
     def test_device_hierarchy_exposes_nested_chain_devices_and_loaded_drum_pads(self):
         song = Song()
         song.tracks[0].devices = [DrumRack()]

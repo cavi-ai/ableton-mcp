@@ -892,6 +892,8 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "get_clip_timing":
         return _clip_timing(song, params["trackId"], params["clipId"], state_version)
     if method == "set_clip_timing":
+        if "before" in params and _clip_timing(song, params["trackId"], params["clipId"], state_version) != params["before"]:
+            raise ValueError("clip timing changed since observation")
         _, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
         if not slot.has_clip:
             raise ValueError("clip slot is empty")
