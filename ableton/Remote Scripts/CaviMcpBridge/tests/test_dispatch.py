@@ -427,10 +427,13 @@ class DispatchTest(unittest.TestCase):
         song = Song()
         clip = song.tracks[0].clip_slots[2].clip
         clip.warping = False
+        clip.looping = False
+        clip.start_marker = 0.25
+        clip.end_marker = 2.0
         observed = dispatch_request(song, {"method": "list_clips", "params": {"trackId": "track-0"}}, 3)
         record = observed["clips"][2]
         self.assertIsNone(record["lengthBeats"])
-        self.assertEqual(record["lengthSeconds"], float(clip.length))
+        self.assertEqual(record["lengthSeconds"], 1.75)
         self.assertEqual(record["durationUnit"], "seconds")
         with self.assertRaisesRegex(ValueError, "tempo-map"):
             dispatch_request(song, {"method": "place_session_clip_in_arrangement", "params": {
