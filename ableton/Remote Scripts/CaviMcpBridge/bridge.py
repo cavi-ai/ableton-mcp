@@ -243,7 +243,9 @@ def _clip_list(song, track_id, state_version):
             "id": f"track-{index}:clip-{slot_index}",
             "name": slot.clip.name if slot.has_clip else None,
             "hasClip": bool(slot.has_clip),
-            "lengthBeats": float(slot.clip.length) if slot.has_clip else None,
+            "durationUnit": ("seconds" if getattr(slot.clip, "is_audio_clip", False) and not slot.clip.warping else "beats") if slot.has_clip else None,
+            "lengthBeats": float(slot.clip.length) if slot.has_clip and not (getattr(slot.clip, "is_audio_clip", False) and not slot.clip.warping) else None,
+            "lengthSeconds": float(slot.clip.length) if slot.has_clip and getattr(slot.clip, "is_audio_clip", False) and not slot.clip.warping else None,
             "isPlaying": bool(slot.clip.is_playing) if slot.has_clip else False,
         } for slot_index, slot in enumerate(track.clip_slots)],
     }

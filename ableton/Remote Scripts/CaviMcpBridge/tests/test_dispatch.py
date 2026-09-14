@@ -420,6 +420,16 @@ class Application:
 
 
 class DispatchTest(unittest.TestCase):
+    def test_unwarped_session_duration_is_seconds_not_beats(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[2].clip
+        clip.warping = False
+        observed = dispatch_request(song, {"method": "list_clips", "params": {"trackId": "track-0"}}, 3)
+        record = observed["clips"][2]
+        self.assertIsNone(record["lengthBeats"])
+        self.assertEqual(record["lengthSeconds"], float(clip.length))
+        self.assertEqual(record["durationUnit"], "seconds")
+
     def test_track_hierarchy_reports_group_membership_and_fold_state(self):
         song = Song()
         group, child = song.tracks
