@@ -1190,6 +1190,11 @@ class DispatchTest(unittest.TestCase):
         result = dispatch_request(song, {"method": "get_device_hierarchy", "params": {
             "trackId": "track-0", "deviceId": "track-0:device-0"}}, 3)
         self.assertEqual(result["device"]["drumPads"][0]["chainIds"], ["track-0:device-0/chain-0"])
+        self.assertEqual(result["device"]["chains"][0]["noteRouting"], {"inputNote": None, "outputNote": None})
+        chain.in_note, chain.out_note = 36, 60
+        routed = dispatch_request(song, {"method": "get_device_hierarchy", "params": {
+            "trackId": "track-0", "deviceId": "track-0:device-0"}}, 3)
+        self.assertEqual(routed["device"]["chains"][0]["noteRouting"], {"inputNote": 36, "outputNote": 60})
 
     def test_create_rack_chain_inserts_named_empty_chain_and_rejects_stale_rack(self):
         song = Song()

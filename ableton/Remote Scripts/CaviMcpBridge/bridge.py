@@ -471,6 +471,8 @@ def _device_tree(device, device_id):
                 "id": chain_id, "name": chain.name,
                 "apiSupport": {"deleteDevice": callable(getattr(chain, "delete_device", None))},
                 "mixer": _chain_mixer(chain),
+                "noteRouting": {"inputNote": getattr(chain, "in_note", None),
+                                "outputNote": getattr(chain, "out_note", None)},
                 "devices": [_device_tree(child, f"{chain_id}/device-{child_index}")
                             for child_index, child in enumerate(chain.devices)],
             })
