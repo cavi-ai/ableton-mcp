@@ -354,7 +354,7 @@ export class ToolService {
         note: args.note, expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, changes,
         undoLimitation: "Do not rely on Live undo for pad solo; restore the observed pad state explicitly when needed." }, args);
     }
-    if (name === "set_rack_chain_mixer" || name === "rename_rack_chain") {
+    if (name === "set_rack_chain_mixer" || name === "rename_rack_chain" || name === "set_rack_chain_note_routing") {
       requireExpectedState(args);
       const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
       assertExpectedState(args, { ...observed, deviceId: observed.device?.id });
@@ -362,6 +362,19 @@ export class ToolService {
       if (rack?.id !== args.deviceId || !rack.canHaveChains) throw new Error("target rack identity mismatch");
       const chain = rack.chains.find(item => item.id === args.chainId);
       if (!chain) throw new Error("unknown rack chain");
+      if (name === "set_rack_chain_note_routing") {
+        if (!rack.canHaveDrumPads) throw new Error("note routing requires a Drum Rack");
+        const changes = {};
+        for (const key of ["inputNote", "outputNote"]) {
+          if (args[key] === undefined) continue;
+          if (!Number.isInteger(args[key]) || args[key] < 0 || args[key] > 127 || !Number.isInteger(chain.noteRouting?.[key])) throw new Error("chain note routing requires available MIDI notes from 0 to 127");
+          changes[key] = args[key];
+        }
+        if (!Object.keys(changes).length) throw new Error("no chain note routing changes requested");
+        return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+          chainId: args.chainId, expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, changes,
+          warning: "Reassigning onto an occupied pad layers chains; it does not replace or delete the destination sound." }, args);
+      }
       if (name === "rename_rack_chain") {
         if (typeof args.name !== "string" || !args.name.trim()) throw new Error("chain name must not be empty");
         return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
