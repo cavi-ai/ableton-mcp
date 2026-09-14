@@ -19,7 +19,8 @@
     "ableton/Remote Scripts/CaviMcpBridge/protocol.py",
     "packages/nks-pipeline/src/catalog.mjs",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "docs/shared-instrument-buses.md"
   ],
   "workspaces": [
     "apps/*",
