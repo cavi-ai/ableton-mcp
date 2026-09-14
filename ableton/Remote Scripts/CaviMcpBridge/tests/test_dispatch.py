@@ -1056,6 +1056,24 @@ class DispatchTest(unittest.TestCase):
         self.assertTrue(clip.looping)
         self.assertEqual(clip.loop_end, 8.0)
 
+    def test_rack_chain_hierarchy_reports_native_mixer_ranges(self):
+        song = Song()
+        rack = DrumRack()
+        chain = rack.chains[0]
+        volume, pan = Parameter(), Parameter()
+        volume.value = 0.75
+        pan.min, pan.max, pan.value = -1.0, 1.0, -0.25
+        chain.mixer_device = SimpleNamespace(volume=volume, panning=pan)
+        chain.mute, chain.solo = True, False
+        song.tracks[0].devices = [rack]
+        result = dispatch_request(song, {"method": "get_device_hierarchy", "params": {
+            "trackId": "track-0", "deviceId": "track-0:device-0"}}, 3)
+        mixer = result["device"]["chains"][0]["mixer"]
+        self.assertEqual(mixer["volume"], {"value": 0.75, "min": 0.0, "max": 1.0, "enabled": True})
+        self.assertEqual(mixer["pan"], {"value": -0.25, "min": -1.0, "max": 1.0, "enabled": True})
+        self.assertTrue(mixer["mute"])
+        self.assertFalse(mixer["solo"])
+
     def test_device_hierarchy_exposes_nested_chain_devices_and_loaded_drum_pads(self):
         song = Song()
         song.tracks[0].devices = [DrumRack()]

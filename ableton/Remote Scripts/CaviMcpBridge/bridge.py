@@ -446,6 +446,19 @@ def _search_browser_items(application, root, path, query, max_depth, limit):
     return results
 
 
+def _chain_mixer(chain):
+    mixer = getattr(chain, "mixer_device", None)
+    def parameter_state(name):
+        parameter = getattr(mixer, name, None)
+        return None if parameter is None else {
+            "value": float(parameter.value), "min": float(parameter.min),
+            "max": float(parameter.max), "enabled": bool(parameter.is_enabled),
+        }
+    return {"volume": parameter_state("volume"), "pan": parameter_state("panning"),
+            "mute": bool(chain.mute) if hasattr(chain, "mute") else None,
+            "solo": bool(chain.solo) if hasattr(chain, "solo") else None}
+
+
 def _device_tree(device, device_id):
     record = _device_record(device, device_id)
     chains = []
@@ -457,6 +470,7 @@ def _device_tree(device, device_id):
             chains.append({
                 "id": chain_id, "name": chain.name,
                 "apiSupport": {"deleteDevice": callable(getattr(chain, "delete_device", None))},
+                "mixer": _chain_mixer(chain),
                 "devices": [_device_tree(child, f"{chain_id}/device-{child_index}")
                             for child_index, child in enumerate(chain.devices)],
             })
