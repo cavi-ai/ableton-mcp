@@ -2,6 +2,33 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { getFactoryDeviceProfile, listFactoryDeviceProfiles, groupDeviceParameters } from "../src/factory-device-knowledge.mjs";
 
+test("Operator separates native oscillator, pitch, filter and LFO envelopes", () => {
+  const profile = getFactoryDeviceProfile({ className: "Operator", name: "Bass Sub" });
+  const names = ["Device On", "Algorithm", "A Fix Freq", "B Freq<Vel", "C Quantize", "D Fix On ", "Osc-A < LFO",
+    "Ae Attack", "Ae Init", "Be Peak", "Ce Mode", "De R < Vel", "Pe Attack", "Pe Amount", "Le Release", "Le Loop",
+    "Fe Attack", "Fe A Slope", "Filter Freq", "Filt < Vel", "LFO < Pe", "Transpose", "PB Range", "Glide Time", "Volume", "Panorama", "Time < Key", "Shaper Drive", "Unknown Future Control"];
+  const parameters = names.map((name, i) => ({ id: `parameter-${i}`, name }));
+  const groups = groupDeviceParameters(profile, parameters);
+  const ids = role => (groups[role] || []).map(p => p.id);
+  assert.deepEqual(ids("oscillator"), [2, 3, 4, 5, 6].map(i => `parameter-${i}`));
+  assert.deepEqual(ids("oscillatorAEnvelope"), ["parameter-7", "parameter-8"]);
+  assert.deepEqual(ids("oscillatorBEnvelope"), ["parameter-9"]);
+  assert.deepEqual(ids("oscillatorCEnvelope"), ["parameter-10"]);
+  assert.deepEqual(ids("oscillatorDEnvelope"), ["parameter-11"]);
+  assert.deepEqual(ids("pitchEnvelope"), ["parameter-12", "parameter-13"]);
+  assert.deepEqual(ids("lfoEnvelope"), ["parameter-14", "parameter-15"]);
+  assert.deepEqual(ids("filterEnvelope"), ["parameter-16", "parameter-17"]);
+  assert.deepEqual(ids("filter"), ["parameter-18", "parameter-19"]);
+  assert.deepEqual(ids("modulation"), ["parameter-20"]);
+  assert.deepEqual(ids("pitch"), ["parameter-21", "parameter-22", "parameter-23"]);
+  assert.deepEqual(ids("amplitude"), ["parameter-24"]);
+  assert.deepEqual(ids("stereo"), ["parameter-25"]);
+  assert.deepEqual(ids("envelopeTiming"), ["parameter-26"]);
+  assert.deepEqual(ids("shaper"), ["parameter-27"]);
+  assert.deepEqual(ids("other"), ["parameter-28"]);
+  assert.deepEqual(Object.values(groups).flat().map(p => p.id).sort(), parameters.map(p => p.id).sort());
+});
+
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",

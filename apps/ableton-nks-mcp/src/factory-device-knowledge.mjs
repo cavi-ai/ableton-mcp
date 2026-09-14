@@ -8,7 +8,14 @@ const profiles = [
   { id: "drum-rack", name: "Drum Rack", type: "instrument", family: "rack", match: ["drum rack", "drumgroupdevice"], roles: { ...globalRoles, macro: ["macro"], chain: ["chain", "selector"], mix: ["volume", "pan", "send"] } },
   { id: "analog", name: "Analog", type: "instrument", family: "synthesizer", match: ["analog", "ultraanalog"], roles: { ...globalRoles, oscillator: ["osc", "shape", "octave", "semitone", "detune"], filter: ["filter", "freq", "resonance"], modulation: ["lfo", "envelope"], amplitude: ["amp", "volume", "attack", "decay", "sustain", "release"] } },
   { id: "drift", name: "Drift", type: "instrument", family: "synthesizer", match: ["drift"], roles: { ...globalRoles, oscillator: ["osc", "shape", "wave", "octave", "detune"], filter: ["filter", "freq", "resonance"], modulation: ["lfo", "envelope", "mod"], amplitude: ["amp", "volume", "attack", "decay", "sustain", "release"] } },
-  { id: "operator", name: "Operator", type: "instrument", family: "fm-synthesizer", match: ["operator"], roles: { ...globalRoles, oscillator: ["osc", "operator", "coarse", "fine", "level"], algorithm: ["algorithm"], filter: ["filter", "freq", "resonance"], modulation: ["lfo", "envelope"], amplitude: ["volume", "attack", "decay", "sustain", "release"] } },
+  { id: "operator", name: "Operator", type: "instrument", family: "fm-synthesizer", match: ["operator"], roles: {
+    global: ["device on"], algorithm: ["algorithm"],
+    oscillatorAEnvelope: [/^ae /], oscillatorBEnvelope: [/^be /], oscillatorCEnvelope: [/^ce /], oscillatorDEnvelope: [/^de /],
+    pitchEnvelope: [/^pe /], filterEnvelope: [/^fe /], lfoEnvelope: [/^le /],
+    oscillator: ["osc-", "coarse", "fine", "freq<vel", "quantize", "fix on", "fix freq"],
+    filter: ["filter", "filt <"], modulation: ["lfo"], pitch: ["transpose", "pb range", "glide"],
+    amplitude: ["volume"], stereo: ["panorama", "pan <", "spread"], envelopeTiming: ["time"], shaper: ["shaper"], tone: ["tone"]
+  }, notes: ["Ae/Be/Ce/De are the four oscillator amplitude envelopes; Pe, Fe and Le are separate pitch, filter and LFO envelopes. Read their native mode, loop, retrigger and modulation controls as well as ADSR.", "Oscillator fixed frequency and velocity-to-frequency controls are not filter cutoff. Oscillator Quantize is frequency quantization, not MIDI note timing.", "Envelope times and oscillator fixed frequencies may use normalized raw values; inspect displayValue for milliseconds and Hz. Grouping does not prove a modulation destination is active."] },
   { id: "wavetable", name: "Wavetable", type: "instrument", family: "wavetable-synthesizer", match: ["wavetable"], roles: { ...globalRoles, oscillator: ["osc", "wavetable", "position", "transpose", "detune"], filter: ["filter", "freq", "resonance"], modulation: ["lfo", "envelope", "matrix", "mod"], amplitude: ["volume", "attack", "decay", "sustain", "release"] } },
   { id: "eq-eight", name: "EQ Eight", type: "audio_effect", family: "equalizer", match: ["eq eight", "eq8"], roles: { ...globalRoles, frequency: ["freq", "frequency"], gain: ["gain"], resonance: ["q", "resonance"], mode: ["filter type", "mode", "stereo"] } },
   { id: "delay", name: "Delay", type: "audio_effect", family: "delay", match: ["delay"], roles: { ...globalRoles, time: ["time", "sync", "division"], feedback: ["feedback"], filter: ["filter", "freq"], modulation: ["modulation", "lfo"], mix: ["dry/wet", "mix"] } },
@@ -49,7 +56,7 @@ export function groupDeviceParameters(profile, parameters = []) {
   groups.other = [];
   for (const parameter of parameters) {
     const name = normalize(`${parameter.originalName || ""} ${parameter.name || ""}`);
-    const role = Object.entries(source.roles).find(([, terms]) => terms.some((term) => name.includes(term)))?.[0];
+    const role = Object.entries(source.roles).find(([, terms]) => terms.some((term) => term instanceof RegExp ? term.test(name) : name.includes(term)))?.[0];
     groups[role || "other"].push(parameter);
   }
   return groups;
