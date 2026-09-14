@@ -151,6 +151,7 @@ def _groove_record(groove, index):
         "base": int(groove.base), "timingAmount": float(groove.timing_amount),
         "quantizationAmount": float(groove.quantization_amount),
         "randomAmount": float(groove.random_amount),
+        "velocityAmount": float(groove.velocity_amount),
     }
 
 

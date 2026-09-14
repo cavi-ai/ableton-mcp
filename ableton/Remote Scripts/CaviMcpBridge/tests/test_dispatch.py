@@ -333,7 +333,7 @@ class Song:
         self.session_automation_record = False
         self.groove_pool = type("GroovePool", (), {"grooves": [type("Groove", (), {
             "name": "Swing 16-65", "base": 3, "timing_amount": 1.0,
-            "quantization_amount": 1.0, "random_amount": 0.0,
+            "quantization_amount": 1.0, "random_amount": 0.0, "velocity_amount": -25.0,
         })()]})()
         self.current_song_time = 4.0
         self.cue_points = [CuePoint()]
@@ -1332,6 +1332,7 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(observed["quantization"]["midiRecording"]["value"], 5)
         self.assertEqual(observed["quantization"]["midiRecording"]["name"], "1_16")
         self.assertEqual(observed["groove"]["pool"][0]["id"], "groove-0")
+        self.assertEqual(observed["groove"]["pool"][0]["velocityAmount"], -25.0)
         self.assertEqual(observed["loop"], {"enabled": False, "startBeats": 0.0, "lengthBeats": 8.0})
 
         changed = dispatch_request(song, {"method": "set_song_musical_context", "params": {"changes": {
