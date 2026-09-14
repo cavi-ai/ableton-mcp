@@ -100,7 +100,9 @@ test("doctor verifies bridge version and capabilities through a real probe", asy
     }),
     stdout: () => {}
   });
-  assert.equal(result.ok, true);
+  assert.equal(result.ok, false);
+  assert.equal(result.bridge.missingCapabilities.includes("get_track_routing"), true);
+  assert.equal(result.bridge.missingCapabilities.includes("list_scenes"), false);
   assert.equal(result.bridge.version, "0.1.0");
   assert.equal(result.bridge.capabilities.includes("list_scenes"), true);
 });
