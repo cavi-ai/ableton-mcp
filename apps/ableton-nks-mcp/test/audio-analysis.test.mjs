@@ -9,6 +9,22 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+test("pitch analysis selects the requested source channel and rejects absent channels", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cavi-channel-pitch-"));
+  try {
+    const sourcePath = join(directory, "stereo.wav");
+    await promisify(execFile)("ffmpeg", ["-nostdin", "-v", "error", "-f", "lavfi", "-i",
+      "aevalsrc=0.5*sin(2*PI*220*t)|0.5*sin(2*PI*440*t):s=48000:d=1", sourcePath]);
+    const left = await analyzeAudioFile(sourcePath, { includePitch: true });
+    const right = await analyzeAudioFile(sourcePath, { includePitch: true, channelIndex: 1 });
+    assert.ok(Math.abs(left.monophonicPitch.estimate.frequencyHz - 220) < 1);
+    assert.ok(Math.abs(right.monophonicPitch.estimate.frequencyHz - 440) < 1);
+    assert.equal(right.monophonicPitch.channelIndex, 1);
+    await assert.rejects(() => analyzeAudioFile(sourcePath, { channelIndex: 2 }), /channelIndex/);
+    await assert.rejects(() => analyzeAudioFile(sourcePath, { channelIndex: 0.5 }), /channelIndex/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("waveform overview covers the complete source window with bounded extrema and RMS", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cavi-waveform-"));
   try {

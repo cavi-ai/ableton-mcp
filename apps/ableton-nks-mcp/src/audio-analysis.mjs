@@ -8,7 +8,7 @@ import { estimateMonophonicPitch } from "./audio-pitch.mjs";
 const run = promisify(execFile);
 const limits = { timeout: 30000, maxBuffer: 2 * 1024 * 1024 };
 
-export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationSeconds = 10, includeSpectrum = false, includePitch = false, includeSpectrogram = false, includeWaveform = false } = {}) {
+export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationSeconds = 10, includeSpectrum = false, includePitch = false, includeSpectrogram = false, includeWaveform = false, channelIndex = 0 } = {}) {
   if (typeof sourcePath !== "string" || !isAbsolute(sourcePath)) throw new Error("source must be an absolute local file path");
   if (!Number.isFinite(startSeconds) || startSeconds < 0) throw new Error("startSeconds must be finite and nonnegative");
   if (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || durationSeconds > 60) throw new Error("durationSeconds must be greater than zero and at most 60");
@@ -16,6 +16,7 @@ export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationS
   if (typeof includePitch !== "boolean") throw new Error("includePitch must be boolean");
   if (typeof includeSpectrogram !== "boolean") throw new Error("includeSpectrogram must be boolean");
   if (typeof includeWaveform !== "boolean") throw new Error("includeWaveform must be boolean");
+  if (!Number.isInteger(channelIndex) || channelIndex < 0) throw new Error("channelIndex must be a nonnegative integer");
   const path = await realpath(sourcePath);
   const before = await stat(path, { bigint: true });
   if (!before.isFile()) throw new Error("audio source must be a regular file");
@@ -24,6 +25,8 @@ export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationS
   const stream = metadata.streams?.[0];
   const length = Number(metadata.format?.duration);
   if (!stream || !Number.isFinite(length) || length <= startSeconds) throw new Error("source has no measurable audio at startSeconds");
+  if (channelIndex >= Number(stream.channels)) throw new Error("channelIndex is unavailable in the source");
+  const channelFilter = `pan=mono|c0=c${channelIndex}`;
   const windowSeconds = Math.min(durationSeconds, length - startSeconds);
   const levels = await run("ffmpeg", ["-nostdin", "-hide_banner", "-nostats", "-protocol_whitelist", "file,pipe", "-ss", String(startSeconds), "-i", path, "-t", String(windowSeconds), "-map", "0:a:0", "-af", "loudnorm=print_format=json", "-f", "null", "-"], limits);
   const block = [...levels.stderr.matchAll(/\{[^{}]*"input_i"[^{}]*\}/gs)].at(-1);
@@ -33,17 +36,17 @@ export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationS
   if (includeSpectrum) {
     const sampleRate = Number(stream.sample_rate);
     if (!Number.isFinite(sampleRate) || sampleRate <= 0) throw new Error("source sample rate unavailable");
-    const decoded = await run("ffmpeg", ["-nostdin", "-v", "error", "-protocol_whitelist", "file,pipe", "-ss", String(startSeconds), "-i", path, "-t", String(Math.min(windowSeconds, 4096 / sampleRate)), "-map", "0:a:0", "-af", "pan=mono|c0=c0", "-c:a", "pcm_f32le", "-f", "f32le", "pipe:1"], { ...limits, encoding: "buffer" });
+    const decoded = await run("ffmpeg", ["-nostdin", "-v", "error", "-protocol_whitelist", "file,pipe", "-ss", String(startSeconds), "-i", path, "-t", String(Math.min(windowSeconds, 4096 / sampleRate)), "-map", "0:a:0", "-af", channelFilter, "-c:a", "pcm_f32le", "-f", "f32le", "pipe:1"], { ...limits, encoding: "buffer" });
     const count = Math.min(4096, Math.floor(decoded.stdout.length / 4));
     if (count < 4096) throw new Error("spectral analysis requires a full 4096-sample frame at the window start");
     const samples = Float64Array.from({ length: 4096 }, (_, i) => decoded.stdout.readFloatLE(i * 4));
-    spectrum = { ...analyzeSpectrum(samples, sampleRate), channelIndex: 0, startSeconds,
+    spectrum = { ...analyzeSpectrum(samples, sampleRate), channelIndex, startSeconds,
       limitation: "Single-frame spectral peaks, not fundamental or resonance classification." };
   }
   let monophonicPitch;
   if (includePitch) {
     if (windowSeconds < 4096 / 16000) throw new Error("pitch analysis requires a 0.256-second source window");
-    const decoded = await run("ffmpeg", ["-nostdin", "-v", "error", "-protocol_whitelist", "file,pipe", "-ss", String(startSeconds), "-i", path, "-t", String(windowSeconds), "-map", "0:a:0", "-af", "pan=mono|c0=c0", "-ar", "16000", "-c:a", "pcm_f32le", "-f", "f32le", "pipe:1"], { ...limits, maxBuffer: 4 * 1024 * 1024, encoding: "buffer" });
+    const decoded = await run("ffmpeg", ["-nostdin", "-v", "error", "-protocol_whitelist", "file,pipe", "-ss", String(startSeconds), "-i", path, "-t", String(windowSeconds), "-map", "0:a:0", "-af", channelFilter, "-ar", "16000", "-c:a", "pcm_f32le", "-f", "f32le", "pipe:1"], { ...limits, maxBuffer: 4 * 1024 * 1024, encoding: "buffer" });
     if (decoded.stdout.length < 4096 * 4) throw new Error("pitch analysis requires a full 4096-sample frame");
     const samples = Float64Array.from({ length: 4096 }, (_, i) => decoded.stdout.readFloatLE(i * 4));
     const estimate = estimateMonophonicPitch(samples, 16000);
@@ -66,15 +69,15 @@ export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationS
     });
     const harmonicPeaks = frames[0].harmonicPeaks;
     monophonicPitch = { estimate, frames, harmonicPeaks, harmonicToleranceCents: 50, sampleRate: 16000,
-      frameSize: 4096, channelIndex: 0, startSeconds,
+      frameSize: 4096, channelIndex, startSeconds,
       hopSize: 2048,
-      limitation: "Overlapping 256-ms frames every 128 ms, plus a final tail frame, cover the complete first-channel source window resampled to 16 kHz. Short notes and transitions can remain unreliable within mixed frames. Null means no reliable periodicity. Top-level estimate and harmonic peaks describe only the first frame; each frame includes its own matches. Harmonic matches within 50 cents are not resonance or timbre classifications. Not polyphonic analysis or pitch correction." };
+      limitation: "Overlapping 256-ms frames every 128 ms, plus a final tail frame, cover the complete selected-channel source window resampled to 16 kHz. Short notes and transitions can remain unreliable within mixed frames. Null means no reliable periodicity. Top-level estimate and harmonic peaks describe only the first frame; each frame includes its own matches. Harmonic matches within 50 cents are not resonance or timbre classifications. Not polyphonic analysis or pitch correction." };
   }
   let spectrogram;
   if (includeSpectrogram) {
     const sampleRate = 48000, frameSize = 4096;
     if (windowSeconds < frameSize / sampleRate) throw new Error("spectrogram requires a full 4096-sample frame");
-    const decoded = await run("ffmpeg", ["-nostdin", "-v", "error", "-protocol_whitelist", "file,pipe", "-ss", String(startSeconds), "-i", path, "-t", String(windowSeconds), "-map", "0:a:0", "-af", "pan=mono|c0=c0", "-ar", String(sampleRate), "-c:a", "pcm_f32le", "-f", "f32le", "pipe:1"], { ...limits, maxBuffer: 12 * 1024 * 1024, encoding: "buffer" });
+    const decoded = await run("ffmpeg", ["-nostdin", "-v", "error", "-protocol_whitelist", "file,pipe", "-ss", String(startSeconds), "-i", path, "-t", String(windowSeconds), "-map", "0:a:0", "-af", channelFilter, "-ar", String(sampleRate), "-c:a", "pcm_f32le", "-f", "f32le", "pipe:1"], { ...limits, maxBuffer: 12 * 1024 * 1024, encoding: "buffer" });
     const count = Math.floor(decoded.stdout.length / 4);
     if (count < frameSize) throw new Error("spectrogram requires a full 4096-sample frame");
     const frameCount = Math.min(64, Math.floor(count / frameSize));
@@ -85,13 +88,13 @@ export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationS
         amplitudesDbfs: analyzeSpectrum(samples, sampleRate, { includeBins: true }).amplitudesDbfs };
     });
     spectrogram = { sampleRate, frameSize, frequencyResolutionHz: sampleRate / frameSize,
-      channelIndex: 0, window: "periodic_hann", floorDbfs: -120, frames,
-      limitation: "Up to 64 evenly spaced full frames of first-channel source audio resampled to 48 kHz; sparse sampling can miss transients. Bin amplitudes are not resonance classifications." };
+      channelIndex, window: "periodic_hann", floorDbfs: -120, frames,
+      limitation: "Up to 64 evenly spaced full frames of selected-channel source audio resampled to 48 kHz; sparse sampling can miss transients. Bin amplitudes are not resonance classifications." };
   }
   let waveform;
   if (includeWaveform) {
     const sampleRate = 48000;
-    const decoded = await run("ffmpeg", ["-nostdin", "-v", "error", "-protocol_whitelist", "file,pipe", "-ss", String(startSeconds), "-i", path, "-t", String(windowSeconds), "-map", "0:a:0", "-af", "pan=mono|c0=c0", "-ar", String(sampleRate), "-c:a", "pcm_f32le", "-f", "f32le", "pipe:1"], { ...limits, maxBuffer: 12 * 1024 * 1024, encoding: "buffer" });
+    const decoded = await run("ffmpeg", ["-nostdin", "-v", "error", "-protocol_whitelist", "file,pipe", "-ss", String(startSeconds), "-i", path, "-t", String(windowSeconds), "-map", "0:a:0", "-af", channelFilter, "-ar", String(sampleRate), "-c:a", "pcm_f32le", "-f", "f32le", "pipe:1"], { ...limits, maxBuffer: 12 * 1024 * 1024, encoding: "buffer" });
     const sampleCount = Math.floor(decoded.stdout.length / 4);
     if (!sampleCount) throw new Error("waveform requires decoded source samples");
     const bucketCount = Math.min(1024, sampleCount);
@@ -107,8 +110,8 @@ export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationS
       return { startSeconds: startSeconds + begin / sampleRate, endSeconds: startSeconds + end / sampleRate,
         min, max, rms: Math.sqrt(squares / (end - begin)) };
     });
-    waveform = { sampleRate, sampleCount, channelIndex: 0, buckets,
-      limitation: "Complete first-channel source window resampled to 48 kHz, summarized into at most 1024 contiguous buckets. Not rendered Live audio or native-rate sample-accurate editing data." };
+    waveform = { sampleRate, sampleCount, channelIndex, buckets,
+      limitation: "Complete selected-channel source window resampled to 48 kHz, summarized into at most 1024 contiguous buckets. Not rendered Live audio or native-rate sample-accurate editing data." };
   }
   const after = await stat(path, { bigint: true });
   if (["dev", "ino", "size", "mtimeNs"].some(key => before[key] !== after[key])) throw new Error("audio source changed during analysis");
