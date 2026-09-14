@@ -70,6 +70,7 @@ const toolNames = [
   "route_tracks_to_bus",
   "get_set_mixer",
   "set_master_mixer",
+  "move_device",
   "set_return_mixer",
   "list_factory_device_profiles",
   "get_factory_device_context",

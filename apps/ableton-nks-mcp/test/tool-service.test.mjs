@@ -763,6 +763,22 @@ test("group fold and bus routing mutations validate exact existing track identit
   await assert.rejects(() => service.call("route_tracks_to_bus", { expectedStateVersion: 4, trackIds: ["track-1"], busTrackId: "track-1" }), /cannot route.*itself/);
 });
 
+test("device reordering requires exact state and confirmation", async () => {
+  const { service, calls } = fixture();
+  const original = service.bridge.request.bind(service.bridge);
+  service.bridge.request = async (method, params) => method === "move_device"
+    ? { stateVersion: 5, actualPosition: params.targetPosition }
+    : original(method, params);
+  const devices = await service.call("list_devices", { trackId: "track-0" });
+  const args = { trackId: "track-0", deviceId: devices.devices[0].id, expectedStateVersion: devices.stateVersion, targetPosition: 0 };
+  await assert.rejects(() => service.call("move_device", { ...args, targetPosition: -1 }), /nonnegative/);
+  const dry = await service.call("move_device", args);
+  assert.equal(dry.plan.targetPosition, 0);
+  assert.equal(calls.some(({ method }) => method === "move_device"), false);
+  const result = await service.call("move_device", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.observed.actualPosition, 0);
+});
+
 test("set mixer exposes master and return buses and guards bounded changes", async () => {
   const { service, calls } = fixture();
   const observed = await service.call("get_set_mixer");

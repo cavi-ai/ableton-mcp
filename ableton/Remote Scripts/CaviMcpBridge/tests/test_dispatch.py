@@ -623,6 +623,25 @@ class DispatchTest(unittest.TestCase):
         }}, 4)
         self.assertEqual(deleted["devices"], [])
 
+    def test_device_reorder_returns_actual_position_and_new_id(self):
+        song = Song()
+        first = Device()
+        second = NestedDevice("EQ Eight", "Eq8", 0)
+        song.tracks[0].devices = [first, second]
+        def move_device(device, target, target_position):
+            target.devices.remove(device)
+            position = min(target_position, len(target.devices))
+            target.devices.insert(position, device)
+            return position
+        song.move_device = move_device
+        result = dispatch_request(song, {"method": "move_device", "params": {
+            "trackId": "track-0", "deviceId": "track-0:device-1", "targetPosition": 0,
+            "beforeDevice": {"name": "EQ Eight", "className": "Eq8"},
+        }}, 3)
+        self.assertEqual(result["actualPosition"], 0)
+        self.assertEqual(result["device"]["id"], "track-0:device-0")
+        self.assertIs(song.tracks[0].devices[0], second)
+
     def test_master_and_return_mixer_lifecycle(self):
         song = Song()
         observed = dispatch_request(song, {"method": "get_set_mixer"}, 3)

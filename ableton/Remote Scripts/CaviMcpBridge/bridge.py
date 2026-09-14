@@ -866,7 +866,7 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "list_devices":
         index, track = _track(song, params["trackId"])
         return {"stateVersion": state_version, "trackId": params["trackId"], "devices": [_device_record(device, f"track-{index}:device-{i}") for i, device in enumerate(track.devices)]}
-    if method in ("set_device_active", "delete_device"):
+    if method in ("set_device_active", "delete_device", "move_device"):
         if method == "delete_device" and "/" in params["deviceId"]:
             raise ValueError("nested device deletion is not supported")
         track, index, device = _device(song, params["trackId"], params["deviceId"])
@@ -874,6 +874,18 @@ def dispatch_request(song, request, state_version, application=None):
         if device.name != before["name"] or device.class_name != before["className"]:
             raise ValueError("device identity changed")
         deleted = _device_record(device, params["deviceId"])
+        if method == "move_device":
+            position = params["targetPosition"]
+            if isinstance(position, bool) or not isinstance(position, int) or not 0 <= position <= len(track.devices):
+                raise ValueError("targetPosition must be a valid device-chain insertion index")
+            actual = song.move_device(device, track, position)
+            if "/" in params["deviceId"]:
+                new_id = params["deviceId"].rsplit("/device-", 1)[0] + f"/device-{actual}"
+            else:
+                new_id = f"{params['trackId']}:device-{actual}"
+            return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                    "requestedPosition": position, "actualPosition": actual,
+                    "device": _device_record(device, new_id)}
         if method == "set_device_active":
             on_parameter = next((parameter for parameter in device.parameters
                                  if getattr(parameter, "original_name", parameter.name) == "Device On"), None)

@@ -315,7 +315,7 @@ export class ToolService {
     }[name];
     if (kompleteMethod) return this.#kompleteMutation(kompleteMethod, args);
     if (name === "set_device_parameters") return this.#setDeviceParameters(args);
-    if (name === "set_device_active" || name === "delete_device") return this.#deviceLifecycle(name, args);
+    if (name === "set_device_active" || name === "delete_device" || name === "move_device") return this.#deviceLifecycle(name, args);
     if (name === "set_song_musical_context") return this.#setSongMusicalContext(args);
     if (name === "set_transport_recording_context") return this.#setTransportRecordingContext(args);
     if (["create_arrangement_cue_point", "rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point"].includes(name)) {
@@ -464,6 +464,10 @@ export class ToolService {
       expectedStateVersion: args.expectedStateVersion, beforeDevice: device
     };
     if (method === "set_device_active") plan.active = args.active;
+    if (method === "move_device") {
+      if (!Number.isSafeInteger(args.targetPosition) || args.targetPosition < 0) throw new Error("targetPosition must be a nonnegative integer");
+      plan.targetPosition = args.targetPosition;
+    }
     return this.#confirmedMutation(plan, args);
   }
 
