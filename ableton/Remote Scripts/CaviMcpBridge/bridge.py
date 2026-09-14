@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 import queue
 import socket
@@ -15,27 +16,8 @@ except ImportError:
     from protocol import decode_lines, encode_message
 
 BRIDGE_VERSION = "0.1.0"
-CAPABILITIES = (
-    "get_live_state", "get_history_state", "undo", "redo", "get_transport_context", "set_transport_context",
-    "get_song_musical_context", "set_song_musical_context",
-    "get_transport_recording_context", "set_transport_recording_context",
-    "list_arrangement_cue_points", "create_arrangement_cue_point", "rename_arrangement_cue_point",
-    "delete_arrangement_cue_point", "jump_to_arrangement_cue_point",
-    "get_browser_items", "load_browser_item", "search_browser_items", "get_factory_browser_items", "load_factory_browser_item",
-    "list_tracks", "list_scenes", "list_clips", "get_clip_timing", "set_clip_timing", "duplicate_clip_loop",
-    "duplicate_clip", "delete_clip",
-    "get_audio_clip_state", "set_audio_clip_state",
-    "get_track_mixer", "get_track_routing", "set_track_routing", "set_group_fold_state", "route_tracks_to_bus", "get_midi_clip_notes",
-    "create_track", "create_scene", "rename_session_object",
-    "get_midi_clip_notes_extended", "set_midi_note_properties", "transform_midi_notes",
-    "duplicate_session_object", "delete_session_object",
-    "get_set_mixer", "set_master_mixer", "set_return_mixer",
-    "get_clip_parameter_envelope", "set_clip_parameter_envelope", "list_devices", "get_device_hierarchy",
-    "set_device_active", "delete_device",
-    "list_device_parameters", "set_device_parameters", "create_midi_clip", "transport_play", "transport_stop",
-    "set_tempo", "set_track_mixer", "arm_track", "launch_scene", "launch_clip",
-    "stop_clip", "panic",
-)
+with open(os.path.join(os.path.dirname(__file__), "capabilities.json"), encoding="utf-8") as capability_file:
+    CAPABILITIES = tuple(json.load(capability_file))
 
 NOTE_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
 SONG_QUANTIZATION_NAMES = (

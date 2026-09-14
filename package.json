@@ -15,6 +15,7 @@
     "apps/ableton-nks-mcp/src",
     "ableton/Remote Scripts/CaviMcpBridge/__init__.py",
     "ableton/Remote Scripts/CaviMcpBridge/bridge.py",
+    "ableton/Remote Scripts/CaviMcpBridge/capabilities.json",
     "ableton/Remote Scripts/CaviMcpBridge/protocol.py",
     "packages/nks-pipeline/src/catalog.mjs",
     "LICENSE",

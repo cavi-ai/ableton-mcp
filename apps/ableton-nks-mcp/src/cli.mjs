@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { cp, mkdir, rm } from "node:fs/promises";
-import { realpathSync } from "node:fs";
+import { realpathSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir, platform as currentPlatform } from "node:os";
@@ -11,6 +11,7 @@ import { UnixBridgeClient } from "./bridge-client.mjs";
 import { validateToolArguments } from "./tool-validation.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
+const requiredCapabilities = JSON.parse(readFileSync(new URL("../../../ableton/Remote Scripts/CaviMcpBridge/capabilities.json", import.meta.url), "utf8"));
 
 export function isMainModule(moduleUrl, argvPath) {
   if (!argvPath) return false;
@@ -55,10 +56,13 @@ export async function runCli(argv, dependencies = {}) {
     const bridgeProbe = dependencies.bridgeProbe || (() => new UnixBridgeClient(config.socketPath, { timeoutMs: 1000 }).request("get_live_state", {}));
     let bridgeState;
     let reason;
+    let missingCapabilities = [...requiredCapabilities];
     try {
       bridgeState = await bridgeProbe();
+      const advertised = Array.isArray(bridgeState.capabilities) ? bridgeState.capabilities : [];
+      missingCapabilities = requiredCapabilities.filter((name) => !advertised.includes(name));
       if (bridgeState.bridgeVersion !== "0.1.0") reason = "outdated bridge: expected 0.1.0";
-      else if (!bridgeState.capabilities?.includes("list_scenes")) reason = "bridge is missing required capabilities";
+      else if (missingCapabilities.length) reason = `bridge is missing required capabilities: ${missingCapabilities.join(", ")}`;
     } catch (error) {
       reason = error.message;
     }
@@ -69,6 +73,7 @@ export async function runCli(argv, dependencies = {}) {
         connected: Boolean(bridgeState),
         version: bridgeState?.bridgeVersion,
         capabilities: bridgeState?.capabilities || [],
+        missingCapabilities,
         ...(reason ? { reason } : {})
       },
       catalog: { configured: Boolean(config.catalogPath), path: config.catalogPath || null },
