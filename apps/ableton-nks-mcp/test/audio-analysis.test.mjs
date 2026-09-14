@@ -56,6 +56,7 @@ test("pitch analysis reports time-varying notes and unvoiced frames across the s
     assert.ok(Math.abs(frames.at(-1).endSeconds - 2) < 0.001);
     assert.ok(frames.some(frame => frame.startSeconds > 0.7 && frame.endSeconds < 1.3 && frame.estimate === null));
     assert.ok(frames.every((frame, index) => index === 0 || frame.startSeconds > frames[index - 1].startSeconds));
+    assert.ok(frames.every((frame, index) => index === 0 || frame.startSeconds - frames[index - 1].startSeconds <= 0.128001));
     assert.ok(frames[0].harmonicPeaks?.some(peak => peak.harmonicNumber === 1 && Math.abs(peak.estimatedFrequencyHz - 440) < 1));
     assert.ok(frames.at(-1).harmonicPeaks?.some(peak => peak.harmonicNumber === 1 && Math.abs(peak.estimatedFrequencyHz - 880) < 1));
     assert.ok(frames.filter(frame => frame.estimate === null).every(frame => Array.isArray(frame.harmonicPeaks) && frame.harmonicPeaks.length === 0));
@@ -65,7 +66,7 @@ test("pitch analysis reports time-varying notes and unvoiced frames across the s
     } });
     assert.equal(reply.error, undefined);
     const tailFrames = reply.result.structuredContent.monophonicPitch.frames;
-    assert.equal(tailFrames.length, 2);
+    assert.equal(tailFrames.length, 3);
     assert.equal(tailFrames[0].startSeconds, 1.5);
     assert.equal(tailFrames.at(-1).endSeconds, 2);
     assert.ok(tailFrames.every(frame => frame.estimate.pitchReference.noteName === "A5"));

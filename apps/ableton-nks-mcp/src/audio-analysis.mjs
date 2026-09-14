@@ -55,9 +55,10 @@ export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationS
       return Math.abs(centsFromHarmonic) <= 50 ? [{ ...peak, harmonicNumber, expectedFrequencyHz, centsFromHarmonic }] : [];
     }) : [];
     const sampleCount = Math.floor(decoded.stdout.length / 4);
-    const frameCount = Math.min(64, Math.ceil(sampleCount / 4096));
-    const frames = Array.from({ length: frameCount }, (_, index) => {
-      const offset = frameCount === 1 ? 0 : Math.floor(index * (sampleCount - 4096) / (frameCount - 1));
+    const offsets = [];
+    for (let offset = 0; offset <= sampleCount - 4096; offset += 2048) offsets.push(offset);
+    if (offsets.at(-1) !== sampleCount - 4096) offsets.push(sampleCount - 4096);
+    const frames = offsets.map((offset, index) => {
       const frame = Float64Array.from({ length: 4096 }, (_, i) => decoded.stdout.readFloatLE((offset + i) * 4));
       const frameEstimate = index === 0 ? estimate : estimateMonophonicPitch(frame, 16000);
       return { startSeconds: startSeconds + offset / 16000, endSeconds: startSeconds + (offset + 4096) / 16000,
@@ -66,7 +67,8 @@ export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationS
     const harmonicPeaks = frames[0].harmonicPeaks;
     monophonicPitch = { estimate, frames, harmonicPeaks, harmonicToleranceCents: 50, sampleRate: 16000,
       frameSize: 4096, channelIndex: 0, startSeconds,
-      limitation: "Up to 64 evenly spaced 256-ms frames of first-channel source audio resampled to 16 kHz; sparse sampling can miss short notes. Null means no reliable periodicity. Top-level estimate and harmonic peaks describe only the first frame; each frame includes its own matches. Harmonic matches within 50 cents are not resonance or timbre classifications. Not polyphonic analysis or pitch correction." };
+      hopSize: 2048,
+      limitation: "Overlapping 256-ms frames every 128 ms, plus a final tail frame, cover the complete first-channel source window resampled to 16 kHz. Short notes and transitions can remain unreliable within mixed frames. Null means no reliable periodicity. Top-level estimate and harmonic peaks describe only the first frame; each frame includes its own matches. Harmonic matches within 50 cents are not resonance or timbre classifications. Not polyphonic analysis or pitch correction." };
   }
   let spectrogram;
   if (includeSpectrogram) {
