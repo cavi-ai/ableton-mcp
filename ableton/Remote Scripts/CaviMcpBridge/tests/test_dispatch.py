@@ -1497,6 +1497,16 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(result["parameters"][0]["valueItems"], [])
         self.assertEqual(result["parameters"][0]["value"], 0.4)
 
+    def test_group_api_discovery_requires_callable_native_methods(self):
+        song = Song()
+        song.group_tracks = lambda: None
+        song.ungroup_track = True
+        result = dispatch_request(song, {"method": "get_live_state"}, 4)
+        self.assertEqual(result["nativeApiSupport"], {"groupTracks": True, "ungroupTrack": False})
+        del song.group_tracks
+        result = dispatch_request(song, {"method": "get_live_state"}, 4)
+        self.assertFalse(result["nativeApiSupport"]["groupTracks"])
+
     def test_status_and_parameter_write_return_observed_state(self):
         song = Song()
         status = dispatch_request(song, {"method": "get_live_state", "params": {}}, 4)

@@ -506,7 +506,9 @@ def dispatch_request(song, request, state_version, application=None):
     params = request.get("params", {})
     fingerprint = hashlib.sha256(f"{len(song.tracks)}:{song.tempo}".encode()).hexdigest()[:16]
     if method == "get_live_state":
-        return {"stateVersion": state_version, "setFingerprint": fingerprint, "tempo": song.tempo, "isPlaying": song.is_playing, "bridgeVersion": BRIDGE_VERSION, "capabilities": list(CAPABILITIES)}
+        return {"stateVersion": state_version, "setFingerprint": fingerprint, "tempo": song.tempo, "isPlaying": song.is_playing, "bridgeVersion": BRIDGE_VERSION, "capabilities": list(CAPABILITIES),
+                "nativeApiSupport": {"groupTracks": callable(getattr(song, "group_tracks", None)),
+                                     "ungroupTrack": callable(getattr(song, "ungroup_track", None))}}
     if method == "get_transport_context":
         return _transport_context(song, state_version)
     if method == "set_transport_context":
