@@ -518,6 +518,21 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(source.current_output_routing, "Bass Bus")
         self.assertEqual(routed["routes"][0]["output"]["type"]["name"], "Bass Bus")
 
+    def test_batch_bus_routing_validates_all_destinations_before_mutation(self):
+        song = Song()
+        source, group = song.tracks
+        song.tracks = [source, Track(), group]
+        group.is_foldable = True
+        source.available_output_routing_types.append(
+            SimpleNamespace(identifier="bus", display_name="Bus"))
+        original = source.current_output_routing
+        with self.assertRaises(ValueError):
+            dispatch_request(song, {"method": "route_tracks_to_bus", "params": {
+                "busTrackId": "track-2", "routes": [
+                    {"trackId": "track-0", "outputTypeId": "bus"},
+                    {"trackId": "track-1", "outputTypeId": "missing"}]}}, 3)
+        self.assertIs(source.current_output_routing, original)
+
     def test_transport_recording_context_reads_and_writes_exact_modes(self):
         song = Song()
         observed = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
