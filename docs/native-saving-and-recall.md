@@ -24,6 +24,12 @@ Saved native device presets can already be found with `search_browser_items` and
 
 Read the current state version, obtain the load dry-run plan, then execute with its confirmation token and plan hash. Observe the chain again afterward. The exercised MCP load added a third EQ Three to the acceptance track; all ten exposed parameter names and raw values matched the source. It did not replace either existing device. Saving still required native UI.
 
+## Live browser Favorites
+
+Live's color Collections are separate from NKS catalog tags and favorites. In the native browser, open the saved item's context menu and select the named collection. In the exercised acceptance, the menu initially showed Clear All Colors checked and Favorites unchecked; selecting Favorites made the saved EQ Three preset appear in the Favorites collection's one-item list.
+
+Verify membership by opening the collection and finding the exact item. If its sidebar row is offscreen, scroll the Browser Sidebar upward before clicking it. Read the current collection label rather than assuming that a color index always has a particular user-visible name. No universal Live browser collection/tag mutation is currently exposed through MCP.
+
 ## Boundaries
 
 - A device preset is not a complete track or shared-bus system.
