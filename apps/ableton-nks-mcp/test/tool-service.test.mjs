@@ -1096,6 +1096,33 @@ test("clip parameter envelope inspection is read-only and returns sampled values
   assert.equal(calls.at(-1).method, "get_clip_parameter_envelope");
 });
 
+test("warp marker movement signs exact audio state and requires confirmation", async () => {
+  const before = { stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-2", warping: true,
+    warpMarkers: { supported: true, markers: [
+      { sampleTime: 0, beatTime: 0 }, { sampleTime: 0.6, beatTime: 1.2 },
+      { sampleTime: 2, beatTime: 4 }, { sampleTime: 2.01, beatTime: 4.02 }
+    ] } };
+  const calls = [];
+  const service = new ToolService({ bridge: { async request(method, params) {
+    calls.push({ method, params });
+    if (method === "get_audio_clip_state") return before;
+    if (method === "move_audio_warp_marker") return { ...before, stateVersion: 5,
+      warpMarkers: { supported: true, markers: before.warpMarkers.markers.map(m =>
+        m.beatTime === 1.2 ? { ...m, beatTime: 1 } : m) } };
+    throw new Error(method);
+  } } });
+  const args = { trackId: before.trackId, clipId: before.clipId, expectedStateVersion: 4, beatTime: 1.2, targetBeatTime: 1 };
+  const dry = await service.call("move_audio_warp_marker", args);
+  assert.deepEqual(dry.plan.before, before);
+  assert.equal(calls.some(c => c.method === "move_audio_warp_marker"), false);
+  const applied = await service.call("move_audio_warp_marker", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(applied.observed.warpMarkers.markers[1].beatTime, 1);
+  for (const changes of [{ beatTime: 3 }, { targetBeatTime: 4 }, { beatTime: 4.02, targetBeatTime: 4.01 }]) {
+    await assert.rejects(() => service.call("move_audio_warp_marker", { ...args, ...changes }), /marker|neighbor/);
+  }
+});
+
 test("audio clip state exposes warp pitch gain and markers with guarded changes", async () => {
   const { service, calls } = fixture();
   const base = { trackId: "track-0", clipId: "track-0:clip-2" };

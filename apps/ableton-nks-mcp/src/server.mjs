@@ -61,6 +61,7 @@ const toolNames = [
   "analyze_audio_file",
   "analyze_audio_clip",
   "set_audio_clip_state",
+  "move_audio_warp_marker",
   "duplicate_clip",
   "delete_clip",
   "duplicate_clip_loop",

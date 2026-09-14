@@ -745,6 +745,27 @@ def dispatch_request(song, request, state_version, application=None):
                 clip.start_marker = start
                 clip.end_marker = end
         return _audio_clip_state(song, track_id, clip_id, state_version + 1)
+    if method == "move_audio_warp_marker":
+        track_id, clip_id = params["trackId"], params["clipId"]
+        clip, _ = _audio_clip(song, track_id, clip_id)
+        before = _audio_clip_state(song, track_id, clip_id, state_version)
+        if before != params["before"]:
+            raise ValueError("audio clip identity or state changed")
+        if not clip.warping or not callable(getattr(clip, "move_warp_marker", None)):
+            raise ValueError("warped audio marker movement API required")
+        beat, target = params["beatTime"], params["targetBeatTime"]
+        if isinstance(beat, bool) or isinstance(target, bool) or not isinstance(beat, (int, float)) or not isinstance(target, (int, float)) or not math.isfinite(beat) or not math.isfinite(target):
+            raise ValueError("marker beat times must be finite numbers")
+        markers = before["warpMarkers"]["markers"]
+        index = next((i for i, marker in enumerate(markers) if marker["beatTime"] == beat), -1)
+        if index < 0 or index == len(markers) - 1:
+            raise ValueError("unknown or hidden terminal warp marker")
+        if (index > 0 and target <= markers[index - 1]["beatTime"]) or target >= markers[index + 1]["beatTime"]:
+            raise ValueError("warp marker cannot cross or overlap a neighbor")
+        if beat == target:
+            raise ValueError("warp marker movement must change beat time")
+        clip.move_warp_marker(beat, target - beat)
+        return _audio_clip_state(song, track_id, clip_id, state_version + 1)
     if method == "set_song_musical_context":
         changes = params["changes"]
         signature = changes.get("timeSignature", {})

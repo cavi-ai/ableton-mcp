@@ -456,6 +456,7 @@ export class ToolService {
     if (name === "duplicate_session_object") return this.#duplicateSessionObject(args);
     if (name === "delete_session_object") return this.#deleteSessionObject(args);
     if (name === "set_audio_clip_state") return this.#setAudioClipState(args);
+    if (name === "move_audio_warp_marker") return this.#moveAudioWarpMarker(args);
     if (name === "duplicate_clip") return this.#duplicateClip(args);
     if (name === "delete_clip") return this.#deleteClip(args);
     if (name === "duplicate_clip_loop") return this.#duplicateClipLoop(args);
@@ -821,6 +822,24 @@ export class ToolService {
       method: "set_audio_clip_state", trackId: args.trackId, clipId: args.clipId,
       expectedStateVersion: args.expectedStateVersion, before: observed, changes
     }, args);
+  }
+
+  async #moveAudioWarpMarker(args) {
+    requireExpectedState(args);
+    const before = await this.bridge.request("get_audio_clip_state", { trackId: args.trackId, clipId: args.clipId });
+    assertExpectedState(args, before);
+    if (!before.warping || !before.warpMarkers?.supported) throw new Error("warped audio marker API required");
+    const beatTime = args.beatTime, targetBeatTime = args.targetBeatTime;
+    if (!Number.isFinite(beatTime) || !Number.isFinite(targetBeatTime)) throw new Error("marker beat times must be finite numbers");
+    const markers = before.warpMarkers.markers;
+    const index = markers.findIndex(marker => marker.beatTime === beatTime);
+    if (index < 0 || index === markers.length - 1) throw new Error("unknown or hidden terminal warp marker");
+    if ((index > 0 && targetBeatTime <= markers[index - 1].beatTime) || targetBeatTime >= markers[index + 1].beatTime) {
+      throw new Error("warp marker cannot cross or overlap a neighbor");
+    }
+    if (beatTime === targetBeatTime) throw new Error("warp marker movement must change beat time");
+    return this.#confirmedMutation({ method: "move_audio_warp_marker", trackId: args.trackId, clipId: args.clipId,
+      expectedStateVersion: args.expectedStateVersion, before, beatTime, targetBeatTime }, args);
   }
 
   async #duplicateClip(args) {
