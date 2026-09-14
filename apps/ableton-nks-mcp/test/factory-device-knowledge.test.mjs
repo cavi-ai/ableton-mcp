@@ -2,6 +2,19 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { getFactoryDeviceProfile, listFactoryDeviceProfiles, groupDeviceParameters } from "../src/factory-device-knowledge.mjs";
 
+test("Wavetable native identity separates envelope and filter destinations", () => {
+  const profile = getFactoryDeviceProfile({ className: "InstrumentVector", name: "Renamed Bass" });
+  assert.equal(profile?.id, "wavetable");
+  const names = ["Device On", "Osc 1 Pos", "Osc 2 Gain", "Sub On", "Sub Tone", "Sub Transpose", "Flt 1 Freq", "Flt 1 Res", "Flt 2 Drive", "Amp Attack", "Amp A Slope", "Amp Loop Mode", "Env 2 Attack", "Env 2 Initial", "Env 3 Final", "Env 3 Loop Mode", "LFO 1 Attack Time", "LFO 2 S. Rate", "Global Mod Amount", "Transpose", "Glide", "Unison Amount", "Time", "Volume", "Future Control"];
+  const parameters = names.map((name, i) => ({ id: `parameter-${i}`, name }));
+  const groups = groupDeviceParameters(profile, parameters);
+  const ids = role => (groups[role] || []).map(p => p.id);
+  for (const [role, indices] of Object.entries({ global: [0], oscillator: [1, 2], subOscillator: [3, 4, 5], filter1: [6, 7], filter2: [8], amplitudeEnvelope: [9, 10, 11], modulationEnvelope2: [12, 13], modulationEnvelope3: [14, 15], lfo1: [16], lfo2: [17], modulation: [18], pitch: [19, 20], unison: [21], envelopeTiming: [22], amplitude: [23], other: [24] })) {
+    assert.deepEqual(ids(role), indices.map(i => `parameter-${i}`), role);
+  }
+  assert.deepEqual(Object.values(groups).flat().map(p => p.id).sort(), parameters.map(p => p.id).sort());
+});
+
 test("Operator separates native oscillator, pitch, filter and LFO envelopes", () => {
   const profile = getFactoryDeviceProfile({ className: "Operator", name: "Bass Sub" });
   const names = ["Device On", "Algorithm", "A Fix Freq", "B Freq<Vel", "C Quantize", "D Fix On ", "Osc-A < LFO",
