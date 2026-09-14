@@ -5,8 +5,29 @@ import { getFactoryDeviceProfile, listFactoryDeviceProfiles, groupDeviceParamete
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor"
   ]);
+});
+
+test("Compressor preserves native roles and distinguishes automatic release from device power", () => {
+  const profile = getFactoryDeviceProfile({ className: "Compressor2", name: "Bass Dynamics" });
+  assert.equal(profile?.id, "compressor");
+  const names = ["Device On", "Threshold", "Ratio", "Expansion Ratio", "Attack", "Release",
+    "Auto Release On/Off", "Output", "Makeup", "Dry/Wet", "Model", "Env Mode", "Knee", "LookAhead",
+    "S/C Listen", "S/C EQ On", "S/C EQ Type", "S/C EQ Freq", "S/C EQ Q", "S/C EQ Gain",
+    "S/C On", "S/C Gain", "S/C Mix", "Unknown Future Control"];
+  const params = names.map((name, i) => ({ id: `parameter-${i}`, name, originalName: name }));
+  const groups = groupDeviceParameters(profile, params);
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.deepEqual(groups.dynamics.map(p => p.id), ["parameter-1", "parameter-2", "parameter-3", "parameter-12"]);
+  assert.deepEqual(groups.timing.map(p => p.id), ["parameter-4", "parameter-5", "parameter-6", "parameter-13"]);
+  assert.deepEqual(groups.gain.map(p => p.id), ["parameter-7", "parameter-8"]);
+  assert.deepEqual(groups.mix.map(p => p.id), ["parameter-9"]);
+  assert.deepEqual(groups.detector.map(p => p.id), ["parameter-10", "parameter-11"]);
+  assert.deepEqual(groups.sidechain.map(p => p.id), ["parameter-14", "parameter-15", "parameter-16", "parameter-17",
+    "parameter-18", "parameter-19", "parameter-20", "parameter-21", "parameter-22"]);
+  assert.deepEqual(groups.other.map(p => p.id), ["parameter-23"]);
+  assert.equal(groups.timing[2].name, "Auto Release On/Off");
 });
 
 test("Arpeggiator groups native timing, pitch and velocity controls without losing labels", () => {
