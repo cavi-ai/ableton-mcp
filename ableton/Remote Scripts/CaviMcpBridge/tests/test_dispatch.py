@@ -932,6 +932,60 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(changed["pitch"], {"coarse": -12, "fine": 17})
         self.assertEqual(changed["markers"], {"unit": "beats", "startBeats": 1.0, "endBeats": 7.0})
 
+    def test_audio_state_exposes_loop_bounds_in_current_units(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[2].clip
+        clip.loop_start, clip.loop_end = 1, 3
+        result = dispatch_request(song, {"method": "get_audio_clip_state", "params": {"trackId": "track-0", "clipId": "track-0:clip-2"}}, 3)
+        self.assertEqual(result["loop"], {"enabled": True, "unit": "beats", "startBeats": 1.0, "endBeats": 3.0})
+        clip.warping = False
+        clip.looping = False
+        result = dispatch_request(song, {"method": "get_audio_clip_state", "params": {"trackId": "track-0", "clipId": "track-0:clip-2"}}, 3)
+        self.assertEqual(result["loop"], {"enabled": False, "unit": "seconds", "startSeconds": 1.0, "endSeconds": 3.0})
+
+    def test_crop_audio_clip_rejects_changed_loop_before_native_call(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[2].clip
+        clip.loop_start, clip.loop_end = 1, 3
+        boundaries = []
+        song.begin_undo_step = lambda: boundaries.append("begin")
+        song.end_undo_step = lambda: boundaries.append("end")
+        def crop():
+            self.assertEqual(boundaries, ["begin"])
+            clip.start_marker, clip.end_marker = 0, 2
+            clip.loop_start, clip.loop_end = 0, 2
+        clip.crop = crop
+        params = {"trackId": "track-0", "clipId": "track-0:clip-2"}
+        before = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
+        clip.loop_end = 4
+        with self.assertRaisesRegex(ValueError, "state changed"):
+            dispatch_request(song, {"method": "crop_audio_clip", "params": {**params, "before": before}}, 3)
+        self.assertEqual(clip.start_marker, 0)
+        clip.loop_end = 3
+        result = dispatch_request(song, {"method": "crop_audio_clip", "params": {**params, "before": before}}, 3)
+        self.assertEqual(result["markers"], {"unit": "beats", "startBeats": 0.0, "endBeats": 2.0})
+        self.assertEqual(result["loop"]["endBeats"], 2)
+        self.assertEqual(boundaries, ["begin", "end"])
+
+    def test_crop_audio_clip_unavailable_api_and_failure_close_undo_step(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[2].clip
+        boundaries = []
+        song.begin_undo_step = lambda: boundaries.append("begin")
+        song.end_undo_step = lambda: boundaries.append("end")
+        params = {"trackId": "track-0", "clipId": "track-0:clip-2"}
+        before = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
+        with self.assertRaisesRegex(ValueError, "crop API required"):
+            dispatch_request(song, {"method": "crop_audio_clip", "params": {**params, "before": before}}, 3)
+        self.assertEqual(boundaries, [])
+        def crop():
+            raise RuntimeError("native crop failed")
+        clip.crop = crop
+        with self.assertRaisesRegex(RuntimeError, "native crop failed"):
+            dispatch_request(song, {"method": "crop_audio_clip", "params": {**params, "before": before}}, 3)
+        self.assertEqual(boundaries, ["begin", "end"])
+        self.assertEqual(clip.end_marker, 8)
+
     def test_quantize_audio_clip_uses_native_grid_and_rejects_stale_markers(self):
         song = Song()
         clip = song.tracks[0].clip_slots[2].clip

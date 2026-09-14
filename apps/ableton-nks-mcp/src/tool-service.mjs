@@ -460,6 +460,7 @@ export class ToolService {
     if (name === "remove_audio_warp_marker") return this.#removeAudioWarpMarker(args);
     if (name === "add_audio_warp_marker") return this.#addAudioWarpMarker(args);
     if (name === "quantize_audio_clip") return this.#quantizeAudioClip(args);
+    if (name === "crop_audio_clip") return this.#cropAudioClip(args);
     if (name === "duplicate_clip") return this.#duplicateClip(args);
     if (name === "delete_clip") return this.#deleteClip(args);
     if (name === "duplicate_clip_loop") return this.#duplicateClipLoop(args);
@@ -825,6 +826,22 @@ export class ToolService {
       method: "set_audio_clip_state", trackId: args.trackId, clipId: args.clipId,
       expectedStateVersion: args.expectedStateVersion, before: observed, changes
     }, args);
+  }
+
+  async #cropAudioClip(args) {
+    requireExpectedState(args);
+    const before = await this.bridge.request("get_audio_clip_state", { trackId: args.trackId, clipId: args.clipId });
+    assertExpectedState(args, before);
+    if (!before.loop || !before.markers) throw new Error("native audio crop interval unavailable");
+    const fromLoop = before.loop.enabled;
+    const region = fromLoop ? before.loop : before.markers;
+    if (!["beats", "seconds"].includes(region.unit)) throw new Error("unknown audio crop units");
+    const suffix = region.unit === "beats" ? "Beats" : "Seconds";
+    const start = region[`start${suffix}`], end = region[`end${suffix}`];
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) throw new Error("invalid audio crop interval");
+    return this.#confirmedMutation({ method: "crop_audio_clip", trackId: args.trackId, clipId: args.clipId,
+      expectedStateVersion: args.expectedStateVersion, before,
+      selectedRegion: { unit: region.unit, start, end, fromLoop } }, args);
   }
 
   async #quantizeAudioClip(args) {

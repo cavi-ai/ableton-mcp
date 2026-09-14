@@ -259,6 +259,9 @@ def _audio_clip_state(song, track_id, clip_id, state_version):
         "markers": {"unit": "beats" if clip.warping else "seconds",
                     "startBeats" if clip.warping else "startSeconds": float(clip.start_marker),
                     "endBeats" if clip.warping else "endSeconds": float(clip.end_marker)},
+        "loop": {"enabled": bool(clip.looping), "unit": "beats" if clip.warping else "seconds",
+                 "startBeats" if clip.warping else "startSeconds": float(clip.loop_start),
+                 "endBeats" if clip.warping else "endSeconds": float(clip.loop_end)},
     }
 
 
@@ -744,6 +747,22 @@ def dispatch_request(song, request, state_version, application=None):
             else:
                 clip.start_marker = start
                 clip.end_marker = end
+        return _audio_clip_state(song, track_id, clip_id, state_version + 1)
+    if method == "crop_audio_clip":
+        track_id, clip_id = params["trackId"], params["clipId"]
+        clip, _ = _audio_clip(song, track_id, clip_id)
+        if _audio_clip_state(song, track_id, clip_id, state_version) != params["before"]:
+            raise ValueError("audio clip identity or state changed")
+        if not callable(getattr(clip, "crop", None)):
+            raise ValueError("native audio crop API required")
+        start, end = (clip.loop_start, clip.loop_end) if clip.looping else (clip.start_marker, clip.end_marker)
+        if not math.isfinite(start) or not math.isfinite(end) or end <= start:
+            raise ValueError("invalid audio crop interval")
+        song.begin_undo_step()
+        try:
+            clip.crop()
+        finally:
+            song.end_undo_step()
         return _audio_clip_state(song, track_id, clip_id, state_version + 1)
     if method == "quantize_audio_clip":
         track_id, clip_id = params["trackId"], params["clipId"]

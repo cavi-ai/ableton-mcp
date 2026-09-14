@@ -1096,6 +1096,48 @@ test("clip parameter envelope inspection is read-only and returns sampled values
   assert.equal(calls.at(-1).method, "get_clip_parameter_envelope");
 });
 
+test("audio crop confirms the native selected interval and rejects changed loop", async () => {
+  const before = { stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-2", warping: true,
+    markers: { unit: "beats", startBeats: 0, endBeats: 4 },
+    loop: { enabled: true, unit: "beats", startBeats: 1, endBeats: 3 } };
+  let mutations = 0;
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_audio_clip_state") return structuredClone(before);
+    if (method === "crop_audio_clip") {
+      assert.equal(params.before.loop.startBeats, 1);
+      assert.equal(params.before.loop.endBeats, 3);
+      mutations++;
+      return { ...before, stateVersion: 5, markers: { unit: "beats", startBeats: 0, endBeats: 2 } };
+    }
+    throw new Error(method);
+  } } });
+  const args = { trackId: "track-0", clipId: "track-0:clip-2", expectedStateVersion: 4 };
+  const preview = await service.call("crop_audio_clip", args);
+  assert.equal(mutations, 0);
+  assert.deepEqual(preview.plan.selectedRegion, { unit: "beats", start: 1, end: 3, fromLoop: true });
+  const result = await service.call("crop_audio_clip", { ...args, dryRun: false,
+    confirmationToken: preview.confirmation.token, planHash: preview.confirmation.planHash });
+  assert.equal(result.observed.markers.endBeats, 2);
+  const stale = await service.call("crop_audio_clip", args);
+  before.loop.endBeats = 4;
+  await assert.rejects(() => service.call("crop_audio_clip", { ...args, dryRun: false,
+    confirmationToken: stale.confirmation.token, planHash: stale.confirmation.planHash }), /plan|changed/);
+  assert.equal(mutations, 1);
+  before.loop.enabled = false;
+  assert.deepEqual((await service.call("crop_audio_clip", args)).plan.selectedRegion,
+    { unit: "beats", start: 0, end: 4, fromLoop: false });
+  before.warping = false;
+  before.markers = { unit: "seconds", startSeconds: 0.5, endSeconds: 1.5 };
+  before.loop = { enabled: false, unit: "seconds", startSeconds: 0.5, endSeconds: 1.5 };
+  assert.deepEqual((await service.call("crop_audio_clip", args)).plan.selectedRegion,
+    { unit: "seconds", start: 0.5, end: 1.5, fromLoop: false });
+  for (const markers of [{ unit: "seconds", startSeconds: 1, endSeconds: 1 },
+    { unit: "seconds", startSeconds: NaN, endSeconds: 2 }]) {
+    before.markers = markers;
+    await assert.rejects(() => service.call("crop_audio_clip", args), /interval/);
+  }
+});
+
 test("audio quantization signs grid amount and full native before-state", async () => {
   const before = { stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-2", warping: true,
     warpMarkers: { supported: true, markers: [{ sampleTime: 0.13, beatTime: 0.26 }] } };
