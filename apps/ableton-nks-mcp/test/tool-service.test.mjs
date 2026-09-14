@@ -734,6 +734,21 @@ test("song musical context mutation validates and signs exact producer changes",
   assert.equal(calls.at(-1).method, "get_song_musical_context");
 });
 
+test("groove edits sign complete pool state and validate native percentage units", async () => {
+  const { service } = fixture();
+  const args = { expectedStateVersion: 4, grooveId: "groove-0", name: "Bass Swing",
+    timingAmount: 70, quantizationAmount: 20, randomAmount: 10, velocityAmount: -40 };
+  const dry = await service.call("set_groove", args);
+  assert.equal(dry.plan.before.groove.pool[0].name, "Swing 16-65");
+  assert.equal(dry.plan.changes.velocityAmount.value, -40);
+  assert.equal(dry.plan.changes.name.value, "Bass Swing");
+  for (const extra of [{ timingAmount: 101 }, { quantizationAmount: -1 }, { randomAmount: Infinity }, { velocityAmount: -101 }]) {
+    await assert.rejects(service.call("set_groove", { ...args, ...extra }), /Amount/);
+  }
+  await assert.rejects(service.call("set_groove", { ...args, grooveId: "groove-9" }), /unknown groove/);
+  await assert.rejects(service.call("set_groove", { expectedStateVersion: 4, grooveId: "groove-0" }), /at least one/);
+});
+
 test("global groove amount accepts native maximum and rejects out-of-range values", async () => {
   const { service } = fixture();
   const args = { expectedStateVersion: 4, groove: { amount: 1.3125 } };

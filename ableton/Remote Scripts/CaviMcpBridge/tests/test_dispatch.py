@@ -1318,6 +1318,19 @@ class DispatchTest(unittest.TestCase):
         redone = dispatch_request(song, {"method": "redo"}, 4)
         self.assertEqual(redone, {"stateVersion": 5, "canUndo": True, "canRedo": False})
 
+    def test_groove_edit_binds_pool_and_balances_undo(self):
+        song = Song()
+        before = dispatch_request(song, {"method": "get_song_musical_context"}, 3)
+        params = {"grooveId": "groove-0", "before": before, "changes": {
+            "timingAmount": {"value": 70}, "velocityAmount": {"value": -40}, "name": {"value": "Bass Swing"}}}
+        result = dispatch_request(song, {"method": "set_groove", "params": params}, 3)
+        self.assertEqual(result["groove"]["pool"][0]["timingAmount"], 70)
+        self.assertEqual(result["groove"]["pool"][0]["velocityAmount"], -40)
+        self.assertEqual(result["groove"]["pool"][0]["name"], "Bass Swing")
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+        with self.assertRaisesRegex(ValueError, "changed"):
+            dispatch_request(song, {"method": "set_groove", "params": params}, 3)
+
     def test_song_musical_context_reads_and_writes_timing_key_groove_and_loop(self):
         song = Song()
         observed = dispatch_request(song, {"method": "get_song_musical_context"}, 3)

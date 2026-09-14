@@ -581,6 +581,34 @@ def dispatch_request(song, request, state_version, application=None):
         return {"stateVersion": state_version + 1, "canUndo": bool(song.can_undo), "canRedo": bool(song.can_redo)}
     if method == "get_song_musical_context":
         return _song_musical_context(song, state_version)
+    if method == "set_groove":
+        if _song_musical_context(song, state_version) != params["before"]:
+            raise ValueError("groove pool or musical context changed")
+        grooves = _grooves(song)
+        matches = [groove for index, groove in enumerate(grooves) if f"groove-{index}" == params["grooveId"]]
+        if len(matches) != 1:
+            raise ValueError("unknown groove")
+        groove = matches[0]
+        properties = {"name": "name", "timingAmount": "timing_amount", "quantizationAmount": "quantization_amount",
+            "randomAmount": "random_amount", "velocityAmount": "velocity_amount"}
+        changes = params["changes"]
+        if not changes or not set(changes).issubset(properties):
+            raise ValueError("invalid groove changes")
+        values = {}
+        for key, change in changes.items():
+            value = change["value"]
+            if key == "name":
+                if not isinstance(value, str) or not value.strip():
+                    raise ValueError("invalid groove name")
+            else:
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not (-100 if key == "velocityAmount" else 0) <= value <= 100:
+                    raise ValueError("invalid groove percentage")
+                value = float(value)
+            values[properties[key]] = value
+        with _undo_step(song):
+            for attribute, value in values.items():
+                setattr(groove, attribute, value)
+        return _song_musical_context(song, state_version + 1)
     if method == "get_transport_recording_context":
         return _transport_recording_context(song, state_version)
     if method == "set_transport_recording_context":

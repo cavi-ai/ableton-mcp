@@ -445,6 +445,7 @@ export class ToolService {
     if (name === "set_device_parameters") return this.#setDeviceParameters(args);
     if (name === "set_device_active" || name === "delete_device" || name === "move_device") return this.#deviceLifecycle(name, args);
     if (name === "set_song_musical_context") return this.#setSongMusicalContext(args);
+    if (name === "set_groove") return this.#setGroove(args);
     if (name === "set_transport_recording_context") return this.#setTransportRecordingContext(args);
     if (["create_arrangement_cue_point", "rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point"].includes(name)) {
       return this.#arrangementCuePointMutation(name, args);
@@ -603,6 +604,25 @@ export class ToolService {
       plan.targetPosition = args.targetPosition;
     }
     return this.#confirmedMutation(plan, args);
+  }
+
+  async #setGroove(args) {
+    requireExpectedState(args);
+    const before = await this.bridge.request("get_song_musical_context", {});
+    assertExpectedState(args, before);
+    const groove = before.groove.pool.find(item => item.id === args.grooveId);
+    if (!groove) throw new Error(`unknown groove ${args.grooveId}`);
+    const changes = {};
+    for (const key of ["timingAmount", "quantizationAmount", "randomAmount", "velocityAmount"]) {
+      if (args[key] !== undefined) changes[key] = { previous: groove[key], value: finiteRange(args[key], key, key === "velocityAmount" ? -100 : 0, 100) };
+    }
+    if (args.name !== undefined) {
+      if (typeof args.name !== "string" || !args.name.trim()) throw new Error("groove name must be a non-empty string");
+      changes.name = { previous: groove.name, value: args.name };
+    }
+    if (!Object.keys(changes).length) throw new Error("at least one groove change is required");
+    return this.#confirmedMutation({ method: "set_groove", expectedStateVersion: args.expectedStateVersion,
+      grooveId: args.grooveId, before, changes }, args);
   }
 
   async #historyMutation(method, args) {
