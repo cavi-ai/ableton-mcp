@@ -56,6 +56,9 @@ test("pitch analysis reports time-varying notes and unvoiced frames across the s
     assert.ok(Math.abs(frames.at(-1).endSeconds - 2) < 0.001);
     assert.ok(frames.some(frame => frame.startSeconds > 0.7 && frame.endSeconds < 1.3 && frame.estimate === null));
     assert.ok(frames.every((frame, index) => index === 0 || frame.startSeconds > frames[index - 1].startSeconds));
+    assert.ok(frames[0].harmonicPeaks?.some(peak => peak.harmonicNumber === 1 && Math.abs(peak.estimatedFrequencyHz - 440) < 1));
+    assert.ok(frames.at(-1).harmonicPeaks?.some(peak => peak.harmonicNumber === 1 && Math.abs(peak.estimatedFrequencyHz - 880) < 1));
+    assert.ok(frames.filter(frame => frame.estimate === null).every(frame => Array.isArray(frame.harmonicPeaks) && frame.harmonicPeaks.length === 0));
     const route = createRouter(new ToolService({}));
     const reply = await route({ id: 1, method: "tools/call", params: {
       name: "analyze_audio_file", arguments: { sourcePath, startSeconds: 1.5, durationSeconds: 0.5, includePitch: true }
