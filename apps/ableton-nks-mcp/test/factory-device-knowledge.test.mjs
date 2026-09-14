@@ -4,7 +4,7 @@ import { getFactoryDeviceProfile, listFactoryDeviceProfiles, groupDeviceParamete
 
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
-    "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
+    "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
     "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate"
   ]);
 });
@@ -133,6 +133,18 @@ test("Saturator distinguishes waveshaper drive from input gain and clipping mode
   assert.deepEqual(groups.gain.map(p => p.id), ["parameter-1", "parameter-10"]);
   assert.deepEqual(groups.waveshaper.map(p => p.id), names.slice(13).map((_, i) => `parameter-${i + 13}`));
   assert.deepEqual(groups.clipping.map(p => p.id), ["parameter-9", "parameter-12"]);
+  assert.equal(groups.other.length, 0);
+  assert.equal(Object.values(groups).flat().length, names.length);
+});
+
+test("Utility preserves bass-mono controls separately from full-band mono", () => {
+  const profile = getFactoryDeviceProfile({ className: "StereoGain", name: "Bass Bus" });
+  assert.equal(profile?.id, "utility");
+  const names = ["Device On", "Left Inv", "Right Inv", "Channel Mode", "Stereo Width", "Mono", "Bass Mono", "Bass Freq", "Balance", "Output", "Mute", "DC Filter"];
+  const groups = groupDeviceParameters(profile, names.map((name, i) => ({ id: `parameter-${i}`, name })));
+  assert.deepEqual(groups.bass.map(p => p.id), ["parameter-6", "parameter-7"]);
+  assert.deepEqual(groups.stereo.map(p => p.id), ["parameter-3", "parameter-4", "parameter-5", "parameter-8"]);
+  assert.deepEqual(groups.phase.map(p => p.id), ["parameter-1", "parameter-2"]);
   assert.equal(groups.other.length, 0);
   assert.equal(Object.values(groups).flat().length, names.length);
 });
