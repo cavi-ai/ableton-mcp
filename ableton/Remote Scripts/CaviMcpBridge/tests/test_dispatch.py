@@ -4,6 +4,7 @@ import copy
 import os
 import sys
 import unittest
+import tempfile
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -716,6 +717,32 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(len(track.arrangement_clips), 1)
         self.assertEqual(track.arrangement_clips[0].start_time, 8.0)
         self.assertEqual(track.arrangement_clips[0].notes, [60])
+
+    def test_audio_import_checks_file_identity_and_empty_audio_slot(self):
+        song = Song()
+        track = song.tracks[1]
+        track.has_audio_input = True
+        track.is_frozen = False
+        slot = track.clip_slots[0]
+        imported = []
+        def create_audio(path):
+            imported.append(path)
+            slot.has_clip = True
+            slot.clip = AudioClip()
+        slot.create_audio_clip = create_audio
+        song.begin_undo_step = lambda: None
+        song.end_undo_step = lambda: None
+        with tempfile.NamedTemporaryFile(suffix=".wav") as source:
+            stat = os.stat(source.name)
+            descriptor = {"size": str(stat.st_size), "mtimeNs": str(stat.st_mtime_ns), "device": str(stat.st_dev), "inode": str(stat.st_ino)}
+            params = {"trackId": "track-1", "clipId": "track-1:clip-0", "sourcePath": source.name, "sourceFile": descriptor}
+            with self.assertRaisesRegex(ValueError, "source file changed"):
+                dispatch_request(song, {"method": "create_audio_clip", "params": {**params, "sourceFile": {**descriptor, "size": "99"}}}, 3)
+            result = dispatch_request(song, {"method": "create_audio_clip", "params": params}, 3)
+            self.assertEqual(imported, [source.name])
+            self.assertTrue(result["clips"][0]["hasClip"])
+            with self.assertRaisesRegex(ValueError, "already contains"):
+                dispatch_request(song, {"method": "create_audio_clip", "params": params}, 4)
 
     def test_arrangement_move_supports_self_overlap_and_preserves_contents(self):
         song = Song()

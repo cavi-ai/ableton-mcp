@@ -1047,6 +1047,30 @@ def dispatch_request(song, request, state_version, application=None):
                 "lengthBeats": clip.length, "noteCount": len(notes), "isPlaying": clip.is_playing,
             },
         }
+    if method == "create_audio_clip":
+        track, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
+        if not track.has_audio_input or track.is_frozen:
+            raise ValueError("track cannot host imported audio clips")
+        if slot.has_clip:
+            raise ValueError("clip slot already contains a clip")
+        path = params["sourcePath"]
+        if not os.path.isabs(path) or not os.path.isfile(path):
+            raise ValueError("sourcePath must reference an absolute regular audio file")
+        source = os.stat(path)
+        descriptor = {"size": str(source.st_size), "mtimeNs": str(source.st_mtime_ns),
+                      "device": str(source.st_dev), "inode": str(source.st_ino)}
+        if descriptor != params["sourceFile"]:
+            raise ValueError("source file changed after planning")
+        song.begin_undo_step()
+        try:
+            slot.create_audio_clip(path)
+            if "name" in params:
+                slot.clip.name = params["name"]
+        finally:
+            song.end_undo_step()
+        result = _clip_list(song, params["trackId"], state_version + 1)
+        result["importedFile"] = {"path": path, **descriptor}
+        return result
     if method == "transport_play":
         song.start_playing()
         return {"stateVersion": state_version + 1, "isPlaying": song.is_playing}

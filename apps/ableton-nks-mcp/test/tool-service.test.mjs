@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ToolService } from "../src/tool-service.mjs";
 
 function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 1, velocity: 100,
@@ -837,6 +840,45 @@ test("Arrangement moves allow self-overlap but reject other timeline material", 
   assert.equal(result.observed.movedClip.startBeats, 10);
   clips = [clip, { id: "track-0:arrangement-clip-1", startBeats: 13, endBeats: 17 }];
   await assert.rejects(() => service.call("move_arrangement_clip", args), /overlap another/);
+});
+
+test("audio import binds the source revision and an exact empty slot", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "cavi-audio-import-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const sourcePath = join(directory, "test.wav");
+  await writeFile(sourcePath, "test-source");
+  const { service } = fixture();
+  let occupied = false;
+  const imports = [];
+  service.bridge.request = async (method, params) => {
+    if (method === "list_clips") return { stateVersion: 4, trackId: "track-0", clips: [{ id: "track-0:clip-0", hasClip: occupied }] };
+    if (method === "create_audio_clip") { imports.push(params); return { stateVersion: 5, clips: [{ id: params.clipId, hasClip: true }] }; }
+    throw new Error(`unexpected ${method}`);
+  };
+  const args = { trackId: "track-0", clipId: "track-0:clip-0", expectedStateVersion: 4, sourcePath };
+  await assert.rejects(() => service.call("create_audio_clip", { ...args, sourcePath: "relative.wav" }), /absolute/);
+  const dry = await service.call("create_audio_clip", args);
+  assert.equal(dry.plan.sourceFile.size, "11");
+  assert.equal(imports.length, 0);
+  await writeFile(sourcePath, "changed-source-longer");
+  await assert.rejects(() => service.call("create_audio_clip", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash }), /plan|hash|confirmation/i);
+  const refreshed = await service.call("create_audio_clip", args);
+  const result = await service.call("create_audio_clip", { ...args, dryRun: false, confirmationToken: refreshed.confirmation.token, planHash: refreshed.confirmation.planHash });
+  assert.equal(result.observed.clips[0].hasClip, true);
+  assert.equal(imports.length, 1);
+  occupied = true;
+  await assert.rejects(() => service.call("create_audio_clip", args), /already contains/);
+});
+
+test("confirmation binds the fresh mutation plan even when a caller supplies an old hash", async () => {
+  const { service, calls } = fixture();
+  const args = { expectedStateVersion: 4, volume: 0.5 };
+  const dry = await service.call("set_master_mixer", args);
+  await assert.rejects(() => service.call("set_master_mixer", { ...args, volume: 0.9, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash }), /plan hash mismatch/);
+  await assert.rejects(() => service.call("set_master_mixer", { ...args, volume: 0.9, dryRun: false, confirmationToken: dry.confirmation.token }), /plan hash mismatch/);
+  assert.equal(calls.some(({ method }) => method === "set_master_mixer"), false);
+  await service.call("set_master_mixer", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(calls.filter(({ method }) => method === "set_master_mixer").length, 1);
 });
 
 test("set mixer exposes master and return buses and guards bounded changes", async () => {

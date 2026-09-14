@@ -1,4 +1,6 @@
 import { assertExpectedState } from "./bridge-protocol.mjs";
+import { realpath, stat } from "node:fs/promises";
+import { isAbsolute } from "node:path";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { CatalogService } from "./catalog-service.mjs";
 import { getFactoryDeviceProfile, groupDeviceParameters, listFactoryDeviceProfiles } from "./factory-device-knowledge.mjs";
@@ -336,6 +338,7 @@ export class ToolService {
     if (name === "delete_clip") return this.#deleteClip(args);
     if (name === "duplicate_clip_loop") return this.#duplicateClipLoop(args);
     if (name === "create_midi_clip") return this.#createMidiClip(args);
+    if (name === "create_audio_clip") return this.#createAudioClip(args);
     if (name === "set_clip_parameter_envelope") return this.#setClipParameterEnvelope(args);
     if (name === "set_midi_note_properties") return this.#setMidiNoteProperties(args);
     if (name === "transform_midi_notes") return this.#transformMidiNotes(args);
@@ -432,7 +435,7 @@ export class ToolService {
     if (args.dryRun !== false) {
       return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
     }
-    this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
+    this.#consumeConfirmation(plan, args);
     const result = await this.bridge.request("set_device_parameters", plan);
     return {
       dryRun: false,
@@ -764,9 +767,15 @@ export class ToolService {
     }, args);
   }
 
+  #consumeConfirmation(plan, args) {
+    const currentHash = hashPlan(plan);
+    if (args.planHash !== undefined && args.planHash !== currentHash) throw new Error("confirmation plan hash mismatch: observed plan changed");
+    return this.confirmations.consume(args.confirmationToken, currentHash);
+  }
+
   async #confirmedMutation(plan, args) {
     if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
+    this.#consumeConfirmation(plan, args);
     const observed = await this.bridge.request(plan.method, plan);
     return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString() };
   }
@@ -786,7 +795,7 @@ export class ToolService {
       before: update.before, after: update.after
     };
     if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
+    this.#consumeConfirmation(plan, args);
     const observed = this.catalog.setMetadata(args.presetId, args.expectedMetadataRevision, changes);
     return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString() };
   }
@@ -963,9 +972,27 @@ export class ToolService {
     };
     if (args.name !== undefined) plan.name = args.name;
     if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
+    this.#consumeConfirmation(plan, args);
     const result = await this.bridge.request("create_midi_clip", plan);
     return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
+  }
+
+  async #createAudioClip(args) {
+    requireExpectedState(args);
+    if (typeof args.sourcePath !== "string" || !isAbsolute(args.sourcePath)) throw new Error("sourcePath must be an absolute local audio-file path");
+    const sourcePath = await realpath(args.sourcePath);
+    const source = await stat(sourcePath, { bigint: true });
+    if (!source.isFile()) throw new Error("sourcePath must reference a regular file");
+    const sourceFile = { size: String(source.size), mtimeNs: String(source.mtimeNs), device: String(source.dev), inode: String(source.ino) };
+    const observed = await this.bridge.request("list_clips", { trackId: args.trackId });
+    assertExpectedState(args, observed);
+    const slot = observed.clips.find(({ id }) => id === args.clipId);
+    if (!slot) throw new Error(`unknown clip slot ${args.clipId}`);
+    if (slot.hasClip) throw new Error("clip slot already contains a clip");
+    const plan = { method: "create_audio_clip", trackId: args.trackId, clipId: args.clipId,
+      expectedStateVersion: args.expectedStateVersion, sourcePath, sourceFile };
+    if (args.name !== undefined) plan.name = args.name;
+    return this.#confirmedMutation(plan, args);
   }
 
   async #setClipParameterEnvelope(args) {
@@ -995,7 +1022,7 @@ export class ToolService {
       ))
     };
     if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
+    this.#consumeConfirmation(plan, args);
     const result = await this.bridge.request("set_clip_parameter_envelope", plan);
     return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
   }
@@ -1018,7 +1045,7 @@ export class ToolService {
       })
     };
     if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
+    this.#consumeConfirmation(plan, args);
     const result = await this.bridge.request("set_midi_note_properties", plan);
     return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
   }
@@ -1036,7 +1063,7 @@ export class ToolService {
       changes: transformed.changes, newNotes: transformed.newNotes
     };
     if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
+    this.#consumeConfirmation(plan, args);
     const result = await this.bridge.request("transform_midi_notes", plan);
     return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
   }
@@ -1087,7 +1114,7 @@ export class ToolService {
       expectedStateVersion: args.expectedStateVersion, changes
     };
     if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
+    this.#consumeConfirmation(plan, args);
     const result = await this.bridge.request("set_track_mixer", plan);
     return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
   }
@@ -1232,7 +1259,7 @@ export class ToolService {
     if (args.dryRun !== false) {
       return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
     }
-    this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
+    this.#consumeConfirmation(plan, args);
     const observed = await this.bridge.request(name, plan);
     return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString() };
   }
@@ -1252,7 +1279,7 @@ export class ToolService {
     if (args.dryRun !== false) {
       return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
     }
-    this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
+    this.#consumeConfirmation(plan, args);
     const observed = await this.komplete.request(method, plan);
     return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString() };
   }
