@@ -65,6 +65,21 @@ test("pitch analysis selects the requested source channel and rejects absent cha
     assert.equal(tuning.result.structuredContent.tuningMeasurement.channelIndex, 1);
     assert.ok(Math.abs(tuning.result.structuredContent.tuningMeasurement.medianCentsFromTarget) < 2);
     assert.equal(tuning.result.structuredContent.tuningMeasurement.measuredFrameFraction, 1);
+    let clipReads = 0;
+    const clipRoute = createRouter(new ToolService({ bridge: { async request(method, target) {
+      assert.equal(method, "get_audio_clip_state");
+      assert.deepEqual(target, { trackId: "track-1", clipId: "track-1:clip-0" });
+      clipReads++;
+      return { stateVersion: 4, ...target, source: { path: sourcePath } };
+    } } }));
+    const clipAnalysis = await clipRoute({ id: 3, method: "tools/call", params: { name: "analyze_audio_clip",
+      arguments: { trackId: "track-1", clipId: "track-1:clip-0", targetMidiNote: 69, includeResonanceCandidates: true, channelIndex: 1 } } });
+    assert.equal(clipAnalysis.error, undefined);
+    assert.equal(clipReads, 2);
+    assert.equal(clipAnalysis.result.structuredContent.measurement.scope, "source_audio");
+    assert.equal(clipAnalysis.result.structuredContent.measurement.tuningMeasurement.channelIndex, 1);
+    assert.ok(Math.abs(clipAnalysis.result.structuredContent.measurement.tuningMeasurement.medianCentsFromTarget) < 2);
+    assert.equal(clipAnalysis.result.structuredContent.measurement.resonanceCandidates.confirmedResonance, false);
     await assert.rejects(() => analyzeAudioFile(sourcePath, { channelIndex: 2 }), /channelIndex/);
     await assert.rejects(() => analyzeAudioFile(sourcePath, { channelIndex: 0.5 }), /channelIndex/);
   } finally { await rm(directory, { recursive: true, force: true }); }
