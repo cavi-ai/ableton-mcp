@@ -1523,6 +1523,15 @@ class DispatchTest(unittest.TestCase):
             "trackId": "track-0", "deviceId": "track-0:device-0"}}, 1)
         self.assertEqual(result["nameAmbiguities"], [])
 
+    def test_track_resolution_rejects_noncanonical_and_out_of_range_ids(self):
+        song = Song()
+        for track_id in ["track--1", "0", "track-00", "return-0", "track-999", None]:
+            with self.subTest(track_id=track_id):
+                with self.assertRaises(ValueError):
+                    dispatch_request(song, {"method": "list_devices", "params": {"trackId": track_id}}, 1)
+        result = dispatch_request(song, {"method": "list_devices", "params": {"trackId": "track-0"}}, 1)
+        self.assertEqual(result["trackId"], "track-0")
+
     def test_status_and_parameter_write_return_observed_state(self):
         song = Song()
         status = dispatch_request(song, {"method": "get_live_state", "params": {}}, 4)

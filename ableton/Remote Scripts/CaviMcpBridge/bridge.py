@@ -38,7 +38,14 @@ COUNT_IN_DURATION_NAMES = ("none", "one_bar", "two_bars", "four_bars")
 
 
 def _track(song, track_id):
-    index = int(track_id.removeprefix("track-"))
+    if not isinstance(track_id, str) or not track_id.startswith("track-"):
+        raise ValueError("invalid track ID")
+    suffix = track_id.removeprefix("track-")
+    if not suffix.isascii() or not suffix.isdigit():
+        raise ValueError("invalid track ID")
+    index = int(suffix)
+    if str(index) != suffix or index >= len(song.tracks):
+        raise ValueError("track ID is noncanonical or unavailable")
     return index, song.tracks[index]
 
 
