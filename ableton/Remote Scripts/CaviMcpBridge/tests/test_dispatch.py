@@ -423,6 +423,16 @@ class Application:
 
 
 class DispatchTest(unittest.TestCase):
+    def test_audio_inspection_exposes_loaded_source_for_analysis(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[2].clip
+        clip.file_path = "/samples/vocal.wav"
+        clip.sample_length = 96000
+        result = dispatch_request(song, {"method": "get_audio_clip_state", "params": {
+            "trackId": "track-0", "clipId": "track-0:clip-2"
+        }}, 3)
+        self.assertEqual(result["source"], {"path": "/samples/vocal.wav", "lengthSamples": 96000})
+
     def test_unwarped_session_duration_is_seconds_not_beats(self):
         song = Song()
         clip = song.tracks[0].clip_slots[2].clip

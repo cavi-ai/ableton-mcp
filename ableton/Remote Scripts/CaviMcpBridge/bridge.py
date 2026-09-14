@@ -232,6 +232,7 @@ def _audio_clip_state(song, track_id, clip_id, state_version):
     return {
         "stateVersion": state_version, "trackId": track_id, "clipId": clip_id,
         "location": "arrangement" if timeline is not None else "session", "timeline": timeline,
+        "source": {"path": getattr(clip, "file_path", None), "lengthSamples": getattr(clip, "sample_length", None)},
         "gain": {"value": float(clip.gain), "min": 0.0, "max": 1.0, "displayValue": clip.gain_display_string},
         "pitch": {"coarse": int(clip.pitch_coarse), "fine": int(clip.pitch_fine)},
         "warping": bool(clip.warping), "warpMode": _enum_record(clip.warp_mode, AUDIO_WARP_MODE_NAMES),
