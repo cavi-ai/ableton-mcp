@@ -1158,7 +1158,7 @@ def dispatch_request(song, request, state_version, application=None):
         device = _device_tree(rack, params["deviceId"])
         return {"stateVersion": state_version + 1, "trackId": params["trackId"],
                 "pad": next(pad for pad in device["drumPads"] if pad["note"] == note), "device": device}
-    if method in ("set_rack_chain_mixer", "rename_rack_chain"):
+    if method in ("set_rack_chain_mixer", "rename_rack_chain", "set_rack_chain_note_routing"):
         _, _, rack = _device(song, params["trackId"], params["deviceId"])
         if _device_tree(rack, params["deviceId"]) != params["beforeDevice"]:
             raise ValueError("rack state changed")
@@ -1168,6 +1168,21 @@ def dispatch_request(song, request, state_version, application=None):
         if not chain_id.startswith(prefix) or not suffix.isdigit() or int(suffix) >= len(rack.chains):
             raise ValueError("unknown rack chain")
         chain = rack.chains[int(suffix)]
+        if method == "set_rack_chain_note_routing":
+            if not rack.can_have_drum_pads:
+                raise ValueError("note routing requires a Drum Rack")
+            changes = params["changes"]
+            attributes = {"inputNote": "in_note", "outputNote": "out_note"}
+            if not changes or set(changes) - set(attributes):
+                raise ValueError("invalid chain note routing changes")
+            for key, value in changes.items():
+                if type(value) is not int or not 0 <= value <= 127 or not hasattr(chain, attributes[key]):
+                    raise ValueError("chain note routing requires available MIDI notes from 0 to 127")
+            for key, value in changes.items():
+                setattr(chain, attributes[key], value)
+            return {"stateVersion": state_version + 1, "trackId": params["trackId"], "chainId": chain_id,
+                    "noteRouting": {"inputNote": chain.in_note, "outputNote": chain.out_note},
+                    "device": _device_tree(rack, params["deviceId"])}
         if method == "rename_rack_chain":
             name = params["name"]
             if not isinstance(name, str) or not name.strip():

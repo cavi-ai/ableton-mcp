@@ -1152,6 +1152,25 @@ class DispatchTest(unittest.TestCase):
             dispatch_request(song, {"method": "set_drum_pad_state", "params": {
                 **ids, "beforeDevice": before, "note": 36, "changes": {"mute": False}}}, 4)
 
+    def test_drum_chain_note_routing_validates_before_mutating(self):
+        song = Song()
+        rack = DrumRack()
+        chain = rack.chains[0]
+        chain.in_note, chain.out_note = 36, 60
+        song.tracks[0].devices = [rack]
+        ids = {"trackId": "track-0", "deviceId": "track-0:device-0"}
+        before = dispatch_request(song, {"method": "get_device_hierarchy", "params": ids}, 3)["device"]
+        args = {**ids, "chainId": "track-0:device-0/chain-0", "beforeDevice": before}
+        with self.assertRaises(ValueError):
+            dispatch_request(song, {"method": "set_rack_chain_note_routing", "params": {
+                **args, "changes": {"inputNote": 40, "outputNote": 128}}}, 3)
+        self.assertEqual(chain.in_note, 36)
+        routed = dispatch_request(song, {"method": "set_rack_chain_note_routing", "params": {
+            **args, "changes": {"inputNote": 40}}}, 3)
+        self.assertEqual(chain.in_note, 40)
+        self.assertEqual(chain.out_note, 60)
+        self.assertEqual(routed["noteRouting"], {"inputNote": 40, "outputNote": 60})
+
     def test_pad_restoration_applies_mute_after_solo_side_effects(self):
         song = Song()
         rack = DrumRack()
