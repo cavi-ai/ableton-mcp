@@ -745,6 +745,27 @@ def dispatch_request(song, request, state_version, application=None):
         return _clip_list(song, params["trackId"], state_version)
     if method == "list_arrangement_clips":
         return _arrangement_clips(song, params["trackId"], state_version)
+    if method == "delete_arrangement_clip":
+        track_id = params["trackId"]
+        _, track = _track(song, track_id)
+        prefix = f"{track_id}:arrangement-clip-"
+        clip_id = params["clipId"]
+        suffix = clip_id[len(prefix):] if clip_id.startswith(prefix) else ""
+        if not suffix.isdigit() or int(suffix) >= len(track.arrangement_clips):
+            raise ValueError("unknown Arrangement clip ID")
+        index = int(suffix)
+        clip = track.arrangement_clips[index]
+        before = _arrangement_clip_record(clip, track_id, index)
+        if before != params["before"]:
+            raise ValueError("Arrangement clip identity changed")
+        song.begin_undo_step()
+        try:
+            track.delete_clip(clip)
+        finally:
+            song.end_undo_step()
+        result = _arrangement_clips(song, track_id, state_version + 1)
+        result["deletedClip"] = before
+        return result
     if method == "place_session_clip_in_arrangement":
         track, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
         if not slot.has_clip:

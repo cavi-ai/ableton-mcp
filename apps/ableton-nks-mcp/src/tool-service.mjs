@@ -261,6 +261,7 @@ export class ToolService {
     if (name === "list_clips") return this.bridge.request("list_clips", args);
     if (name === "list_arrangement_clips") return this.bridge.request(name, args);
     if (name === "place_session_clip_in_arrangement") return this.#placeSessionClipInArrangement(args);
+    if (name === "delete_arrangement_clip") return this.#deleteArrangementClip(args);
     if (name === "get_midi_clip_notes") return this.bridge.request("get_midi_clip_notes", args);
     if (name === "get_midi_clip_notes_extended") return this.bridge.request("get_midi_clip_notes_extended", args);
     if (name === "get_track_mixer") return this.bridge.request("get_track_mixer", args);
@@ -733,6 +734,16 @@ export class ToolService {
       method: "delete_clip", trackId: args.trackId, clipId: clip.id,
       expectedStateVersion: args.expectedStateVersion, before: clip
     }, args);
+  }
+
+  async #deleteArrangementClip(args) {
+    requireExpectedState(args);
+    const observed = await this.bridge.request("list_arrangement_clips", { trackId: args.trackId });
+    assertExpectedState(args, observed);
+    const before = observed.clips.find(({ id }) => id === args.clipId);
+    if (!before) throw new Error(`unknown Arrangement clip ID ${args.clipId}`);
+    return this.#confirmedMutation({ method: "delete_arrangement_clip", trackId: args.trackId,
+      clipId: args.clipId, expectedStateVersion: args.expectedStateVersion, before }, args);
   }
 
   async #duplicateClipLoop(args) {

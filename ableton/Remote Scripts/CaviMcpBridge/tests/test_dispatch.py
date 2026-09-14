@@ -671,6 +671,25 @@ class DispatchTest(unittest.TestCase):
             dispatch_request(song, {"method": "place_session_clip_in_arrangement", "params": {**params, "startBeats": 10.0}}, 4)
         self.assertEqual(len(track.arrangement_clips), 1)
 
+    def test_arrangement_deletion_checks_identity_and_preserves_other_clips(self):
+        song = Song()
+        track = song.tracks[0]
+        track.arrangement_clips = [SimpleNamespace(name="A", start_time=0, end_time=4, is_audio_clip=False),
+                                   SimpleNamespace(name="B", start_time=8, end_time=12, is_audio_clip=False)]
+        track.delete_clip = lambda clip: track.arrangement_clips.remove(clip)
+        boundaries = []
+        song.begin_undo_step = lambda: boundaries.append("begin")
+        song.end_undo_step = lambda: boundaries.append("end")
+        before = {"id": "track-0:arrangement-clip-0", "name": "A", "startBeats": 0.0,
+                  "endBeats": 4.0, "lengthBeats": 4.0, "type": "midi"}
+        params = {"trackId": "track-0", "clipId": before["id"], "before": before}
+        with self.assertRaisesRegex(ValueError, "identity changed"):
+            dispatch_request(song, {"method": "delete_arrangement_clip", "params": {**params, "before": {**before, "name": "Wrong"}}}, 3)
+        result = dispatch_request(song, {"method": "delete_arrangement_clip", "params": params}, 3)
+        self.assertEqual(result["deletedClip"], before)
+        self.assertEqual([clip["name"] for clip in result["clips"]], ["B"])
+        self.assertEqual(boundaries, ["begin", "end"])
+
     def test_master_and_return_mixer_lifecycle(self):
         song = Song()
         observed = dispatch_request(song, {"method": "get_set_mixer"}, 3)

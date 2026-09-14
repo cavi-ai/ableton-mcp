@@ -801,6 +801,25 @@ test("Arrangement placement guards timeline overlap and exact observations", asy
   await assert.rejects(() => service.call("place_session_clip_in_arrangement", { ...args, expectedStateVersion: 3 }), /state/i);
 });
 
+test("Arrangement deletion carries exact identity and requires confirmation", async () => {
+  const { service } = fixture();
+  const before = { id: "track-0:arrangement-clip-0", name: "A", startBeats: 8, endBeats: 12, lengthBeats: 4, type: "midi" };
+  const mutations = [];
+  service.bridge.request = async (method, params) => {
+    if (method === "list_arrangement_clips") return { stateVersion: 4, trackId: "track-0", clips: [before] };
+    if (method === "delete_arrangement_clip") { mutations.push(params); return { stateVersion: 5, deletedClip: params.before, clips: [] }; }
+    throw new Error(`unexpected ${method}`);
+  };
+  const args = { trackId: "track-0", clipId: before.id, expectedStateVersion: 4 };
+  const dry = await service.call("delete_arrangement_clip", args);
+  assert.deepEqual(dry.plan.before, before);
+  assert.equal(mutations.length, 0);
+  await assert.rejects(() => service.call("delete_arrangement_clip", { ...args, clipId: "track-0:arrangement-clip-99" }), /unknown/);
+  const result = await service.call("delete_arrangement_clip", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.deepEqual(result.observed.deletedClip, before);
+  assert.equal(mutations.length, 1);
+});
+
 test("set mixer exposes master and return buses and guards bounded changes", async () => {
   const { service, calls } = fixture();
   const observed = await service.call("get_set_mixer");
