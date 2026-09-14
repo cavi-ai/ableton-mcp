@@ -1156,6 +1156,8 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(status["stateVersion"], 4)
         self.assertEqual(status["bridgeVersion"], "0.1.0")
         self.assertIn("list_scenes", status["capabilities"])
+        self.assertIn("create_rack_chain", status["capabilities"])
+        self.assertIn("move_device_to_chain", status["capabilities"])
         result = dispatch_request(song, {
             "method": "set_device_parameters",
             "params": {"trackId": "track-0", "deviceId": "track-0:device-0", "changes": [{"id": "parameter-0", "value": 0.8}]}
