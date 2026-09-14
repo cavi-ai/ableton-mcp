@@ -1194,6 +1194,39 @@ class DispatchTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             request("set_rack_chain_note_routing", changes={"inputNote": 36})
 
+    def test_rack_send_batches_validate_before_any_write(self):
+        song = Song()
+        song.begin_undo_step = lambda: None
+        song.end_undo_step = lambda: None
+        rack = DrumRack()
+        chain = rack.chains[0]
+        volume, send = Parameter(), Parameter()
+        chain.mixer_device = SimpleNamespace(volume=volume, panning=Parameter(), sends=[send])
+        song.tracks[0].devices = [rack]
+        ids = {"trackId": "track-0", "deviceId": "track-0:device-0"}
+        before = dispatch_request(song, {"method": "get_device_hierarchy", "params": ids}, 3)["device"]
+        base = {**ids, "chainId": "track-0:device-0/chain-0", "beforeDevice": before}
+        for sends in ([], [{"index": 1, "value": 0.5}], [{"index": True, "value": 0.5}],
+                      [{"index": 0, "value": 2}], [{"index": 0, "value": float("nan")}],
+                      [{"index": 0, "value": 0.5}, {"index": 0, "value": 0.6}]):
+            with self.assertRaises(ValueError):
+                dispatch_request(song, {"method": "set_rack_chain_mixer", "params": {
+                    **base, "changes": {"volume": 0.8, "sends": sends}}}, 3)
+            self.assertEqual(volume.value, 0.4)
+            self.assertEqual(send.value, 0.4)
+        send.is_enabled = False
+        disabled = dispatch_request(song, {"method": "get_device_hierarchy", "params": ids}, 3)["device"]
+        with self.assertRaises(ValueError):
+            dispatch_request(song, {"method": "set_rack_chain_mixer", "params": {
+                **base, "beforeDevice": disabled, "changes": {
+                    "volume": 0.8, "sends": [{"index": 0, "value": 0.5}]}}}, 3)
+        self.assertEqual(volume.value, 0.4)
+        self.assertEqual(send.value, 0.4)
+        send.is_enabled = True
+        dispatch_request(song, {"method": "set_rack_chain_mixer", "params": {
+            **base, "changes": {"sends": [{"index": 0, "value": 0.5}]}}}, 3)
+        self.assertEqual(send.value, 0.5)
+
     def test_device_hierarchy_reads_native_sample_source(self):
         song = Song()
         simpler = NestedDevice("Kick", "OriginalSimpler")

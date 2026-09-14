@@ -1210,11 +1210,25 @@ def dispatch_request(song, request, state_version, application=None):
             return {"stateVersion": state_version + 1, "trackId": params["trackId"],
                     "chainId": chain_id, "name": chain.name, "device": _device_tree(rack, params["deviceId"])}
         changes = params["changes"]
-        if not changes or set(changes) - {"volume", "pan", "mute", "solo"}:
+        if not changes or set(changes) - {"volume", "pan", "mute", "solo", "sends"}:
             raise ValueError("invalid chain mixer changes")
         state = _chain_mixer(chain)
         for key, value in changes.items():
-            if key in ("mute", "solo"):
+            if key == "sends":
+                if not isinstance(value, list) or not value:
+                    raise ValueError("send changes must be a nonempty list")
+                seen = set()
+                for change in value:
+                    if not isinstance(change, dict) or set(change) != {"index", "value"}:
+                        raise ValueError("invalid send change")
+                    index, level = change["index"], change["value"]
+                    if type(index) is not int or index < 0 or index >= len(state["sends"]) or index in seen:
+                        raise ValueError("unknown or duplicate send index")
+                    seen.add(index)
+                    native = state["sends"][index]
+                    if type(level) not in (int, float) or not math.isfinite(level) or not native["enabled"] or not native["min"] <= level <= native["max"]:
+                        raise ValueError("send is outside the writable native range")
+            elif key in ("mute", "solo"):
                 if type(value) is not bool or state[key] is None:
                     raise ValueError(f"{key} is not writable")
             elif type(value) not in (int, float) or not math.isfinite(value) or state[key] is None or not state[key]["enabled"] or not state[key]["min"] <= value <= state[key]["max"]:
@@ -1222,7 +1236,10 @@ def dispatch_request(song, request, state_version, application=None):
         song.begin_undo_step()
         try:
             for key, value in changes.items():
-                if key in ("mute", "solo"):
+                if key == "sends":
+                    for change in value:
+                        chain.mixer_device.sends[change["index"]].value = change["value"]
+                elif key in ("mute", "solo"):
                     setattr(chain, key, value)
                 else:
                     getattr(chain.mixer_device, "panning" if key == "pan" else "volume").value = value
