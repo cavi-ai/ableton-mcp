@@ -92,6 +92,7 @@ const toolNames = [
   "create_rack_chain",
   "set_rack_chain_mixer",
   "rename_rack_chain",
+  "set_drum_pad_state",
   "move_device_to_chain",
   "get_clip_parameter_envelope",
   "list_devices",

@@ -334,6 +334,25 @@ export class ToolService {
         targetTrackId: args.targetTrackId, targetChainId: args.targetChainId, targetPosition: args.targetPosition,
         expectedStateVersion: args.expectedStateVersion, beforeDevice: source.device, beforeTargetRack: target.device }, args);
     }
+    if (name === "set_drum_pad_state") {
+      requireExpectedState(args);
+      const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, { ...observed, deviceId: observed.device?.id });
+      const rack = observed.device;
+      if (rack?.id !== args.deviceId || !rack.canHaveDrumPads) throw new Error("device has no drum pads");
+      if (!Number.isInteger(args.note) || args.note < 0 || args.note > 127) throw new Error("pad note must be an integer from 0 to 127");
+      if (!rack.drumPads.some(pad => pad.note === args.note)) throw new Error("unknown populated drum pad");
+      const changes = {};
+      for (const key of ["mute", "solo"]) {
+        if (args[key] === undefined) continue;
+        if (typeof args[key] !== "boolean") throw new Error(`${key} must be boolean`);
+        changes[key] = args[key];
+      }
+      if (!Object.keys(changes).length) throw new Error("no drum pad changes requested");
+      return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+        note: args.note, expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, changes,
+        undoLimitation: "Do not rely on Live undo for pad solo; restore the observed pad state explicitly when needed." }, args);
+    }
     if (name === "set_rack_chain_mixer" || name === "rename_rack_chain") {
       requireExpectedState(args);
       const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
