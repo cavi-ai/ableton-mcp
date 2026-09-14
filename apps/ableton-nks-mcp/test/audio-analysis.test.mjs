@@ -19,6 +19,27 @@ test("clip analysis rejects a bridge source belonging to another clip before ope
   await assert.rejects(() => service.call("analyze_audio_clip", { trackId: "track-1", clipId: "track-1:clip-0" }), /audio clip identity mismatch/);
 });
 
+test("MCP persistence analysis measures selected source channel without claiming resonance", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cavi-spectral-persistence-"));
+  try {
+    const sourcePath = join(directory, "stereo.wav");
+    await promisify(execFile)("ffmpeg", ["-nostdin", "-v", "error", "-f", "lavfi", "-i",
+      "aevalsrc=0|0.5*sin(2*PI*1200*t):s=48000:d=1", sourcePath]);
+    const route = createRouter(new ToolService({}));
+    const reply = await route({ id: 1, method: "tools/call", params: { name: "analyze_audio_file",
+      arguments: { sourcePath, includeResonanceCandidates: true, channelIndex: 1 } } });
+    assert.equal(reply.error, undefined);
+    const result = reply.result.structuredContent;
+    assert.equal(result.spectrogram, undefined);
+    assert.equal(result.resonanceCandidates.confirmedResonance, false);
+    assert.equal(result.resonanceCandidates.channelIndex, 1);
+    assert.ok(result.resonanceCandidates.candidates.some(x => Math.abs(x.frequencyHz - 1200) < 12 && x.observedFrameFraction === 1));
+    const silent = await analyzeAudioFile(sourcePath, { includeResonanceCandidates: true });
+    assert.deepEqual(silent.resonanceCandidates.candidates, []);
+    await assert.rejects(analyzeAudioFile(sourcePath, { includeResonanceCandidates: true, durationSeconds: .2 }), /four/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("pitch analysis selects the requested source channel and rejects absent channels", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cavi-channel-pitch-"));
   try {

@@ -4,11 +4,12 @@ import { realpath, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { analyzeSpectrum } from "./audio-spectrum.mjs";
 import { estimateMonophonicPitch } from "./audio-pitch.mjs";
+import { inspectSpectralPersistence } from "./audio-resonance.mjs";
 
 const run = promisify(execFile);
 const limits = { timeout: 30000, maxBuffer: 2 * 1024 * 1024 };
 
-export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationSeconds = 10, includeSpectrum = false, includePitch = false, includeSpectrogram = false, includeWaveform = false, channelIndex = 0 } = {}) {
+export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationSeconds = 10, includeSpectrum = false, includePitch = false, includeSpectrogram = false, includeWaveform = false, includeResonanceCandidates = false, channelIndex = 0 } = {}) {
   if (typeof sourcePath !== "string" || !isAbsolute(sourcePath)) throw new Error("source must be an absolute local file path");
   if (!Number.isFinite(startSeconds) || startSeconds < 0) throw new Error("startSeconds must be finite and nonnegative");
   if (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || durationSeconds > 60) throw new Error("durationSeconds must be greater than zero and at most 60");
@@ -16,6 +17,7 @@ export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationS
   if (typeof includePitch !== "boolean") throw new Error("includePitch must be boolean");
   if (typeof includeSpectrogram !== "boolean") throw new Error("includeSpectrogram must be boolean");
   if (typeof includeWaveform !== "boolean") throw new Error("includeWaveform must be boolean");
+  if (typeof includeResonanceCandidates !== "boolean") throw new Error("includeResonanceCandidates must be boolean");
   if (!Number.isInteger(channelIndex) || channelIndex < 0) throw new Error("channelIndex must be a nonnegative integer");
   const path = await realpath(sourcePath);
   const before = await stat(path, { bigint: true });
@@ -80,7 +82,7 @@ export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationS
       limitation: "Overlapping 256-ms frames every 128 ms, plus a final tail frame, cover the complete selected-channel source window resampled to 16 kHz. Short notes and transitions can remain unreliable within mixed frames. Null means no reliable periodicity. Top-level estimate and harmonic peaks describe only the first frame; each frame includes its own matches. Harmonic matches within 50 cents are not resonance or timbre classifications. Not polyphonic analysis or pitch correction." };
   }
   let spectrogram;
-  if (includeSpectrogram) {
+  if (includeSpectrogram || includeResonanceCandidates) {
     const sampleRate = 48000, frameSize = 4096;
     if (windowSeconds < frameSize / sampleRate) throw new Error("spectrogram requires a full 4096-sample frame");
     const decoded = await run("ffmpeg", ["-nostdin", "-v", "error", "-protocol_whitelist", "file,pipe", "-ss", String(startSeconds), "-i", path, "-t", String(windowSeconds), "-map", "0:a:0", "-af", channelFilter, "-ar", String(sampleRate), "-c:a", "pcm_f32le", "-f", "f32le", "pipe:1"], { ...limits, maxBuffer: 12 * 1024 * 1024, encoding: "buffer" });
@@ -97,6 +99,8 @@ export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationS
       channelIndex, window: "periodic_hann", floorDbfs: -120, frames,
       limitation: "Up to 64 evenly spaced full frames of selected-channel source audio resampled to 48 kHz; sparse sampling can miss transients. Bin amplitudes are not resonance classifications." };
   }
+  const resonanceCandidates = includeResonanceCandidates ? { ...inspectSpectralPersistence(spectrogram), channelIndex,
+    startSeconds, durationSeconds: windowSeconds, sampledFrameStartsSeconds: spectrogram.frames.map(frame => frame.startSeconds) } : undefined;
   let waveform;
   if (includeWaveform) {
     const sampleRate = 48000;
@@ -127,5 +131,5 @@ export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationS
     window: { startSeconds, durationSeconds: windowSeconds },
     integratedLufs: finite(measured.input_i), truePeakDbtp: finite(measured.input_tp),
     loudnessRangeLu: finite(measured.input_lra), ...(spectrum ? { spectrum } : {}),
-    ...(monophonicPitch ? { monophonicPitch } : {}), ...(spectrogram ? { spectrogram } : {}), ...(waveform ? { waveform } : {}) };
+    ...(monophonicPitch ? { monophonicPitch } : {}), ...(spectrogram && includeSpectrogram ? { spectrogram } : {}), ...(resonanceCandidates ? { resonanceCandidates } : {}), ...(waveform ? { waveform } : {}) };
 }
