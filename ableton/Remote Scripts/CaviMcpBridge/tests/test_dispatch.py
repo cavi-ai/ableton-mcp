@@ -932,6 +932,21 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(changed["pitch"], {"coarse": -12, "fine": 17})
         self.assertEqual(changed["markers"], {"unit": "beats", "startBeats": 1.0, "endBeats": 7.0})
 
+    def test_add_audio_warp_marker_returns_native_anchor_and_rejects_stale_state(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[2].clip
+        clip.warp_markers = (SimpleNamespace(sample_time=0, beat_time=0), SimpleNamespace(sample_time=2, beat_time=4))
+        def add(marker):
+            clip.warp_markers = (clip.warp_markers[0], SimpleNamespace(
+                sample_time=marker["sample_time"], beat_time=marker["beat_time"]), clip.warp_markers[-1])
+        clip.add_warp_marker = add
+        params = {"trackId": "track-0", "clipId": "track-0:clip-2", "beatTime": 1, "sampleTime": 0.6}
+        before = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
+        result = dispatch_request(song, {"method": "add_audio_warp_marker", "params": {**params, "before": before}}, 3)
+        self.assertEqual(result["warpMarkers"]["markers"][1], {"sampleTime": 0.6, "beatTime": 1.0})
+        with self.assertRaisesRegex(ValueError, "state changed"):
+            dispatch_request(song, {"method": "add_audio_warp_marker", "params": {**params, "before": before}}, 3)
+
     def test_remove_audio_warp_marker_returns_remaining_native_positions(self):
         song = Song()
         clip = song.tracks[0].clip_slots[2].clip

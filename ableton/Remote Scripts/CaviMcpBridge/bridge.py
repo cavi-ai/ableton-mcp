@@ -745,6 +745,27 @@ def dispatch_request(song, request, state_version, application=None):
                 clip.start_marker = start
                 clip.end_marker = end
         return _audio_clip_state(song, track_id, clip_id, state_version + 1)
+    if method == "add_audio_warp_marker":
+        track_id, clip_id = params["trackId"], params["clipId"]
+        clip, _ = _audio_clip(song, track_id, clip_id)
+        before = _audio_clip_state(song, track_id, clip_id, state_version)
+        if before != params["before"]:
+            raise ValueError("audio clip identity or state changed")
+        if not clip.warping or not callable(getattr(clip, "add_warp_marker", None)):
+            raise ValueError("warped audio marker creation API required")
+        beat = params["beatTime"]
+        if isinstance(beat, bool) or not isinstance(beat, (int, float)) or not math.isfinite(beat):
+            raise ValueError("marker beat time must be a finite number")
+        if any(marker["beatTime"] == beat for marker in before["warpMarkers"]["markers"]):
+            raise ValueError("warp marker already exists at beat time")
+        marker = {"beat_time": beat}
+        if "sampleTime" in params:
+            sample = params["sampleTime"]
+            if isinstance(sample, bool) or not isinstance(sample, (int, float)) or not math.isfinite(sample) or sample < 0:
+                raise ValueError("sampleTime must be a finite nonnegative number")
+            marker["sample_time"] = sample
+        clip.add_warp_marker(marker)
+        return _audio_clip_state(song, track_id, clip_id, state_version + 1)
     if method == "remove_audio_warp_marker":
         track_id, clip_id = params["trackId"], params["clipId"]
         clip, _ = _audio_clip(song, track_id, clip_id)

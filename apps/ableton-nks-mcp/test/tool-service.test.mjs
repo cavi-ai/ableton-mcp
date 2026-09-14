@@ -1096,6 +1096,28 @@ test("clip parameter envelope inspection is read-only and returns sampled values
   assert.equal(calls.at(-1).method, "get_clip_parameter_envelope");
 });
 
+test("warp marker creation signs explicit anchor and preserves omitted sample time", async () => {
+  const before = { stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-2", warping: true, warpMarkers: { supported: true,
+    markers: [{ sampleTime: 0, beatTime: 0 }, { sampleTime: 2, beatTime: 4 }] } };
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_audio_clip_state") return before;
+    if (method === "add_audio_warp_marker") return { ...before, stateVersion: 5,
+      warpMarkers: { supported: true, markers: [{ sampleTime: params.sampleTime, beatTime: params.beatTime }] } };
+    throw new Error(method);
+  } } });
+  const args = { trackId: "track-0", clipId: "track-0:clip-2", expectedStateVersion: 4, beatTime: 1, sampleTime: 0.6 };
+  const dry = await service.call("add_audio_warp_marker", args);
+  assert.equal(dry.plan.sampleTime, 0.6);
+  const result = await service.call("add_audio_warp_marker", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.deepEqual(result.observed.warpMarkers.markers, [{ sampleTime: 0.6, beatTime: 1 }]);
+  const natural = { ...args }; delete natural.sampleTime;
+  assert.equal(Object.hasOwn((await service.call("add_audio_warp_marker", natural)).plan, "sampleTime"), false);
+  for (const changes of [{ beatTime: 0 }, { sampleTime: -1 }, { sampleTime: NaN }]) {
+    await assert.rejects(() => service.call("add_audio_warp_marker", { ...args, ...changes }), /marker|sampleTime/);
+  }
+});
+
 test("warp marker deletion confirms exact marker and rejects hidden terminal marker", async () => {
   const before = { stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-2", warping: true,
     warpMarkers: { supported: true, markers: [{ sampleTime: 0, beatTime: 0 },
