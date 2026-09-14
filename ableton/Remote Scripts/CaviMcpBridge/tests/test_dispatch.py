@@ -1053,6 +1053,13 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(rack["chains"][0]["id"], "track-0:device-0/chain-0")
         self.assertEqual(rack["chains"][0]["devices"][0]["id"], "track-0:device-0/chain-0/device-0")
         self.assertEqual(rack["chains"][0]["devices"][0]["className"], "OriginalSimpler")
+        self.assertFalse(rack["chains"][0]["apiSupport"]["deleteDevice"])
+        song.tracks[0].devices[0].chains[0].delete_device = lambda index: None
+        supported = dispatch_request(song, {
+            "method": "get_device_hierarchy",
+            "params": {"trackId": "track-0", "deviceId": "track-0:device-0"}
+        }, 3)
+        self.assertTrue(supported["device"]["chains"][0]["apiSupport"]["deleteDevice"])
         self.assertEqual(rack["drumPads"], [{
             "note": 36, "name": "Kick", "mute": False, "solo": False,
             "chainIds": ["track-0:device-0/chain-0"]

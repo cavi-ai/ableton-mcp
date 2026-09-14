@@ -456,6 +456,7 @@ def _device_tree(device, device_id):
             chain_ids[id(chain)] = chain_id
             chains.append({
                 "id": chain_id, "name": chain.name,
+                "apiSupport": {"deleteDevice": callable(getattr(chain, "delete_device", None))},
                 "devices": [_device_tree(child, f"{chain_id}/device-{child_index}")
                             for child_index, child in enumerate(chain.devices)],
             })
