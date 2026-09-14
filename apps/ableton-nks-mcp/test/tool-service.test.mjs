@@ -1096,6 +1096,31 @@ test("clip parameter envelope inspection is read-only and returns sampled values
   assert.equal(calls.at(-1).method, "get_clip_parameter_envelope");
 });
 
+test("warp marker deletion confirms exact marker and rejects hidden terminal marker", async () => {
+  const before = { stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-2", warping: true,
+    warpMarkers: { supported: true, markers: [{ sampleTime: 0, beatTime: 0 },
+      { sampleTime: 0.6, beatTime: 1.2 }, { sampleTime: 2, beatTime: 4 }, { sampleTime: 2.01, beatTime: 4.02 }] } };
+  let deleted = false;
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_audio_clip_state") return before;
+    if (method === "remove_audio_warp_marker") {
+      deleted = true;
+      return { ...before, stateVersion: 5, warpMarkers: { supported: true,
+        markers: before.warpMarkers.markers.filter(m => m.beatTime !== params.beatTime) } };
+    }
+    throw new Error(method);
+  } } });
+  const args = { trackId: before.trackId, clipId: before.clipId, expectedStateVersion: 4, beatTime: 1.2 };
+  const dry = await service.call("remove_audio_warp_marker", args);
+  assert.equal(deleted, false);
+  assert.deepEqual(dry.plan.before, before);
+  const result = await service.call("remove_audio_warp_marker", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.deepEqual(result.observed.warpMarkers.markers.map(m => m.beatTime), [0, 4, 4.02]);
+  for (const beatTime of [3, 4.02, NaN]) await assert.rejects(() =>
+    service.call("remove_audio_warp_marker", { ...args, beatTime }), /marker/);
+});
+
 test("warp marker movement signs exact audio state and requires confirmation", async () => {
   const before = { stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-2", warping: true,
     warpMarkers: { supported: true, markers: [

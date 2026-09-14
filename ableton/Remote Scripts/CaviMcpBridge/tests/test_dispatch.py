@@ -932,6 +932,26 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(changed["pitch"], {"coarse": -12, "fine": 17})
         self.assertEqual(changed["markers"], {"unit": "beats", "startBeats": 1.0, "endBeats": 7.0})
 
+    def test_remove_audio_warp_marker_returns_remaining_native_positions(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[2].clip
+        clip.warp_markers = tuple(SimpleNamespace(sample_time=s, beat_time=b) for s, b in (
+            (0, 0), (0.6, 1.2), (2, 4), (2.01, 4.02)))
+        def remove(beat):
+            clip.warp_markers = tuple(m for m in clip.warp_markers if m.beat_time != beat)
+        clip.remove_warp_marker = remove
+        params = {"trackId": "track-0", "clipId": "track-0:clip-2", "beatTime": 1.2}
+        before = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
+        result = dispatch_request(song, {"method": "remove_audio_warp_marker", "params": {**params, "before": before}}, 3)
+        self.assertEqual([m["beatTime"] for m in result["warpMarkers"]["markers"]], [0, 4, 4.02])
+        with self.assertRaisesRegex(ValueError, "state changed"):
+            dispatch_request(song, {"method": "remove_audio_warp_marker", "params": {**params, "before": before}}, 3)
+        for beat in (3, 4.02, float("nan"), True):
+            with self.assertRaisesRegex(ValueError, "marker"):
+                dispatch_request(song, {"method": "remove_audio_warp_marker", "params": {
+                    **params, "before": result, "beatTime": beat}}, 4)
+        self.assertEqual(len(clip.warp_markers), 3)
+
     def test_move_audio_warp_marker_uses_native_distance_and_rejects_crossing(self):
         song = Song()
         clip = song.tracks[0].clip_slots[2].clip

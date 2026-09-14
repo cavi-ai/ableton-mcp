@@ -457,6 +457,7 @@ export class ToolService {
     if (name === "delete_session_object") return this.#deleteSessionObject(args);
     if (name === "set_audio_clip_state") return this.#setAudioClipState(args);
     if (name === "move_audio_warp_marker") return this.#moveAudioWarpMarker(args);
+    if (name === "remove_audio_warp_marker") return this.#removeAudioWarpMarker(args);
     if (name === "duplicate_clip") return this.#duplicateClip(args);
     if (name === "delete_clip") return this.#deleteClip(args);
     if (name === "duplicate_clip_loop") return this.#duplicateClipLoop(args);
@@ -822,6 +823,19 @@ export class ToolService {
       method: "set_audio_clip_state", trackId: args.trackId, clipId: args.clipId,
       expectedStateVersion: args.expectedStateVersion, before: observed, changes
     }, args);
+  }
+
+  async #removeAudioWarpMarker(args) {
+    requireExpectedState(args);
+    const before = await this.bridge.request("get_audio_clip_state", { trackId: args.trackId, clipId: args.clipId });
+    assertExpectedState(args, before);
+    if (!before.warping || !before.warpMarkers?.supported) throw new Error("warped audio marker API required");
+    if (!Number.isFinite(args.beatTime)) throw new Error("marker beat time must be a finite number");
+    const markers = before.warpMarkers.markers;
+    const index = markers.findIndex(marker => marker.beatTime === args.beatTime);
+    if (index < 0 || index === markers.length - 1) throw new Error("unknown or hidden terminal warp marker");
+    return this.#confirmedMutation({ method: "remove_audio_warp_marker", trackId: args.trackId, clipId: args.clipId,
+      expectedStateVersion: args.expectedStateVersion, before, beatTime: args.beatTime }, args);
   }
 
   async #moveAudioWarpMarker(args) {

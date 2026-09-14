@@ -4,7 +4,7 @@
   "list_arrangement_cue_points", "create_arrangement_cue_point", "rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point",
   "get_browser_items", "load_browser_item", "search_browser_items", "get_factory_browser_items", "load_factory_browser_item",
   "list_tracks", "list_scenes", "list_clips", "get_clip_timing", "set_clip_timing", "duplicate_clip_loop", "duplicate_clip", "delete_clip",
-  "get_audio_clip_state", "set_audio_clip_state", "move_audio_warp_marker", "get_track_mixer", "get_track_routing", "set_track_routing", "set_group_fold_state", "route_tracks_to_bus",
+  "get_audio_clip_state", "set_audio_clip_state", "move_audio_warp_marker", "remove_audio_warp_marker", "get_track_mixer", "get_track_routing", "set_track_routing", "set_group_fold_state", "route_tracks_to_bus",
   "get_midi_clip_notes", "create_track", "create_scene", "rename_session_object", "get_midi_clip_notes_extended", "set_midi_note_properties", "transform_midi_notes",
   "duplicate_session_object", "delete_session_object", "get_set_mixer", "set_master_mixer", "set_return_mixer",
   "get_clip_parameter_envelope", "set_clip_parameter_envelope", "list_devices", "get_device_hierarchy", "set_device_active", "delete_device", "create_rack_chain", "move_device_to_chain", "set_rack_chain_mixer", "rename_rack_chain", "set_drum_pad_state", "set_rack_chain_note_routing",
