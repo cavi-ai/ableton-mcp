@@ -13,6 +13,7 @@ const profiles = [
   { id: "echo", name: "Echo", type: "audio_effect", family: "delay", match: ["echo"], roles: { ...globalRoles, time: ["time", "sync", "division"], feedback: ["feedback"], filter: ["filter", "freq"], modulation: ["modulation", "wobble", "noise"], mix: ["dry/wet", "mix"] } },
   { id: "reverb", name: "Reverb", type: "audio_effect", family: "reverb", match: ["reverb"], roles: { ...globalRoles, time: ["decay", "time", "size", "pre-delay"], tone: ["filter", "freq", "damping", "diffusion"], modulation: ["modulation", "chorus"], mix: ["dry/wet", "mix"] } },
   { id: "hybrid-reverb", name: "Hybrid Reverb", type: "audio_effect", family: "reverb", match: ["hybrid reverb"], roles: { ...globalRoles, algorithm: ["algorithm", "convolution", "ir"], time: ["decay", "time", "size", "pre-delay"], tone: ["filter", "freq", "damping"], modulation: ["modulation"], mix: ["dry/wet", "mix", "blend"] } }
+  ,{ id: "auto-shift", name: "Auto Shift", type: "audio_effect", family: "pitch-correction", match: ["auto shift", "autoshift"], roles: { ...globalRoles, expression: ["midi >", "pb range", "latch", "scale aware", "glide", "attack time", "release time"], modulation: ["lfo", "vibrato"], correction: ["quantizer", "smooth", "strength", "root", "scale"], pitch: ["pitch st.", "pitch scale deg.", "pitch fine"], formant: ["formant"], mix: ["input gain", "dry/wet"] } }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });
