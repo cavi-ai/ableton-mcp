@@ -90,6 +90,7 @@ const toolNames = [
   "create_audio_clip",
   "set_return_mixer",
   "list_factory_device_profiles",
+  "get_factory_coverage",
   "get_factory_device_context",
   "get_factory_browser_items",
   "load_factory_browser_item",

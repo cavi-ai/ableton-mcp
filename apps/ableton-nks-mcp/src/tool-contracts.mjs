@@ -48,6 +48,7 @@ const envelopePoint = object({
 }, ["time", "duration", "value"]);
 
 export const toolContracts = {
+  get_factory_coverage: { description: "Compare observed top-level Live factory browser devices with name-matched knowledge profiles. Reports missing profiles, not verified deep integration or all presets/Packs/plugins.", inputSchema: empty },
   search_presets: { description: "Search the optional local NKS preset catalog.", inputSchema: object({ productSlug: string("Product slug."), query: string("Name query."), category: string("Normalized category."), favorite: boolean("Return only favorites or non-favorites."), tags: array(string("Normalized user tag."), "Require every supplied tag."), limit: { type: "integer", minimum: 1 } }) },
   get_preset: { description: "Read one exact NKS preset catalog record.", inputSchema: object({ presetId: ids.presetId }, ["presetId"]) },
   get_preset_metadata: { description: "Read user tags, favorite state, and revision for one preset.", inputSchema: object({ presetId: ids.presetId }, ["presetId"]) },

@@ -278,6 +278,23 @@ export class ToolService {
     if (name === "get_track_routing") return this.bridge.request("get_track_routing", args);
     if (name === "get_set_mixer") return this.bridge.request("get_set_mixer", {});
     if (name === "list_factory_device_profiles") return { profiles: listFactoryDeviceProfiles() };
+    if (name === "get_factory_coverage") {
+      const roots = {};
+      for (const root of ["instruments", "audio_effects", "midi_effects"]) {
+        const observed = await this.bridge.request("get_factory_browser_items", { root });
+        if (observed.root !== root || !Array.isArray(observed.children)) throw new Error("invalid factory browser observation");
+        const profiledByName = [], missingProfiles = [];
+        for (const item of observed.children.filter(item => item.loadable)) {
+          const profile = getFactoryDeviceProfile({ name: item.name });
+          const record = { name: item.name, uri: item.uri, path: [item.name] };
+          if (profile) profiledByName.push({ ...record, profileId: profile.id });
+          else missingProfiles.push(record);
+        }
+        roots[root] = { stateVersion: observed.stateVersion, loadableCount: profiledByName.length + missingProfiles.length, profiledByName, missingProfiles };
+      }
+      return { roots, deepIntegrationVerified: false,
+        limitation: "Three sequential top-level factory browser observations, not an atomic inventory or exhaustive preset/Pack/third-party catalog. Profile matches use browser names; verify native class identity and actual controls after loading. A profile or loadable item does not prove save/recall, modulation, signal flow, or complete device integration." };
+    }
     if (name === "get_browser_items" || name === "get_factory_browser_items") {
       return this.bridge.request(name, normalizeBrowserPath(args));
     }
