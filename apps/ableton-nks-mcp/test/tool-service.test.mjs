@@ -1096,6 +1096,44 @@ test("clip parameter envelope inspection is read-only and returns sampled values
   assert.equal(calls.at(-1).method, "get_clip_parameter_envelope");
 });
 
+test("audio quantization signs grid amount and full native before-state", async () => {
+  const before = { stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-2", warping: true,
+    warpMarkers: { supported: true, markers: [{ sampleTime: 0.13, beatTime: 0.26 }] } };
+  let mutations = 0;
+  let swingAmount = 0;
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_audio_clip_state") return before;
+    if (method === "get_song_musical_context") return { stateVersion: 4, groove: { swingAmount } };
+    if (method === "quantize_audio_clip") {
+      mutations++;
+      assert.deepEqual(params.before, before);
+      assert.equal(params.grid, "1_8_triplet");
+      assert.equal(params.amount, 0.75);
+      return { ...before, stateVersion: 5, warpMarkers: { supported: true,
+        markers: [{ sampleTime: 0.13, beatTime: 0 }] } };
+    }
+    throw new Error(method);
+  } } });
+  const args = { trackId: "track-0", clipId: "track-0:clip-2", expectedStateVersion: 4,
+    grid: "1_8_triplet", amount: 0.75 };
+  const dry = await service.call("quantize_audio_clip", args);
+  assert.equal(mutations, 0);
+  assert.equal(dry.plan.grid, "1_8_triplet");
+  assert.equal(dry.plan.beforeSwingAmount, 0);
+  const result = await service.call("quantize_audio_clip", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.deepEqual(result.observed.warpMarkers.markers, [{ sampleTime: 0.13, beatTime: 0 }]);
+  assert.equal(mutations, 1);
+  const stale = await service.call("quantize_audio_clip", args);
+  swingAmount = 0.5;
+  await assert.rejects(() => service.call("quantize_audio_clip", { ...args, dryRun: false,
+    confirmationToken: stale.confirmation.token, planHash: stale.confirmation.planHash }), /plan|changed/);
+  assert.equal(mutations, 1);
+  for (const changes of [{ grid: "none" }, { grid: "unknown" }, { amount: -0.1 }, { amount: 1.1 }, { amount: NaN }]) {
+    await assert.rejects(() => service.call("quantize_audio_clip", { ...args, ...changes }), /grid|amount/);
+  }
+});
+
 test("warp marker creation signs explicit anchor and preserves omitted sample time", async () => {
   const before = { stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-2", warping: true, warpMarkers: { supported: true,
     markers: [{ sampleTime: 0, beatTime: 0 }, { sampleTime: 2, beatTime: 4 }] } };

@@ -745,6 +745,31 @@ def dispatch_request(song, request, state_version, application=None):
                 clip.start_marker = start
                 clip.end_marker = end
         return _audio_clip_state(song, track_id, clip_id, state_version + 1)
+    if method == "quantize_audio_clip":
+        track_id, clip_id = params["trackId"], params["clipId"]
+        clip, _ = _audio_clip(song, track_id, clip_id)
+        if _audio_clip_state(song, track_id, clip_id, state_version) != params["before"]:
+            raise ValueError("audio clip identity or state changed")
+        if float(song.swing_amount) != params["beforeSwingAmount"]:
+            raise ValueError("song swing amount changed")
+        if not clip.warping or not callable(getattr(clip, "quantize", None)):
+            raise ValueError("warped audio quantization API required")
+        grids = {
+            "1_4": "rec_q_quarter", "1_8": "rec_q_eight", "1_8_triplet": "rec_q_eight_triplet",
+            "1_8_and_triplet": "rec_q_eight_eight_triplet", "1_16": "rec_q_sixtenth",
+            "1_16_triplet": "rec_q_sixtenth_triplet", "1_16_and_triplet": "rec_q_sixtenth_sixtenth_triplet",
+            "1_32": "rec_q_thirtysecond",
+        }
+        if params["grid"] not in grids:
+            raise ValueError("unsupported audio quantization grid")
+        amount = params["amount"]
+        if isinstance(amount, bool) or not isinstance(amount, (int, float)) or not math.isfinite(amount) or not 0 <= amount <= 1:
+            raise ValueError("amount must be a finite number from zero to one")
+        native_grid = getattr(getattr(getattr(Live, "Song", None), "RecordingQuantization", None), grids[params["grid"]], None)
+        if native_grid is None:
+            raise ValueError("native audio quantization grid unavailable")
+        clip.quantize(native_grid, amount)
+        return _audio_clip_state(song, track_id, clip_id, state_version + 1)
     if method == "add_audio_warp_marker":
         track_id, clip_id = params["trackId"], params["clipId"]
         clip, _ = _audio_clip(song, track_id, clip_id)

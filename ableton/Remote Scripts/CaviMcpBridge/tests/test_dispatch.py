@@ -932,6 +932,59 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(changed["pitch"], {"coarse": -12, "fine": 17})
         self.assertEqual(changed["markers"], {"unit": "beats", "startBeats": 1.0, "endBeats": 7.0})
 
+    def test_quantize_audio_clip_uses_native_grid_and_rejects_stale_markers(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[2].clip
+        clip.warp_markers = (SimpleNamespace(sample_time=0.13, beat_time=0.26),)
+        native_grid = object()
+        def quantize(grid, amount):
+            self.assertIs(grid, native_grid)
+            self.assertEqual(amount, 0.75)
+            clip.warp_markers = (SimpleNamespace(sample_time=0.13, beat_time=0),)
+        clip.quantize = quantize
+        params = {"trackId": "track-0", "clipId": "track-0:clip-2", "grid": "1_8_triplet", "amount": 0.75, "beforeSwingAmount": 0}
+        before = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
+        live = SimpleNamespace(Song=SimpleNamespace(RecordingQuantization=SimpleNamespace(rec_q_eight_triplet=native_grid)))
+        with patch("bridge.Live", live):
+            song.swing_amount = 0.5
+            with self.assertRaisesRegex(ValueError, "swing.*changed"):
+                dispatch_request(song, {"method": "quantize_audio_clip", "params": {**params, "before": before}}, 3)
+            song.swing_amount = 0
+            for changes in ({"grid": "none"}, {"amount": -0.1}, {"amount": 1.1}, {"amount": True}, {"amount": float("nan")}):
+                with self.assertRaisesRegex(ValueError, "grid|amount"):
+                    dispatch_request(song, {"method": "quantize_audio_clip", "params": {**params, **changes, "before": before}}, 3)
+            result = dispatch_request(song, {"method": "quantize_audio_clip", "params": {**params, "before": before}}, 3)
+            self.assertEqual(result["warpMarkers"]["markers"], [{"sampleTime": 0.13, "beatTime": 0.0}])
+            with self.assertRaisesRegex(ValueError, "state changed"):
+                dispatch_request(song, {"method": "quantize_audio_clip", "params": {**params, "before": before}}, 3)
+
+    def test_quantize_audio_clip_all_native_grids_and_unavailable_enum(self):
+        for grid, attribute in (
+            ("1_4", "rec_q_quarter"), ("1_8", "rec_q_eight"),
+            ("1_8_triplet", "rec_q_eight_triplet"), ("1_8_and_triplet", "rec_q_eight_eight_triplet"),
+            ("1_16", "rec_q_sixtenth"), ("1_16_triplet", "rec_q_sixtenth_triplet"),
+            ("1_16_and_triplet", "rec_q_sixtenth_sixtenth_triplet"), ("1_32", "rec_q_thirtysecond"),
+        ):
+            with self.subTest(grid=grid):
+                song = Song()
+                clip = song.tracks[0].clip_slots[2].clip
+                clip.warp_markers = (SimpleNamespace(sample_time=0.13, beat_time=0.26),)
+                native_grid = object()
+                def quantize(value, amount):
+                    self.assertIs(value, native_grid)
+                    self.assertEqual(amount, 1)
+                    clip.warp_markers = (SimpleNamespace(sample_time=0.13, beat_time=0),)
+                clip.quantize = quantize
+                params = {"trackId": "track-0", "clipId": "track-0:clip-2", "grid": grid, "amount": 1, "beforeSwingAmount": 0}
+                before = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
+                with patch("bridge.Live", None):
+                    with self.assertRaisesRegex(ValueError, "grid unavailable"):
+                        dispatch_request(song, {"method": "quantize_audio_clip", "params": {**params, "before": before}}, 3)
+                live = SimpleNamespace(Song=SimpleNamespace(RecordingQuantization=SimpleNamespace(**{attribute: native_grid})))
+                with patch("bridge.Live", live):
+                    result = dispatch_request(song, {"method": "quantize_audio_clip", "params": {**params, "before": before}}, 3)
+                self.assertEqual(result["warpMarkers"]["markers"], [{"sampleTime": 0.13, "beatTime": 0.0}])
+
     def test_add_audio_warp_marker_returns_native_anchor_and_rejects_stale_state(self):
         song = Song()
         clip = song.tracks[0].clip_slots[2].clip

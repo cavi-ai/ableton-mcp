@@ -64,6 +64,7 @@ const toolNames = [
   "move_audio_warp_marker",
   "remove_audio_warp_marker",
   "add_audio_warp_marker",
+  "quantize_audio_clip",
   "duplicate_clip",
   "delete_clip",
   "duplicate_clip_loop",

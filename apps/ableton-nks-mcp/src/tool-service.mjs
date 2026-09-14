@@ -459,6 +459,7 @@ export class ToolService {
     if (name === "move_audio_warp_marker") return this.#moveAudioWarpMarker(args);
     if (name === "remove_audio_warp_marker") return this.#removeAudioWarpMarker(args);
     if (name === "add_audio_warp_marker") return this.#addAudioWarpMarker(args);
+    if (name === "quantize_audio_clip") return this.#quantizeAudioClip(args);
     if (name === "duplicate_clip") return this.#duplicateClip(args);
     if (name === "delete_clip") return this.#deleteClip(args);
     if (name === "duplicate_clip_loop") return this.#duplicateClipLoop(args);
@@ -824,6 +825,22 @@ export class ToolService {
       method: "set_audio_clip_state", trackId: args.trackId, clipId: args.clipId,
       expectedStateVersion: args.expectedStateVersion, before: observed, changes
     }, args);
+  }
+
+  async #quantizeAudioClip(args) {
+    requireExpectedState(args);
+    const before = await this.bridge.request("get_audio_clip_state", { trackId: args.trackId, clipId: args.clipId });
+    assertExpectedState(args, before);
+    if (!before.warping || !before.warpMarkers?.supported) throw new Error("warped audio marker API required");
+    if (!["1_4", "1_8", "1_8_triplet", "1_8_and_triplet", "1_16", "1_16_triplet", "1_16_and_triplet", "1_32"].includes(args.grid)) {
+      throw new Error("unsupported audio quantization grid");
+    }
+    const amount = finiteRange(args.amount, "amount", 0, 1);
+    const context = await this.bridge.request("get_song_musical_context", {});
+    assertExpectedState({ expectedStateVersion: args.expectedStateVersion }, context);
+    const beforeSwingAmount = finiteRange(context.groove?.swingAmount, "observed swing amount", 0, 1);
+    return this.#confirmedMutation({ method: "quantize_audio_clip", trackId: args.trackId, clipId: args.clipId,
+      expectedStateVersion: args.expectedStateVersion, before, beforeSwingAmount, grid: args.grid, amount }, args);
   }
 
   async #addAudioWarpMarker(args) {
