@@ -652,7 +652,7 @@ export class ToolService {
     }
     if (args.groove !== undefined) {
       const groove = {};
-      if (args.groove.amount !== undefined) groove.amount = finiteRange(args.groove.amount, "groove.amount", 0, 1);
+      if (args.groove.amount !== undefined) groove.amount = finiteRange(args.groove.amount, "groove.amount", 0, 1.3125);
       if (args.groove.swingAmount !== undefined) groove.swingAmount = finiteRange(args.groove.swingAmount, "groove.swingAmount", 0, 1);
       if (Object.keys(groove).length) changes.groove = groove;
     }

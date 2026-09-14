@@ -64,7 +64,7 @@ export const toolContracts = {
   set_song_musical_context: { description: "Plan or apply guarded song key, scale, timing, quantization, groove, swing, or loop changes.", inputSchema: guarded({
     timeSignature: object({ numerator: { type: "integer", minimum: 1 }, denominator: { type: "integer", enum: [1, 2, 4, 8, 16] } }),
     key: object({ rootNote: { type: "integer", minimum: 0, maximum: 11 }, scaleName: string("Live scale name."), scaleMode: boolean("Enable Live scale mode.") }),
-    quantization: object({ clipTrigger: choice("Clip-trigger quantization value or name."), midiRecording: choice("MIDI-recording quantization value or name.") }), groove: object({ amount: number("Groove amount.", { minimum: 0, maximum: 1 }), swingAmount: number("Swing amount.", { minimum: 0, maximum: 1 }) }),
+    quantization: object({ clipTrigger: choice("Clip-trigger quantization value or name."), midiRecording: choice("MIDI-recording quantization value or name.") }), groove: object({ amount: number("Native global groove intensity: 1 is 100%; maximum 1.3125. Individual pool amounts use separate percentage units.", { minimum: 0, maximum: 1.3125 }), swingAmount: number("Swing amount.", { minimum: 0, maximum: 1 }) }),
     loop: object({ enabled: boolean("Arrangement loop enabled."), startBeats: number("Loop start.", { minimum: 0 }), lengthBeats: number("Loop length.", { exclusiveMinimum: 0 }) }),
   }) },
   list_arrangement_cue_points: { description: "List Arrangement cue points with stable IDs and beat positions.", inputSchema: empty },

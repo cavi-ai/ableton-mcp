@@ -734,6 +734,16 @@ test("song musical context mutation validates and signs exact producer changes",
   assert.equal(calls.at(-1).method, "get_song_musical_context");
 });
 
+test("global groove amount accepts native maximum and rejects out-of-range values", async () => {
+  const { service } = fixture();
+  const args = { expectedStateVersion: 4, groove: { amount: 1.3125 } };
+  const dry = await service.call("set_song_musical_context", args);
+  assert.deepEqual(dry.plan.changes.groove, { amount: 1.3125 });
+  for (const amount of [-0.01, 1.3126, Infinity]) {
+    await assert.rejects(service.call("set_song_musical_context", { ...args, groove: { amount } }), /groove.amount/);
+  }
+});
+
 test("clip timing mutation rejects invalid loops and signs groove assignment", async () => {
   const { service } = fixture();
   const base = { trackId: "track-0", clipId: "track-0:clip-0", expectedStateVersion: 4 };
