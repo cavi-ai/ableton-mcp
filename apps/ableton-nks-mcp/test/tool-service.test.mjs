@@ -5,6 +5,24 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ToolService } from "../src/tool-service.mjs";
 
+test("rack chain creation confirms exact hierarchy and validates insertion", async () => {
+  const rack = { id: "track-0:device-0", canHaveChains: true, chains: [{ id: "track-0:device-0/chain-0", name: "Existing", devices: [] }] };
+  const calls = [];
+  const service = new ToolService({ bridge: { async request(method, params) {
+    calls.push({ method, params });
+    if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
+    if (method === "create_rack_chain") return { stateVersion: 5, createdChainId: `${rack.id}/chain-1` };
+    throw new Error(method);
+  } } });
+  const args = { trackId: "track-0", deviceId: rack.id, expectedStateVersion: 4, index: 1, name: "Bass layer" };
+  const dry = await service.call("create_rack_chain", args);
+  assert.deepEqual(dry.plan.beforeDevice, rack);
+  await assert.rejects(() => service.call("create_rack_chain", { ...args, index: 3 }), /insertion index/);
+  const result = await service.call("create_rack_chain", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.observed.createdChainId, `${rack.id}/chain-1`);
+  assert.equal(calls.at(-1).method, "create_rack_chain");
+});
+
 function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 1, velocity: 100,
   velocityDeviation: 0, releaseVelocity: 64, probability: 1, mute: false }] } = {}) {
   const calls = [];

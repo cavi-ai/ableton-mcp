@@ -304,6 +304,18 @@ export class ToolService {
     if (name === "get_audio_clip_state") return this.bridge.request("get_audio_clip_state", args);
     if (name === "list_devices") return this.bridge.request("list_devices", args);
     if (name === "get_device_hierarchy") return this.bridge.request("get_device_hierarchy", args);
+    if (name === "create_rack_chain") {
+      requireExpectedState(args);
+      const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, { ...observed, deviceId: observed.device?.id });
+      const rack = observed.device;
+      if (rack?.id !== args.deviceId || !rack.canHaveChains || !Array.isArray(rack.chains)) throw new Error("device does not support rack chain creation");
+      const index = args.index === undefined ? rack.chains.length : args.index;
+      if (!Number.isInteger(index) || index < 0 || index > rack.chains.length) throw new Error("invalid rack chain insertion index");
+      if (typeof args.name !== "string" || !args.name.trim()) throw new Error("rack chain name must not be empty");
+      return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+        expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, index, name: args.name }, args);
+    }
     if (name === "list_device_parameters") {
       return this.bridge.request("list_device_parameters", args);
     }

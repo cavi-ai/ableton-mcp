@@ -87,6 +87,9 @@ class DrumRack(NestedDevice):
         self.chains = [kick]
         self.drum_pads = [DrumPad(36, "Kick", [kick]), DrumPad(37, "Empty", [])]
 
+    def insert_chain(self, index):
+        self.chains.insert(index, Chain("Chain", []))
+
 
 class Track:
     def __init__(self):
@@ -969,6 +972,20 @@ class DispatchTest(unittest.TestCase):
             "note": 36, "name": "Kick", "mute": False, "solo": False,
             "chainIds": ["track-0:device-0/chain-0"]
         }])
+
+    def test_create_rack_chain_inserts_named_empty_chain_and_rejects_stale_rack(self):
+        song = Song()
+        song.begin_undo_step = lambda: None
+        song.end_undo_step = lambda: None
+        song.tracks[0].devices = [DrumRack()]
+        ids = {"trackId": "track-0", "deviceId": "track-0:device-0"}
+        before = dispatch_request(song, {"method": "get_device_hierarchy", "params": ids}, 3)["device"]
+        params = {**ids, "beforeDevice": before, "index": 1, "name": "Bass layer"}
+        result = dispatch_request(song, {"method": "create_rack_chain", "params": params}, 3)
+        self.assertEqual(result["device"]["chains"][1]["name"], "Bass layer")
+        self.assertEqual(result["device"]["chains"][1]["devices"], [])
+        with self.assertRaisesRegex(ValueError, "rack state changed"):
+            dispatch_request(song, {"method": "create_rack_chain", "params": params}, 4)
 
     def test_nested_device_parameter_paths_resolve_exact_rack_children(self):
         song = Song()

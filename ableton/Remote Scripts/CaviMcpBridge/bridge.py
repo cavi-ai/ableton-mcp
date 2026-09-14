@@ -1042,6 +1042,26 @@ def dispatch_request(song, request, state_version, application=None):
             "deletedDevice": deleted,
             "devices": [_device_record(item, f"track-{int(params['trackId'].removeprefix('track-'))}:device-{i}") for i, item in enumerate(track.devices)],
         }
+    if method == "create_rack_chain":
+        _, _, device = _device(song, params["trackId"], params["deviceId"])
+        if not device.can_have_chains or not callable(getattr(device, "insert_chain", None)):
+            raise ValueError("device does not support rack chain creation")
+        if _device_tree(device, params["deviceId"]) != params["beforeDevice"]:
+            raise ValueError("rack state changed")
+        index, name = params["index"], params["name"]
+        if type(index) is not int or index < 0 or index > len(device.chains):
+            raise ValueError("invalid rack chain insertion index")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("rack chain name must not be empty")
+        song.begin_undo_step()
+        try:
+            device.insert_chain(index)
+            device.chains[index].name = name
+        finally:
+            song.end_undo_step()
+        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                "device": _device_tree(device, params["deviceId"]),
+                "createdChainId": f"{params['deviceId']}/chain-{index}"}
     if method == "get_device_hierarchy":
         _, _, device = _device(song, params["trackId"], params["deviceId"])
         return {
