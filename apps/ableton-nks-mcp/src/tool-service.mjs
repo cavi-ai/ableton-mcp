@@ -334,6 +334,27 @@ export class ToolService {
         targetTrackId: args.targetTrackId, targetChainId: args.targetChainId, targetPosition: args.targetPosition,
         expectedStateVersion: args.expectedStateVersion, beforeDevice: source.device, beforeTargetRack: target.device }, args);
     }
+    if (name === "set_rack_chain_mixer") {
+      requireExpectedState(args);
+      const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, { ...observed, deviceId: observed.device?.id });
+      const rack = observed.device;
+      if (rack?.id !== args.deviceId || !rack.canHaveChains) throw new Error("target rack identity mismatch");
+      const chain = rack.chains.find(item => item.id === args.chainId);
+      if (!chain) throw new Error("unknown rack chain");
+      const changes = {};
+      for (const key of ["volume", "pan", "mute", "solo"]) {
+        if (args[key] === undefined) continue;
+        const native = chain.mixer?.[key];
+        if (key === "mute" || key === "solo") {
+          if (typeof args[key] !== "boolean" || typeof native !== "boolean") throw new Error(`${key} is not writable`);
+        } else if (!Number.isFinite(args[key]) || !native?.enabled || args[key] < native.min || args[key] > native.max) throw new Error(`${key} is outside the writable native range`);
+        changes[key] = args[key];
+      }
+      if (!Object.keys(changes).length) throw new Error("no chain mixer changes requested");
+      return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+        chainId: args.chainId, expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, changes }, args);
+    }
     if (name === "create_rack_chain") {
       requireExpectedState(args);
       const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
