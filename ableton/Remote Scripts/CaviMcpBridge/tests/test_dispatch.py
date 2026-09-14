@@ -1169,6 +1169,29 @@ class DispatchTest(unittest.TestCase):
                 dispatch_request(song, {"method": "list_device_parameters", "params": {
                     "trackId": "track-0", "deviceId": f"track-0:device-0/{bad}/device-0"}}, 3)
 
+    def test_return_chain_mixer_and_name_are_addressable(self):
+        song = Song()
+        song.begin_undo_step = lambda: None
+        song.end_undo_step = lambda: None
+        rack = DrumRack()
+        chain = Chain("Reverb", [])
+        chain.mixer_device = SimpleNamespace(volume=Parameter(), panning=Parameter())
+        chain.mute, chain.solo = False, False
+        rack.return_chains = [chain]
+        song.tracks[0].devices = [rack]
+        ids = {"trackId": "track-0", "deviceId": "track-0:device-0"}
+        def request(method, **changes):
+            before = dispatch_request(song, {"method": "get_device_hierarchy", "params": ids}, 3)["device"]
+            return dispatch_request(song, {"method": method, "params": {
+                **ids, "chainId": "track-0:device-0/return-chain-0", "beforeDevice": before, **changes}}, 3)
+        request("set_rack_chain_mixer", changes={"volume": 0.5, "mute": True})
+        self.assertEqual(chain.mixer_device.volume.value, 0.5)
+        self.assertTrue(chain.mute)
+        request("rename_rack_chain", name="Room")
+        self.assertEqual(chain.name, "Room")
+        with self.assertRaises(ValueError):
+            request("set_rack_chain_note_routing", changes={"inputNote": 36})
+
     def test_device_hierarchy_reads_native_sample_source(self):
         song = Song()
         simpler = NestedDevice("Kick", "OriginalSimpler")

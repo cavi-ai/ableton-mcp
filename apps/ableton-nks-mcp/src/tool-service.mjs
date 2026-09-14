@@ -360,7 +360,9 @@ export class ToolService {
       assertExpectedState(args, { ...observed, deviceId: observed.device?.id });
       const rack = observed.device;
       if (rack?.id !== args.deviceId || !rack.canHaveChains) throw new Error("target rack identity mismatch");
-      const chain = rack.chains.find(item => item.id === args.chainId);
+      const availableChains = name === "set_rack_chain_note_routing"
+        ? rack.chains : [...rack.chains, ...(rack.returnChains ?? [])];
+      const chain = availableChains.find(item => item.id === args.chainId);
       if (!chain) throw new Error("unknown rack chain");
       if (name === "set_rack_chain_note_routing") {
         if (!rack.canHaveDrumPads) throw new Error("note routing requires a Drum Rack");

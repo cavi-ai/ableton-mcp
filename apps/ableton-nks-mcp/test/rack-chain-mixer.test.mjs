@@ -2,6 +2,23 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ToolService } from "../src/tool-service.mjs";
 
+test("rack return mixer plans select the return rather than an ordinary chain", async () => {
+  const deviceId = "track-0:device-0", chainId = `${deviceId}/return-chain-0`;
+  const rack = { id: deviceId, canHaveChains: true, canHaveDrumPads: true,
+    chains: [], returnChains: [{ id: chainId, name: "Reverb", mixer: {
+      volume: { value: 0.75, min: 0, max: 1, enabled: true }, mute: false, solo: false
+    } }] };
+  const service = new ToolService({ bridge: { async request() {
+    return { stateVersion: 4, trackId: "track-0", device: rack };
+  } } });
+  const args = { trackId: "track-0", deviceId, chainId, expectedStateVersion: 4, volume: 0.5 };
+  const dry = await service.call("set_rack_chain_mixer", args);
+  assert.deepEqual(dry.plan.changes, { volume: 0.5 });
+  assert.equal(dry.plan.chainId, chainId);
+  assert.equal((await service.call("rename_rack_chain", { ...args, name: "Room" })).plan.name, "Room");
+  await assert.rejects(() => service.call("set_rack_chain_note_routing", { ...args, inputNote: 36 }), /unknown rack chain/);
+});
+
 test("rack chain rename binds the exact existing layer", async () => {
   const deviceId = "track-0:device-0", chainId = `${deviceId}/chain-0`;
   const rack = { id: deviceId, canHaveChains: true, chains: [{ id: chainId, name: "Chain" }] };

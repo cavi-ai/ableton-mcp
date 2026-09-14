@@ -1174,12 +1174,16 @@ def dispatch_request(song, request, state_version, application=None):
         _, _, rack = _device(song, params["trackId"], params["deviceId"])
         if _device_tree(rack, params["deviceId"]) != params["beforeDevice"]:
             raise ValueError("rack state changed")
-        prefix = params["deviceId"] + "/chain-"
         chain_id = params["chainId"]
+        is_return = chain_id.startswith(params["deviceId"] + "/return-chain-")
+        if is_return and method == "set_rack_chain_note_routing":
+            raise ValueError("note routing is not available for return chains")
+        prefix = params["deviceId"] + ("/return-chain-" if is_return else "/chain-")
+        chains = getattr(rack, "return_chains", ()) if is_return else rack.chains
         suffix = chain_id.removeprefix(prefix)
-        if not chain_id.startswith(prefix) or not suffix.isdigit() or int(suffix) >= len(rack.chains):
+        if not chain_id.startswith(prefix) or not suffix.isdigit() or int(suffix) >= len(chains):
             raise ValueError("unknown rack chain")
-        chain = rack.chains[int(suffix)]
+        chain = chains[int(suffix)]
         if method == "set_rack_chain_note_routing":
             if not rack.can_have_drum_pads:
                 raise ValueError("note routing requires a Drum Rack")
