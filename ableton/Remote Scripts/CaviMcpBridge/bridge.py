@@ -1147,6 +1147,8 @@ def dispatch_request(song, request, state_version, application=None):
         changes = params["changes"]
         if not changes or set(changes) - {"mute", "solo"} or any(type(value) is not bool for value in changes.values()):
             raise ValueError("invalid drum pad changes")
+        if changes.get("mute") is True and changes.get("solo") is True:
+            raise ValueError("a drum pad cannot be requested muted and soloed simultaneously")
         # Solo transitions can restore native mute state. Apply explicit mute last.
         for key in ("solo", "mute"):
             if key in changes:

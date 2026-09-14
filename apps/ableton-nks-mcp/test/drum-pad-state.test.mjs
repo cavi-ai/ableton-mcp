@@ -19,4 +19,5 @@ test("pad writes bind the exact note and reject empty pads", async () => {
   assert.equal(applied.observed.pad.mute, true);
   await assert.rejects(() => service.call("set_drum_pad_state", { ...args, note: 37 }), /populated drum pad/);
   await assert.rejects(() => service.call("set_drum_pad_state", { ...args, mute: 1 }), /boolean/);
+  await assert.rejects(() => service.call("set_drum_pad_state", { ...args, solo: true }), /muted and soloed/);
 });

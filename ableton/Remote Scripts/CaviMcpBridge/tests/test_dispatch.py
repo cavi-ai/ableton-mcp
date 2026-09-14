@@ -1141,9 +1141,13 @@ class DispatchTest(unittest.TestCase):
         ids = {"trackId": "track-0", "deviceId": "track-0:device-0"}
         before = dispatch_request(song, {"method": "get_device_hierarchy", "params": ids}, 3)["device"]
         result = dispatch_request(song, {"method": "set_drum_pad_state", "params": {
-            **ids, "beforeDevice": before, "note": 36, "changes": {"mute": True, "solo": True}}}, 3)
+            **ids, "beforeDevice": before, "note": 36, "changes": {"mute": True}}}, 3)
         self.assertTrue(result["pad"]["mute"])
-        self.assertTrue(result["pad"]["solo"])
+        self.assertFalse(result["pad"]["solo"])
+        with self.assertRaisesRegex(ValueError, "muted and soloed"):
+            dispatch_request(song, {"method": "set_drum_pad_state", "params": {
+                **ids, "beforeDevice": result["device"], "note": 36,
+                "changes": {"mute": True, "solo": True}}}, 4)
         with self.assertRaisesRegex(ValueError, "rack state changed"):
             dispatch_request(song, {"method": "set_drum_pad_state", "params": {
                 **ids, "beforeDevice": before, "note": 36, "changes": {"mute": False}}}, 4)

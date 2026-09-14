@@ -349,6 +349,7 @@ export class ToolService {
         changes[key] = args[key];
       }
       if (!Object.keys(changes).length) throw new Error("no drum pad changes requested");
+      if (changes.mute === true && changes.solo === true) throw new Error("a drum pad cannot be requested muted and soloed simultaneously");
       return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
         note: args.note, expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, changes,
         undoLimitation: "Do not rely on Live undo for pad solo; restore the observed pad state explicitly when needed." }, args);
