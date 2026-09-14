@@ -64,8 +64,29 @@ def _device(song, track_id, device_id):
     expected = f"track-{track_index}:device-"
     if not device_id.startswith(expected):
         raise ValueError("deviceId does not belong to trackId")
-    index = int(device_id.removeprefix(expected))
-    return track, index, track.devices[index]
+    parts = device_id.removeprefix(expected).split("/")
+    if not parts[0].isdigit() or len(parts) % 2 != 1:
+        raise ValueError("invalid device path")
+    index = int(parts[0])
+    owner = track
+    try:
+        device = owner.devices[index]
+        for position in range(1, len(parts), 2):
+            chain_part, device_part = parts[position:position + 2]
+            if not chain_part.startswith("chain-") or not device_part.startswith("device-"):
+                raise ValueError("invalid device path")
+            chain_index = chain_part.removeprefix("chain-")
+            child_index = device_part.removeprefix("device-")
+            if not chain_index.isdigit() or not child_index.isdigit():
+                raise ValueError("invalid device path")
+            if not device.can_have_chains:
+                raise ValueError("device has no chains")
+            owner = device.chains[int(chain_index)]
+            index = int(child_index)
+            device = owner.devices[index]
+    except (IndexError, AttributeError):
+        raise ValueError("unknown device path") from None
+    return owner, index, device
 
 
 def _clip_slot(song, track_id, clip_id):
@@ -832,6 +853,8 @@ def dispatch_request(song, request, state_version, application=None):
         index, track = _track(song, params["trackId"])
         return {"stateVersion": state_version, "trackId": params["trackId"], "devices": [_device_record(device, f"track-{index}:device-{i}") for i, device in enumerate(track.devices)]}
     if method in ("set_device_active", "delete_device"):
+        if method == "delete_device" and "/" in params["deviceId"]:
+            raise ValueError("nested device deletion is not supported")
         track, index, device = _device(song, params["trackId"], params["deviceId"])
         before = params["beforeDevice"]
         if device.name != before["name"] or device.class_name != before["className"]:

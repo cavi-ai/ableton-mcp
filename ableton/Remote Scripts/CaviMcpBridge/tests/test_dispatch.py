@@ -741,6 +741,26 @@ class DispatchTest(unittest.TestCase):
             "chainIds": ["track-0:device-0/chain-0"]
         }])
 
+    def test_nested_device_parameter_paths_resolve_exact_rack_children(self):
+        song = Song()
+        outer = DrumRack()
+        inner = DrumRack()
+        outer.chains[0].devices = [inner]
+        song.tracks[0].devices = [outer]
+        path = "track-0:device-0/chain-0/device-0/chain-0/device-0"
+        result = dispatch_request(song, {"method": "list_device_parameters",
+            "params": {"trackId": "track-0", "deviceId": path}}, 3)
+        self.assertEqual(result["deviceId"], path)
+        dispatch_request(song, {"method": "set_device_parameters", "params": {
+            "trackId": "track-0", "deviceId": path,
+            "changes": [{"id": "parameter-0", "value": 0.7}]}}, 3)
+        self.assertEqual(inner.chains[0].devices[0].parameters[0].value, 0.7)
+        self.assertEqual(outer.parameters[0].value, 0.4)
+        for invalid in [path + "/junk", "track-0:device--1", "track-0:device-0/chain-5/device-0"]:
+            with self.assertRaises(ValueError):
+                dispatch_request(song, {"method": "list_device_parameters",
+                    "params": {"trackId": "track-0", "deviceId": invalid}}, 3)
+
     def test_device_listing_exposes_stable_identity_and_structure(self):
         result = dispatch_request(Song(), {
             "method": "list_devices", "params": {"trackId": "track-0"}
