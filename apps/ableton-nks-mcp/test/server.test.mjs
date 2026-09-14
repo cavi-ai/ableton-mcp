@@ -2,6 +2,40 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { createRouter } from "../src/server.mjs";
+
+test("MCP rejects malformed tool arguments before service dispatch", async () => {
+  let dispatches = 0;
+  const route = createRouter({ call: async () => { dispatches++; return { accepted: true }; } });
+  for (const argumentsValue of [null, [], "bad", { trackId: "track-0" },
+    { expectedStateVersion: 1, trackId: "track-0", armed: "yes" },
+    { expectedStateVersion: 1, trackId: "track-0", armed: true, extra: true }]) {
+    const reply = await route({ id: 1, method: "tools/call", params: { name: "arm_track", arguments: argumentsValue } });
+    assert.equal(reply.error?.code, -32602);
+  }
+  assert.equal(dispatches, 0);
+  const accepted = await route({ id: 2, method: "tools/call", params: {
+    name: "arm_track", arguments: { expectedStateVersion: 1, trackId: "track-0", armed: true }
+  } });
+  assert.equal(accepted.result.structuredContent.accepted, true);
+  assert.equal(dispatches, 1);
+});
+
+test("MCP exposes and validates nested MIDI repeat counts", async () => {
+  const route = createRouter({ call: async (_name, args) => ({ repeats: args.operation.repeats }) });
+  const listed = await route({ id: 1, method: "tools/list" });
+  const tool = listed.result.tools.find(({ name }) => name === "transform_midi_notes");
+  assert.equal(tool.inputSchema.properties.operation.properties.repeats?.maximum, 16);
+  const args = { expectedStateVersion: 1, trackId: "track-0", clipId: "track-0:clip-0", noteIds: [7],
+    operation: { type: "duplicate", offsetBeats: 1, repeats: 2 } };
+  const accepted = await route({ id: 2, method: "tools/call", params: { name: tool.name, arguments: args } });
+  assert.equal(accepted.result.structuredContent.repeats, 2);
+  for (const repeats of [0, 17, 1.5, "2"]) {
+    const reply = await route({ id: 3, method: "tools/call", params: { name: tool.name,
+      arguments: { ...args, operation: { ...args.operation, repeats } } } });
+    assert.equal(reply.error?.code, -32602);
+  }
+});
 
 test("stdio server initializes and lists MCP resources and tools", async () => {
   const child = spawn(process.execPath, ["src/server.mjs"], {
