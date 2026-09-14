@@ -1,9 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { discoverOmnisphereFactoryPresets } from "../src/adapters/omnisphere.mjs";
+
+for (const [offset, size] of [["2", "4"], ["4", "1"], ["9007199254740993", "1"], ["0", "0"]]) {
+  test(`Omnisphere rejects invalid embedded payload extent ${offset}/${size}`, async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "omnisphere-corrupt-"));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    await writeFile(join(root, "Factory.db"), Buffer.concat([
+      Buffer.from(`<FileSystem><FILE name="Bass/Broken.prt_omn" offset="${offset}" size="${size}"/></FileSystem>\n`),
+      Buffer.from("abc")
+    ]));
+    await assert.rejects(() => discoverOmnisphereFactoryPresets({ enabled: true, productSlug: "omnisphere", vendor: "Spectrasonics", factoryRoots: [root], extensions: [".db"] }), /invalid embedded patch extent/);
+  });
+}
 
 test("Omnisphere adapter discovers embedded factory patches and ignores metadata", async () => {
   const root = await mkdtemp(join(tmpdir(), "omnisphere-"));
