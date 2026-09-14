@@ -383,6 +383,9 @@ test("factory browser listing is read-only and exact-path device loading is guar
   const dry = await service.call("load_factory_browser_item", args);
   assert.equal(dry.plan.item.name, "Drift");
   assert.equal(dry.plan.item.loadable, true);
+  assert.equal(dry.plan.loadBehavior.mayReplaceExistingDevices, true);
+  assert.match(dry.plan.loadBehavior.warning, /replace.*instrument.*rack/i);
+  assert.deepEqual(dry.plan.loadBehavior.existingDeviceIds, dry.plan.before.devices.map(({ id }) => id));
   const live = await service.call("load_factory_browser_item", {
     ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash
   });

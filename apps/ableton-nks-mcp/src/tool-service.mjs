@@ -1234,6 +1234,11 @@ export class ToolService {
       method, trackId: args.trackId,
       expectedStateVersion: args.expectedStateVersion,
       root: browserPath.root, path: browserPath.path, item: listing.item,
+      loadBehavior: {
+        mayReplaceExistingDevices: observed.devices.length > 0,
+        existingDeviceIds: observed.devices.map(({ id }) => id),
+        warning: "Live browser loading may replace an existing instrument or rack rather than append. Inspect the existing device hierarchy in before; use a separate staging track and move_device_to_chain to build additional rack layers."
+      },
       before: observed
     }, args);
   }
