@@ -303,6 +303,7 @@ export class ToolService {
     if (name === "get_clip_parameter_envelope") return this.bridge.request("get_clip_parameter_envelope", args);
     if (name === "get_clip_timing") return this.bridge.request("get_clip_timing", args);
     if (name === "get_audio_clip_state") return this.bridge.request("get_audio_clip_state", args);
+    if (name === "get_device_sidechain_routing") return this.bridge.request("get_device_sidechain_routing", args);
     if (name === "analyze_audio_file") return analyzeAudioFile(args.sourcePath, args);
     if (name === "analyze_audio_clip") {
       const target = { trackId: args.trackId, clipId: args.clipId };

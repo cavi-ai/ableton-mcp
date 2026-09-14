@@ -360,6 +360,23 @@ def _routing_id(option):
     return _routing_option(option)["id"]
 
 
+def _device_sidechain_routing(song, track_id, device_id, state_version):
+    _, _, device = _device(song, track_id, device_id)
+    supported = all(hasattr(device, attribute) for attribute in (
+        "available_input_routing_types", "available_input_routing_channels", "input_routing_type", "input_routing_channel"))
+    return {
+        "stateVersion": state_version, "trackId": track_id, "deviceId": device_id,
+        "device": _device_record(device, device_id),
+        "sidechain": {
+            "supported": supported,
+            "type": _routing_option(device.input_routing_type) if supported else None,
+            "channel": _routing_option(device.input_routing_channel) if supported else None,
+            "availableTypes": [_routing_option(option) for option in device.available_input_routing_types] if supported else [],
+            "availableChannels": [_routing_option(option) for option in device.available_input_routing_channels] if supported else [],
+        },
+    }
+
+
 def _track_routing(song, track_id, state_version):
     _, track = _track(song, track_id)
     return {
@@ -720,6 +737,8 @@ def dispatch_request(song, request, state_version, application=None):
         if "solo" in changes:
             track.solo = changes["solo"]["value"]
         return {"stateVersion": state_version + 1, "return": _return_mixer_record(track, index)}
+    if method == "get_device_sidechain_routing":
+        return _device_sidechain_routing(song, params["trackId"], params["deviceId"], state_version)
     if method == "get_audio_clip_state":
         return _audio_clip_state(song, params["trackId"], params["clipId"], state_version)
     if method == "set_audio_clip_state":

@@ -1096,6 +1096,17 @@ test("clip parameter envelope inspection is read-only and returns sampled values
   assert.equal(calls.at(-1).method, "get_clip_parameter_envelope");
 });
 
+test("device sidechain readback preserves exact native routing identity", async () => {
+  const state = { stateVersion: 4, trackId: "track-0", deviceId: "track-0:device-0",
+    sidechain: { supported: true, type: { id: "42", name: "Bass Bus" }, channel: { id: "post-fx", name: "Post FX" } } };
+  const service = new ToolService({ bridge: { async request(method, params) {
+    assert.equal(method, "get_device_sidechain_routing");
+    assert.deepEqual(params, { trackId: "track-0", deviceId: "track-0:device-0" });
+    return state;
+  } } });
+  assert.deepEqual(await service.call("get_device_sidechain_routing", { trackId: "track-0", deviceId: "track-0:device-0" }), state);
+});
+
 test("audio crop confirms the native selected interval and rejects changed loop", async () => {
   const before = { stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-2", warping: true,
     markers: { unit: "beats", startBeats: 0, endBeats: 4 },

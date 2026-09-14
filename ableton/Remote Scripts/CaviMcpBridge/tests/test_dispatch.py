@@ -939,6 +939,24 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(changed["pitch"], {"coarse": -12, "fine": 17})
         self.assertEqual(changed["markers"], {"unit": "beats", "startBeats": 1.0, "endBeats": 7.0})
 
+    def test_device_sidechain_routing_reads_native_ids_and_unsupported_devices(self):
+        song = Song()
+        params = {"trackId": "track-0", "deviceId": "track-0:device-0"}
+        unsupported = dispatch_request(song, {"method": "get_device_sidechain_routing", "params": params}, 3)
+        self.assertEqual(unsupported["sidechain"], {"supported": False, "type": None, "channel": None,
+            "availableTypes": [], "availableChannels": []})
+        device = song.tracks[0].devices[0]
+        source = SimpleNamespace(identifier=42, display_name="Bass Bus")
+        channel = SimpleNamespace(identifier="post-fx", display_name="Post FX")
+        device.available_input_routing_types = (source,)
+        device.available_input_routing_channels = (channel,)
+        device.input_routing_type, device.input_routing_channel = source, channel
+        result = dispatch_request(song, {"method": "get_device_sidechain_routing", "params": params}, 3)
+        self.assertEqual(result["sidechain"], {"supported": True, "type": {"id": "42", "name": "Bass Bus"},
+            "channel": {"id": "post-fx", "name": "Post FX"}, "availableTypes": [{"id": "42", "name": "Bass Bus"}],
+            "availableChannels": [{"id": "post-fx", "name": "Post FX"}]})
+        self.assertEqual(result["deviceId"], "track-0:device-0")
+
     def test_audio_mutations_have_isolated_undo_boundaries(self):
         for method, extra in (
             ("set_audio_clip_state", {"changes": {"gain": {"value": 0.25}}}),
