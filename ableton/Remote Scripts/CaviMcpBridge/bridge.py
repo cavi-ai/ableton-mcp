@@ -616,7 +616,7 @@ def dispatch_request(song, request, state_version, application=None):
         for route_change in params["routes"]:
             _, track = _track(song, route_change["trackId"])
             selected = next(option for option in track.available_output_routing_types if _routing_id(option) == route_change["outputTypeId"])
-            track.current_output_routing = selected
+            track.current_output_routing = _routing_option(selected)["name"]
             routes.append(_track_routing(song, route_change["trackId"], state_version + 1))
         return {"stateVersion": state_version + 1, "busTrackId": params["busTrackId"], "routes": routes}
     if method in ("get_browser_items", "get_factory_browser_items"):

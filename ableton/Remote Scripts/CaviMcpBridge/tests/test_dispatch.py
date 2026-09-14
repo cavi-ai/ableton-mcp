@@ -515,7 +515,8 @@ class DispatchTest(unittest.TestCase):
         routed = dispatch_request(song, {"method": "route_tracks_to_bus", "params": {
             "busTrackId": "track-1", "routes": [{"trackId": "track-0", "outputTypeId": "track-1"}]
         }}, 4)
-        self.assertEqual(routed["routes"][0]["output"]["type"]["id"], "track-1")
+        self.assertEqual(source.current_output_routing, "Bass Bus")
+        self.assertEqual(routed["routes"][0]["output"]["type"]["name"], "Bass Bus")
 
     def test_transport_recording_context_reads_and_writes_exact_modes(self):
         song = Song()
