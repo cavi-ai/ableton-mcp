@@ -657,11 +657,15 @@ export class ToolService {
         if (typeof args.loop.enabled !== "boolean") throw new Error("loop.enabled must be boolean");
         loop.enabled = args.loop.enabled;
       }
-      const start = args.loop.startBeats === undefined ? observed.loop.startBeats : finiteRange(args.loop.startBeats, "loop.startBeats", 0, Number.MAX_SAFE_INTEGER);
-      const end = args.loop.endBeats === undefined ? observed.loop.endBeats : finiteRange(args.loop.endBeats, "loop.endBeats", 0, Number.MAX_SAFE_INTEGER);
-      if (end <= start) throw new Error("loop.endBeats must be greater than loop.startBeats");
-      if (args.loop.startBeats !== undefined) loop.startBeats = start;
-      if (args.loop.endBeats !== undefined) loop.endBeats = end;
+      const seconds = observed.loop.unit === "seconds";
+      if (!seconds && (args.loop.startSeconds !== undefined || args.loop.endSeconds !== undefined)) throw new Error("seconds-based loop positions require unwarped audio");
+      const startKey = seconds ? "startSeconds" : "startBeats";
+      const endKey = seconds ? "endSeconds" : "endBeats";
+      const start = args.loop[startKey] === undefined ? observed.loop[startKey] : finiteRange(args.loop[startKey], `loop.${startKey}`, 0, Number.MAX_SAFE_INTEGER);
+      const end = args.loop[endKey] === undefined ? observed.loop[endKey] : finiteRange(args.loop[endKey], `loop.${endKey}`, 0, Number.MAX_SAFE_INTEGER);
+      if (end <= start) throw new Error(`loop.${endKey} must be greater than loop.${startKey}`);
+      if (args.loop[startKey] !== undefined) loop[startKey] = start;
+      if (args.loop[endKey] !== undefined) loop[endKey] = end;
       if (Object.keys(loop).length) changes.loop = loop;
     }
     const signature = normalizeSignature(args.timeSignature, "timeSignature");

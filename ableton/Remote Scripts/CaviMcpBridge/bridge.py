@@ -900,7 +900,21 @@ def dispatch_request(song, request, state_version, application=None):
         loop = changes.get("loop", {})
         if getattr(clip, "is_audio_clip", False) and not clip.warping and any(key in loop for key in ("startBeats", "endBeats")):
             raise ValueError("beat-based loop positions cannot be applied to unwarped audio")
-        for source, target in (("enabled", "looping"), ("startBeats", "loop_start"), ("endBeats", "loop_end")):
+        seconds = bool(getattr(clip, "is_audio_clip", False)) and not clip.warping
+        if not seconds and any(key in loop for key in ("startSeconds", "endSeconds")):
+            raise ValueError("seconds-based loop positions require unwarped audio")
+        start_key, end_key = ("startSeconds", "endSeconds") if seconds else ("startBeats", "endBeats")
+        start, end = float(loop.get(start_key, clip.loop_start)), float(loop.get(end_key, clip.loop_end))
+        if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start:
+            raise ValueError("loop positions must define a finite positive interval")
+        if start_key in loop or end_key in loop:
+            if start >= clip.loop_end:
+                clip.loop_end = end
+                clip.loop_start = start
+            else:
+                clip.loop_start = start
+                clip.loop_end = end
+        for source, target in (("enabled", "looping"),):
             if source in loop:
                 setattr(clip, target, loop[source])
         signature = changes.get("timeSignature", {})

@@ -977,6 +977,12 @@ class DispatchTest(unittest.TestCase):
             }}, 3)
         self.assertTrue(clip.looping)
         self.assertEqual(clip.loop_start, 0.25)
+        changed = dispatch_request(song, {"method": "set_clip_timing", "params": {
+            "trackId": "track-0", "clipId": "track-0:clip-0",
+            "changes": {"loop": {"startSeconds": 0.5, "endSeconds": 2.0}}
+        }}, 3)
+        self.assertEqual(changed["loop"]["startSeconds"], 0.5)
+        self.assertEqual(changed["loop"]["endSeconds"], 2.0)
 
     def test_clip_timing_reads_and_writes_loop_signature_quantization_and_groove(self):
         song = Song()

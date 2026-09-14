@@ -85,7 +85,7 @@ export const toolContracts = {
   get_clip_timing: { description: "Read clip loop, signature, launch quantization, and groove assignment.", inputSchema: clip },
   set_clip_timing: { description: "Plan or apply guarded clip loop, signature, quantization, and groove changes.", inputSchema: guarded({
     trackId: ids.trackId, clipId: ids.clipId,
-    loop: object({ enabled: boolean("Clip loop enabled."), startBeats: number("Loop start.", { minimum: 0 }), endBeats: number("Loop end.", { exclusiveMinimum: 0 }) }),
+    loop: object({ enabled: boolean("Clip loop enabled."), startBeats: number("MIDI or warped audio loop start in beats.", { minimum: 0 }), endBeats: number("MIDI or warped audio loop end in beats.", { exclusiveMinimum: 0 }), startSeconds: number("Unwarped audio loop start in seconds.", { minimum: 0 }), endSeconds: number("Unwarped audio loop end in seconds.", { exclusiveMinimum: 0 }) }),
     timeSignature: object({ numerator: { type: "integer", minimum: 1 }, denominator: { type: "integer", enum: [1, 2, 4, 8, 16] } }),
     launchQuantization: choice("Launch quantization value or name."), grooveId: string("Groove ID returned by get_clip_timing."),
   }, ["trackId", "clipId"]) },
