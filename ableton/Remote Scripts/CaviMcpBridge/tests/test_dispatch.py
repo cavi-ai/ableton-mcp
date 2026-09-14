@@ -1948,6 +1948,18 @@ class DispatchTest(unittest.TestCase):
         result = dispatch_request(song, {"method": "get_device_hierarchy", "params": {"trackId": "track-0", "deviceId": "track-0:device-0"}}, 1)
         self.assertEqual(result["device"]["chains"][0]["mixer"], {"volume": None, "pan": None, "sends": [], "mute": None, "solo": None})
 
+    def test_parameter_batch_preflights_disabled_controls_before_any_write(self):
+        song = Song()
+        parameters = song.tracks[0].devices[0].parameters
+        parameters[1].is_enabled = False
+        before = [parameter.value for parameter in parameters]
+        with self.assertRaisesRegex(ValueError, "parameter is disabled"):
+            dispatch_request(song, {"method": "set_device_parameters", "params": {
+                "trackId": "track-0", "deviceId": "track-0:device-0",
+                "changes": [{"id": "parameter-0", "value": 0.8}, {"id": "parameter-1", "value": 2}]
+            }}, 4)
+        self.assertEqual([parameter.value for parameter in parameters], before)
+
     def test_status_and_parameter_write_return_observed_state(self):
         song = Song()
         status = dispatch_request(song, {"method": "get_live_state", "params": {}}, 4)

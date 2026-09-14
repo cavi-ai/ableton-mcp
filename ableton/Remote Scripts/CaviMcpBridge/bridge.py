@@ -1538,6 +1538,12 @@ def dispatch_request(song, request, state_version, application=None):
                 "parameters": parameters, "nameAmbiguities": ambiguities}
     if method == "set_device_parameters":
         _, _, device = _device(song, params["trackId"], params["deviceId"])
+        # Validate the whole batch before writing. Recheck enabled state below,
+        # since changing a mode may disable a later control during execution.
+        for change in params["changes"]:
+            index = int(change["id"].removeprefix("parameter-"))
+            if not device.parameters[index].is_enabled:
+                raise ValueError("parameter is disabled")
         observed = []
         for change in params["changes"]:
             index = int(change["id"].removeprefix("parameter-"))
