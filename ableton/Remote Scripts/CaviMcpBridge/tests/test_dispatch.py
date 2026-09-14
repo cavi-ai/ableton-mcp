@@ -817,12 +817,30 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(observed["warpMode"]["name"], "beats")
         changed = dispatch_request(song, {"method": "set_audio_clip_state", "params": {**params, "before": observed, "changes": {
             "gain": {"value": 0.75}, "pitchCoarse": {"value": -12}, "pitchFine": {"value": 17},
-            "warping": {"value": False}, "warpMode": {"value": 6},
+            "warpMode": {"value": 6},
             "startMarkerBeats": {"value": 1}, "endMarkerBeats": {"value": 7},
         }}}, 3)
         self.assertEqual(changed["stateVersion"], 4)
         self.assertEqual(changed["pitch"], {"coarse": -12, "fine": 17})
-        self.assertEqual(changed["markers"], {"startBeats": 1.0, "endBeats": 7.0})
+        self.assertEqual(changed["markers"], {"unit": "beats", "startBeats": 1.0, "endBeats": 7.0})
+
+    def test_unwarped_audio_markers_use_seconds_and_reject_beats_before_mutation(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[2].clip
+        clip.warping = False
+        params = {"trackId": "track-0", "clipId": "track-0:clip-2"}
+        observed = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
+        self.assertEqual(observed["markers"]["unit"], "seconds")
+        self.assertNotIn("startBeats", observed["markers"])
+        with self.assertRaisesRegex(ValueError, "marker units"):
+            dispatch_request(song, {"method": "set_audio_clip_state", "params": {**params, "before": observed, "changes": {
+                "gain": {"value": 0.9}, "startMarkerBeats": {"value": 1}
+            }}}, 3)
+        self.assertEqual(clip.gain, observed["gain"]["value"])
+        changed = dispatch_request(song, {"method": "set_audio_clip_state", "params": {**params, "before": observed, "changes": {
+            "startMarkerSeconds": {"value": 1}, "endMarkerSeconds": {"value": 7}
+        }}}, 3)
+        self.assertEqual(changed["markers"], {"unit": "seconds", "startSeconds": 1.0, "endSeconds": 7.0})
 
     def test_transport_context_reads_and_writes_metronome_and_count_in(self):
         song = Song()

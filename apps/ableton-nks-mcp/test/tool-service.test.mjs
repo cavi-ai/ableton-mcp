@@ -203,7 +203,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         gain: { value: 0.5, min: 0, max: 1, displayValue: "0.00 dB" },
         pitch: { coarse: 0, fine: 0 }, warping: true,
         warpMode: { value: 0, name: "beats", choices: [{ value: 0, name: "beats" }, { value: 6, name: "complex_pro" }] },
-        markers: { startBeats: 0, endBeats: 8 }
+        markers: { unit: "beats", startBeats: 0, endBeats: 8 }
       };
       if (method === "set_audio_clip_state") return { stateVersion: 5, trackId: params.trackId, clipId: params.clipId, ...params.changes };
       if (method === "get_transport_context") return {
@@ -1035,7 +1035,7 @@ test("audio clip state exposes warp pitch gain and markers with guarded changes"
   const base = { trackId: "track-0", clipId: "track-0:clip-2" };
   const observed = await service.call("get_audio_clip_state", base);
   assert.equal(observed.warpMode.name, "beats");
-  const args = { ...base, expectedStateVersion: 4, gain: 2, pitchCoarse: -12, pitchFine: 17, warping: false, warpMode: "complex_pro", startMarkerBeats: 1, endMarkerBeats: 7 };
+  const args = { ...base, expectedStateVersion: 4, gain: 2, pitchCoarse: -12, pitchFine: 17, warpMode: "complex_pro", startMarkerBeats: 1, endMarkerBeats: 7 };
   const dry = await service.call("set_audio_clip_state", args);
   assert.equal(dry.plan.changes.gain.value, 1);
   assert.equal(dry.plan.changes.warpMode.value, 6);
@@ -1051,6 +1051,8 @@ test("audio clip mutation rejects invalid pitch markers and empty changes", asyn
   await assert.rejects(() => service.call("set_audio_clip_state", base), /at least one audio clip change/);
   await assert.rejects(() => service.call("set_audio_clip_state", { ...base, pitchFine: 60 }), /pitchFine/);
   await assert.rejects(() => service.call("set_audio_clip_state", { ...base, startMarkerBeats: 7, endMarkerBeats: 2 }), /endMarkerBeats must be greater/);
+  await assert.rejects(() => service.call("set_audio_clip_state", { ...base, startMarkerSeconds: 1 }), /marker units/);
+  await assert.rejects(() => service.call("set_audio_clip_state", { ...base, warping: false, startMarkerBeats: 1 }), /marker units/);
 });
 
 test("clip parameter envelope replacement validates and signs exact steps", async () => {

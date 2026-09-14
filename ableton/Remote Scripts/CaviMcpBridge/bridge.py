@@ -229,7 +229,9 @@ def _audio_clip_state(song, track_id, clip_id, state_version):
         "gain": {"value": float(clip.gain), "min": 0.0, "max": 1.0, "displayValue": clip.gain_display_string},
         "pitch": {"coarse": int(clip.pitch_coarse), "fine": int(clip.pitch_fine)},
         "warping": bool(clip.warping), "warpMode": _enum_record(clip.warp_mode, AUDIO_WARP_MODE_NAMES),
-        "markers": {"startBeats": float(clip.start_marker), "endBeats": float(clip.end_marker)},
+        "markers": {"unit": "beats" if clip.warping else "seconds",
+                    "startBeats" if clip.warping else "startSeconds": float(clip.start_marker),
+                    "endBeats" if clip.warping else "endSeconds": float(clip.end_marker)},
     }
 
 
@@ -643,14 +645,22 @@ def dispatch_request(song, request, state_version, application=None):
         if _audio_clip_state(song, track_id, clip_id, state_version) != params["before"]:
             raise ValueError("audio clip identity or state changed")
         changes = params["changes"]
+        marker_keys = {"startMarkerBeats", "endMarkerBeats", "startMarkerSeconds", "endMarkerSeconds"}
+        requested_markers = marker_keys.intersection(changes)
+        suffix = "Beats" if clip.warping else "Seconds"
+        if requested_markers:
+            if "warping" in changes or not requested_markers.issubset({"startMarker" + suffix, "endMarker" + suffix}):
+                raise ValueError("marker units must match current warping; change warping separately")
+            start = _change_value(changes["startMarker" + suffix]) if "startMarker" + suffix in changes else clip.start_marker
+            end = _change_value(changes["endMarker" + suffix]) if "endMarker" + suffix in changes else clip.end_marker
+            if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start:
+                raise ValueError("invalid audio marker interval")
         for source, target in (("gain", "gain"), ("pitchCoarse", "pitch_coarse"),
                                ("pitchFine", "pitch_fine"), ("warping", "warping"),
                                ("warpMode", "warp_mode")):
             if source in changes:
                 setattr(clip, target, _change_value(changes[source]))
-        if "startMarkerBeats" in changes or "endMarkerBeats" in changes:
-            start = _change_value(changes["startMarkerBeats"]) if "startMarkerBeats" in changes else clip.start_marker
-            end = _change_value(changes["endMarkerBeats"]) if "endMarkerBeats" in changes else clip.end_marker
+        if requested_markers:
             if start >= clip.end_marker:
                 clip.end_marker = end
                 clip.start_marker = start

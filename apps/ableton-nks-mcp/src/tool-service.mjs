@@ -674,15 +674,20 @@ export class ToolService {
       previous: observed.warpMode.value,
       value: normalizeChoice(args.warpMode, "warpMode", observed.warpMode.choices)
     };
-    const start = args.startMarkerBeats === undefined
-      ? observed.markers.startBeats
-      : finiteRange(args.startMarkerBeats, "startMarkerBeats", 0, Number.MAX_SAFE_INTEGER);
-    const end = args.endMarkerBeats === undefined
-      ? observed.markers.endBeats
-      : finiteRange(args.endMarkerBeats, "endMarkerBeats", 0, Number.MAX_SAFE_INTEGER);
-    if (end <= start) throw new Error("endMarkerBeats must be greater than startMarkerBeats");
-    if (args.startMarkerBeats !== undefined) changes.startMarkerBeats = { previous: observed.markers.startBeats, value: start };
-    if (args.endMarkerBeats !== undefined) changes.endMarkerBeats = { previous: observed.markers.endBeats, value: end };
+    const markerKeys = ["startMarkerBeats", "endMarkerBeats", "startMarkerSeconds", "endMarkerSeconds"];
+    const requested = markerKeys.filter((key) => args[key] !== undefined);
+    if (requested.length) {
+      const suffix = observed.warping ? "Beats" : "Seconds";
+      const startKey = `startMarker${suffix}`, endKey = `endMarker${suffix}`;
+      if (args.warping !== undefined || requested.some((key) => key !== startKey && key !== endKey)) {
+        throw new Error("marker units must match current warping; change warping separately");
+      }
+      const start = args[startKey] === undefined ? observed.markers[`start${suffix}`] : finiteRange(args[startKey], startKey, 0, Number.MAX_SAFE_INTEGER);
+      const end = args[endKey] === undefined ? observed.markers[`end${suffix}`] : finiteRange(args[endKey], endKey, 0, Number.MAX_SAFE_INTEGER);
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) throw new Error(`${endKey} must be greater than ${startKey}`);
+      if (args[startKey] !== undefined) changes[startKey] = { previous: observed.markers[`start${suffix}`], value: start };
+      if (args[endKey] !== undefined) changes[endKey] = { previous: observed.markers[`end${suffix}`], value: end };
+    }
     if (!Object.keys(changes).length) throw new Error("at least one audio clip change is required");
     return this.#confirmedMutation({
       method: "set_audio_clip_state", trackId: args.trackId, clipId: args.clipId,
