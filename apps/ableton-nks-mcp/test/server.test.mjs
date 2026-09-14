@@ -37,6 +37,9 @@ test("stdio server initializes and lists MCP resources and tools", async () => {
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_midi_clip_notes_extended"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "set_midi_note_properties"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "transform_midi_notes"), true);
+  const transform = messages[2].result.tools.find((tool) => tool.name === "transform_midi_notes");
+  assert.equal(transform.inputSchema.properties.operation.type, "object");
+  assert.deepEqual(transform.inputSchema.properties.operation.properties.target.enum, ["start", "end", "both"]);
   for (const tool of messages[2].result.tools) {
     assert.equal(tool.inputSchema.additionalProperties, false, `${tool.name} must reject unknown arguments`);
     assert.doesNotMatch(tool.description, /^Ableton NKS operation:/, `${tool.name} needs an actionable description`);
