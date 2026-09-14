@@ -970,6 +970,13 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(observed["loop"], {
             "enabled": True, "unit": "seconds", "startSeconds": 0.25, "endSeconds": 1.75
         })
+        with self.assertRaisesRegex(ValueError, "unwarped audio"):
+            dispatch_request(song, {"method": "set_clip_timing", "params": {
+                "trackId": "track-0", "clipId": "track-0:clip-0",
+                "changes": {"loop": {"enabled": False, "startBeats": 1.0}}
+            }}, 3)
+        self.assertTrue(clip.looping)
+        self.assertEqual(clip.loop_start, 0.25)
 
     def test_clip_timing_reads_and_writes_loop_signature_quantization_and_groove(self):
         song = Song()

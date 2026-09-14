@@ -898,6 +898,8 @@ def dispatch_request(song, request, state_version, application=None):
         clip = slot.clip
         changes = params["changes"]
         loop = changes.get("loop", {})
+        if getattr(clip, "is_audio_clip", False) and not clip.warping and any(key in loop for key in ("startBeats", "endBeats")):
+            raise ValueError("beat-based loop positions cannot be applied to unwarped audio")
         for source, target in (("enabled", "looping"), ("startBeats", "loop_start"), ("endBeats", "loop_end")):
             if source in loop:
                 setattr(clip, target, loop[source])

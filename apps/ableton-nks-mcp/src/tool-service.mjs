@@ -649,6 +649,9 @@ export class ToolService {
     assertExpectedState(args, observed);
     const changes = {};
     if (args.loop !== undefined) {
+      if (observed.loop.unit === "seconds" && (args.loop.startBeats !== undefined || args.loop.endBeats !== undefined)) {
+        throw new Error("beat-based loop positions cannot be applied to unwarped audio");
+      }
       const loop = {};
       if (args.loop.enabled !== undefined) {
         if (typeof args.loop.enabled !== "boolean") throw new Error("loop.enabled must be boolean");
