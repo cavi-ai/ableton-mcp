@@ -7,7 +7,7 @@ export function frequencyPitchReference(frequencyHz) {
     centsFromNote: 100 * (fractionalNote - midiNote), referenceA4Hz: 440 };
 }
 
-export function analyzeSpectrum(samples, sampleRate) {
+export function analyzeSpectrum(samples, sampleRate, { includeBins = false } = {}) {
   const n = samples.length;
   if (!Number.isInteger(n) || n < 16 || n > 32768 || (n & (n - 1))) throw new Error("frame size must be a power of two between 16 and 32768");
   if (!Number.isFinite(sampleRate) || sampleRate <= 0) throw new Error("sample rate must be finite and positive");
@@ -53,5 +53,6 @@ export function analyzeSpectrum(samples, sampleRate) {
     }
   }
   peaks.sort((a, b) => b.amplitudeDbfs - a.amplitudeDbfs);
-  return { frameSize: n, sampleRate, frequencyResolutionHz: sampleRate / n, window: "periodic_hann", frequencyEstimator: "log_magnitude_parabolic_interpolation", peaks: peaks.slice(0, 10) };
+  return { frameSize: n, sampleRate, frequencyResolutionHz: sampleRate / n, window: "periodic_hann", frequencyEstimator: "log_magnitude_parabolic_interpolation", peaks: peaks.slice(0, 10),
+    ...(includeBins ? { amplitudesDbfs: Array.from(amplitudes, amplitude => Math.max(-120, 20 * Math.log10(amplitude))) } : {}) };
 }

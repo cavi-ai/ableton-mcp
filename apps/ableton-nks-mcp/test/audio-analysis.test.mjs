@@ -9,6 +9,32 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+test("spectrogram follows a source frequency change across time", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cavi-spectrogram-"));
+  try {
+    const sourcePath = join(directory, "changing.wav");
+    await promisify(execFile)("ffmpeg", ["-nostdin", "-v", "error", "-f", "lavfi", "-i",
+      "aevalsrc=if(lt(t\\,0.5)\\,0.5*sin(2*PI*440*t)\\,0.5*sin(2*PI*880*t)):s=48000:d=1", sourcePath]);
+    const route = createRouter(new ToolService({}));
+    const reply = await route({ id: 1, method: "tools/call", params: {
+      name: "analyze_audio_file", arguments: { sourcePath, includeSpectrogram: true }
+    } });
+    assert.equal(reply.error, undefined);
+    const spectrogram = reply.result.structuredContent.spectrogram;
+    assert.ok(spectrogram.frames.length > 2 && spectrogram.frames.length <= 64);
+    const first = spectrogram.frames[0], last = spectrogram.frames.at(-1);
+    assert.equal(first.startSeconds, 0);
+    assert.ok(last.startSeconds > 0.8);
+    for (const [frame, frequency] of [[first, 440], [last, 880]]) {
+      assert.equal(frame.amplitudesDbfs.length, 2049);
+      const peakBin = frame.amplitudesDbfs.indexOf(Math.max(...frame.amplitudesDbfs));
+      assert.ok(Math.abs(peakBin * spectrogram.frequencyResolutionHz - frequency) < 12);
+      assert.ok(frame.amplitudesDbfs.every(Number.isFinite));
+    }
+    await assert.rejects(() => analyzeAudioFile(sourcePath, { includeSpectrogram: true, durationSeconds: 0.01 }), /full.*frame/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("generated source audio supports pitch through the MCP router", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cavi-pitch-"));
   const run = promisify(execFile);

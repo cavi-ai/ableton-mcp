@@ -8,12 +8,13 @@ import { estimateMonophonicPitch } from "./audio-pitch.mjs";
 const run = promisify(execFile);
 const limits = { timeout: 30000, maxBuffer: 2 * 1024 * 1024 };
 
-export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationSeconds = 10, includeSpectrum = false, includePitch = false } = {}) {
+export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationSeconds = 10, includeSpectrum = false, includePitch = false, includeSpectrogram = false } = {}) {
   if (typeof sourcePath !== "string" || !isAbsolute(sourcePath)) throw new Error("source must be an absolute local file path");
   if (!Number.isFinite(startSeconds) || startSeconds < 0) throw new Error("startSeconds must be finite and nonnegative");
   if (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || durationSeconds > 60) throw new Error("durationSeconds must be greater than zero and at most 60");
   if (typeof includeSpectrum !== "boolean") throw new Error("includeSpectrum must be boolean");
   if (typeof includePitch !== "boolean") throw new Error("includePitch must be boolean");
+  if (typeof includeSpectrogram !== "boolean") throw new Error("includeSpectrogram must be boolean");
   const path = await realpath(sourcePath);
   const before = await stat(path, { bigint: true });
   if (!before.isFile()) throw new Error("audio source must be a regular file");
@@ -48,6 +49,24 @@ export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationS
       frameSize: 4096, channelIndex: 0, startSeconds,
       limitation: "First-channel monophonic estimate after resampling; null means no reliable periodicity. Not polyphonic analysis or pitch correction." };
   }
+  let spectrogram;
+  if (includeSpectrogram) {
+    const sampleRate = 48000, frameSize = 4096;
+    if (windowSeconds < frameSize / sampleRate) throw new Error("spectrogram requires a full 4096-sample frame");
+    const decoded = await run("ffmpeg", ["-nostdin", "-v", "error", "-protocol_whitelist", "file,pipe", "-ss", String(startSeconds), "-i", path, "-t", String(windowSeconds), "-map", "0:a:0", "-af", "pan=mono|c0=c0", "-ar", String(sampleRate), "-c:a", "pcm_f32le", "-f", "f32le", "pipe:1"], { ...limits, maxBuffer: 12 * 1024 * 1024, encoding: "buffer" });
+    const count = Math.floor(decoded.stdout.length / 4);
+    if (count < frameSize) throw new Error("spectrogram requires a full 4096-sample frame");
+    const frameCount = Math.min(64, Math.floor(count / frameSize));
+    const frames = Array.from({ length: frameCount }, (_, index) => {
+      const offset = frameCount === 1 ? 0 : Math.floor(index * (count - frameSize) / (frameCount - 1));
+      const samples = Float64Array.from({ length: frameSize }, (_, i) => decoded.stdout.readFloatLE((offset + i) * 4));
+      return { startSeconds: startSeconds + offset / sampleRate,
+        amplitudesDbfs: analyzeSpectrum(samples, sampleRate, { includeBins: true }).amplitudesDbfs };
+    });
+    spectrogram = { sampleRate, frameSize, frequencyResolutionHz: sampleRate / frameSize,
+      channelIndex: 0, window: "periodic_hann", floorDbfs: -120, frames,
+      limitation: "Up to 64 evenly spaced full frames of first-channel source audio resampled to 48 kHz; sparse sampling can miss transients. Bin amplitudes are not resonance classifications." };
+  }
   const after = await stat(path, { bigint: true });
   if (["dev", "ino", "size", "mtimeNs"].some(key => before[key] !== after[key])) throw new Error("audio source changed during analysis");
   const finite = value => Number.isFinite(Number(value)) ? Number(value) : null;
@@ -56,5 +75,5 @@ export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationS
     window: { startSeconds, durationSeconds: windowSeconds },
     integratedLufs: finite(measured.input_i), truePeakDbtp: finite(measured.input_tp),
     loudnessRangeLu: finite(measured.input_lra), ...(spectrum ? { spectrum } : {}),
-    ...(monophonicPitch ? { monophonicPitch } : {}) };
+    ...(monophonicPitch ? { monophonicPitch } : {}), ...(spectrogram ? { spectrogram } : {}) };
 }
