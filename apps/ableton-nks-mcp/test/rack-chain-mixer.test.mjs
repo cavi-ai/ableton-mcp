@@ -2,6 +2,24 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ToolService } from "../src/tool-service.mjs";
 
+test("rack chain rename binds the exact existing layer", async () => {
+  const deviceId = "track-0:device-0", chainId = `${deviceId}/chain-0`;
+  const rack = { id: deviceId, canHaveChains: true, chains: [{ id: chainId, name: "Chain" }] };
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
+    assert.equal(method, "rename_rack_chain");
+    assert.deepEqual(params.beforeDevice, rack);
+    return { stateVersion: 5, chainId, name: params.name };
+  } } });
+  const args = { trackId: "track-0", deviceId, chainId, expectedStateVersion: 4, name: "Sub bass" };
+  const dry = await service.call("rename_rack_chain", args);
+  assert.equal(dry.plan.name, "Sub bass");
+  const applied = await service.call("rename_rack_chain", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(applied.observed.name, "Sub bass");
+  await assert.rejects(() => service.call("rename_rack_chain", { ...args, name: " " }), /not be empty/);
+});
+
 test("rack mixer plans bind native ranges and exact hierarchy", async () => {
   const deviceId = "track-0:device-0", chainId = `${deviceId}/chain-0`;
   const rack = { id: deviceId, canHaveChains: true, chains: [{ id: chainId, mixer: {

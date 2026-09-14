@@ -1104,6 +1104,10 @@ class DispatchTest(unittest.TestCase):
         self.assertFalse(chain.mute)
         self.assertTrue(chain.solo)
         self.assertEqual(written["mixer"]["volume"]["value"], 0.5)
+        renamed = dispatch_request(song, {"method": "rename_rack_chain", "params": {
+            **base, "beforeDevice": written["device"], "name": "Sub bass"}}, 4)
+        self.assertEqual(chain.name, "Sub bass")
+        self.assertEqual(renamed["name"], "Sub bass")
 
     def test_device_hierarchy_exposes_nested_chain_devices_and_loaded_drum_pads(self):
         song = Song()

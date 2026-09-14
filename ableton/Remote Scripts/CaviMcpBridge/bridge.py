@@ -1132,7 +1132,7 @@ def dispatch_request(song, request, state_version, application=None):
                 "requestedPosition": position, "actualPosition": actual,
                 "device": _device_tree(device, new_id),
                 "targetRack": _device_tree(rack, current_rack_id)}
-    if method == "set_rack_chain_mixer":
+    if method in ("set_rack_chain_mixer", "rename_rack_chain"):
         _, _, rack = _device(song, params["trackId"], params["deviceId"])
         if _device_tree(rack, params["deviceId"]) != params["beforeDevice"]:
             raise ValueError("rack state changed")
@@ -1142,6 +1142,13 @@ def dispatch_request(song, request, state_version, application=None):
         if not chain_id.startswith(prefix) or not suffix.isdigit() or int(suffix) >= len(rack.chains):
             raise ValueError("unknown rack chain")
         chain = rack.chains[int(suffix)]
+        if method == "rename_rack_chain":
+            name = params["name"]
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("chain name must not be empty")
+            chain.name = name
+            return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                    "chainId": chain_id, "name": chain.name, "device": _device_tree(rack, params["deviceId"])}
         changes = params["changes"]
         if not changes or set(changes) - {"volume", "pan", "mute", "solo"}:
             raise ValueError("invalid chain mixer changes")

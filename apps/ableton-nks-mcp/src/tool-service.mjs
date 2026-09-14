@@ -334,7 +334,7 @@ export class ToolService {
         targetTrackId: args.targetTrackId, targetChainId: args.targetChainId, targetPosition: args.targetPosition,
         expectedStateVersion: args.expectedStateVersion, beforeDevice: source.device, beforeTargetRack: target.device }, args);
     }
-    if (name === "set_rack_chain_mixer") {
+    if (name === "set_rack_chain_mixer" || name === "rename_rack_chain") {
       requireExpectedState(args);
       const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
       assertExpectedState(args, { ...observed, deviceId: observed.device?.id });
@@ -342,6 +342,11 @@ export class ToolService {
       if (rack?.id !== args.deviceId || !rack.canHaveChains) throw new Error("target rack identity mismatch");
       const chain = rack.chains.find(item => item.id === args.chainId);
       if (!chain) throw new Error("unknown rack chain");
+      if (name === "rename_rack_chain") {
+        if (typeof args.name !== "string" || !args.name.trim()) throw new Error("chain name must not be empty");
+        return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+          chainId: args.chainId, expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, name: args.name }, args);
+      }
       const changes = {};
       for (const key of ["volume", "pan", "mute", "solo"]) {
         if (args[key] === undefined) continue;
