@@ -4,7 +4,7 @@ import { getFactoryDeviceProfile, listFactoryDeviceProfiles, groupDeviceParamete
 
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
-    "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
+    "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
     "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate"
   ]);
 });
@@ -122,6 +122,19 @@ test("factory-device lookup accepts Live display and class identities", () => {
   assert.equal(getFactoryDeviceProfile({ className: "MultiSampler", name: "Strings" }).id, "sampler");
   assert.equal(getFactoryDeviceProfile({ className: "UltraAnalog", name: "Warm Pad" }).id, "analog");
   assert.equal(getFactoryDeviceProfile({ name: "Omnisphere" }), undefined);
+});
+
+test("Saturator distinguishes waveshaper drive from input gain and clipping mode", () => {
+  const profile = getFactoryDeviceProfile({ className: "Saturator", name: "Bass Harmonics" });
+  assert.equal(profile?.id, "saturator");
+  const names = ["Device On", "Drive", "Pre Dc Filter", "Type", "Color On", "Color Amt Low", "Color Freq", "Color Width", "Color Amt Hi", "Post Clip Mode", "Output", "Dry/Wet", "Threshold", "WS Drive", "WS Linearity", "WS Curve", "WS Damp", "WS Period", "WS Depth"];
+  const parameters = names.map((name, i) => ({ id: `parameter-${i}`, name }));
+  const groups = groupDeviceParameters(profile, parameters);
+  assert.deepEqual(groups.gain.map(p => p.id), ["parameter-1", "parameter-10"]);
+  assert.deepEqual(groups.waveshaper.map(p => p.id), names.slice(13).map((_, i) => `parameter-${i + 13}`));
+  assert.deepEqual(groups.clipping.map(p => p.id), ["parameter-9", "parameter-12"]);
+  assert.equal(groups.other.length, 0);
+  assert.equal(Object.values(groups).flat().length, names.length);
 });
 
 test("parameter grouping preserves live IDs while assigning producer roles", () => {
