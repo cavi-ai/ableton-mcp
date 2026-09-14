@@ -460,6 +460,9 @@ def _chain_mixer(chain):
             "max": float(parameter.max), "enabled": bool(parameter.is_enabled),
         }
     return {"volume": parameter_state("volume"), "pan": parameter_state("panning"),
+            "sends": [{"index": index, "value": float(send.value), "min": float(send.min),
+                       "max": float(send.max), "enabled": bool(send.is_enabled)}
+                      for index, send in enumerate(getattr(mixer, "sends", ()))],
             "mute": bool(chain.mute) if hasattr(chain, "mute") else None,
             "solo": bool(chain.solo) if hasattr(chain, "solo") else None}
 

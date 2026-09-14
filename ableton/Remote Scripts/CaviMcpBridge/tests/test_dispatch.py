@@ -1065,12 +1065,14 @@ class DispatchTest(unittest.TestCase):
         volume, pan = Parameter(), Parameter()
         volume.value = 0.75
         pan.min, pan.max, pan.value = -1.0, 1.0, -0.25
-        chain.mixer_device = SimpleNamespace(volume=volume, panning=pan)
+        chain.mixer_device = SimpleNamespace(volume=volume, panning=pan, sends=[Parameter()])
         chain.mute, chain.solo = True, False
         song.tracks[0].devices = [rack]
         result = dispatch_request(song, {"method": "get_device_hierarchy", "params": {
             "trackId": "track-0", "deviceId": "track-0:device-0"}}, 3)
         mixer = result["device"]["chains"][0]["mixer"]
+        self.assertEqual(mixer.get("sends"), [{"index": 0, "value": 0.4,
+            "min": 0.0, "max": 1.0, "enabled": True}])
         self.assertEqual(mixer["volume"], {"value": 0.75, "min": 0.0, "max": 1.0, "enabled": True})
         self.assertEqual(mixer["pan"], {"value": -0.25, "min": -1.0, "max": 1.0, "enabled": True})
         self.assertTrue(mixer["mute"])
