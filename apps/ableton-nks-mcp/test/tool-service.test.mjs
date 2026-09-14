@@ -800,6 +800,29 @@ test("per-note mutation rejects unknown IDs, invalid ranges, and unsupported MPE
   }), /unsupported per-note properties: pitchBend/);
 });
 
+test("quantization targets absolute note ends independently of starts", async () => {
+  for (const [target, wantStart, wantDuration] of [["end", 0.1, 0.65], ["both", 0, 0.75]]) {
+    const { service } = fixture({ extendedNotes: [{ noteId: 7, pitch: 60, start: 0.1, duration: 0.6, velocity: 100,
+      velocityDeviation: 0, releaseVelocity: 64, probability: 1, mute: false }] });
+    const result = await service.call("transform_midi_notes", {
+      trackId: "track-0", clipId: "track-0:clip-0", expectedStateVersion: 4,
+      noteIds: [7], operation: { type: "quantize", gridBeats: 0.25, target }
+    });
+    assert.equal(result.plan.changes[0].start, wantStart);
+    assert.ok(Math.abs(result.plan.changes[0].duration - wantDuration) < 1e-12);
+  }
+});
+
+test("end quantization rejects collapsed notes and incompatible duration mode", async () => {
+  const { service } = fixture({ extendedNotes: [{ noteId: 7, pitch: 60, start: 0.01, duration: 0.01, velocity: 100,
+    velocityDeviation: 0, releaseVelocity: 64, probability: 1, mute: false }] });
+  const base = { trackId: "track-0", clipId: "track-0:clip-0", expectedStateVersion: 4, noteIds: [7] };
+  await assert.rejects(() => service.call("transform_midi_notes", { ...base,
+    operation: { type: "quantize", gridBeats: 0.25, target: "end" } }), /non-positive duration/);
+  await assert.rejects(() => service.call("transform_midi_notes", { ...base,
+    operation: { type: "quantize", gridBeats: 0.25, target: "both", quantizeDuration: true } }), /cannot combine/);
+});
+
 test("MIDI note transforms sign hand-derived quantize and legato changes", async () => {
   const { service, calls } = fixture({ extendedNotes: [
     { noteId: 7, pitch: 60, start: 0.1, duration: 0.6, velocity: 100,

@@ -144,11 +144,18 @@ function transformMidiNotes(observed, noteIds, operation) {
     if (operation.quantizeDuration !== undefined && typeof operation.quantizeDuration !== "boolean") {
       throw new Error("operation.quantizeDuration must be boolean");
     }
+    const target = operation.target ?? "start";
+    if (!["start", "end", "both"].includes(target)) throw new Error("operation.target must be start, end, or both");
+    if (target !== "start" && operation.quantizeDuration === true) throw new Error("end targets cannot combine with quantizeDuration");
     const changes = selected.map((note) => {
       const targetStart = Math.round(note.start / grid) * grid;
-      const start = note.start + (targetStart - note.start) * strength;
+      const start = target === "end" ? note.start : note.start + (targetStart - note.start) * strength;
       const change = { noteId: note.noteId, previous: note, start };
-      if (operation.quantizeDuration === true) {
+      if (target !== "start") {
+        const end = note.start + note.duration;
+        change.duration = end + (Math.round(end / grid) * grid - end) * strength - start;
+        if (change.duration <= 0) throw new Error(`noteId ${note.noteId} quantizes to non-positive duration`);
+      } else if (operation.quantizeDuration === true) {
         const targetDuration = Math.max(grid, Math.round(note.duration / grid) * grid);
         change.duration = note.duration + (targetDuration - note.duration) * strength;
       }
