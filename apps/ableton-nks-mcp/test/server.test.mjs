@@ -4,6 +4,19 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { createRouter } from "../src/server.mjs";
 
+test("server can be imported from a Node eval without starting stdio", async () => {
+  const child = spawn(process.execPath, ["--input-type=module", "-e",
+    'const { createRouter } = await import("./src/server.mjs"); const route = createRouter({ call: async () => ({}) }); console.log(JSON.stringify(await route({ id: 1, method: "tools/list" })));'
+  ], { cwd: new URL("..", import.meta.url), stdio: ["ignore", "pipe", "pipe"] });
+  let stdout = "", stderr = "";
+  child.stdout.setEncoding("utf8").on("data", chunk => { stdout += chunk; });
+  child.stderr.setEncoding("utf8").on("data", chunk => { stderr += chunk; });
+  const [code] = await once(child, "exit");
+  assert.equal(code, 0, stderr);
+  assert.equal(stderr, "");
+  assert.equal(JSON.parse(stdout).result.tools.some(tool => tool.name === "get_live_state"), true);
+});
+
 test("MCP rejects malformed tool arguments before service dispatch", async () => {
   let dispatches = 0;
   const route = createRouter({ call: async () => { dispatches++; return { accepted: true }; } });
