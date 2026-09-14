@@ -5,6 +5,24 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { isMainModule, parseCli, runCli } from "../src/cli.mjs";
+import { ToolService } from "../src/tool-service.mjs";
+
+test("CLI validation preserves real guarded confirmation execution", async () => {
+  let tempo = 120;
+  const service = new ToolService({ catalog: {}, bridge: { request: async (method, args) => {
+    if (method === "get_live_state") return { stateVersion: 1, tempo };
+    if (method === "set_tempo") { tempo = args.tempo; return { stateVersion: 2, tempo }; }
+    throw new Error(`unexpected method ${method}`);
+  } } });
+  const dependencies = { runtimeFactory: () => ({ service, close() {} }), stdout: () => {} };
+  const args = { expectedStateVersion: 1, tempo: 128 };
+  const dry = await runCli(["call", "set_tempo", "--args", JSON.stringify(args)], dependencies);
+  assert.equal(tempo, 120);
+  const result = await runCli(["call", "set_tempo", "--args", JSON.stringify({ ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash })], dependencies);
+  assert.equal(result.dryRun, false);
+  assert.equal(tempo, 128);
+});
 
 test("CLI parses commands and global JSON output", () => {
   assert.deepEqual(parseCli(["doctor", "--json"]), { command: "doctor", json: true, args: [] });
@@ -13,6 +31,17 @@ test("CLI parses commands and global JSON output", () => {
     json: false,
     args: ["--live-version", "12.4"]
   });
+});
+
+test("CLI rejects malformed arguments before opening runtime resources", async () => {
+  let opened = 0;
+  const runtimeFactory = () => { opened++; return { service: { call: async () => ({}) }, close() {} }; };
+  for (const encoded of ["{", "null", "[]", '{"expectedStateVersion":1,"trackId":"track-0","armed":"yes"}',
+    '{"expectedStateVersion":1,"trackId":"track-0","armed":true,"extra":1}']) {
+    await assert.rejects(() => runCli(["call", "arm_track", "--args", encoded], { runtimeFactory, stdout: () => {} }));
+  }
+  await assert.rejects(() => runCli(["call", "not_a_tool"], { runtimeFactory, stdout: () => {} }), /unknown tool/);
+  assert.equal(opened, 0);
 });
 
 test("CLI recognizes an npm-style executable symlink as the main module", async () => {
