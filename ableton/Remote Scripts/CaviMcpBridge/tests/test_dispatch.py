@@ -1075,6 +1075,27 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(mixer["pan"], {"value": -0.25, "min": -1.0, "max": 1.0, "enabled": True})
         self.assertTrue(mixer["mute"])
         self.assertFalse(mixer["solo"])
+        base = {"trackId": "track-0", "deviceId": "track-0:device-0",
+                "chainId": "track-0:device-0/chain-0", "beforeDevice": result["device"]}
+        for changes in ({"volume": 0.5, "pan": 2.0}, {"volume": float("nan")},
+                        {"mute": 1}, {}, {"unknown": True}):
+            with self.subTest(changes=changes):
+                with self.assertRaises(ValueError):
+                    dispatch_request(song, {"method": "set_rack_chain_mixer", "params": {
+                        **base, "changes": changes}}, 3)
+                self.assertEqual(volume.value, 0.75)
+                self.assertEqual(pan.value, -0.25)
+                self.assertTrue(chain.mute)
+                self.assertFalse(chain.solo)
+        with self.assertRaisesRegex(ValueError, "unknown rack chain"):
+            dispatch_request(song, {"method": "set_rack_chain_mixer", "params": {
+                **base, "chainId": "track-0:device-0/chain-99", "changes": {"volume": 0.5}}}, 3)
+        chain.name = "Changed layer"
+        with self.assertRaisesRegex(ValueError, "rack state changed"):
+            dispatch_request(song, {"method": "set_rack_chain_mixer", "params": {
+                **base, "changes": {"volume": 0.5}}}, 3)
+        self.assertEqual(volume.value, 0.75)
+        chain.name = result["device"]["chains"][0]["name"]
         written = dispatch_request(song, {"method": "set_rack_chain_mixer", "params": {
             "trackId": "track-0", "deviceId": "track-0:device-0", "chainId": "track-0:device-0/chain-0",
             "beforeDevice": result["device"], "changes": {"volume": 0.5, "pan": 0.25, "mute": False, "solo": True}}}, 3)
