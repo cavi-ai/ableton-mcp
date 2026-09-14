@@ -2,6 +2,7 @@ import { assertExpectedState } from "./bridge-protocol.mjs";
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { analyzeAudioFile } from "./audio-analysis.mjs";
+import { inspectGroovePostconditions } from "./groove-workflow.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { CatalogService } from "./catalog-service.mjs";
 import { getFactoryDeviceProfile, groupDeviceParameters, listFactoryDeviceProfiles } from "./factory-device-knowledge.mjs";
@@ -258,6 +259,11 @@ export class ToolService {
     if (name === "get_history_state") return this.bridge.request("get_history_state", {});
     if (name === "get_song_musical_context") return this.bridge.request("get_song_musical_context", {});
     if (name === "get_clip_groove_context") return this.bridge.request("get_clip_groove_context", args);
+    if (name === "inspect_clip_groove_postconditions") {
+      if (args.before?.trackId !== args.trackId || args.before?.clipId !== args.clipId) throw new Error("before snapshot does not match target");
+      const observed = await this.bridge.request("get_clip_groove_context", { trackId: args.trackId, clipId: args.clipId });
+      return { ...inspectGroovePostconditions(args.operation, args.before, observed), observed };
+    }
     if (name === "get_transport_recording_context") return this.bridge.request("get_transport_recording_context", {});
     if (name === "list_arrangement_cue_points") return this.bridge.request("list_arrangement_cue_points", {});
     if (name === "list_tracks") return this.bridge.request("list_tracks", {});

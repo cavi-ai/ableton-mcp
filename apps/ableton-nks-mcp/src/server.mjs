@@ -38,6 +38,7 @@ const toolNames = [
   "redo",
   "get_song_musical_context",
   "get_clip_groove_context",
+  "inspect_clip_groove_postconditions",
   "set_song_musical_context",
   "set_groove",
   "get_transport_recording_context",
