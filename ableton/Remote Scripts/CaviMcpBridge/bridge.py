@@ -1132,6 +1132,37 @@ def dispatch_request(song, request, state_version, application=None):
                 "requestedPosition": position, "actualPosition": actual,
                 "device": _device_tree(device, new_id),
                 "targetRack": _device_tree(rack, current_rack_id)}
+    if method == "set_rack_chain_mixer":
+        _, _, rack = _device(song, params["trackId"], params["deviceId"])
+        if _device_tree(rack, params["deviceId"]) != params["beforeDevice"]:
+            raise ValueError("rack state changed")
+        prefix = params["deviceId"] + "/chain-"
+        chain_id = params["chainId"]
+        suffix = chain_id.removeprefix(prefix)
+        if not chain_id.startswith(prefix) or not suffix.isdigit() or int(suffix) >= len(rack.chains):
+            raise ValueError("unknown rack chain")
+        chain = rack.chains[int(suffix)]
+        changes = params["changes"]
+        if not changes or set(changes) - {"volume", "pan", "mute", "solo"}:
+            raise ValueError("invalid chain mixer changes")
+        state = _chain_mixer(chain)
+        for key, value in changes.items():
+            if key in ("mute", "solo"):
+                if type(value) is not bool or state[key] is None:
+                    raise ValueError(f"{key} is not writable")
+            elif type(value) not in (int, float) or not math.isfinite(value) or state[key] is None or not state[key]["enabled"] or not state[key]["min"] <= value <= state[key]["max"]:
+                raise ValueError(f"{key} is outside the writable native range")
+        song.begin_undo_step()
+        try:
+            for key, value in changes.items():
+                if key in ("mute", "solo"):
+                    setattr(chain, key, value)
+                else:
+                    getattr(chain.mixer_device, "panning" if key == "pan" else "volume").value = value
+        finally:
+            song.end_undo_step()
+        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                "chainId": chain_id, "mixer": _chain_mixer(chain), "device": _device_tree(rack, params["deviceId"])}
     if method == "create_rack_chain":
         _, _, device = _device(song, params["trackId"], params["deviceId"])
         if not device.can_have_chains or not callable(getattr(device, "insert_chain", None)):
