@@ -779,6 +779,28 @@ test("device reordering requires exact state and confirmation", async () => {
   assert.equal(result.observed.actualPosition, 0);
 });
 
+test("Arrangement placement guards timeline overlap and exact observations", async () => {
+  const { service } = fixture();
+  const calls = [];
+  let timeline = [];
+  service.bridge.request = async (method, params) => {
+    calls.push(method);
+    if (method === "list_clips") return { stateVersion: 4, trackId: "track-0", clips: [{ id: "track-0:clip-0", hasClip: true, lengthBeats: 4 }] };
+    if (method === "list_arrangement_clips") return { stateVersion: 4, trackId: "track-0", clips: timeline };
+    if (method === "place_session_clip_in_arrangement") return { stateVersion: 5, placedClip: { startBeats: params.startBeats, endBeats: params.endBeats } };
+    throw new Error(`unexpected ${method}`);
+  };
+  const args = { trackId: "track-0", clipId: "track-0:clip-0", expectedStateVersion: 4, startBeats: 8 };
+  const dry = await service.call("place_session_clip_in_arrangement", args);
+  assert.equal(dry.plan.endBeats, 12);
+  assert.equal(calls.includes("place_session_clip_in_arrangement"), false);
+  const result = await service.call("place_session_clip_in_arrangement", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.observed.placedClip.startBeats, 8);
+  timeline = [{ startBeats: 10, endBeats: 14 }];
+  await assert.rejects(() => service.call("place_session_clip_in_arrangement", args), /overlap/);
+  await assert.rejects(() => service.call("place_session_clip_in_arrangement", { ...args, expectedStateVersion: 3 }), /state/i);
+});
+
 test("set mixer exposes master and return buses and guards bounded changes", async () => {
   const { service, calls } = fixture();
   const observed = await service.call("get_set_mixer");

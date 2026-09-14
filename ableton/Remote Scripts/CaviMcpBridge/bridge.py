@@ -1,5 +1,6 @@
 import hashlib
 import json
+import math
 import os
 import queue
 import socket
@@ -223,9 +224,24 @@ def _clip_list(song, track_id, state_version):
             "id": f"track-{index}:clip-{slot_index}",
             "name": slot.clip.name if slot.has_clip else None,
             "hasClip": bool(slot.has_clip),
+            "lengthBeats": float(slot.clip.length) if slot.has_clip else None,
             "isPlaying": bool(slot.clip.is_playing) if slot.has_clip else False,
         } for slot_index, slot in enumerate(track.clip_slots)],
     }
+
+
+def _arrangement_clip_record(clip, track_id, index):
+    return {"id": f"{track_id}:arrangement-clip-{index}", "name": clip.name,
+            "startBeats": float(clip.start_time), "endBeats": float(clip.end_time),
+            "lengthBeats": float(clip.end_time - clip.start_time),
+            "type": "audio" if clip.is_audio_clip else "midi"}
+
+
+def _arrangement_clips(song, track_id, state_version):
+    _, track = _track(song, track_id)
+    return {"stateVersion": state_version, "trackId": track_id,
+            "clips": [_arrangement_clip_record(clip, track_id, index)
+                      for index, clip in enumerate(track.arrangement_clips)]}
 
 
 def _parameter_record(parameter, index):
@@ -727,6 +743,23 @@ def dispatch_request(song, request, state_version, application=None):
         return {"stateVersion": state_version + 1, "deleted": target}
     if method == "list_clips":
         return _clip_list(song, params["trackId"], state_version)
+    if method == "list_arrangement_clips":
+        return _arrangement_clips(song, params["trackId"], state_version)
+    if method == "place_session_clip_in_arrangement":
+        track, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
+        if not slot.has_clip:
+            raise ValueError("source clip is empty")
+        start = float(params["startBeats"])
+        end = start + float(slot.clip.length)
+        if not math.isfinite(start) or start < 0 or not math.isfinite(end) or end <= start:
+            raise ValueError("startBeats and source length must define a finite positive interval")
+        if any(start < clip.end_time and end > clip.start_time for clip in track.arrangement_clips):
+            raise ValueError("placement would overlap existing Arrangement clips")
+        placed = track.duplicate_clip_to_arrangement(slot.clip, start)
+        result = _arrangement_clips(song, params["trackId"], state_version + 1)
+        index = next(index for index, clip in enumerate(track.arrangement_clips) if clip == placed)
+        result["placedClip"] = _arrangement_clip_record(placed, params["trackId"], index)
+        return result
     if method == "duplicate_clip":
         track_id = params["trackId"]
         _, _, source = _clip_slot(song, track_id, params["sourceClipId"])

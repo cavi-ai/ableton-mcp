@@ -651,6 +651,26 @@ class DispatchTest(unittest.TestCase):
             for value, name in ((11, "instrument"), (22, "audio_effect"), (44, "midi_effect"), (99, "unknown")):
                 self.assertEqual(_device_type(SimpleNamespace(type=value)), name)
 
+    def test_session_clip_placement_lists_timeline_and_rejects_overlap(self):
+        song = Song()
+        track = song.tracks[0]
+        track.arrangement_clips = []
+        def duplicate(clip, time):
+            result = copy.deepcopy(clip)
+            result.start_time = time
+            result.end_time = time + clip.length
+            result.is_audio_clip = False
+            track.arrangement_clips.append(result)
+            return result
+        track.duplicate_clip_to_arrangement = duplicate
+        params = {"trackId": "track-0", "clipId": "track-0:clip-0", "startBeats": 8.0}
+        result = dispatch_request(song, {"method": "place_session_clip_in_arrangement", "params": params}, 3)
+        self.assertEqual(result["placedClip"]["startBeats"], 8.0)
+        self.assertEqual(result["placedClip"]["endBeats"], 12.0)
+        with self.assertRaisesRegex(ValueError, "overlap"):
+            dispatch_request(song, {"method": "place_session_clip_in_arrangement", "params": {**params, "startBeats": 10.0}}, 4)
+        self.assertEqual(len(track.arrangement_clips), 1)
+
     def test_master_and_return_mixer_lifecycle(self):
         song = Song()
         observed = dispatch_request(song, {"method": "get_set_mixer"}, 3)

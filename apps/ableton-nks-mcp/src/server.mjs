@@ -71,6 +71,8 @@ const toolNames = [
   "get_set_mixer",
   "set_master_mixer",
   "move_device",
+  "list_arrangement_clips",
+  "place_session_clip_in_arrangement",
   "set_return_mixer",
   "list_factory_device_profiles",
   "get_factory_device_context",
