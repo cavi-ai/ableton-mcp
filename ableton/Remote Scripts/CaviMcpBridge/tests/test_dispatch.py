@@ -600,6 +600,18 @@ class DispatchTest(unittest.TestCase):
             }}, 3, application)
         self.assertEqual(application.loaded, [])
 
+    def test_browser_load_rejects_nested_rack_changes_before_loading(self):
+        song, application = Song(), Application()
+        rack = DrumRack()
+        song.tracks[0].devices = [rack]
+        before = dispatch_request(song, {"method": "list_devices", "params": {"trackId": "track-0"}}, 3)
+        rack.chains[0].devices[0].name = "Changed nested sound"
+        with self.assertRaisesRegex(ValueError, "target device chain changed"):
+            dispatch_request(song, {"method": "load_factory_browser_item", "params": {
+                "root": "instruments", "path": ["Drift"], "trackId": "track-0", "before": before
+            }}, 3, application)
+        self.assertEqual(application.loaded, [])
+
     def test_live_browser_search_returns_exact_nested_splice_paths(self):
         result = dispatch_request(Song(), {"method": "search_browser_items", "params": {
             "root": "user_folders", "path": [], "query": "snare", "maxDepth": 3, "limit": 10,
@@ -1054,6 +1066,7 @@ class DispatchTest(unittest.TestCase):
             "id": "track-0:device-0", "name": "Serum 2", "className": "PluginDevice",
             "classDisplayName": "Plug-in", "type": "instrument", "active": True,
             "canHaveChains": False, "canHaveDrumPads": False,
+            "chains": [], "drumPads": [],
         })
 
     def test_parameter_listing_exposes_agent_usable_plugin_metadata(self):

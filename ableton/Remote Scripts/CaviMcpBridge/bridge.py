@@ -1008,7 +1008,7 @@ def dispatch_request(song, request, state_version, application=None):
         }
     if method == "list_devices":
         index, track = _track(song, params["trackId"])
-        return {"stateVersion": state_version, "trackId": params["trackId"], "devices": [_device_record(device, f"track-{index}:device-{i}") for i, device in enumerate(track.devices)]}
+        return {"stateVersion": state_version, "trackId": params["trackId"], "devices": [_device_tree(device, f"track-{index}:device-{i}") for i, device in enumerate(track.devices)]}
     if method in ("set_device_active", "delete_device", "move_device"):
         if method == "delete_device" and "/" in params["deviceId"]:
             raise ValueError("nested device deletion is not supported")
