@@ -289,6 +289,8 @@ class Song:
         master_mixer.cue_volume = type("Value", (), {"value": 0.7, "min": 0.0, "max": 1.0})()
         master_mixer.crossfader = type("Value", (), {"value": 0.0, "min": -1.0, "max": 1.0})()
         self.master_track = type("MasterTrack", (), {"mixer_device": master_mixer})()
+        self.master_track.current_output_sub_routing = "1/2"
+        self.master_track.available_output_routing_channels = ("1/2", "3/4")
         self.scenes = [Scene(), Scene()]
         self.can_undo = True
         self.can_redo = False
@@ -625,6 +627,11 @@ class DispatchTest(unittest.TestCase):
         song = Song()
         observed = dispatch_request(song, {"method": "get_set_mixer"}, 3)
         self.assertEqual(observed["master"]["cueVolume"]["value"], 0.7)
+        self.assertEqual(observed["master"]["outputRouting"]["channel"]["id"], "1/2")
+        routed = dispatch_request(song, {"method": "set_master_mixer", "params": {"changes": {
+            "outputChannelId": {"value": {"id": "3/4", "name": "3/4"}},
+        }}}, 3)
+        self.assertEqual(routed["master"]["outputRouting"]["channel"]["id"], "3/4")
         self.assertEqual(observed["returns"][0]["name"], "Reverb")
         master = dispatch_request(song, {"method": "set_master_mixer", "params": {"changes": {
             "volume": {"value": 0.5}, "crossfader": {"value": -0.25},

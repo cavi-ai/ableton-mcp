@@ -1147,6 +1147,12 @@ export class ToolService {
       : ["volume", "pan"];
     const booleanKeys = method === "set_return_mixer" ? ["mute", "solo"] : [];
     const changes = {};
+    if (method === "set_master_mixer" && args.outputChannelId !== undefined) {
+      const routing = target.outputRouting;
+      const selected = routing?.availableChannels.find(({ id }) => id === args.outputChannelId);
+      if (!routing?.supported || !selected) throw new Error("master output channel is unavailable");
+      changes.outputChannelId = { previous: routing.channel, value: selected };
+    }
     for (const key of numericKeys) {
       if (args[key] === undefined) continue;
       const requestedValue = Number(args[key]);

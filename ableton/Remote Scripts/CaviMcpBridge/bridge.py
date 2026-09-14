@@ -318,11 +318,18 @@ def _return_mixer_record(track, index):
 
 def _set_mixer(song, state_version):
     mixer = song.master_track.mixer_device
+    master = song.master_track
+    output_supported = hasattr(master, "current_output_sub_routing") and hasattr(master, "available_output_routing_channels")
     return {
         "stateVersion": state_version,
         "master": {
             "volume": _value_record(mixer.volume), "pan": _value_record(mixer.panning),
             "cueVolume": _value_record(mixer.cue_volume), "crossfader": _value_record(mixer.crossfader),
+            "outputRouting": {
+                "supported": output_supported,
+                "channel": _routing_option(master.current_output_sub_routing) if output_supported else None,
+                "availableChannels": [_routing_option(option) for option in master.available_output_routing_channels] if output_supported else [],
+            },
         },
         "returns": [_return_mixer_record(track, index) for index, track in enumerate(song.return_tracks)],
     }
@@ -564,6 +571,13 @@ def dispatch_request(song, request, state_version, application=None):
         return _set_mixer(song, state_version)
     if method == "set_master_mixer":
         mixer = song.master_track.mixer_device
+        if "outputChannelId" in params["changes"]:
+            routing = _set_mixer(song, state_version)["master"]["outputRouting"]
+            identifier = params["changes"]["outputChannelId"]["value"]["id"]
+            selected = next((option for option in routing["availableChannels"] if option["id"] == identifier), None)
+            if not routing["supported"] or selected is None:
+                raise ValueError("master output channel is unavailable")
+            song.master_track.current_output_sub_routing = selected["name"]
         properties = {"volume": "volume", "pan": "panning", "cueVolume": "cue_volume", "crossfader": "crossfader"}
         for key, attribute in properties.items():
             if key in params["changes"]:

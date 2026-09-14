@@ -118,7 +118,8 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         stateVersion: 4,
         master: {
           volume: { value: 0.8, min: 0, max: 1 }, pan: { value: 0, min: -1, max: 1 },
-          cueVolume: { value: 0.7, min: 0, max: 1 }, crossfader: { value: 0, min: -1, max: 1 }
+          cueVolume: { value: 0.7, min: 0, max: 1 }, crossfader: { value: 0, min: -1, max: 1 },
+          outputRouting: { supported: true, channel: { id: "1/2", name: "1/2" }, availableChannels: [{ id: "1/2", name: "1/2" }, { id: "3/4", name: "3/4" }] }
         },
         returns: [{ id: "return-0", name: "Reverb", volume: { value: 0.6, min: 0, max: 1 }, pan: { value: 0, min: -1, max: 1 }, mute: false, solo: false }]
       };
@@ -767,10 +768,12 @@ test("set mixer exposes master and return buses and guards bounded changes", asy
   const observed = await service.call("get_set_mixer");
   assert.equal(observed.master.cueVolume.value, 0.7);
   assert.equal(observed.returns[0].name, "Reverb");
-  const masterArgs = { expectedStateVersion: 4, volume: 2, crossfader: -2 };
+  await assert.rejects(() => service.call("set_master_mixer", { expectedStateVersion: 4, outputChannelId: "9/10" }), /unavailable/);
+  const masterArgs = { expectedStateVersion: 4, volume: 2, crossfader: -2, outputChannelId: "3/4" };
   const masterDry = await service.call("set_master_mixer", masterArgs);
   assert.equal(masterDry.plan.changes.volume.value, 1);
   assert.equal(masterDry.plan.changes.crossfader.value, -1);
+  assert.equal(masterDry.plan.changes.outputChannelId.value.id, "3/4");
   const masterLive = await service.call("set_master_mixer", {
     ...masterArgs, dryRun: false, confirmationToken: masterDry.confirmation.token, planHash: masterDry.confirmation.planHash
   });
