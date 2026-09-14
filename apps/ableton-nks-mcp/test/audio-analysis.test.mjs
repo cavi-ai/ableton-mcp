@@ -9,6 +9,7 @@ test("audio analysis rejects network sources and unbounded windows", async () =>
   await assert.rejects(() => analyzeAudioFile("/missing.wav", { durationSeconds: 61 }), /durationSeconds/);
   await assert.rejects(() => analyzeAudioFile("/missing.wav", { startSeconds: -1 }), /startSeconds/);
   await assert.rejects(() => analyzeAudioFile("/missing.wav", { includeSpectrum: "yes" }), /includeSpectrum/);
+  await assert.rejects(() => analyzeAudioFile("/missing.wav", { includePitch: "yes" }), /includePitch/);
 });
 
 test("MCP audio analysis validates bounded windows before running analysis", async () => {
@@ -19,7 +20,8 @@ test("MCP audio analysis validates bounded windows before running analysis", asy
     { sourcePath: "/audio.wav", durationSeconds: 61 },
     { sourcePath: "/audio.wav", startSeconds: -1 },
     { sourcePath: "/audio.wav", durationSeconds: "10" },
-    { sourcePath: "/audio.wav", includeSpectrum: "yes" }
+    { sourcePath: "/audio.wav", includeSpectrum: "yes" },
+    { sourcePath: "/audio.wav", includePitch: "yes" }
   ]) {
     const reply = await route({ id: 2, method: "tools/call", params: { name: "analyze_audio_file", arguments: arguments_ } });
     assert.equal(reply.error.code, -32602);
