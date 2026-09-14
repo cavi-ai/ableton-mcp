@@ -9,6 +9,16 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+test("clip analysis rejects a bridge source belonging to another clip before opening it", async () => {
+  const service = new ToolService({ bridge: { request: async (method, target) => {
+    assert.equal(method, "get_audio_clip_state");
+    assert.deepEqual(target, { trackId: "track-1", clipId: "track-1:clip-0" });
+    return { stateVersion: 1, trackId: "track-0", clipId: "track-0:clip-0",
+      source: { path: "/nonexistent-wrong-clip-source.wav" } };
+  } } });
+  await assert.rejects(() => service.call("analyze_audio_clip", { trackId: "track-1", clipId: "track-1:clip-0" }), /audio clip identity mismatch/);
+});
+
 test("pitch analysis selects the requested source channel and rejects absent channels", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cavi-channel-pitch-"));
   try {

@@ -307,6 +307,7 @@ export class ToolService {
     if (name === "analyze_audio_clip") {
       const target = { trackId: args.trackId, clipId: args.clipId };
       const before = await this.bridge.request("get_audio_clip_state", target);
+      if (before.trackId !== target.trackId || before.clipId !== target.clipId) throw new Error("audio clip identity mismatch");
       if (typeof before.source?.path !== "string" || !before.source.path) throw new Error("clip source file is unavailable; update the bridge or locate the missing sample");
       const measurement = await analyzeAudioFile(before.source.path, args);
       const after = await this.bridge.request("get_audio_clip_state", target);
