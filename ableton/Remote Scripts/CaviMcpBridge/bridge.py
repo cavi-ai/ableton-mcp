@@ -5,6 +5,7 @@ import os
 import queue
 import socket
 import threading
+from contextlib import contextmanager
 
 try:
     import Live
@@ -35,6 +36,15 @@ CLIP_QUANTIZATION_NAMES = (
 )
 AUDIO_WARP_MODE_NAMES = ("beats", "tones", "texture", "re_pitch", "complex", "rex", "complex_pro")
 COUNT_IN_DURATION_NAMES = ("none", "one_bar", "two_bars", "four_bars")
+
+
+@contextmanager
+def _undo_step(song):
+    song.begin_undo_step()
+    try:
+        yield
+    finally:
+        song.end_undo_step()
 
 
 def _track(song, track_id):
@@ -728,25 +738,26 @@ def dispatch_request(song, request, state_version, application=None):
             end = _change_value(changes["endMarker" + suffix]) if "endMarker" + suffix in changes else clip.end_marker
             if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start:
                 raise ValueError("invalid audio marker interval")
-        for source, target in (("gain", "gain"), ("pitchCoarse", "pitch_coarse"),
-                               ("pitchFine", "pitch_fine"), ("warping", "warping"),
-                               ("warpMode", "warp_mode")):
-            if source in changes:
-                setattr(clip, target, _change_value(changes[source]))
-        if requested_markers:
-            if not clip.looping:
-                if start >= clip.loop_end:
-                    clip.loop_end = end
-                    clip.loop_start = start
+        with _undo_step(song):
+            for source, target in (("gain", "gain"), ("pitchCoarse", "pitch_coarse"),
+                                   ("pitchFine", "pitch_fine"), ("warping", "warping"),
+                                   ("warpMode", "warp_mode")):
+                if source in changes:
+                    setattr(clip, target, _change_value(changes[source]))
+            if requested_markers:
+                if not clip.looping:
+                    if start >= clip.loop_end:
+                        clip.loop_end = end
+                        clip.loop_start = start
+                    else:
+                        clip.loop_start = start
+                        clip.loop_end = end
+                if start >= clip.end_marker:
+                    clip.end_marker = end
+                    clip.start_marker = start
                 else:
-                    clip.loop_start = start
-                    clip.loop_end = end
-            if start >= clip.end_marker:
-                clip.end_marker = end
-                clip.start_marker = start
-            else:
-                clip.start_marker = start
-                clip.end_marker = end
+                    clip.start_marker = start
+                    clip.end_marker = end
         return _audio_clip_state(song, track_id, clip_id, state_version + 1)
     if method == "crop_audio_clip":
         track_id, clip_id = params["trackId"], params["clipId"]
@@ -758,11 +769,8 @@ def dispatch_request(song, request, state_version, application=None):
         start, end = (clip.loop_start, clip.loop_end) if clip.looping else (clip.start_marker, clip.end_marker)
         if not math.isfinite(start) or not math.isfinite(end) or end <= start:
             raise ValueError("invalid audio crop interval")
-        song.begin_undo_step()
-        try:
+        with _undo_step(song):
             clip.crop()
-        finally:
-            song.end_undo_step()
         return _audio_clip_state(song, track_id, clip_id, state_version + 1)
     if method == "quantize_audio_clip":
         track_id, clip_id = params["trackId"], params["clipId"]
@@ -787,7 +795,8 @@ def dispatch_request(song, request, state_version, application=None):
         native_grid = getattr(getattr(getattr(Live, "Song", None), "RecordingQuantization", None), grids[params["grid"]], None)
         if native_grid is None:
             raise ValueError("native audio quantization grid unavailable")
-        clip.quantize(native_grid, amount)
+        with _undo_step(song):
+            clip.quantize(native_grid, amount)
         return _audio_clip_state(song, track_id, clip_id, state_version + 1)
     if method == "add_audio_warp_marker":
         track_id, clip_id = params["trackId"], params["clipId"]
@@ -819,7 +828,9 @@ def dispatch_request(song, request, state_version, application=None):
         native_markers = clip.warp_markers
         if not native_markers:
             raise ValueError("native warp marker specification type unavailable")
-        clip.add_warp_marker(type(native_markers[0])(**marker))
+        specification = type(native_markers[0])(**marker)
+        with _undo_step(song):
+            clip.add_warp_marker(specification)
         return _audio_clip_state(song, track_id, clip_id, state_version + 1)
     if method == "remove_audio_warp_marker":
         track_id, clip_id = params["trackId"], params["clipId"]
@@ -836,7 +847,8 @@ def dispatch_request(song, request, state_version, application=None):
         index = next((i for i, marker in enumerate(markers) if marker["beatTime"] == beat), -1)
         if index < 0 or index == len(markers) - 1:
             raise ValueError("unknown or hidden terminal warp marker")
-        clip.remove_warp_marker(beat)
+        with _undo_step(song):
+            clip.remove_warp_marker(beat)
         return _audio_clip_state(song, track_id, clip_id, state_version + 1)
     if method == "move_audio_warp_marker":
         track_id, clip_id = params["trackId"], params["clipId"]
@@ -857,7 +869,8 @@ def dispatch_request(song, request, state_version, application=None):
             raise ValueError("warp marker cannot cross or overlap a neighbor")
         if beat == target:
             raise ValueError("warp marker movement must change beat time")
-        clip.move_warp_marker(beat, target - beat)
+        with _undo_step(song):
+            clip.move_warp_marker(beat, target - beat)
         return _audio_clip_state(song, track_id, clip_id, state_version + 1)
     if method == "set_song_musical_context":
         changes = params["changes"]

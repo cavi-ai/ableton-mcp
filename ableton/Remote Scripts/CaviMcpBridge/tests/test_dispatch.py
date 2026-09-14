@@ -300,6 +300,7 @@ class Song:
         self.scenes = [Scene(), Scene()]
         self.can_undo = True
         self.can_redo = False
+        self.undo_boundaries = []
         self.tracks[0].clip_slots = [ClipSlot(), ClipSlot(False)]
         self.tracks[1].clip_slots = [ClipSlot(False), ClipSlot(False)]
         audio_slot = ClipSlot()
@@ -387,6 +388,12 @@ class Song:
 
     def stop_playing(self):
         self.is_playing = False
+
+    def begin_undo_step(self):
+        self.undo_boundaries.append("begin")
+
+    def end_undo_step(self):
+        self.undo_boundaries.append("end")
 
     def undo(self):
         self.can_undo = False
@@ -931,6 +938,69 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(changed["stateVersion"], 4)
         self.assertEqual(changed["pitch"], {"coarse": -12, "fine": 17})
         self.assertEqual(changed["markers"], {"unit": "beats", "startBeats": 1.0, "endBeats": 7.0})
+
+    def test_audio_mutations_have_isolated_undo_boundaries(self):
+        for method, extra in (
+            ("set_audio_clip_state", {"changes": {"gain": {"value": 0.25}}}),
+            ("add_audio_warp_marker", {"beatTime": 1, "sampleTime": 0.5}),
+            ("move_audio_warp_marker", {"beatTime": 2, "targetBeatTime": 2.5}),
+            ("remove_audio_warp_marker", {"beatTime": 2}),
+            ("quantize_audio_clip", {"grid": "1_4", "amount": 1, "beforeSwingAmount": 0}),
+        ):
+            with self.subTest(method=method):
+                song = Song()
+                clip = song.tracks[0].clip_slots[2].clip
+                clip.warp_markers = (SimpleNamespace(sample_time=0, beat_time=0),
+                    SimpleNamespace(sample_time=1, beat_time=2), SimpleNamespace(sample_time=2, beat_time=4))
+                def native(*args):
+                    self.assertEqual(song.undo_boundaries, ["begin"])
+                    clip.pitch_fine = 5
+                clip.add_warp_marker = clip.move_warp_marker = clip.remove_warp_marker = clip.quantize = native
+                params = {"trackId": "track-0", "clipId": "track-0:clip-2", **extra}
+                before = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
+                live = SimpleNamespace(Song=SimpleNamespace(RecordingQuantization=SimpleNamespace(rec_q_quarter=1)))
+                with patch("bridge.Live", live):
+                    result = dispatch_request(song, {"method": method, "params": {**params, "before": before}}, 3)
+                self.assertEqual(song.undo_boundaries, ["begin", "end"])
+                self.assertEqual(result["gain"]["value"] if method == "set_audio_clip_state" else result["pitch"]["fine"],
+                    0.25 if method == "set_audio_clip_state" else 5)
+                song.undo_boundaries.clear()
+                with self.assertRaisesRegex(ValueError, "state changed"):
+                    dispatch_request(song, {"method": method, "params": {**params, "before": before}}, 3)
+                self.assertEqual(song.undo_boundaries, [])
+
+    def test_audio_mutation_failures_close_their_undo_step(self):
+        class RejectGain(AudioClip):
+            def __setattr__(self, name, value):
+                if name == "gain" and getattr(self, "reject_gain", False):
+                    raise RuntimeError("native edit failed")
+                super().__setattr__(name, value)
+        for method, extra in (
+            ("set_audio_clip_state", {"changes": {"gain": {"value": 0.25}}}),
+            ("add_audio_warp_marker", {"beatTime": 1, "sampleTime": 0.5}),
+            ("move_audio_warp_marker", {"beatTime": 2, "targetBeatTime": 2.5}),
+            ("remove_audio_warp_marker", {"beatTime": 2}),
+            ("quantize_audio_clip", {"grid": "1_4", "amount": 1, "beforeSwingAmount": 0}),
+        ):
+            with self.subTest(method=method):
+                song = Song()
+                clip = RejectGain()
+                song.tracks[0].clip_slots[2].clip = clip
+                clip.reject_gain = True
+                clip.warp_markers = (SimpleNamespace(sample_time=0, beat_time=0),
+                    SimpleNamespace(sample_time=1, beat_time=2), SimpleNamespace(sample_time=2, beat_time=4))
+                def native(*args):
+                    self.assertEqual(song.undo_boundaries, ["begin"])
+                    raise RuntimeError("native edit failed")
+                clip.add_warp_marker = clip.move_warp_marker = clip.remove_warp_marker = clip.quantize = native
+                params = {"trackId": "track-0", "clipId": "track-0:clip-2", **extra}
+                before = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
+                live = SimpleNamespace(Song=SimpleNamespace(RecordingQuantization=SimpleNamespace(rec_q_quarter=1)))
+                with patch("bridge.Live", live):
+                    with self.assertRaisesRegex(RuntimeError, "native edit failed"):
+                        dispatch_request(song, {"method": method, "params": {**params, "before": before}}, 3)
+                self.assertEqual(song.undo_boundaries, ["begin", "end"])
+                self.assertEqual(dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3), before)
 
     def test_audio_state_exposes_loop_bounds_in_current_units(self):
         song = Song()
