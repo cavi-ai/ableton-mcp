@@ -25,3 +25,14 @@ test("MCP audio analysis validates bounded windows before running analysis", asy
   const remote = await route({ id: 3, method: "tools/call", params: { name: "analyze_audio_file", arguments: { sourcePath: "https://example.com/a.wav" } } });
   assert.match(remote.error.message, /absolute local/);
 });
+
+test("clip analysis reports unavailable source rather than guessing a path", async () => {
+  const service = new ToolService({ bridge: { async request(method, params) {
+    assert.equal(method, "get_audio_clip_state");
+    assert.deepEqual(params, { trackId: "track-0", clipId: "track-0:clip-0" });
+    return { stateVersion: 1, ...params, source: { path: null, lengthSamples: -1 } };
+  } } });
+  await assert.rejects(() => service.call("analyze_audio_clip", {
+    trackId: "track-0", clipId: "track-0:clip-0"
+  }), /source file is unavailable/);
+});

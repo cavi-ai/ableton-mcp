@@ -304,6 +304,16 @@ export class ToolService {
     if (name === "get_clip_timing") return this.bridge.request("get_clip_timing", args);
     if (name === "get_audio_clip_state") return this.bridge.request("get_audio_clip_state", args);
     if (name === "analyze_audio_file") return analyzeAudioFile(args.sourcePath, args);
+    if (name === "analyze_audio_clip") {
+      const target = { trackId: args.trackId, clipId: args.clipId };
+      const before = await this.bridge.request("get_audio_clip_state", target);
+      if (typeof before.source?.path !== "string" || !before.source.path) throw new Error("clip source file is unavailable; update the bridge or locate the missing sample");
+      const measurement = await analyzeAudioFile(before.source.path, args);
+      const after = await this.bridge.request("get_audio_clip_state", target);
+      if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error("audio clip changed during analysis; retry against current state");
+      return { ...target, stateVersion: after.stateVersion, measurement,
+        limitation: "Source audio only; excludes clip gain, transposition, warp, envelopes, and device processing." };
+    }
     if (name === "list_devices") return this.bridge.request("list_devices", args);
     if (name === "get_device_hierarchy") return this.bridge.request("get_device_hierarchy", args);
     if (name === "move_device_to_chain") {
