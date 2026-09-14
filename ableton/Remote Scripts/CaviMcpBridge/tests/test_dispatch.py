@@ -1532,6 +1532,17 @@ class DispatchTest(unittest.TestCase):
         result = dispatch_request(song, {"method": "list_devices", "params": {"trackId": "track-0"}}, 1)
         self.assertEqual(result["trackId"], "track-0")
 
+    def test_clip_resolution_rejects_negative_and_noncanonical_slot_ids(self):
+        song = Song()
+        song.tracks[0].clip_slots = [song.tracks[0].clip_slots[0]] * 2
+        for clip_id in ["track-0:clip--1", "track-0:clip-00", "track-0:clip-999", None]:
+            with self.subTest(clip_id=clip_id):
+                with self.assertRaises(ValueError):
+                    dispatch_request(song, {"method": "get_clip_timing", "params": {"trackId": "track-0", "clipId": clip_id}}, 1)
+        song.tracks[0].arrangement_clips = [AudioClip()]
+        with self.assertRaises(ValueError):
+            dispatch_request(song, {"method": "get_audio_clip_state", "params": {"trackId": "track-0", "clipId": "track-0:arrangement-clip-00"}}, 1)
+
     def test_status_and_parameter_write_return_observed_state(self):
         song = Song()
         status = dispatch_request(song, {"method": "get_live_state", "params": {}}, 4)

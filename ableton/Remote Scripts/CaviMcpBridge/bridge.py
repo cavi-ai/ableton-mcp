@@ -102,9 +102,14 @@ def _device(song, track_id, device_id):
 def _clip_slot(song, track_id, clip_id):
     track_index, track = _track(song, track_id)
     expected = f"track-{track_index}:clip-"
-    if not clip_id.startswith(expected):
+    if not isinstance(clip_id, str) or not clip_id.startswith(expected):
         raise ValueError("clipId does not belong to trackId")
-    index = int(clip_id.removeprefix(expected))
+    suffix = clip_id.removeprefix(expected)
+    if not suffix.isascii() or not suffix.isdigit():
+        raise ValueError("invalid clip slot ID")
+    index = int(suffix)
+    if str(index) != suffix or index >= len(track.clip_slots):
+        raise ValueError("clip slot ID is noncanonical or unavailable")
     return track, index, track.clip_slots[index]
 
 
@@ -216,12 +221,14 @@ def _clip_timing(song, track_id, clip_id, state_version):
 
 
 def _audio_clip(song, track_id, clip_id):
+    if not isinstance(clip_id, str):
+        raise ValueError("invalid audio clip ID")
     timeline = None
     if ":arrangement-clip-" in clip_id:
         _, track = _track(song, track_id)
         prefix = f"{track_id}:arrangement-clip-"
         suffix = clip_id[len(prefix):] if clip_id.startswith(prefix) else ""
-        if not suffix.isdigit() or int(suffix) >= len(track.arrangement_clips):
+        if not suffix.isascii() or not suffix.isdigit() or str(int(suffix)) != suffix or int(suffix) >= len(track.arrangement_clips):
             raise ValueError("unknown Arrangement clip ID")
         index = int(suffix)
         clip = track.arrangement_clips[index]
