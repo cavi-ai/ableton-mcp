@@ -850,6 +850,8 @@ def dispatch_request(song, request, state_version, application=None):
         track, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
         if not slot.has_clip:
             raise ValueError("source clip is empty")
+        if getattr(slot.clip, "is_audio_clip", False) and not slot.clip.warping:
+            raise ValueError("unwarped placement requires tempo-map duration conversion")
         start = float(params["startBeats"])
         end = start + float(slot.clip.length)
         if not math.isfinite(start) or start < 0 or not math.isfinite(end) or end <= start:

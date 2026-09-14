@@ -429,6 +429,10 @@ class DispatchTest(unittest.TestCase):
         self.assertIsNone(record["lengthBeats"])
         self.assertEqual(record["lengthSeconds"], float(clip.length))
         self.assertEqual(record["durationUnit"], "seconds")
+        with self.assertRaisesRegex(ValueError, "tempo-map"):
+            dispatch_request(song, {"method": "place_session_clip_in_arrangement", "params": {
+                "trackId": "track-0", "clipId": "track-0:clip-2", "startBeats": 8
+            }}, 3)
 
     def test_track_hierarchy_reports_group_membership_and_fold_state(self):
         song = Song()
