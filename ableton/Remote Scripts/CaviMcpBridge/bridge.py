@@ -480,6 +480,13 @@ def _device_tree(device, device_id):
                             for child_index, child in enumerate(chain.devices)],
             })
     record["chains"] = chains
+    record["returnChains"] = [{
+        "id": f"{device_id}/return-chain-{index}", "name": chain.name,
+        "apiSupport": {"deleteDevice": callable(getattr(chain, "delete_device", None))},
+        "mixer": _chain_mixer(chain),
+        "devices": [_device_tree(child, f"{device_id}/return-chain-{index}/device-{child_index}")
+                    for child_index, child in enumerate(chain.devices)],
+    } for index, chain in enumerate(getattr(device, "return_chains", ())) ] if device.can_have_chains else []
     record["drumPads"] = []
     if device.can_have_drum_pads:
         record["drumPads"] = [{

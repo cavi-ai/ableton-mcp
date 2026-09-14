@@ -1134,6 +1134,22 @@ class DispatchTest(unittest.TestCase):
             "chainIds": ["track-0:device-0/chain-0"]
         }])
 
+    def test_device_hierarchy_includes_rack_return_chain_devices(self):
+        song = Song()
+        rack = DrumRack()
+        rack.return_chains = [Chain("Mix Bus", [NestedDevice("EQ", "Eq8", 2)])]
+        song.tracks[0].devices = [rack]
+        result = dispatch_request(song, {"method": "get_device_hierarchy", "params": {
+            "trackId": "track-0", "deviceId": "track-0:device-0"}}, 3)["device"]
+        returns = result.get("returnChains", [])
+        self.assertEqual(len(returns), 1)
+        self.assertEqual(returns[0]["id"], "track-0:device-0/return-chain-0")
+        self.assertEqual(returns[0]["name"], "Mix Bus")
+        self.assertIn("mixer", returns[0])
+        self.assertEqual(returns[0]["devices"][0]["id"], "track-0:device-0/return-chain-0/device-0")
+        self.assertEqual(returns[0]["devices"][0]["className"], "Eq8")
+        self.assertEqual(returns[0]["devices"][0].get("returnChains"), [])
+
     def test_device_hierarchy_reads_native_sample_source(self):
         song = Song()
         simpler = NestedDevice("Kick", "OriginalSimpler")
@@ -1311,6 +1327,7 @@ class DispatchTest(unittest.TestCase):
             "sampleSource": None,
             "multiSampleMode": None,
             "chains": [], "drumPads": [],
+            "returnChains": [],
         })
 
     def test_parameter_listing_exposes_agent_usable_plugin_metadata(self):
