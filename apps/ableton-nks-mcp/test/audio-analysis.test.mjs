@@ -3,6 +3,38 @@ import assert from "node:assert/strict";
 import { analyzeAudioFile } from "../src/audio-analysis.mjs";
 import { createRouter } from "../src/server.mjs";
 import { ToolService } from "../src/tool-service.mjs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+test("generated source audio supports pitch through the MCP router", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cavi-pitch-"));
+  const run = promisify(execFile);
+  try {
+    const sourcePath = join(directory, "tone.wav");
+    await run("ffmpeg", ["-nostdin", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=96000:duration=1", sourcePath]);
+    const route = createRouter(new ToolService({}));
+    const reply = await route({ id: 1, method: "tools/call", params: {
+      name: "analyze_audio_file", arguments: { sourcePath, includePitch: true, includeSpectrum: true }
+    } });
+    assert.equal(reply.error, undefined);
+    const measurement = reply.result.structuredContent;
+    assert.ok(Math.abs(measurement.monophonicPitch.estimate.frequencyHz - 440) < 1);
+    assert.equal(measurement.monophonicPitch.estimate.pitchReference.noteName, "A4");
+    assert.equal(measurement.sampleRate, 96000);
+    assert.equal(measurement.spectrum.sampleRate, 96000);
+    assert.equal(measurement.monophonicPitch.sampleRate, 16000);
+    await assert.rejects(() => analyzeAudioFile(sourcePath, { includePitch: true, durationSeconds: 0.1 }), /0.256-second/);
+    const silencePath = join(directory, "silence.wav");
+    await run("ffmpeg", ["-nostdin", "-v", "error", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono", "-t", "1", silencePath]);
+    const silence = await analyzeAudioFile(silencePath, { includePitch: true });
+    assert.equal(silence.monophonicPitch.estimate, null);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test("audio analysis rejects network sources and unbounded windows", async () => {
   await assert.rejects(() => analyzeAudioFile("https://example.com/audio.wav"), /absolute local/);
