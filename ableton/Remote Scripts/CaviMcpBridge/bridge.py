@@ -190,9 +190,15 @@ def _clip_timing(song, track_id, clip_id, state_version):
     clip = slot.clip
     grooves = _grooves(song)
     groove_id = next((f"groove-{index}" for index, groove in enumerate(grooves) if groove == clip.groove), None)
+    unwarped_audio = bool(getattr(clip, "is_audio_clip", False)) and not bool(clip.warping)
+    loop = {"enabled": bool(clip.looping)}
+    if unwarped_audio:
+        loop.update(unit="seconds", startSeconds=float(clip.loop_start), endSeconds=float(clip.loop_end))
+    else:
+        loop.update(startBeats=float(clip.loop_start), endBeats=float(clip.loop_end))
     return {
         "stateVersion": state_version, "trackId": track_id, "clipId": clip_id,
-        "loop": {"enabled": bool(clip.looping), "startBeats": float(clip.loop_start), "endBeats": float(clip.loop_end)},
+        "loop": loop,
         "timeSignature": {"numerator": int(clip.signature_numerator), "denominator": int(clip.signature_denominator)},
         "launchQuantization": _enum_record(clip.launch_quantization, CLIP_QUANTIZATION_NAMES),
         "grooveId": groove_id,
