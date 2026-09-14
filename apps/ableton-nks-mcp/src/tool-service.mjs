@@ -353,7 +353,8 @@ export class ToolService {
       }
       if (!Object.keys(changes).length) throw new Error("no chain mixer changes requested");
       return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
-        chainId: args.chainId, expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, changes }, args);
+        chainId: args.chainId, expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, changes,
+        undoLimitation: "Live undo restores chain volume, pan, and mute, but not solo. Restore solo explicitly from beforeDevice when needed." }, args);
     }
     if (name === "create_rack_chain") {
       requireExpectedState(args);

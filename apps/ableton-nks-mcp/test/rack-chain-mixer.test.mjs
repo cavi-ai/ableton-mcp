@@ -18,6 +18,7 @@ test("rack mixer plans bind native ranges and exact hierarchy", async () => {
   const dry = await service.call("set_rack_chain_mixer", args);
   assert.deepEqual(dry.plan.beforeDevice, rack);
   assert.deepEqual(dry.plan.changes, { volume: 0.5 });
+  assert.match(dry.plan.undoLimitation, /not solo/);
   const applied = await service.call("set_rack_chain_mixer", { ...args, dryRun: false,
     confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
   assert.equal(applied.observed.mixer.volume.value, 0.5);
