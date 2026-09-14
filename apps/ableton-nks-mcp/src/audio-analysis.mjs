@@ -45,9 +45,17 @@ export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationS
     const decoded = await run("ffmpeg", ["-nostdin", "-v", "error", "-protocol_whitelist", "file,pipe", "-ss", String(startSeconds), "-i", path, "-t", "0.256", "-map", "0:a:0", "-af", "pan=mono|c0=c0", "-ar", "16000", "-c:a", "pcm_f32le", "-f", "f32le", "pipe:1"], { ...limits, encoding: "buffer" });
     if (decoded.stdout.length < 4096 * 4) throw new Error("pitch analysis requires a full 4096-sample frame");
     const samples = Float64Array.from({ length: 4096 }, (_, i) => decoded.stdout.readFloatLE(i * 4));
-    monophonicPitch = { estimate: estimateMonophonicPitch(samples, 16000), sampleRate: 16000,
+    const estimate = estimateMonophonicPitch(samples, 16000);
+    const harmonicPeaks = estimate ? analyzeSpectrum(samples, 16000).peaks.flatMap(peak => {
+      const harmonicNumber = Math.round(peak.estimatedFrequencyHz / estimate.frequencyHz);
+      if (harmonicNumber < 1 || harmonicNumber > 32) return [];
+      const expectedFrequencyHz = harmonicNumber * estimate.frequencyHz;
+      const centsFromHarmonic = 1200 * Math.log2(peak.estimatedFrequencyHz / expectedFrequencyHz);
+      return Math.abs(centsFromHarmonic) <= 50 ? [{ ...peak, harmonicNumber, expectedFrequencyHz, centsFromHarmonic }] : [];
+    }) : [];
+    monophonicPitch = { estimate, harmonicPeaks, harmonicToleranceCents: 50, sampleRate: 16000,
       frameSize: 4096, channelIndex: 0, startSeconds,
-      limitation: "First-channel monophonic estimate after resampling; null means no reliable periodicity. Not polyphonic analysis or pitch correction." };
+      limitation: "First-channel monophonic estimate after resampling; null means no reliable periodicity. Harmonic peaks are spectral matches within 50 cents, not resonance or timbre classifications. Not polyphonic analysis or pitch correction." };
   }
   let spectrogram;
   if (includeSpectrogram) {

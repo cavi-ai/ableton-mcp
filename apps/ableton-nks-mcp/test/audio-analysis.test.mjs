@@ -9,6 +9,22 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+test("pitch analysis distinguishes the fundamental from a louder second harmonic", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cavi-harmonics-"));
+  try {
+    const sourcePath = join(directory, "harmonics.wav");
+    await promisify(execFile)("ffmpeg", ["-nostdin", "-v", "error", "-f", "lavfi", "-i",
+      "aevalsrc=0.2*sin(2*PI*220*t)+0.6*sin(2*PI*440*t):s=48000:d=1", sourcePath]);
+    const result = await analyzeAudioFile(sourcePath, { includePitch: true });
+    assert.ok(Math.abs(result.monophonicPitch.estimate.frequencyHz - 220) < 1);
+    const harmonics = result.monophonicPitch.harmonicPeaks;
+    assert.equal(harmonics[0].harmonicNumber, 2);
+    assert.ok(Math.abs(harmonics[0].estimatedFrequencyHz - 440) < 1);
+    assert.ok(harmonics.some(peak => peak.harmonicNumber === 1));
+    assert.ok(harmonics.every(peak => Math.abs(peak.centsFromHarmonic) <= 50));
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("spectrogram follows a source frequency change across time", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cavi-spectrogram-"));
   try {
