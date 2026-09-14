@@ -1148,6 +1148,32 @@ class DispatchTest(unittest.TestCase):
             dispatch_request(song, {"method": "set_drum_pad_state", "params": {
                 **ids, "beforeDevice": before, "note": 36, "changes": {"mute": False}}}, 4)
 
+    def test_pad_restoration_applies_mute_after_solo_side_effects(self):
+        song = Song()
+        rack = DrumRack()
+        class SoloSideEffectPad:
+            note, name = 36, "Kick"
+            def __init__(self):
+                self.chains = rack.chains
+                self.mute = True
+                self._solo = True
+            @property
+            def solo(self):
+                return self._solo
+            @solo.setter
+            def solo(self, value):
+                self._solo = value
+                if not value:
+                    self.mute = True
+        rack.drum_pads = [SoloSideEffectPad()]
+        song.tracks[0].devices = [rack]
+        ids = {"trackId": "track-0", "deviceId": "track-0:device-0"}
+        before = dispatch_request(song, {"method": "get_device_hierarchy", "params": ids}, 3)["device"]
+        result = dispatch_request(song, {"method": "set_drum_pad_state", "params": {
+            **ids, "beforeDevice": before, "note": 36, "changes": {"mute": False, "solo": False}}}, 3)
+        self.assertFalse(result["pad"]["mute"])
+        self.assertFalse(result["pad"]["solo"])
+
     def test_pad_chain_references_use_native_equality_not_wrapper_identity(self):
         song = Song()
         rack = DrumRack()

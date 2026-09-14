@@ -1147,8 +1147,10 @@ def dispatch_request(song, request, state_version, application=None):
         changes = params["changes"]
         if not changes or set(changes) - {"mute", "solo"} or any(type(value) is not bool for value in changes.values()):
             raise ValueError("invalid drum pad changes")
-        for key, value in changes.items():
-            setattr(pad, key, value)
+        # Solo transitions can restore native mute state. Apply explicit mute last.
+        for key in ("solo", "mute"):
+            if key in changes:
+                setattr(pad, key, changes[key])
         device = _device_tree(rack, params["deviceId"])
         return {"stateVersion": state_version + 1, "trackId": params["trackId"],
                 "pad": next(pad for pad in device["drumPads"] if pad["note"] == note), "device": device}
