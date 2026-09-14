@@ -19,6 +19,7 @@ const profiles = [
   ,{ id: "instrument-rack", name: "Instrument Rack", type: "instrument", family: "rack", match: ["instrument rack", "instrumentgroupdevice"], roles: { ...globalRoles, macro: ["macro"], chain: ["chain", "selector"], mix: ["volume", "pan", "send"] } }
   ,{ id: "audio-effect-rack", name: "Audio Effect Rack", type: "audio_effect", family: "rack", match: ["audio effect rack", "audioeffectgroupdevice"], roles: { ...globalRoles, macro: ["macro"], chain: ["chain", "selector"], mix: ["volume", "pan", "send"] } }
   ,{ id: "midi-effect-rack", name: "MIDI Effect Rack", type: "midi_effect", family: "rack", match: ["midi effect rack", "midieffectgroupdevice"], roles: { ...globalRoles, macro: ["macro"], chain: ["chain", "selector"] } }
+  ,{ id: "arpeggiator", name: "Arpeggiator", type: "midi_effect", family: "note-generator", match: ["arpeggiator", "midiarpeggiator"], roles: { ...globalRoles, pattern: ["style", "offset", "repeats"], timing: ["sync", "rate", "groove", "gate"], velocity: ["velocity", "vel."], trigger: ["retrigger", "ret. interval", "hold"], pitch: ["transpose", "tranpose", "transp.", "scale"] } }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });

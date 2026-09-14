@@ -5,8 +5,23 @@ import { getFactoryDeviceProfile, listFactoryDeviceProfiles, groupDeviceParamete
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator"
   ]);
+});
+
+test("Arpeggiator groups native timing, pitch and velocity controls without losing labels", () => {
+  const profile = getFactoryDeviceProfile({ className: "MidiArpeggiator", name: "Bass Motion" });
+  assert.equal(profile?.id, "arpeggiator");
+  const names = ["Style", "Offset", "Repeats", "Sync On", "Synced Rate", "Groove", "Free Rate", "Gate", "Retrigger Mode", "Ret. Interval", "Hold On", "Tranpose Mode", "Tranpose Key", "Transp. Steps", "Transp. Dist.", "Velocity On", "Vel. Retrigger", "Velocity Decay", "Velocity Target", "Use Current Scale"];
+  const parameters = names.map((name, i) => ({ id: `parameter-${i + 1}`, name, originalName: name }));
+  const groups = groupDeviceParameters(profile, parameters);
+  assert.deepEqual(groups.pattern.map(p => p.id), ["parameter-1", "parameter-2", "parameter-3"]);
+  assert.deepEqual(groups.timing.map(p => p.id), ["parameter-4", "parameter-5", "parameter-6", "parameter-7", "parameter-8"]);
+  assert.deepEqual(groups.velocity.map(p => p.id), ["parameter-16", "parameter-17", "parameter-18", "parameter-19"]);
+  assert.deepEqual(groups.trigger.map(p => p.id), ["parameter-9", "parameter-10", "parameter-11"]);
+  assert.deepEqual(groups.pitch.map(p => p.id), ["parameter-12", "parameter-13", "parameter-14", "parameter-15", "parameter-20"]);
+  assert.equal(groups.pitch[0].name, "Tranpose Mode");
+  assert.deepEqual(groups.other, []);
 });
 
 test("effect rack profiles preserve their native audio and MIDI signal domains", () => {
