@@ -587,6 +587,28 @@ class DispatchTest(unittest.TestCase):
 
     def test_device_lifecycle_reports_active_state_and_checks_exact_identity(self):
         song = Song()
+        class LiveDevice(Device):
+            @property
+            def is_active(self):
+                return self.parameters[0].value > 0
+
+            @is_active.setter
+            def is_active(self, value):
+                raise AttributeError("property has no setter")
+
+            def __init__(self):
+                self.name = "Serum 2"
+                self.class_name = "PluginDevice"
+                self.class_display_name = "Plug-in"
+                self.type = 1
+                self.can_have_chains = False
+                self.can_have_drum_pads = False
+                on = QuantizedParameter()
+                on.name = on.original_name = "Device On"
+                on.max = 1.0
+                on.value_items = ("Off", "On")
+                self.parameters = [on]
+        song.tracks[0].devices = [LiveDevice()]
         listed = dispatch_request(song, {"method": "list_devices", "params": {"trackId": "track-0"}}, 3)
         device = listed["devices"][0]
         self.assertTrue(device["active"])

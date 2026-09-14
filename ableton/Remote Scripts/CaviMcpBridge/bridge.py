@@ -861,7 +861,11 @@ def dispatch_request(song, request, state_version, application=None):
             raise ValueError("device identity changed")
         deleted = _device_record(device, params["deviceId"])
         if method == "set_device_active":
-            device.is_active = bool(params["active"])
+            on_parameter = next((parameter for parameter in device.parameters
+                                 if getattr(parameter, "original_name", parameter.name) == "Device On"), None)
+            if on_parameter is None or not on_parameter.is_enabled:
+                raise ValueError("device has no writable Device On parameter")
+            on_parameter.value = on_parameter.max if params["active"] else on_parameter.min
             return {
                 "stateVersion": state_version + 1, "trackId": params["trackId"],
                 "device": _device_record(device, params["deviceId"]),
