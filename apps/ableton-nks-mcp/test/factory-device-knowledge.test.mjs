@@ -5,7 +5,7 @@ import { getFactoryDeviceProfile, listFactoryDeviceProfiles, groupDeviceParamete
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate"
   ]);
 });
 
@@ -99,6 +99,20 @@ test("Auto Shift separates correction, transposition and expression routing", ()
   assert.deepEqual(groups.expression.map(p => p.id), ["parameter-6", "parameter-7"]);
   assert.deepEqual(groups.modulation.map(p => p.id), ["parameter-8"]);
   assert.deepEqual(groups.mix.map(p => p.id), ["parameter-9"]);
+});
+
+test("Gate native identity and producer groups preserve all observed controls", () => {
+  const profile = getFactoryDeviceProfile({ className: "Gate", name: "Drum Cleanup" });
+  assert.equal(profile?.id, "gate");
+  const names = ["Device On", "Threshold", "Attack", "Hold", "Release", "Return", "Floor", "S/C Listen", "FlipMode", "LookAhead", "S/C On", "S/C Gain", "S/C Mix", "S/C EQ Type", "S/C EQ On", "S/C EQ Freq", "S/C EQ Gain", "S/C EQ Q"];
+  const parameters = names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name }));
+  const groups = groupDeviceParameters(profile, parameters);
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.deepEqual(groups.dynamics.map(p => p.id), ["parameter-1", "parameter-5", "parameter-6"]);
+  assert.deepEqual(groups.timing.map(p => p.id), ["parameter-2", "parameter-3", "parameter-4", "parameter-9"]);
+  assert.deepEqual(groups.mode.map(p => p.id), ["parameter-8"]);
+  assert.deepEqual(groups.sidechain.map(p => p.id), ["parameter-7", ...Array.from({ length: 8 }, (_, i) => `parameter-${i + 10}`)]);
+  assert.equal(Object.values(groups).flat().length, 18);
 });
 
 test("factory-device lookup accepts Live display and class identities", () => {
