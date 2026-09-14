@@ -1,6 +1,7 @@
 import { assertExpectedState } from "./bridge-protocol.mjs";
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
+import { analyzeAudioFile } from "./audio-analysis.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { CatalogService } from "./catalog-service.mjs";
 import { getFactoryDeviceProfile, groupDeviceParameters, listFactoryDeviceProfiles } from "./factory-device-knowledge.mjs";
@@ -302,6 +303,7 @@ export class ToolService {
     if (name === "get_clip_parameter_envelope") return this.bridge.request("get_clip_parameter_envelope", args);
     if (name === "get_clip_timing") return this.bridge.request("get_clip_timing", args);
     if (name === "get_audio_clip_state") return this.bridge.request("get_audio_clip_state", args);
+    if (name === "analyze_audio_file") return analyzeAudioFile(args.sourcePath, args);
     if (name === "list_devices") return this.bridge.request("list_devices", args);
     if (name === "get_device_hierarchy") return this.bridge.request("get_device_hierarchy", args);
     if (name === "move_device_to_chain") {
