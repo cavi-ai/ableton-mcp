@@ -1318,6 +1318,26 @@ class DispatchTest(unittest.TestCase):
         redone = dispatch_request(song, {"method": "redo"}, 4)
         self.assertEqual(redone, {"stateVersion": 5, "canUndo": True, "canRedo": False})
 
+    def test_groove_base_choices_use_native_enum_values(self):
+        song = Song()
+        class NativeGrid(int):
+            pass
+        for attribute, value in (("gb_four", 10), ("gb_eight", 11), ("gb_eight_triplet", 12),
+                ("gb_sixteen", 3), ("gb_sixteen_triplet", 14), ("gb_thirtytwo", 15)):
+            setattr(NativeGrid, attribute, NativeGrid(value))
+        song.groove_pool.grooves[0].base = NativeGrid.gb_sixteen
+        live = None
+        with patch("bridge.Live", live):
+            before = dispatch_request(song, {"method": "get_song_musical_context"}, 3)
+            grid = before["groove"]["pool"][0]["baseGrid"]
+            self.assertEqual(grid["name"], "1_16")
+            self.assertIn({"value": 14, "name": "1_16_triplet"}, grid["choices"])
+            params = {"grooveId": "groove-0", "before": before,
+                "changes": {"baseGrid": {"value": {"value": 14, "name": "1_16_triplet"}}}}
+            result = dispatch_request(song, {"method": "set_groove", "params": params}, 3)
+            self.assertEqual(result["groove"]["pool"][0]["base"], 14)
+            self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
     def test_groove_edit_binds_pool_and_balances_undo(self):
         song = Song()
         before = dispatch_request(song, {"method": "get_song_musical_context"}, 3)

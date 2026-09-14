@@ -145,13 +145,22 @@ def _grooves(song):
     return list(getattr(pool, "grooves", ()))
 
 
+def _groove_base_options(groove):
+    enum = type(groove.base)
+    names = (("1_4", "gb_four"), ("1_8", "gb_eight"), ("1_8_triplet", "gb_eight_triplet"),
+        ("1_16", "gb_sixteen"), ("1_16_triplet", "gb_sixteen_triplet"), ("1_32", "gb_thirtytwo"))
+    return [(name, getattr(enum, attribute)) for name, attribute in names if hasattr(enum, attribute)]
+
+
 def _groove_record(groove, index):
+    choices = [{"value": int(value), "name": name} for name, value in _groove_base_options(groove)]
     return {
         "id": f"groove-{index}", "name": getattr(groove, "name", f"Groove {index + 1}"),
         "base": int(groove.base), "timingAmount": float(groove.timing_amount),
         "quantizationAmount": float(groove.quantization_amount),
         "randomAmount": float(groove.random_amount),
         "velocityAmount": float(groove.velocity_amount),
+        "baseGrid": {"value": int(groove.base), "name": next((choice["name"] for choice in choices if choice["value"] == int(groove.base)), "unknown"), "choices": choices},
     }
 
 
@@ -589,7 +598,7 @@ def dispatch_request(song, request, state_version, application=None):
         if len(matches) != 1:
             raise ValueError("unknown groove")
         groove = matches[0]
-        properties = {"name": "name", "timingAmount": "timing_amount", "quantizationAmount": "quantization_amount",
+        properties = {"baseGrid": "base", "name": "name", "timingAmount": "timing_amount", "quantizationAmount": "quantization_amount",
             "randomAmount": "random_amount", "velocityAmount": "velocity_amount"}
         changes = params["changes"]
         if not changes or not set(changes).issubset(properties):
@@ -597,7 +606,12 @@ def dispatch_request(song, request, state_version, application=None):
         values = {}
         for key, change in changes.items():
             value = change["value"]
-            if key == "name":
+            if key == "baseGrid":
+                matches = [native for name, native in _groove_base_options(groove) if {"value": int(native), "name": name} == value]
+                if len(matches) != 1:
+                    raise ValueError("unknown or unavailable native groove base grid")
+                value = matches[0]
+            elif key == "name":
                 if not isinstance(value, str) or not value.strip():
                     raise ValueError("invalid groove name")
             else:

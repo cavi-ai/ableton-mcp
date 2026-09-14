@@ -613,6 +613,11 @@ export class ToolService {
     const groove = before.groove.pool.find(item => item.id === args.grooveId);
     if (!groove) throw new Error(`unknown groove ${args.grooveId}`);
     const changes = {};
+    if (args.baseGrid !== undefined) {
+      const matches = (groove.baseGrid?.choices ?? []).filter(choice => choice.name === args.baseGrid || choice.value === args.baseGrid);
+      if (matches.length !== 1) throw new Error("unknown groove base grid or native choices unavailable");
+      changes.baseGrid = { previous: { value: groove.baseGrid.value, name: groove.baseGrid.name }, value: matches[0] };
+    }
     for (const key of ["timingAmount", "quantizationAmount", "randomAmount", "velocityAmount"]) {
       if (args[key] !== undefined) changes[key] = { previous: groove[key], value: finiteRange(args[key], key, key === "velocityAmount" ? -100 : 0, 100) };
     }

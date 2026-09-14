@@ -84,7 +84,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
           clipTrigger: { value: 4, name: "1_bar", choices: [{ value: 4, name: "1_bar" }, { value: 7, name: "1_4" }] },
           midiRecording: { value: 5, name: "1_16", choices: [{ value: 0, name: "none" }, { value: 5, name: "1_16" }] }
         },
-        groove: { amount: 1, swingAmount: 0, pool: [{ id: "groove-0", name: "Swing 16-65" }] },
+        groove: { amount: 1, swingAmount: 0, pool: [{ id: "groove-0", name: "Swing 16-65", baseGrid: { value: 3, name: "1_16", choices: [{ value: 14, name: "1_16_triplet" }] } }] },
         loop: { enabled: false, startBeats: 0, lengthBeats: 8 }
       };
       if (method === "list_tracks") return { stateVersion: 4, tracks: [
@@ -747,6 +747,14 @@ test("groove edits sign complete pool state and validate native percentage units
   }
   await assert.rejects(service.call("set_groove", { ...args, grooveId: "groove-9" }), /unknown groove/);
   await assert.rejects(service.call("set_groove", { expectedStateVersion: 4, grooveId: "groove-0" }), /at least one/);
+});
+
+test("groove base selection preserves native enum identity for triplets", async () => {
+  const { service } = fixture();
+  const args = { expectedStateVersion: 4, grooveId: "groove-0", baseGrid: "1_16_triplet" };
+  const dry = await service.call("set_groove", args);
+  assert.deepEqual(dry.plan.changes.baseGrid.value, { value: 14, name: "1_16_triplet" });
+  await assert.rejects(service.call("set_groove", { ...args, baseGrid: "1_64" }), /unknown groove base/);
 });
 
 test("global groove amount accepts native maximum and rejects out-of-range values", async () => {
