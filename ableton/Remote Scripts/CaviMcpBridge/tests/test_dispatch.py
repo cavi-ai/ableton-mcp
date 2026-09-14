@@ -1148,6 +1148,19 @@ class DispatchTest(unittest.TestCase):
             dispatch_request(song, {"method": "set_drum_pad_state", "params": {
                 **ids, "beforeDevice": before, "note": 36, "changes": {"mute": False}}}, 4)
 
+    def test_pad_chain_references_use_native_equality_not_wrapper_identity(self):
+        song = Song()
+        rack = DrumRack()
+        chain = rack.chains[0]
+        class ChainReference:
+            def __eq__(self, other):
+                return other is chain
+        rack.drum_pads[0].chains = [ChainReference()]
+        song.tracks[0].devices = [rack]
+        result = dispatch_request(song, {"method": "get_device_hierarchy", "params": {
+            "trackId": "track-0", "deviceId": "track-0:device-0"}}, 3)
+        self.assertEqual(result["device"]["drumPads"][0]["chainIds"], ["track-0:device-0/chain-0"])
+
     def test_create_rack_chain_inserts_named_empty_chain_and_rejects_stale_rack(self):
         song = Song()
         song.begin_undo_step = lambda: None

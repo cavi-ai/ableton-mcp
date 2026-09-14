@@ -462,11 +462,11 @@ def _chain_mixer(chain):
 def _device_tree(device, device_id):
     record = _device_record(device, device_id)
     chains = []
-    chain_ids = {}
+    chain_ids = []
     if device.can_have_chains:
         for chain_index, chain in enumerate(device.chains):
             chain_id = f"{device_id}/chain-{chain_index}"
-            chain_ids[id(chain)] = chain_id
+            chain_ids.append((chain, chain_id))
             chains.append({
                 "id": chain_id, "name": chain.name,
                 "apiSupport": {"deleteDevice": callable(getattr(chain, "delete_device", None))},
@@ -479,7 +479,7 @@ def _device_tree(device, device_id):
     if device.can_have_drum_pads:
         record["drumPads"] = [{
             "note": int(pad.note), "name": pad.name, "mute": bool(pad.mute), "solo": bool(pad.solo),
-            "chainIds": [chain_ids[id(chain)] for chain in pad.chains if id(chain) in chain_ids],
+            "chainIds": [chain_id for chain in pad.chains for candidate, chain_id in chain_ids if chain == candidate],
         } for pad in device.drum_pads if pad.chains]
     return record
 
