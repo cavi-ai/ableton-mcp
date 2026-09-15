@@ -492,6 +492,16 @@ test("Live browser exposes plug-ins and user content through canonical guarded t
   ]);
 });
 
+test("browser loading accepts guarded Return and Main device owners", async () => {
+  const { service, calls } = fixture();
+  for (const trackId of ["return-0", "master"]) {
+    const args = { expectedStateVersion: 4, trackId, root: "audio_effects", path: ["Drift"] };
+    const dry = await service.call("load_browser_item", args);
+    assert.equal(dry.plan.trackId, trackId);
+  }
+  assert.deepEqual(calls.filter(({ method }) => method === "list_devices").slice(-2).map(({ params }) => params.trackId), ["return-0", "master"]);
+});
+
 test("Live browser search returns exact loadable paths for user-folder content", async () => {
   const { service } = fixture();
   const result = await service.call("search_browser_items", {

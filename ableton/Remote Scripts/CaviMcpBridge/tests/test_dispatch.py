@@ -776,6 +776,21 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(application.loaded[0].name, "Drift")
         self.assertEqual(loaded["stateVersion"], 4)
 
+    def test_browser_load_targets_return_and_master_device_owners(self):
+        song = Song()
+        application = Application()
+        song.return_tracks[0].devices = []
+        song.master_track.devices = []
+        original_selection = song.view.selected_track
+        for owner_id, owner in [("return-0", song.return_tracks[0]), ("master", song.master_track)]:
+            before = dispatch_request(song, {"method": "list_devices", "params": {"trackId": owner_id}}, 3)
+            loaded = dispatch_request(song, {"method": "load_browser_item", "params": {
+                "root": "user_library", "path": ["Drift"], "trackId": owner_id, "before": before,
+            }}, 3, application)
+            self.assertEqual(loaded["trackId"], owner_id)
+            self.assertIs(song.view.selected_track, original_selection)
+            self.assertIsNot(owner, original_selection)
+
     def test_browser_load_rejects_changed_target_devices_before_loading(self):
         song, application = Song(), Application()
         before = dispatch_request(song, {"method": "list_devices", "params": {"trackId": "track-0"}}, 3)

@@ -838,7 +838,7 @@ def dispatch_request(song, request, state_version, application=None):
         item = _browser_item(application, params["root"], params["path"])
         if not item.is_loadable:
             raise ValueError("Live browser item is not loadable")
-        _, track = _track(song, params["trackId"])
+        _, track = _device_owner(song, params["trackId"])
         current_devices = dispatch_request(song, {"method": "list_devices", "params": {"trackId": params["trackId"]}}, state_version)
         if current_devices != params["before"]:
             raise ValueError("target device chain changed")
