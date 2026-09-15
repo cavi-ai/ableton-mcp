@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper", "overdrive", "pedal", "redux", "resonators", "shaper", "shifter"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper", "overdrive", "pedal", "redux", "resonators", "shaper", "shifter", "spectral-resonator"
   ]);
 });
 
@@ -784,6 +784,24 @@ test("Shifter separates pitch, frequency and ring modulation with its control so
   assert.deepEqual(groups.tone.map(p => p.id), ["parameter-33"]);
   assert.deepEqual(groups.stereo.map(p => p.id), ["parameter-34"]);
   assert.deepEqual(groups.mix.map(p => p.id), ["parameter-35"]);
+  assert.deepEqual(groups.other, []);
+  assert.equal(Object.values(groups).flat().length, names.length);
+});
+
+test("Spectral Resonator separates tuning, spectral shaping and resonator decay", () => {
+  const profile = getFactoryDeviceProfile({ className: "Transmute", name: "Spectral Resonator" });
+  assert.equal(profile?.id, "spectral-resonator");
+  const names = ["Device On", "Transpose", "Transp Scale", "Glide", "Freq. Hz", "Note", "Shift", "Stretch", "Quantize", "Decay", "High Damp", "Low Damp", "Mod Rate", "Pitch Mod", "Harmonics", "Unison", "Unison Amount", "Send Gain", "Dry Wet", "Use Scale"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.deepEqual(groups.pitch.map(p => p.id), ["parameter-1", "parameter-2", "parameter-3"]);
+  assert.deepEqual(groups.frequency.map(p => p.id), ["parameter-4", "parameter-5"]);
+  assert.deepEqual(groups.spectral.map(p => p.id), ["parameter-6", "parameter-7", "parameter-8", "parameter-14"]);
+  assert.deepEqual(groups.decay.map(p => p.id), ["parameter-9", "parameter-10", "parameter-11"]);
+  assert.deepEqual(groups.modulation.map(p => p.id), ["parameter-12", "parameter-13"]);
+  assert.deepEqual(groups.unison.map(p => p.id), ["parameter-15", "parameter-16"]);
+  assert.deepEqual(groups.output.map(p => p.id), ["parameter-17", "parameter-18"]);
+  assert.deepEqual(groups.scale.map(p => p.id), ["parameter-19"]);
   assert.deepEqual(groups.other, []);
   assert.equal(Object.values(groups).flat().length, names.length);
 });
