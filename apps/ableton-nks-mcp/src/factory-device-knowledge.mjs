@@ -285,6 +285,10 @@ const profiles = [
     global: ["device on"], trigger: ["trigger source", "latch"], timing: ["sync on", "synced length", "time length"],
     gate: ["gate"], release: ["release velocity"], decay: ["decay time", "decay key scale"]
   }, notes: ["Note Length changes outgoing MIDI note duration. Sync On selects synchronized or free timing; Synced Length follows rhythmic divisions while Time Length provides the free-time duration.", "Trigger Source and Latch determine how incoming note events initiate and sustain the generated gate. Gate scales the selected base duration from 1 to 200 percent.", "Release Velocity sets the generated note-off velocity. Decay Time and Decay Key Scale provide pitch-dependent duration decay, allowing higher and lower notes to shorten differently.", "This device transforms live MIDI notes and does not rewrite source clip note lengths. Inspect or record the downstream output when exact generated note ends are required."] }
+  ,{ id: "pitch", name: "Pitch", type: "midi_effect", family: "midi-transpose", match: ["midipitcher", "pitch"], roles: {
+    global: ["device on"], transpose: ["pitch"], range: ["lowest", "range", "mode"],
+    scale: ["use current scale"], fold: ["step width"]
+  }, notes: ["Pitch transposes incoming MIDI notes chromatically with Pitch or diatonically with Pitch Scale Degrees. Use Current Scale binds scale-degree operations to Live's current song key and scale.", "Lowest and Range define the accepted pitch window. Mode selects Block, Fold, or Limit behavior for notes that would fall outside that window.", "Step Width controls chromatic folding and Step Width Scale Degrees controls scale-aware folding. Keep both values explicit because they use semitone and scale-degree units respectively.", "The native Pitch control spans -128 to +128 semitones and the scale-degree control spans -30 to +30. This device transforms live MIDI and does not rewrite the source clip; inspect downstream notes when exact post-transform pitches matter."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });
