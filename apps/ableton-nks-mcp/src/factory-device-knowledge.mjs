@@ -41,6 +41,9 @@ const profiles = [
     global: ["device on"], sidechain: ["s/c"], filter: ["frequency", "resonance", "filter morph", "filter type", "filter slope", "morph slope", "circuit"],
     character: ["drive", "control", "pitch", "formant"], lfo: ["lfo"], envelope: ["env"], output: ["output", "soft clip"], mix: ["dry/wet"]
   }, notes: ["Frequency, resonance, morph, drive, envelope, and most LFO controls expose normalized raw values; use native displayValue for Hz, time, degrees, and percentages.", "Filter Type selects ten distinct models. Filter Slope and Morph Slope are separate native choices, and Circuit is a separate topology choice.", "LFO timing and quantization controls are mode-dependent. Read native enabled state and valueItems after changing LFO T Mode, S Mode, or Q Mode.", "Sidechain EQ and source controls are separate from the main filter. Native sidechain routing is configured through the dedicated device-sidechain workflow."] }
+  ,{ id: "channel-eq", name: "Channel EQ", type: "audio_effect", family: "equalizer", match: ["channel eq", "channeleq"], roles: {
+    global: ["device on"], highpass: ["highpass"], lowBand: ["low gain"], midBand: ["mid gain", "mid freq"], highBand: ["high gain"], output: ["output"]
+  }, notes: ["Low, Mid, High, and Output expose normalized raw values; use native displayValue for dB. Mid Freq is normalized and should be read through displayValue for Hz.", "Highpass On is a dedicated low-cut switch. The low and high bands have fixed frequency behavior; only the mid band exposes a center-frequency control."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });
