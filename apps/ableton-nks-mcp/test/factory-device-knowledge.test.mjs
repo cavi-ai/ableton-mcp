@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld"
   ]);
 });
 
@@ -187,6 +187,41 @@ test("Roar preserves three shaper/filter stages and every modulation subsystem",
   assert.deepEqual(ids("sidechain"), range(88, 3));
   assert.deepEqual(groups.other, []);
   assert.equal(Object.values(groups).flat().length, 91);
+});
+
+test("Meld keeps both synthesis engines and their envelopes and modulators independent", () => {
+  const profile = getFactoryDeviceProfile({ className: "InstrumentMeld", name: "Renamed Dual Texture" });
+  assert.equal(profile?.id, "meld");
+  const names = ["On", "MeldVoice_EngineA_On", "MeldVoice_EngineA_Oscillator_OscillatorType", "MeldVoice_EngineA_Filter_FilterType",
+    "MeldVoice_EngineA_Lfo1_GeneratorType", "MeldVoice_EngineA_Lfo2_Waveform", "MeldVoice_EngineA_AmpEnvelope_Times_Attack",
+    "MeldVoice_EngineA_FilterEnvelope_Values_Peak", "MeldVoice_EngineA_ToneFilter", "MeldVoice_EngineA_GlideTime",
+    "MeldVoice_EngineB_On", "MeldVoice_EngineB_Oscillator_Macro1", "MeldVoice_EngineB_Filter_Frequency",
+    "MeldVoice_EngineB_Lfo1_Transformer1Type", "MeldVoice_EngineB_Lfo2_Rate", "MeldVoice_EngineB_AmpEnvelope_Sustain",
+    "MeldVoice_EngineB_FilterEnvelope_LoopMode", "MeldVoice_EngineB_Volume", "MeldVoice_EngineBDelay", "MeldVoice_Drive",
+    "MeldVoice_LimiterOn", "MeldVoice_LinkAmpEnvelopes", "MeldVoice_UseScale", "MeldVoice_VoiceSpreadAmount", "Volume", "MonoLegato"];
+  const groups = groupDeviceParameters(profile, names.map((originalName, index) => ({ id: `parameter-${index}`, originalName })));
+  const ids = role => groups[role].map(p => p.id);
+  assert.deepEqual(ids("global"), ["parameter-0"]);
+  assert.deepEqual(ids("engineAState"), ["parameter-1"]);
+  assert.deepEqual(ids("engineAOscillator"), ["parameter-2"]);
+  assert.deepEqual(ids("engineAFilter"), ["parameter-3"]);
+  assert.deepEqual(ids("engineALfo1"), ["parameter-4"]);
+  assert.deepEqual(ids("engineALfo2"), ["parameter-5"]);
+  assert.deepEqual(ids("engineAAmpEnvelope"), ["parameter-6"]);
+  assert.deepEqual(ids("engineAFilterEnvelope"), ["parameter-7"]);
+  assert.deepEqual(ids("engineAMix"), ["parameter-8", "parameter-9"]);
+  assert.deepEqual(ids("engineBState"), ["parameter-10"]);
+  assert.deepEqual(ids("engineBOscillator"), ["parameter-11"]);
+  assert.deepEqual(ids("engineBFilter"), ["parameter-12"]);
+  assert.deepEqual(ids("engineBLfo1"), ["parameter-13"]);
+  assert.deepEqual(ids("engineBLfo2"), ["parameter-14"]);
+  assert.deepEqual(ids("engineBAmpEnvelope"), ["parameter-15"]);
+  assert.deepEqual(ids("engineBFilterEnvelope"), ["parameter-16"]);
+  assert.deepEqual(ids("engineBMix"), ["parameter-17", "parameter-18"]);
+  assert.deepEqual(ids("sharedVoice"), ["parameter-19", "parameter-20", "parameter-21", "parameter-22", "parameter-23"]);
+  assert.deepEqual(ids("output"), ["parameter-24"]);
+  assert.deepEqual(ids("monoMode"), ["parameter-25"]);
+  assert.deepEqual(groups.other, []);
 });
 
 test("Compressor preserves native roles and distinguishes automatic release from device power", () => {

@@ -60,6 +60,18 @@ const profiles = [
     lfo1: [/^lfo 1 /], lfo2: [/^lfo 2 /], envelope: [/^env /], noise: [/^noise /], modulation: ["global mod amt"],
     compression: [/^comp /], drive: ["drive"], tone: ["tone", "color on"], routing: ["blend", "x-over"], output: ["output"], mix: ["dry/wet"]
   }, notes: ["Roar exposes three independent shaper and filter stages. Each shaper has its own power, algorithm, amount, bias, and level; each filter has its own placement, type, frequency, resonance, morph, and peak controls.", "Blend and the two crossover controls depend on the selected internal routing. They are not a generic wet/dry mix; Dry/Wet is the final parallel mix.", "Feedback timing can be free, synchronized, triplet, dotted, or note-pitched. Read enabled state and displayValue after changing FB Time Mode; feedback gating and polarity are separate controls.", "Two LFOs, an envelope follower, noise, and Global Mod Amt expose modulation sources, but the public parameter list does not expose Roar's modulation-matrix assignments. Do not infer destinations from these source controls.", "Drive, frequency, time, and gain controls use mixed native scales. Use displayValue for dB, Hz, milliseconds, note names, and rhythmic divisions, and compare output at matched level."] }
+  ,{ id: "meld", name: "Meld", type: "instrument", family: "dual-engine-synthesizer", match: ["meld", "instrumentmeld"], roles: {
+    global: [/^on(?: device on)?$/], engineAState: [/^meldvoice_enginea_on/], engineAOscillator: [/^meldvoice_enginea_oscillator_/],
+    engineAFilter: [/^meldvoice_enginea_filter_/], engineALfo1: [/^meldvoice_enginea_lfo1_/], engineALfo2: [/^meldvoice_enginea_lfo2_/],
+    engineAAmpEnvelope: [/^meldvoice_enginea_ampenvelope_/], engineAFilterEnvelope: [/^meldvoice_enginea_filterenvelope_/],
+    engineAMix: [/^meldvoice_enginea_(tonefilter|pan|volume|glide)/], engineBState: [/^meldvoice_engineb_on/],
+    engineBOscillator: [/^meldvoice_engineb_oscillator_/], engineBFilter: [/^meldvoice_engineb_filter_/],
+    engineBLfo1: [/^meldvoice_engineb_lfo1_/], engineBLfo2: [/^meldvoice_engineb_lfo2_/],
+    engineBAmpEnvelope: [/^meldvoice_engineb_ampenvelope_/], engineBFilterEnvelope: [/^meldvoice_engineb_filterenvelope_/],
+    engineBMix: [/^meldvoice_engineb_(tonefilter|pan|volume|glide)/, /^meldvoice_enginebdelay/],
+    sharedVoice: [/^meldvoice_(drive|limiteron|linkampenvelopes|usescale|voicespreadamount)/],
+    output: [/^volume(?: volume)?$/], monoMode: [/^monolegato(?: mono legato)?$/]
+  }, notes: ["Meld is two complete synthesis engines. Keep Engine A and B oscillator, filter, LFO, amplitude-envelope, filter-envelope, pan, volume, tone, and glide controls independent when editing or generating presets.", "Each oscillator exposes 25 native algorithms plus two algorithm-specific macros. Each filter exposes 17 models plus two model-specific macros; enabled state and meaning can change with the selected model.", "Engine LFO 1 includes generator algorithms and two serial transformers. LFO 2 is a separate conventional waveform source. Parameter grouping does not expose modulation-matrix destinations, so never infer routing from source controls alone.", "Amp and filter envelopes expose more than ADSR: slopes, initial/peak/final levels, and loop modes are distinct. LinkAmpEnvelopes is shared state and must not be confused with either engine's envelope controls.", "Pitch supports semitone, scale-degree, octave, cent, keytracking, and scale-aware controls. Use displayValue for units and retain the global UseScale and MonoLegato states when designing expressive patches."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });
