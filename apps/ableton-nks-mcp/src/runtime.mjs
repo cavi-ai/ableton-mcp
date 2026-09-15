@@ -3,6 +3,8 @@ import { UnixBridgeClient } from "./bridge-client.mjs";
 import { ToolService } from "./tool-service.mjs";
 import { resolveRuntimeConfig } from "./paths.mjs";
 import { FileConfirmationStore } from "./confirmation-store.mjs";
+import { SnapshotLibrary } from "./snapshot-library.mjs";
+import { BrowserMetadataLibrary } from "./browser-metadata-library.mjs";
 
 const emptyCatalog = {
   search: () => [],
@@ -17,15 +19,18 @@ const emptyCatalog = {
 };
 
 export function createConfiguredService(environment = process.env, { persistentConfirmations = false } = {}) {
-  const { catalogPath, socketPath, kompleteSocketPath, confirmationDirectory } = resolveRuntimeConfig(environment);
+  const { catalogPath, socketPath, kompleteSocketPath, confirmationDirectory, snapshotDirectory, browserMetadataPath } = resolveRuntimeConfig(environment);
   const catalog = catalogPath ? Catalog.open(catalogPath) : emptyCatalog;
   const bridge = new UnixBridgeClient(socketPath);
   const komplete = new UnixBridgeClient(kompleteSocketPath);
   const confirmations = persistentConfirmations
     ? new FileConfirmationStore({ directory: confirmationDirectory })
     : undefined;
+  let browserLibrary;
+  const browserMetadata = () => (browserLibrary ??= new BrowserMetadataLibrary({ path: browserMetadataPath }));
   return {
-    service: new ToolService({ bridge, catalog, komplete, confirmations }),
-    close: () => catalog.close()
+    service: new ToolService({ bridge, catalog, komplete, confirmations,
+      snapshotLibrary: new SnapshotLibrary({ directory: snapshotDirectory }), browserMetadata }),
+    close: () => { browserLibrary?.close(); catalog.close(); }
   };
 }

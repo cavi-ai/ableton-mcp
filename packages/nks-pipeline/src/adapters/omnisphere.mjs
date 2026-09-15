@@ -38,6 +38,11 @@ export async function discoverOmnisphereFactoryPresets(config) {
       const databasePath = join(root, entry.name);
       const bytes = await readFile(databasePath);
       for (const patch of embeddedPatches(bytes)) {
+        const bodyLength = bytes.length - patch.bodyStart;
+        if (!Number.isSafeInteger(patch.offset) || !Number.isSafeInteger(patch.size) ||
+            patch.offset < 0 || patch.size <= 0 || patch.offset > bodyLength || patch.size > bodyLength - patch.offset) {
+          throw new Error(`invalid embedded patch extent in ${databasePath}: ${patch.name}`);
+        }
         const payload = bytes.subarray(patch.bodyStart + patch.offset, patch.bodyStart + patch.offset + patch.size);
         const category = dirname(patch.name) === "." ? "Factory" : dirname(patch.name);
         discoveries.push(validateAdapterDiscovery({

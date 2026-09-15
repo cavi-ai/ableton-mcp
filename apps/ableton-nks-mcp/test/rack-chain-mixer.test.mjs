@@ -1,0 +1,89 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { ToolService } from "../src/tool-service.mjs";
+
+test("rack sends require exact available enabled indices and confirmation", async () => {
+  const deviceId = "track-0:device-0", chainId = `${deviceId}/chain-0`;
+  const rack = { id: deviceId, canHaveChains: true, chains: [{ id: chainId,
+    mixer: { sends: [{ index: 0, value: 0, min: 0, max: 1, enabled: true },
+      { index: 1, value: 0, min: 0, max: 1, enabled: false }] } }] };
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
+    assert.equal(method, "set_rack_chain_mixer");
+    return { stateVersion: 5, mixer: { sends: params.changes.sends } };
+  } } });
+  const args = { trackId: "track-0", deviceId, chainId, expectedStateVersion: 4,
+    sends: [{ index: 0, value: 0.5 }] };
+  const dry = await service.call("set_rack_chain_mixer", args);
+  assert.deepEqual(dry.plan.changes, { sends: [{ index: 0, value: 0.5 }] });
+  const result = await service.call("set_rack_chain_mixer", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.deepEqual(result.observed.mixer.sends, [{ index: 0, value: 0.5 }]);
+  for (const sends of [[], [{ index: 9, value: 0.5 }], [{ index: 1, value: 0.5 }],
+    [{ index: 0, value: 2 }], [{ index: 0, value: NaN }], [{ index: "0", value: 0.5 }],
+    [{ index: 0, value: 0.5 }, { index: 0, value: 0.6 }]]) {
+    await assert.rejects(() => service.call("set_rack_chain_mixer", { ...args, sends }), /send/);
+  }
+});
+
+test("rack return mixer plans select the return rather than an ordinary chain", async () => {
+  const deviceId = "track-0:device-0", chainId = `${deviceId}/return-chain-0`;
+  const rack = { id: deviceId, canHaveChains: true, canHaveDrumPads: true,
+    chains: [], returnChains: [{ id: chainId, name: "Reverb", mixer: {
+      volume: { value: 0.75, min: 0, max: 1, enabled: true }, mute: false, solo: false
+    } }] };
+  const service = new ToolService({ bridge: { async request() {
+    return { stateVersion: 4, trackId: "track-0", device: rack };
+  } } });
+  const args = { trackId: "track-0", deviceId, chainId, expectedStateVersion: 4, volume: 0.5 };
+  const dry = await service.call("set_rack_chain_mixer", args);
+  assert.deepEqual(dry.plan.changes, { volume: 0.5 });
+  assert.equal(dry.plan.chainId, chainId);
+  const renamed = (await service.call("rename_rack_chain", { ...args, name: "b Room" })).plan;
+  assert.equal(renamed.name, "b Room");
+  assert.equal(renamed.nameBehavior, "raw-return-label");
+  assert.match(renamed.warning, /adds.*letter prefix/);
+  await assert.rejects(() => service.call("set_rack_chain_note_routing", { ...args, inputNote: 36 }), /unknown rack chain/);
+});
+
+test("rack chain rename binds the exact existing layer", async () => {
+  const deviceId = "track-0:device-0", chainId = `${deviceId}/chain-0`;
+  const rack = { id: deviceId, canHaveChains: true, chains: [{ id: chainId, name: "Chain" }] };
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
+    assert.equal(method, "rename_rack_chain");
+    assert.deepEqual(params.beforeDevice, rack);
+    return { stateVersion: 5, chainId, name: params.name };
+  } } });
+  const args = { trackId: "track-0", deviceId, chainId, expectedStateVersion: 4, name: "Sub bass" };
+  const dry = await service.call("rename_rack_chain", args);
+  assert.equal(dry.plan.name, "Sub bass");
+  const applied = await service.call("rename_rack_chain", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(applied.observed.name, "Sub bass");
+  await assert.rejects(() => service.call("rename_rack_chain", { ...args, name: " " }), /not be empty/);
+});
+
+test("rack mixer plans bind native ranges and exact hierarchy", async () => {
+  const deviceId = "track-0:device-0", chainId = `${deviceId}/chain-0`;
+  const rack = { id: deviceId, canHaveChains: true, chains: [{ id: chainId, mixer: {
+    volume: { value: 0.75, min: 0, max: 1, enabled: true },
+    pan: { value: 0, min: -1, max: 1, enabled: true }, mute: false, solo: false
+  } }] };
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
+    assert.equal(method, "set_rack_chain_mixer");
+    assert.deepEqual(params.beforeDevice, rack);
+    return { stateVersion: 5, chainId, mixer: { volume: { value: params.changes.volume } } };
+  } } });
+  const args = { trackId: "track-0", deviceId, chainId, expectedStateVersion: 4, volume: 0.5 };
+  const dry = await service.call("set_rack_chain_mixer", args);
+  assert.deepEqual(dry.plan.beforeDevice, rack);
+  assert.deepEqual(dry.plan.changes, { volume: 0.5 });
+  assert.match(dry.plan.undoLimitation, /not solo/);
+  const applied = await service.call("set_rack_chain_mixer", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(applied.observed.mixer.volume.value, 0.5);
+  await assert.rejects(() => service.call("set_rack_chain_mixer", { ...args, pan: 2 }), /native range/);
+  await assert.rejects(() => service.call("set_rack_chain_mixer", { ...args, chainId: `${deviceId}/chain-9` }), /unknown rack chain/);
+});

@@ -1,7 +1,13 @@
 import { assertExpectedState } from "./bridge-protocol.mjs";
+import { realpath, stat } from "node:fs/promises";
+import { isAbsolute } from "node:path";
+import { analyzeAudioFile } from "./audio-analysis.mjs";
+import { searchLocalSpliceSamples } from "./splice-local-search.mjs";
+import { inspectGroovePostconditions } from "./groove-workflow.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { CatalogService } from "./catalog-service.mjs";
 import { getFactoryDeviceProfile, groupDeviceParameters, listFactoryDeviceProfiles } from "./factory-device-knowledge.mjs";
+import { getProducerChainBlueprint, listProducerChainBlueprints, verifyProducerChain } from "./producer-chain-knowledge.mjs";
 
 function requireExpectedState(args) {
   if (!Number.isInteger(args.expectedStateVersion)) {
@@ -225,6 +231,17 @@ function normalizeBrowserPath(args) {
   return { root: args.root, path: path.map((part) => part.trim()) };
 }
 
+function normalizeBrowserPage(args) {
+  const path = normalizeBrowserPath(args);
+  if (args.offset === undefined && args.limit === undefined) return path;
+  const offset = args.offset ?? 0;
+  if (!Number.isInteger(offset) || offset < 0) throw new Error("offset must be a non-negative integer");
+  if (!Number.isInteger(args.limit) || args.limit < 1 || args.limit > 200) {
+    throw new Error("limit must be an integer from 1 to 200 when paging");
+  }
+  return { ...path, offset, limit: args.limit };
+}
+
 function normalizeBrowserSearch(args) {
   const browserPath = normalizeBrowserPath(args);
   if (typeof args.query !== "string" || !args.query.trim()) throw new Error("query must be a non-empty string");
@@ -236,49 +253,192 @@ function normalizeBrowserSearch(args) {
 }
 
 export class ToolService {
-  constructor({ bridge, catalog, komplete = unavailableKomplete, confirmations = new ConfirmationStore() }) {
+  constructor({ bridge, catalog, komplete = unavailableKomplete, confirmations = new ConfirmationStore(), snapshotLibrary, browserMetadata }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
     this.komplete = komplete;
+    this.snapshotLibrary = snapshotLibrary;
+    this.browserMetadata = browserMetadata;
   }
 
   async call(name, args = {}) {
+    if (name === "search_local_splice_samples") return searchLocalSpliceSamples(args);
+    if (name === "capture_device_chain_snapshot") return this.#captureDeviceChainSnapshot(args);
+    if (name === "recall_device_chain_snapshot") return this.#recallDeviceChainSnapshot(args);
+    if (name === "capture_track_state_snapshot") return this.#captureTrackStateSnapshot(args);
+    if (name === "save_track_state_snapshot") {
+      if (!this.snapshotLibrary) throw new Error("track snapshot library is not configured");
+      const capture = await this.#captureTrackStateSnapshot(args);
+      return { ...await this.snapshotLibrary.save(args.name, capture.snapshot), trackId: args.trackId,
+        stateVersion: capture.stateVersion, limitation: capture.limitation };
+    }
+    if (name === "load_track_state_snapshot") {
+      if (!this.snapshotLibrary) throw new Error("track snapshot library is not configured");
+      return this.snapshotLibrary.load(args.name);
+    }
+    if (name === "recall_track_state_snapshot") return this.#recallTrackStateSnapshot(args);
+    if (name === "capture_device_parameter_snapshot") {
+      const target = { trackId: args.trackId, deviceId: args.deviceId };
+      const before = await this.#observeDevice(target);
+      const parameters = await this.bridge.request("list_device_parameters", target);
+      const after = await this.#observeDevice(target);
+      if (JSON.stringify(before) !== JSON.stringify(after) || before.stateVersion !== parameters.stateVersion ||
+          parameters.trackId !== args.trackId || parameters.deviceId !== args.deviceId) throw new Error("device changed during capture");
+      if (!before.device.className) throw new Error("device class is unavailable");
+      return { ...target, stateVersion: parameters.stateVersion, snapshot: {
+        format: "cavi-device-parameters-v1", deviceClass: before.device.className,
+        parameters: parameters.parameters.map(p => ({ originalName: p.originalName, min: p.min, max: p.max,
+          quantized: p.quantized, valueItems: p.valueItems, value: p.value })),
+      }, limitation: "Exposed parameters only. Not a native preset: excludes hidden plugin state, samples, macro mappings and automation. Persist the snapshot JSON in your own local file." };
+    }
+    if (name === "recall_device_parameter_snapshot") return this.#setDeviceParameters(args, args.snapshot);
     if (name === "search_presets") {
       return { presets: this.catalog.search(args) };
     }
     if (name === "get_preset") return { preset: this.catalog.get(args.presetId) };
     if (name === "get_preset_metadata") return { presetId: args.presetId, metadata: this.catalog.metadata(args.presetId) };
     if (name === "set_preset_metadata") return this.#setPresetMetadata(args);
+    if (name === "get_browser_item_metadata") return this.#getBrowserItemMetadata(args);
+    if (name === "set_browser_item_metadata") return this.#setBrowserItemMetadata(args);
+    if (name === "search_browser_item_metadata") {
+      return { items: this.#browserMetadataLibrary().search(args), limitation: "Private MCP tags and favorites only; saved browser identities are not reverified against Live in this search and do not change Live's native collections." };
+    }
     if (name === "get_live_state") return this.bridge.request("get_live_state", {});
     if (name === "get_transport_context") return this.bridge.request("get_transport_context", {});
     if (name === "get_history_state") return this.bridge.request("get_history_state", {});
     if (name === "get_song_musical_context") return this.bridge.request("get_song_musical_context", {});
+    if (name === "get_clip_groove_context") return this.bridge.request("get_clip_groove_context", args);
+    if (name === "inspect_clip_groove_postconditions") {
+      if (args.before?.trackId !== args.trackId || args.before?.clipId !== args.clipId) throw new Error("before snapshot does not match target");
+      const observed = await this.bridge.request("get_clip_groove_context", { trackId: args.trackId, clipId: args.clipId });
+      return { ...inspectGroovePostconditions(args.operation, args.before, observed), observed };
+    }
     if (name === "get_transport_recording_context") return this.bridge.request("get_transport_recording_context", {});
     if (name === "list_arrangement_cue_points") return this.bridge.request("list_arrangement_cue_points", {});
     if (name === "list_tracks") return this.bridge.request("list_tracks", {});
     if (name === "list_scenes") return this.bridge.request("list_scenes", {});
     if (name === "list_clips") return this.bridge.request("list_clips", args);
+    if (name === "list_arrangement_clips") return this.bridge.request(name, args);
+    if (name === "place_session_clip_in_arrangement") return this.#placeSessionClipInArrangement(args);
+    if (["delete_arrangement_clip", "move_arrangement_clip", "duplicate_arrangement_clip"].includes(name)) return this.#mutateArrangementClip(name, args);
     if (name === "get_midi_clip_notes") return this.bridge.request("get_midi_clip_notes", args);
     if (name === "get_midi_clip_notes_extended") return this.bridge.request("get_midi_clip_notes_extended", args);
     if (name === "get_track_mixer") return this.bridge.request("get_track_mixer", args);
     if (name === "get_track_routing") return this.bridge.request("get_track_routing", args);
     if (name === "get_set_mixer") return this.bridge.request("get_set_mixer", {});
+    if (name === "list_producer_chain_blueprints") return { blueprints: listProducerChainBlueprints() };
+    if (name === "get_producer_chain_blueprint") return { blueprint: getProducerChainBlueprint(args.target) };
+    if (name === "inspect_producer_chain") {
+      const observed = await this.bridge.request("list_devices", { trackId: args.trackId });
+      if (observed.trackId !== args.trackId) throw new Error(`observed track ${observed.trackId} does not match ${args.trackId}`);
+      return { stateVersion: observed.stateVersion, trackId: observed.trackId,
+        verification: verifyProducerChain(args.target, observed.devices) };
+    }
+    if (name === "inspect_producer_bus") {
+      const blueprint = getProducerChainBlueprint(args.target);
+      if (blueprint.topology !== "shared-instrument-bus") throw new Error("target must be a shared-instrument-bus blueprint");
+      if (!Array.isArray(args.children) || args.children.length !== blueprint.children.length ||
+        new Set(args.children.map(({ role }) => role)).size !== args.children.length ||
+        new Set(args.children.map(({ trackId }) => trackId)).size !== args.children.length ||
+        blueprint.children.some(({ role }) => !args.children.some((child) => child.role === role))) {
+        throw new Error("children must map each blueprint role to one distinct track");
+      }
+      const trackList = await this.bridge.request("list_tracks", {});
+      const bus = trackList.tracks.find(({ id }) => id === args.busTrackId);
+      if (!bus?.isGroup) throw new Error("busTrackId must identify an existing Group Track");
+      const read = async (method, trackId) => {
+        const observed = await this.bridge.request(method, { trackId });
+        if (observed.trackId !== trackId || observed.stateVersion !== trackList.stateVersion)
+          throw new Error(`${method} observation changed track identity or state version`);
+        return observed;
+      };
+      const busDevices = await read("list_devices", args.busTrackId);
+      const busChain = verifyProducerChain(args.target, busDevices.devices);
+      const children = [];
+      for (const expected of blueprint.children) {
+        const { trackId } = args.children.find(({ role }) => role === expected.role);
+        const track = trackList.tracks.find(({ id }) => id === trackId);
+        if (!track) throw new Error(`unknown child track ${trackId}`);
+        const childDevices = await read("list_devices", trackId);
+        const routing = await read("get_track_routing", trackId);
+        children.push({ role: expected.role, trackId,
+          expectedInstrumentProfileId: expected.instrumentProfileId,
+          observedInstrumentProfileIds: childDevices.devices.map((device) => getFactoryDeviceProfile(device)?.id).filter(Boolean),
+          instrumentMatches: childDevices.devices.some((device) => getFactoryDeviceProfile(device)?.id === expected.instrumentProfileId),
+          grouped: track.groupTrackId === args.busTrackId,
+          routed: routing.output?.type?.id === args.busTrackId });
+      }
+      return { target: args.target, busTrackId: args.busTrackId, stateVersion: trackList.stateVersion,
+        busChain, children,
+        matchesBlueprint: busChain.matchesRequiredOrder && children.every(({ instrumentMatches, grouped, routed }) => instrumentMatches && grouped && routed),
+        limitation: "Sequential read-only observations; state-version equality guards against intervening Live edits but does not prove signal flow, sound quality or hidden plugin state." };
+    }
     if (name === "list_factory_device_profiles") return { profiles: listFactoryDeviceProfiles() };
+    if (name === "get_factory_coverage") {
+      const roots = {};
+      for (const root of ["instruments", "audio_effects", "midi_effects"]) {
+        const children = [];
+        let offset = 0;
+        let stateVersion;
+        let observed;
+        do {
+          observed = await this.bridge.request("get_factory_browser_items", { root, offset, limit: 200 });
+          if (observed.root !== root || !Array.isArray(observed.children) ||
+              (stateVersion !== undefined && observed.stateVersion !== stateVersion))
+            throw new Error("invalid or changed factory browser observation");
+          stateVersion = observed.stateVersion;
+          children.push(...observed.children);
+          if (observed.nextOffset != null &&
+              (!Number.isInteger(observed.nextOffset) || observed.nextOffset <= offset || observed.nextOffset !== children.length))
+            throw new Error("invalid factory browser pagination");
+          offset = observed.nextOffset;
+        } while (offset != null);
+        if (Number.isInteger(observed.totalChildren) && children.length !== observed.totalChildren)
+          throw new Error("incomplete factory browser pagination");
+        const profiledByName = [], missingProfiles = [];
+        for (const item of children.filter(item => item.loadable)) {
+          const profile = getFactoryDeviceProfile({ name: item.name });
+          const record = { name: item.name, uri: item.uri, path: [item.name] };
+          if (profile) profiledByName.push({ ...record, profileId: profile.id });
+          else missingProfiles.push(record);
+        }
+        roots[root] = { stateVersion: observed.stateVersion, loadableCount: profiledByName.length + missingProfiles.length, profiledByName, missingProfiles };
+      }
+      return { roots, deepIntegrationVerified: false,
+        limitation: "Paged top-level factory browser observations, not an atomic inventory or exhaustive preset/Pack/third-party catalog. Profile matches use browser names; verify native class identity and actual controls after loading. A profile or loadable item does not prove save/recall, modulation, signal flow, or complete device integration." };
+    }
     if (name === "get_browser_items" || name === "get_factory_browser_items") {
-      return this.bridge.request(name, normalizeBrowserPath(args));
+      return this.bridge.request(name, normalizeBrowserPage(args));
     }
     if (name === "search_browser_items") return this.bridge.request(name, normalizeBrowserSearch(args));
     if (name === "get_factory_device_context") {
-      const devices = await this.bridge.request("list_devices", { trackId: args.trackId });
-      const device = devices.devices.find(({ id }) => id === args.deviceId);
-      if (!device) throw new Error(`unknown device ${args.deviceId}`);
+      const identity = await this.#observeDevice(args);
+      const { device } = identity;
       const profile = getFactoryDeviceProfile(device);
       const observed = await this.bridge.request("list_device_parameters", args);
+      if (observed.stateVersion !== identity.stateVersion)
+        throw new Error("device context changed between reads");
+      const parameterGroups = groupDeviceParameters(profile, observed.parameters);
+      const unmappedIds = parameterGroups.other.map(parameter => parameter.id);
+      const configuredPluginControls = device.className === "PluginDevice"
+        ? observed.parameters.filter(parameter =>
+            (parameter.originalName || parameter.name || "").trim().toLowerCase() !== "device on")
+        : null;
       return {
         stateVersion: observed.stateVersion, trackId: args.trackId, device,
         profile: profile || null,
-        parameterGroups: groupDeviceParameters(profile, observed.parameters)
+        parameterGroups,
+        parameterCoverage: { total: observed.parameters.length,
+          mapped: observed.parameters.length - unmappedIds.length,
+          unmapped: unmappedIds.length, unmappedIds },
+        pluginExposure: configuredPluginControls === null ? null : {
+          configuredControlIds: configuredPluginControls.map(parameter => parameter.id),
+          writableControlIds: configuredPluginControls.filter(parameter => parameter.enabled !== false)
+            .map(parameter => parameter.id),
+          configureInLiveRequired: configuredPluginControls.length === 0,
+          hiddenPluginStateReadable: false
+        }
       };
     }
     if (name === "get_automation_capabilities") return {
@@ -299,8 +459,130 @@ export class ToolService {
     if (name === "get_clip_parameter_envelope") return this.bridge.request("get_clip_parameter_envelope", args);
     if (name === "get_clip_timing") return this.bridge.request("get_clip_timing", args);
     if (name === "get_audio_clip_state") return this.bridge.request("get_audio_clip_state", args);
+    if (name === "get_device_sidechain_routing") return this.bridge.request("get_device_sidechain_routing", args);
+    if (name === "analyze_audio_file") return analyzeAudioFile(args.sourcePath, args);
+    if (name === "analyze_audio_clip") {
+      const target = { trackId: args.trackId, clipId: args.clipId };
+      const before = await this.bridge.request("get_audio_clip_state", target);
+      if (before.trackId !== target.trackId || before.clipId !== target.clipId) throw new Error("audio clip identity mismatch");
+      if (typeof before.source?.path !== "string" || !before.source.path) throw new Error("clip source file is unavailable; update the bridge or locate the missing sample");
+      const measurement = await analyzeAudioFile(before.source.path, args);
+      const after = await this.bridge.request("get_audio_clip_state", target);
+      if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error("audio clip changed during analysis; retry against current state");
+      return { ...target, stateVersion: after.stateVersion, measurement,
+        limitation: "Source audio only; excludes clip gain, transposition, warp, envelopes, and device processing." };
+    }
     if (name === "list_devices") return this.bridge.request("list_devices", args);
     if (name === "get_device_hierarchy") return this.bridge.request("get_device_hierarchy", args);
+    if (name === "move_device_to_chain") {
+      requireExpectedState(args);
+      const match = typeof args.targetChainId === "string" && /^(.*)\/(?:return-)?chain-(\d+)$/.exec(args.targetChainId);
+      if (!match) throw new Error("invalid target chain ID");
+      if (args.targetChainId.startsWith(`${args.deviceId}/`)) throw new Error("cannot move a rack into its own descendant");
+      const source = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState({ expectedStateVersion: args.expectedStateVersion, trackId: args.trackId }, source);
+      if (source.device?.id !== args.deviceId) throw new Error("source device identity mismatch");
+      const target = await this.bridge.request("get_device_hierarchy", { trackId: args.targetTrackId, deviceId: match[1] });
+      assertExpectedState({ expectedStateVersion: args.expectedStateVersion, trackId: args.targetTrackId }, target);
+      if (target.device?.id !== match[1] || !target.device.canHaveChains) throw new Error("target rack identity mismatch");
+      const chain = [...target.device.chains, ...(target.device.returnChains ?? [])].find((item) => item.id === args.targetChainId);
+      if (!chain) throw new Error("unknown target chain");
+      if (!Number.isSafeInteger(args.targetPosition) || args.targetPosition < 0 || args.targetPosition > chain.devices.length) throw new Error("invalid target chain insertion index");
+      return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+        targetTrackId: args.targetTrackId, targetChainId: args.targetChainId, targetPosition: args.targetPosition,
+        warning: "Moving devices between rack chains may remove macro mappings. Moving the device back does not restore those mappings. Save a rack preset before moving mapped devices; reload that preset for full recall. Inspect parameter enabled states and macro behavior after movement.",
+        expectedStateVersion: args.expectedStateVersion, beforeDevice: source.device, beforeTargetRack: target.device }, args);
+    }
+    if (name === "set_drum_pad_state") {
+      requireExpectedState(args);
+      const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, { ...observed, deviceId: observed.device?.id });
+      const rack = observed.device;
+      if (rack?.id !== args.deviceId || !rack.canHaveDrumPads) throw new Error("device has no drum pads");
+      if (!Number.isInteger(args.note) || args.note < 0 || args.note > 127) throw new Error("pad note must be an integer from 0 to 127");
+      if (!rack.drumPads.some(pad => pad.note === args.note)) throw new Error("unknown populated drum pad");
+      const changes = {};
+      for (const key of ["mute", "solo"]) {
+        if (args[key] === undefined) continue;
+        if (typeof args[key] !== "boolean") throw new Error(`${key} must be boolean`);
+        changes[key] = args[key];
+      }
+      if (!Object.keys(changes).length) throw new Error("no drum pad changes requested");
+      if (changes.mute === true && changes.solo === true) throw new Error("a drum pad cannot be requested muted and soloed simultaneously");
+      return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+        note: args.note, expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, changes,
+        undoLimitation: "Do not rely on Live undo for pad solo; restore the observed pad state explicitly when needed." }, args);
+    }
+    if (name === "set_rack_chain_mixer" || name === "rename_rack_chain" || name === "set_rack_chain_note_routing") {
+      requireExpectedState(args);
+      const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, { ...observed, deviceId: observed.device?.id });
+      const rack = observed.device;
+      if (rack?.id !== args.deviceId || !rack.canHaveChains) throw new Error("target rack identity mismatch");
+      const availableChains = name === "set_rack_chain_note_routing"
+        ? rack.chains : [...rack.chains, ...(rack.returnChains ?? [])];
+      const chain = availableChains.find(item => item.id === args.chainId);
+      if (!chain) throw new Error("unknown rack chain");
+      if (name === "set_rack_chain_note_routing") {
+        if (!rack.canHaveDrumPads) throw new Error("note routing requires a Drum Rack");
+        const changes = {};
+        for (const key of ["inputNote", "outputNote"]) {
+          if (args[key] === undefined) continue;
+          if (!Number.isInteger(args[key]) || args[key] < 0 || args[key] > 127 || !Number.isInteger(chain.noteRouting?.[key])) throw new Error("chain note routing requires available MIDI notes from 0 to 127");
+          changes[key] = args[key];
+        }
+        if (!Object.keys(changes).length) throw new Error("no chain note routing changes requested");
+        return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+          chainId: args.chainId, expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, changes,
+          warning: "Reassigning onto an occupied pad layers chains; it does not replace or delete the destination sound." }, args);
+      }
+      if (name === "rename_rack_chain") {
+        if (typeof args.name !== "string" || !args.name.trim()) throw new Error("chain name must not be empty");
+        const isReturn = (rack.returnChains ?? []).some(item => item.id === args.chainId);
+        return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+          chainId: args.chainId, expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, name: args.name,
+          ...(isReturn ? { nameBehavior: "raw-return-label",
+            warning: "Live adds the return letter prefix to the requested raw label. Read the observed name; do not restore a prefixed display name verbatim, or its prefix will be duplicated. Requested text is never stripped automatically." } : {}) }, args);
+      }
+      const changes = {};
+      for (const key of ["volume", "pan", "mute", "solo"]) {
+        if (args[key] === undefined) continue;
+        const native = chain.mixer?.[key];
+        if (key === "mute" || key === "solo") {
+          if (typeof args[key] !== "boolean" || typeof native !== "boolean") throw new Error(`${key} is not writable`);
+        } else if (!Number.isFinite(args[key]) || !native?.enabled || args[key] < native.min || args[key] > native.max) throw new Error(`${key} is outside the writable native range`);
+        changes[key] = args[key];
+      }
+      if (args.sends !== undefined) {
+        if (!Array.isArray(args.sends) || !args.sends.length) throw new Error("send changes must be a nonempty array");
+        const seen = new Set();
+        changes.sends = args.sends.map(change => {
+          if (!change || typeof change !== "object" || Object.keys(change).sort().join(",") !== "index,value") throw new Error("invalid send change");
+          const native = chain.mixer?.sends?.find(send => send.index === change.index);
+          if (!Number.isSafeInteger(change.index) || change.index < 0 || seen.has(change.index) || !native) throw new Error("unknown or duplicate send index");
+          seen.add(change.index);
+          if (!native.enabled || !Number.isFinite(change.value) || change.value < native.min || change.value > native.max) throw new Error("send is outside the writable native range");
+          return { index: change.index, value: change.value };
+        });
+      }
+      if (!Object.keys(changes).length) throw new Error("no chain mixer changes requested");
+      return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+        chainId: args.chainId, expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, changes,
+        undoLimitation: "Live undo restores chain volume, pan, and mute, but not solo. Restore solo explicitly from beforeDevice when needed.",
+        ...(changes.sends ? { warning: "Send indices follow native rack-return order. Return-to-return sends may create feedback; inspect the full return routing before confirming. Restore observed send values explicitly when needed." } : {}) }, args);
+    }
+    if (name === "create_rack_chain") {
+      requireExpectedState(args);
+      const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, { ...observed, deviceId: observed.device?.id });
+      const rack = observed.device;
+      if (rack?.id !== args.deviceId || !rack.canHaveChains || !Array.isArray(rack.chains)) throw new Error("device does not support rack chain creation");
+      const index = args.index === undefined ? rack.chains.length : args.index;
+      if (!Number.isInteger(index) || index < 0 || index > rack.chains.length) throw new Error("invalid rack chain insertion index");
+      if (typeof args.name !== "string" || !args.name.trim()) throw new Error("rack chain name must not be empty");
+      return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+        expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, index, name: args.name }, args);
+    }
     if (name === "list_device_parameters") {
       return this.bridge.request("list_device_parameters", args);
     }
@@ -317,8 +599,9 @@ export class ToolService {
     }[name];
     if (kompleteMethod) return this.#kompleteMutation(kompleteMethod, args);
     if (name === "set_device_parameters") return this.#setDeviceParameters(args);
-    if (name === "set_device_active" || name === "delete_device") return this.#deviceLifecycle(name, args);
+    if (name === "set_device_active" || name === "delete_device" || name === "move_device") return this.#deviceLifecycle(name, args);
     if (name === "set_song_musical_context") return this.#setSongMusicalContext(args);
+    if (name === "set_groove") return this.#setGroove(args);
     if (name === "set_transport_recording_context") return this.#setTransportRecordingContext(args);
     if (["create_arrangement_cue_point", "rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point"].includes(name)) {
       return this.#arrangementCuePointMutation(name, args);
@@ -326,20 +609,28 @@ export class ToolService {
     if (name === "set_transport_context") return this.#setTransportContext(args);
     if (name === "set_clip_timing") return this.#setClipTiming(args);
     if (name === "create_track") return this.#createTrack(args);
+    if (name === "create_return_track") return this.#createReturnTrack(args);
     if (name === "create_scene") return this.#createScene(args);
     if (name === "rename_session_object") return this.#renameSessionObject(args);
     if (name === "duplicate_session_object") return this.#duplicateSessionObject(args);
     if (name === "delete_session_object") return this.#deleteSessionObject(args);
     if (name === "set_audio_clip_state") return this.#setAudioClipState(args);
+    if (name === "move_audio_warp_marker") return this.#moveAudioWarpMarker(args);
+    if (name === "remove_audio_warp_marker") return this.#removeAudioWarpMarker(args);
+    if (name === "add_audio_warp_marker") return this.#addAudioWarpMarker(args);
+    if (name === "quantize_audio_clip") return this.#quantizeAudioClip(args);
+    if (name === "crop_audio_clip") return this.#cropAudioClip(args);
     if (name === "duplicate_clip") return this.#duplicateClip(args);
     if (name === "delete_clip") return this.#deleteClip(args);
     if (name === "duplicate_clip_loop") return this.#duplicateClipLoop(args);
     if (name === "create_midi_clip") return this.#createMidiClip(args);
+    if (name === "create_audio_clip") return this.#createAudioClip(args);
     if (name === "set_clip_parameter_envelope") return this.#setClipParameterEnvelope(args);
     if (name === "set_midi_note_properties") return this.#setMidiNoteProperties(args);
     if (name === "transform_midi_notes") return this.#transformMidiNotes(args);
     if (name === "set_track_mixer") return this.#setTrackMixer(args);
     if (name === "set_track_routing") return this.#setTrackRouting(args);
+    if (name === "set_device_sidechain_routing") return this.#setDeviceSidechainRouting(args);
     if (name === "set_group_fold_state") return this.#setGroupFoldState(args);
     if (name === "route_tracks_to_bus") return this.#routeTracksToBus(args);
     if (name === "load_browser_item" || name === "load_factory_browser_item") return this.#loadBrowserItem(name, args);
@@ -353,6 +644,136 @@ export class ToolService {
       return this.#genericMutation(name, args);
     }
     throw new Error(`unknown tool ${name}`);
+  }
+
+  async #captureTrackStateSnapshot(args) {
+    const observed = await this.bridge.request("get_track_state_snapshot", { trackId: args.trackId });
+    if (observed.trackId !== args.trackId || observed.track?.id !== args.trackId) throw new Error("track snapshot target mismatch");
+    const { track, mixer, routing } = observed;
+    return { trackId: args.trackId, stateVersion: observed.stateVersion, snapshot: {
+      format: "cavi-track-state-v1",
+      track: { name: track.name, type: track.type, isGroup: Boolean(track.isGroup) },
+      mixer: { volume: mixer.volume.value, pan: mixer.pan.value, mute: mixer.mute, solo: mixer.solo,
+        sends: mixer.sends.map(send => ({ id: send.id, name: send.name, value: send.value })) },
+      routing: { inputTypeId: routing.input.type?.id ?? null, inputChannelId: routing.input.channel?.id ?? null,
+        outputTypeId: routing.output.type?.id ?? null, outputChannelId: routing.output.channel?.id ?? null,
+        monitoring: routing.monitoring?.value ?? null },
+      devices: observed.devices.map(device => ({ name: device.name, className: device.className, type: device.type,
+        parameters: device.parameters.map(p => ({ originalName: p.originalName, min: p.min, max: p.max,
+          quantized: p.quantized, valueItems: p.valueItems, value: p.value })) }))
+    }, limitation: "Captures mixer, routing and exposed parameters for ordered top-level devices on one existing track. Not a native track preset: excludes clips, nested rack devices, hidden plugin state, samples, automation and mappings." };
+  }
+
+  async #captureDeviceChainSnapshot(args) {
+    const observed = await this.bridge.request("get_device_chain_snapshot", { trackId: args.trackId });
+    if (observed.trackId !== args.trackId || !Array.isArray(observed.devices)) throw new Error("device chain snapshot target mismatch");
+    return { trackId: args.trackId, stateVersion: observed.stateVersion,
+      snapshot: { format: "cavi-device-chain-v1", devices: observed.devices.map(device => ({
+        name: device.name, className: device.className, type: device.type,
+        parameters: device.parameters.map(p => ({ originalName: p.originalName, min: p.min, max: p.max,
+          quantized: p.quantized, valueItems: p.valueItems, value: p.value }))
+      })) },
+      limitation: "Exact current topology and exposed parameters only. Not a native rack or plug-in preset; excludes hidden state, samples, automation, nested devices, and mappings."
+    };
+  }
+
+  async #recallDeviceChainSnapshot(args) {
+    requireExpectedState(args);
+    if (args.snapshot?.format !== "cavi-device-chain-v1" || !Array.isArray(args.snapshot.devices)) throw new Error("invalid device chain snapshot format");
+    const before = await this.bridge.request("get_device_chain_snapshot", { trackId: args.trackId });
+    assertExpectedState(args, before);
+    if (before.trackId !== args.trackId || before.devices.length !== args.snapshot.devices.length) throw new Error("device chain topology mismatch");
+    args.snapshot.devices.forEach((savedDevice, deviceIndex) => {
+      const nativeDevice = before.devices[deviceIndex];
+      if (savedDevice.className !== nativeDevice.className || savedDevice.type !== nativeDevice.type ||
+          !Array.isArray(savedDevice.parameters) || savedDevice.parameters.length !== nativeDevice.parameters.length) throw new Error("device chain topology mismatch");
+      savedDevice.parameters.forEach((saved, parameterIndex) => {
+        const native = nativeDevice.parameters[parameterIndex];
+        for (const field of ["originalName", "min", "max", "quantized", "valueItems"]) {
+          if (JSON.stringify(saved[field]) !== JSON.stringify(native[field])) throw new Error("device parameter layout mismatch");
+        }
+        if (!Number.isFinite(saved.value) || saved.value < native.min || saved.value > native.max ||
+            (native.quantized && !Number.isInteger(saved.value))) throw new Error("device parameter value outside native range");
+        if (saved.value !== native.value && !native.enabled) throw new Error(`parameter ${native.id} is disabled`);
+      });
+    });
+    const target = structuredClone(args.snapshot);
+    const current = { format: "cavi-device-chain-v1", devices: before.devices.map(device => ({
+      name: device.name, className: device.className, type: device.type,
+      parameters: device.parameters.map(p => ({ originalName: p.originalName, min: p.min, max: p.max,
+        quantized: p.quantized, valueItems: p.valueItems, value: p.value }))
+    })) };
+    if (JSON.stringify(current) === JSON.stringify(target)) throw new Error("snapshot already matches; no device chain changes required");
+    const plan = { method: "set_device_chain_snapshot", trackId: args.trackId,
+      expectedStateVersion: args.expectedStateVersion, before, target };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    this.#consumeConfirmation(plan, args);
+    const observed = await this.bridge.request("set_device_chain_snapshot", plan);
+    return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString(),
+      rollback: "One Live undo step restores all exposed device names and parameters; native rollback is attempted if recall fails." };
+  }
+
+  async #recallTrackStateSnapshot(args) {
+    requireExpectedState(args);
+    const snapshot = args.snapshot;
+    if (snapshot?.format !== "cavi-track-state-v1" || !snapshot.track || !snapshot.mixer || !snapshot.routing || !Array.isArray(snapshot.devices)) {
+      throw new Error("invalid track snapshot format");
+    }
+    const before = await this.bridge.request("get_track_state_snapshot", { trackId: args.trackId });
+    assertExpectedState(args, before);
+    if (before.trackId !== args.trackId || before.track?.id !== args.trackId) throw new Error("track snapshot target mismatch");
+    if (snapshot.track.type !== before.track.type || Boolean(snapshot.track.isGroup) !== Boolean(before.track.isGroup)) {
+      throw new Error("snapshot track type is incompatible");
+    }
+    if (typeof snapshot.track.name !== "string" || !snapshot.track.name.trim()) throw new Error("snapshot track name is invalid");
+    for (const key of ["volume", "pan"]) {
+      const value = snapshot.mixer[key], bounds = before.mixer[key];
+      if (!Number.isFinite(value) || value < bounds.min || value > bounds.max) throw new Error(`snapshot mixer ${key} is outside native range`);
+    }
+    for (const key of ["mute", "solo"]) if (typeof snapshot.mixer[key] !== "boolean") throw new Error(`snapshot mixer ${key} is invalid`);
+    if (!Array.isArray(snapshot.mixer.sends) || snapshot.mixer.sends.length !== before.mixer.sends.length) throw new Error("snapshot send layout mismatch");
+    snapshot.mixer.sends.forEach((saved, index) => {
+      const native = before.mixer.sends[index];
+      if (saved.id !== native.id || saved.name !== native.name) throw new Error("snapshot send layout mismatch");
+      if (!Number.isFinite(saved.value) || saved.value < native.min || saved.value > native.max) throw new Error("snapshot send value outside native range");
+    });
+    for (const [key, choices] of [["inputTypeId", before.routing.input.availableTypes], ["outputTypeId", before.routing.output.availableTypes]]) {
+      const value = snapshot.routing[key];
+      if (value !== null && !choices.some(({ id }) => id === value)) throw new Error(`snapshot routing ${key} is unavailable`);
+    }
+    for (const [key, typeKey, side] of [["inputChannelId", "inputTypeId", "input"], ["outputChannelId", "outputTypeId", "output"]]) {
+      const value = snapshot.routing[key];
+      if (snapshot.routing[typeKey] === before.routing[side].type?.id && value !== null &&
+          !before.routing[side].availableChannels.some(({ id }) => id === value)) throw new Error(`snapshot routing ${key} is unavailable`);
+    }
+    if (snapshot.routing.monitoring !== null && !before.routing.monitoring?.choices.some(({ value }) => value === snapshot.routing.monitoring)) {
+      throw new Error("snapshot routing monitoring is unavailable");
+    }
+    if (snapshot.devices.length !== before.devices.length) throw new Error("snapshot device topology mismatch");
+    snapshot.devices.forEach((savedDevice, deviceIndex) => {
+      const nativeDevice = before.devices[deviceIndex];
+      if (savedDevice.className !== nativeDevice.className || savedDevice.type !== nativeDevice.type || !Array.isArray(savedDevice.parameters) ||
+          savedDevice.parameters.length !== nativeDevice.parameters.length) throw new Error("snapshot device topology mismatch");
+      savedDevice.parameters.forEach((saved, parameterIndex) => {
+        const native = nativeDevice.parameters[parameterIndex];
+        for (const field of ["originalName", "min", "max", "quantized", "valueItems"]) {
+          if (JSON.stringify(saved[field]) !== JSON.stringify(native[field])) throw new Error("snapshot parameter layout mismatch");
+        }
+        if (!Number.isFinite(saved.value) || saved.value < native.min || saved.value > native.max ||
+            (native.quantized && !Number.isInteger(saved.value))) throw new Error("snapshot parameter value outside native range");
+        if (saved.value !== native.value && !native.enabled) throw new Error(`parameter ${native.id} is disabled`);
+      });
+    });
+    const target = structuredClone(snapshot);
+    const current = (await this.#captureTrackStateSnapshot(args)).snapshot;
+    if (JSON.stringify(current) === JSON.stringify(target)) throw new Error("snapshot already matches; no track changes required");
+    const plan = { method: "set_track_state_snapshot", trackId: args.trackId,
+      expectedStateVersion: args.expectedStateVersion, before, target };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    this.#consumeConfirmation(plan, args);
+    const observed = await this.bridge.request("set_track_state_snapshot", plan);
+    return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString(),
+      rollback: "One Live undo step restores the complete pre-recall track state; native rollback is also attempted if recall fails." };
   }
 
   async readResource(uri) {
@@ -398,17 +819,40 @@ export class ToolService {
     throw new Error(`unknown resource ${uri}`);
   }
 
-  async #setDeviceParameters(args) {
+  async #setDeviceParameters(args, snapshot) {
     requireExpectedState(args);
     const observed = await this.bridge.request("list_device_parameters", {
       trackId: args.trackId,
       deviceId: args.deviceId
     });
     assertExpectedState(args, observed);
+    let beforeDevice;
+    let requestedChanges = args.changes;
+    if (snapshot !== undefined) {
+      if (snapshot?.format !== "cavi-device-parameters-v1" || !Array.isArray(snapshot.parameters)) throw new Error("invalid parameter snapshot format");
+      const identity = await this.#observeDevice(args);
+      assertExpectedState({ expectedStateVersion: args.expectedStateVersion, trackId: args.trackId }, identity);
+      beforeDevice = identity.device;
+      if (beforeDevice.className !== snapshot.deviceClass) throw new Error("snapshot device class mismatch");
+      if (snapshot.parameters.length !== observed.parameters.length) throw new Error("snapshot parameter layout mismatch");
+      requestedChanges = snapshot.parameters.flatMap((saved, index) => {
+        const native = observed.parameters[index];
+        for (const field of ["originalName", "min", "max", "quantized", "valueItems"]) {
+          if (JSON.stringify(saved[field]) !== JSON.stringify(native[field])) throw new Error("snapshot parameter layout mismatch");
+        }
+        if (!Number.isFinite(saved.value) || saved.value < native.min || saved.value > native.max ||
+            (native.quantized && !Number.isInteger(saved.value))) throw new Error("snapshot parameter value outside native range");
+        if (saved.value === native.value) return [];
+        if (!native.enabled) throw new Error(`parameter ${native.id} is disabled`);
+        return [{ id: native.id, value: saved.value }];
+      });
+      if (!requestedChanges.length) throw new Error("snapshot already matches; no parameter changes required");
+    }
     const allowed = new Map(observed.parameters.map((parameter) => [parameter.id, parameter]));
-    const changes = args.changes.map((change) => {
+    const changes = requestedChanges.map((change) => {
       const parameter = allowed.get(change.id);
       if (!parameter) throw new Error(`parameter ${change.id} is not allowlisted`);
+      if (!parameter.enabled) throw new Error(`parameter ${change.id} is disabled`);
       const value = Math.max(parameter.min, Math.min(parameter.max, Number(change.value)));
       return {
         id: change.id,
@@ -426,12 +870,13 @@ export class ToolService {
       trackId: args.trackId,
       deviceId: args.deviceId,
       expectedStateVersion: args.expectedStateVersion,
+      ...(beforeDevice ? { beforeDevice, beforeParameters: observed.parameters } : {}),
       changes
     };
     if (args.dryRun !== false) {
       return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
     }
-    this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
+    this.#consumeConfirmation(plan, args);
     const result = await this.bridge.request("set_device_parameters", plan);
     return {
       dryRun: false,
@@ -442,19 +887,58 @@ export class ToolService {
     };
   }
 
+  async #observeDevice(args) {
+    if (typeof args.deviceId === "string" && args.deviceId.includes("/")) {
+      const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
+      if (observed.device?.id !== args.deviceId) throw new Error(`unknown device ${args.deviceId}`);
+      return observed;
+    }
+    const observed = await this.bridge.request("list_devices", { trackId: args.trackId });
+    const device = observed.devices.find(({ id }) => id === args.deviceId);
+    if (!device) throw new Error(`unknown device ${args.deviceId}`);
+    return { ...observed, device };
+  }
+
   async #deviceLifecycle(method, args) {
     requireExpectedState(args);
     if (method === "set_device_active" && typeof args.active !== "boolean") throw new Error("active must be boolean");
-    const observed = await this.bridge.request("list_devices", { trackId: args.trackId });
+    const observed = await this.#observeDevice(args);
     assertExpectedState({ expectedStateVersion: args.expectedStateVersion, trackId: args.trackId }, observed);
-    const device = observed.devices.find(({ id }) => id === args.deviceId);
-    if (!device) throw new Error(`unknown device ${args.deviceId}`);
+    const device = observed.device;
     const plan = {
       method, trackId: args.trackId, deviceId: args.deviceId,
       expectedStateVersion: args.expectedStateVersion, beforeDevice: device
     };
     if (method === "set_device_active") plan.active = args.active;
+    if (method === "move_device") {
+      if (!Number.isSafeInteger(args.targetPosition) || args.targetPosition < 0) throw new Error("targetPosition must be a nonnegative integer");
+      plan.targetPosition = args.targetPosition;
+    }
     return this.#confirmedMutation(plan, args);
+  }
+
+  async #setGroove(args) {
+    requireExpectedState(args);
+    const before = await this.bridge.request("get_song_musical_context", {});
+    assertExpectedState(args, before);
+    const groove = before.groove.pool.find(item => item.id === args.grooveId);
+    if (!groove) throw new Error(`unknown groove ${args.grooveId}`);
+    const changes = {};
+    if (args.baseGrid !== undefined) {
+      const matches = (groove.baseGrid?.choices ?? []).filter(choice => choice.name === args.baseGrid || choice.value === args.baseGrid);
+      if (matches.length !== 1) throw new Error("unknown groove base grid or native choices unavailable");
+      changes.baseGrid = { previous: { value: groove.baseGrid.value, name: groove.baseGrid.name }, value: matches[0] };
+    }
+    for (const key of ["timingAmount", "quantizationAmount", "randomAmount", "velocityAmount"]) {
+      if (args[key] !== undefined) changes[key] = { previous: groove[key], value: finiteRange(args[key], key, key === "velocityAmount" ? -100 : 0, 100) };
+    }
+    if (args.name !== undefined) {
+      if (typeof args.name !== "string" || !args.name.trim()) throw new Error("groove name must be a non-empty string");
+      changes.name = { previous: groove.name, value: args.name };
+    }
+    if (!Object.keys(changes).length) throw new Error("at least one groove change is required");
+    return this.#confirmedMutation({ method: "set_groove", expectedStateVersion: args.expectedStateVersion,
+      grooveId: args.grooveId, before, changes }, args);
   }
 
   async #historyMutation(method, args) {
@@ -504,7 +988,7 @@ export class ToolService {
     }
     if (args.groove !== undefined) {
       const groove = {};
-      if (args.groove.amount !== undefined) groove.amount = finiteRange(args.groove.amount, "groove.amount", 0, 1);
+      if (args.groove.amount !== undefined) groove.amount = finiteRange(args.groove.amount, "groove.amount", 0, 1.3125);
       if (args.groove.swingAmount !== undefined) groove.swingAmount = finiteRange(args.groove.swingAmount, "groove.swingAmount", 0, 1);
       if (Object.keys(groove).length) changes.groove = groove;
     }
@@ -599,16 +1083,23 @@ export class ToolService {
     assertExpectedState(args, observed);
     const changes = {};
     if (args.loop !== undefined) {
+      if (observed.loop.unit === "seconds" && (args.loop.startBeats !== undefined || args.loop.endBeats !== undefined)) {
+        throw new Error("beat-based loop positions cannot be applied to unwarped audio");
+      }
       const loop = {};
       if (args.loop.enabled !== undefined) {
         if (typeof args.loop.enabled !== "boolean") throw new Error("loop.enabled must be boolean");
         loop.enabled = args.loop.enabled;
       }
-      const start = args.loop.startBeats === undefined ? observed.loop.startBeats : finiteRange(args.loop.startBeats, "loop.startBeats", 0, Number.MAX_SAFE_INTEGER);
-      const end = args.loop.endBeats === undefined ? observed.loop.endBeats : finiteRange(args.loop.endBeats, "loop.endBeats", 0, Number.MAX_SAFE_INTEGER);
-      if (end <= start) throw new Error("loop.endBeats must be greater than loop.startBeats");
-      if (args.loop.startBeats !== undefined) loop.startBeats = start;
-      if (args.loop.endBeats !== undefined) loop.endBeats = end;
+      const seconds = observed.loop.unit === "seconds";
+      if (!seconds && (args.loop.startSeconds !== undefined || args.loop.endSeconds !== undefined)) throw new Error("seconds-based loop positions require unwarped audio");
+      const startKey = seconds ? "startSeconds" : "startBeats";
+      const endKey = seconds ? "endSeconds" : "endBeats";
+      const start = args.loop[startKey] === undefined ? observed.loop[startKey] : finiteRange(args.loop[startKey], `loop.${startKey}`, 0, Number.MAX_SAFE_INTEGER);
+      const end = args.loop[endKey] === undefined ? observed.loop[endKey] : finiteRange(args.loop[endKey], `loop.${endKey}`, 0, Number.MAX_SAFE_INTEGER);
+      if (end <= start) throw new Error(`loop.${endKey} must be greater than loop.${startKey}`);
+      if (args.loop[startKey] !== undefined) loop[startKey] = start;
+      if (args.loop[endKey] !== undefined) loop[endKey] = end;
       if (Object.keys(loop).length) changes.loop = loop;
     }
     const signature = normalizeSignature(args.timeSignature, "timeSignature");
@@ -654,20 +1145,104 @@ export class ToolService {
       previous: observed.warpMode.value,
       value: normalizeChoice(args.warpMode, "warpMode", observed.warpMode.choices)
     };
-    const start = args.startMarkerBeats === undefined
-      ? observed.markers.startBeats
-      : finiteRange(args.startMarkerBeats, "startMarkerBeats", 0, Number.MAX_SAFE_INTEGER);
-    const end = args.endMarkerBeats === undefined
-      ? observed.markers.endBeats
-      : finiteRange(args.endMarkerBeats, "endMarkerBeats", 0, Number.MAX_SAFE_INTEGER);
-    if (end <= start) throw new Error("endMarkerBeats must be greater than startMarkerBeats");
-    if (args.startMarkerBeats !== undefined) changes.startMarkerBeats = { previous: observed.markers.startBeats, value: start };
-    if (args.endMarkerBeats !== undefined) changes.endMarkerBeats = { previous: observed.markers.endBeats, value: end };
+    const markerKeys = ["startMarkerBeats", "endMarkerBeats", "startMarkerSeconds", "endMarkerSeconds"];
+    const requested = markerKeys.filter((key) => args[key] !== undefined);
+    if (requested.length) {
+      const suffix = observed.warping ? "Beats" : "Seconds";
+      const startKey = `startMarker${suffix}`, endKey = `endMarker${suffix}`;
+      if (args.warping !== undefined || requested.some((key) => key !== startKey && key !== endKey)) {
+        throw new Error("marker units must match current warping; change warping separately");
+      }
+      const start = args[startKey] === undefined ? observed.markers[`start${suffix}`] : finiteRange(args[startKey], startKey, 0, Number.MAX_SAFE_INTEGER);
+      const end = args[endKey] === undefined ? observed.markers[`end${suffix}`] : finiteRange(args[endKey], endKey, 0, Number.MAX_SAFE_INTEGER);
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) throw new Error(`${endKey} must be greater than ${startKey}`);
+      if (args[startKey] !== undefined) changes[startKey] = { previous: observed.markers[`start${suffix}`], value: start };
+      if (args[endKey] !== undefined) changes[endKey] = { previous: observed.markers[`end${suffix}`], value: end };
+    }
     if (!Object.keys(changes).length) throw new Error("at least one audio clip change is required");
     return this.#confirmedMutation({
       method: "set_audio_clip_state", trackId: args.trackId, clipId: args.clipId,
       expectedStateVersion: args.expectedStateVersion, before: observed, changes
     }, args);
+  }
+
+  async #cropAudioClip(args) {
+    requireExpectedState(args);
+    const before = await this.bridge.request("get_audio_clip_state", { trackId: args.trackId, clipId: args.clipId });
+    assertExpectedState(args, before);
+    if (!before.loop || !before.markers) throw new Error("native audio crop interval unavailable");
+    const fromLoop = before.loop.enabled;
+    const region = fromLoop ? before.loop : before.markers;
+    if (!["beats", "seconds"].includes(region.unit)) throw new Error("unknown audio crop units");
+    const suffix = region.unit === "beats" ? "Beats" : "Seconds";
+    const start = region[`start${suffix}`], end = region[`end${suffix}`];
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) throw new Error("invalid audio crop interval");
+    return this.#confirmedMutation({ method: "crop_audio_clip", trackId: args.trackId, clipId: args.clipId,
+      expectedStateVersion: args.expectedStateVersion, before,
+      selectedRegion: { unit: region.unit, start, end, fromLoop } }, args);
+  }
+
+  async #quantizeAudioClip(args) {
+    requireExpectedState(args);
+    const before = await this.bridge.request("get_audio_clip_state", { trackId: args.trackId, clipId: args.clipId });
+    assertExpectedState(args, before);
+    if (!before.warping || !before.warpMarkers?.supported) throw new Error("warped audio marker API required");
+    if (!["1_4", "1_8", "1_8_triplet", "1_8_and_triplet", "1_16", "1_16_triplet", "1_16_and_triplet", "1_32"].includes(args.grid)) {
+      throw new Error("unsupported audio quantization grid");
+    }
+    const amount = finiteRange(args.amount, "amount", 0, 1);
+    const context = await this.bridge.request("get_song_musical_context", {});
+    assertExpectedState({ expectedStateVersion: args.expectedStateVersion }, context);
+    const beforeSwingAmount = finiteRange(context.groove?.swingAmount, "observed swing amount", 0, 1);
+    return this.#confirmedMutation({ method: "quantize_audio_clip", trackId: args.trackId, clipId: args.clipId,
+      expectedStateVersion: args.expectedStateVersion, before, beforeSwingAmount, grid: args.grid, amount }, args);
+  }
+
+  async #addAudioWarpMarker(args) {
+    requireExpectedState(args);
+    const before = await this.bridge.request("get_audio_clip_state", { trackId: args.trackId, clipId: args.clipId });
+    assertExpectedState(args, before);
+    if (!before.warping || !before.warpMarkers?.supported) throw new Error("warped audio marker API required");
+    if (!Number.isFinite(args.beatTime)) throw new Error("marker beat time must be a finite number");
+    if (before.warpMarkers.markers.some(marker => marker.beatTime === args.beatTime)) throw new Error("warp marker already exists at beat time");
+    const plan = { method: "add_audio_warp_marker", trackId: args.trackId, clipId: args.clipId,
+      expectedStateVersion: args.expectedStateVersion, before, beatTime: args.beatTime };
+    if (args.sampleTime !== undefined) {
+      if (!Number.isFinite(args.sampleTime) || args.sampleTime < 0) throw new Error("sampleTime must be a finite nonnegative number");
+      plan.sampleTime = args.sampleTime;
+    }
+    return this.#confirmedMutation(plan, args);
+  }
+
+  async #removeAudioWarpMarker(args) {
+    requireExpectedState(args);
+    const before = await this.bridge.request("get_audio_clip_state", { trackId: args.trackId, clipId: args.clipId });
+    assertExpectedState(args, before);
+    if (!before.warping || !before.warpMarkers?.supported) throw new Error("warped audio marker API required");
+    if (!Number.isFinite(args.beatTime)) throw new Error("marker beat time must be a finite number");
+    const markers = before.warpMarkers.markers;
+    const index = markers.findIndex(marker => marker.beatTime === args.beatTime);
+    if (index < 0 || index === markers.length - 1) throw new Error("unknown or hidden terminal warp marker");
+    return this.#confirmedMutation({ method: "remove_audio_warp_marker", trackId: args.trackId, clipId: args.clipId,
+      expectedStateVersion: args.expectedStateVersion, before, beatTime: args.beatTime }, args);
+  }
+
+  async #moveAudioWarpMarker(args) {
+    requireExpectedState(args);
+    const before = await this.bridge.request("get_audio_clip_state", { trackId: args.trackId, clipId: args.clipId });
+    assertExpectedState(args, before);
+    if (!before.warping || !before.warpMarkers?.supported) throw new Error("warped audio marker API required");
+    const beatTime = args.beatTime, targetBeatTime = args.targetBeatTime;
+    if (!Number.isFinite(beatTime) || !Number.isFinite(targetBeatTime)) throw new Error("marker beat times must be finite numbers");
+    const markers = before.warpMarkers.markers;
+    const index = markers.findIndex(marker => marker.beatTime === beatTime);
+    if (index < 0 || index === markers.length - 1) throw new Error("unknown or hidden terminal warp marker");
+    if ((index > 0 && targetBeatTime <= markers[index - 1].beatTime) || (index < markers.length - 2 && targetBeatTime >= markers[index + 1].beatTime)) {
+      throw new Error("warp marker cannot cross or overlap a neighbor");
+    }
+    if (beatTime === targetBeatTime) throw new Error("warp marker movement must change beat time");
+    return this.#confirmedMutation({ method: "move_audio_warp_marker", trackId: args.trackId, clipId: args.clipId,
+      expectedStateVersion: args.expectedStateVersion, before, beatTime, targetBeatTime }, args);
   }
 
   async #duplicateClip(args) {
@@ -688,6 +1263,24 @@ export class ToolService {
     }, args);
   }
 
+  async #placeSessionClipInArrangement(args) {
+    requireExpectedState(args);
+    const session = await this.bridge.request("list_clips", { trackId: args.trackId });
+    assertExpectedState(args, session);
+    const source = session.clips.find(({ id }) => id === args.clipId);
+    if (!source?.hasClip) throw new Error("source clip is empty or unknown");
+    const startBeats = finiteRange(args.startBeats, "startBeats", 0, Number.MAX_SAFE_INTEGER);
+    if (!Number.isFinite(source.lengthBeats) || source.lengthBeats <= 0) throw new Error("source clip length is unavailable");
+    const endBeats = startBeats + source.lengthBeats;
+    if (!Number.isSafeInteger(Math.ceil(endBeats))) throw new Error("placement end exceeds supported beat range");
+    const timeline = await this.bridge.request("list_arrangement_clips", { trackId: args.trackId });
+    assertExpectedState(args, timeline);
+    if (timeline.clips.some((clip) => startBeats < clip.endBeats && endBeats > clip.startBeats)) throw new Error("placement would overlap existing Arrangement clips");
+    return this.#confirmedMutation({ method: "place_session_clip_in_arrangement", trackId: args.trackId,
+      clipId: args.clipId, expectedStateVersion: args.expectedStateVersion, startBeats, endBeats, source,
+      beforeArrangement: timeline.clips }, args);
+  }
+
   async #deleteClip(args) {
     requireExpectedState(args);
     const observed = await this.bridge.request("list_clips", { trackId: args.trackId });
@@ -701,6 +1294,23 @@ export class ToolService {
     }, args);
   }
 
+  async #mutateArrangementClip(method, args) {
+    requireExpectedState(args);
+    const observed = await this.bridge.request("list_arrangement_clips", { trackId: args.trackId });
+    assertExpectedState(args, observed);
+    const before = observed.clips.find(({ id }) => id === args.clipId);
+    if (!before) throw new Error(`unknown Arrangement clip ID ${args.clipId}`);
+    const plan = { method, trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion, before };
+    if (method === "move_arrangement_clip" || method === "duplicate_arrangement_clip") {
+      plan.startBeats = finiteRange(args.startBeats, "startBeats", 0, Number.MAX_SAFE_INTEGER);
+      const end = plan.startBeats + before.lengthBeats;
+      if (!Number.isFinite(end) || end > Number.MAX_SAFE_INTEGER || before.lengthBeats <= 0) throw new Error(`${method === "move_arrangement_clip" ? "move" : "duplication"} interval is invalid`);
+      if (observed.clips.some((clip) => (method !== "move_arrangement_clip" || clip.id !== before.id) && plan.startBeats < clip.endBeats && end > clip.startBeats)) throw new Error(`${method === "move_arrangement_clip" ? "move" : "duplication"} would overlap another Arrangement clip`);
+      plan.beforeArrangement = observed.clips;
+    }
+    return this.#confirmedMutation(plan, args);
+  }
+
   async #duplicateClipLoop(args) {
     requireExpectedState(args);
     const observed = await this.bridge.request("get_clip_timing", { trackId: args.trackId, clipId: args.clipId });
@@ -712,9 +1322,15 @@ export class ToolService {
     }, args);
   }
 
+  #consumeConfirmation(plan, args) {
+    const currentHash = hashPlan(plan);
+    if (args.planHash !== undefined && args.planHash !== currentHash) throw new Error("confirmation plan hash mismatch: observed plan changed");
+    return this.confirmations.consume(args.confirmationToken, currentHash);
+  }
+
   async #confirmedMutation(plan, args) {
     if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
+    this.#consumeConfirmation(plan, args);
     const observed = await this.bridge.request(plan.method, plan);
     return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString() };
   }
@@ -734,9 +1350,41 @@ export class ToolService {
       before: update.before, after: update.after
     };
     if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
+    this.#consumeConfirmation(plan, args);
     const observed = this.catalog.setMetadata(args.presetId, args.expectedMetadataRevision, changes);
     return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString() };
+  }
+
+  async #observeBrowserMetadataItem(args) {
+    const target = normalizeBrowserPath(args);
+    if (target.path.length === 0) throw new Error("a browser item path is required");
+    const observed = await this.bridge.request("get_browser_items", { ...target, offset: 0, limit: 1 });
+    const item = observed.item;
+    if (!item || item.name !== target.path.at(-1) || typeof item.uri !== "string" || !item.uri)
+      throw new Error("exact Live browser item identity is unavailable");
+    return { ...target, uri: item.uri, stateVersion: observed.stateVersion };
+  }
+
+  #browserMetadataLibrary() {
+    if (!this.browserMetadata) throw new Error("browser metadata library is not configured");
+    return typeof this.browserMetadata === "function" ? this.browserMetadata() : this.browserMetadata;
+  }
+
+  async #getBrowserItemMetadata(args) {
+    const item = await this.#observeBrowserMetadataItem(args);
+    return { item, metadata: this.#browserMetadataLibrary().get(item), nativeLiveCollectionsModified: false };
+  }
+
+  async #setBrowserItemMetadata(args) {
+    const item = await this.#observeBrowserMetadataItem(args);
+    const changes = { favorite: args.favorite, tags: args.tags };
+    const update = this.#browserMetadataLibrary().plan(item, args.expectedMetadataRevision, changes);
+    const plan = { method: "set_browser_item_metadata", item, expectedMetadataRevision: args.expectedMetadataRevision,
+      before: update.before, after: update.after, nativeLiveCollectionsModified: false };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    this.#consumeConfirmation(plan, args);
+    const observed = this.#browserMetadataLibrary().set(item, args.expectedMetadataRevision, changes);
+    return { dryRun: false, requested: plan, observed, nativeLiveCollectionsModified: false, timestamp: new Date().toISOString() };
   }
 
   async #createTrack(args) {
@@ -749,6 +1397,16 @@ export class ToolService {
     return this.#confirmedMutation({
       method: "create_track", expectedStateVersion: args.expectedStateVersion,
       type: args.type, index, name: sessionName(args.name), before: insertionContext(observed.tracks, index)
+    }, args);
+  }
+
+  async #createReturnTrack(args) {
+    requireExpectedState(args);
+    const observed = await this.bridge.request("get_set_mixer", {});
+    assertExpectedState(args, observed);
+    return this.#confirmedMutation({
+      method: "create_return_track", expectedStateVersion: args.expectedStateVersion,
+      name: sessionName(args.name), beforeReturns: observed.returns
     }, args);
   }
 
@@ -767,6 +1425,16 @@ export class ToolService {
   async #renameSessionObject(args) {
     requireExpectedState(args);
     const name = sessionName(args.name);
+    if (args.targetType === "return") {
+      const observed = await this.bridge.request("get_set_mixer", {});
+      assertExpectedState(args, observed);
+      const target = observed.returns.find(({ id }) => id === args.targetId);
+      if (!target) throw new Error(`unknown return ${args.targetId}`);
+      return this.#confirmedMutation({
+        method: "rename_session_object", expectedStateVersion: args.expectedStateVersion,
+        target: { targetType: "return", targetId: target.id, previousName: target.name, name }
+      }, args);
+    }
     if (args.targetType === "clip") {
       const observed = await this.bridge.request("list_clips", { trackId: args.trackId });
       assertExpectedState(args, observed);
@@ -778,7 +1446,7 @@ export class ToolService {
         target: { targetType: "clip", trackId: args.trackId, targetId: args.targetId, previousName: clip.name, name }
       }, args);
     }
-    if (!["track", "scene"].includes(args.targetType)) throw new Error("targetType must be track, scene, or clip");
+    if (!["track", "scene"].includes(args.targetType)) throw new Error("targetType must be track, return, scene, or clip");
     const observed = args.targetType === "track" ? await this.bridge.request("list_tracks", {})
       : await this.bridge.request("list_scenes", {});
     assertExpectedState(args, observed);
@@ -839,6 +1507,26 @@ export class ToolService {
 
   async #deleteSessionObject(args) {
     requireExpectedState(args);
+    if (args.targetType === "return") {
+      const observed = await this.bridge.request("get_set_mixer", {});
+      assertExpectedState(args, observed);
+      const target = observed.returns.find(({ id }) => id === args.targetId);
+      if (!target) throw new Error(`unknown return ${args.targetId}`);
+      if (args.allowContent !== true) {
+        throw new Error("allowContent: true is required to delete a Return Track, its devices, and its send lane");
+      }
+      const tracks = (await this.bridge.request("list_tracks", {})).tracks;
+      const affectedTrackSends = [];
+      for (const track of tracks) {
+        const mixer = await this.bridge.request("get_track_mixer", { trackId: track.id });
+        const send = mixer.sends.find(({ returnTrackId }) => returnTrackId === target.id);
+        if (send) affectedTrackSends.push({ trackId: track.id, trackName: track.name, send });
+      }
+      return this.#confirmedMutation({ method: "delete_session_object",
+        expectedStateVersion: args.expectedStateVersion,
+        target: { targetType: "return", targetId: target.id, ...target, affectedTrackSends }
+      }, args);
+    }
     if (args.targetType === "clip") {
       const observed = await this.bridge.request("list_clips", { trackId: args.trackId });
       assertExpectedState(args, observed);
@@ -868,7 +1556,7 @@ export class ToolService {
           clipCount: clips.length, deviceCount: devices.length, clips, devices }
       }, args);
     }
-    if (args.targetType !== "scene") throw new Error("targetType must be track, scene, or clip");
+    if (args.targetType !== "scene") throw new Error("targetType must be track, return, scene, or clip");
     const observed = await this.bridge.request("list_scenes", {});
     assertExpectedState(args, observed);
     if (observed.scenes.length <= 1) throw new Error("cannot delete the last scene");
@@ -911,9 +1599,27 @@ export class ToolService {
     };
     if (args.name !== undefined) plan.name = args.name;
     if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
+    this.#consumeConfirmation(plan, args);
     const result = await this.bridge.request("create_midi_clip", plan);
     return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
+  }
+
+  async #createAudioClip(args) {
+    requireExpectedState(args);
+    if (typeof args.sourcePath !== "string" || !isAbsolute(args.sourcePath)) throw new Error("sourcePath must be an absolute local audio-file path");
+    const sourcePath = await realpath(args.sourcePath);
+    const source = await stat(sourcePath, { bigint: true });
+    if (!source.isFile()) throw new Error("sourcePath must reference a regular file");
+    const sourceFile = { size: String(source.size), mtimeNs: String(source.mtimeNs), device: String(source.dev), inode: String(source.ino) };
+    const observed = await this.bridge.request("list_clips", { trackId: args.trackId });
+    assertExpectedState(args, observed);
+    const slot = observed.clips.find(({ id }) => id === args.clipId);
+    if (!slot) throw new Error(`unknown clip slot ${args.clipId}`);
+    if (slot.hasClip) throw new Error("clip slot already contains a clip");
+    const plan = { method: "create_audio_clip", trackId: args.trackId, clipId: args.clipId,
+      expectedStateVersion: args.expectedStateVersion, sourcePath, sourceFile };
+    if (args.name !== undefined) plan.name = args.name;
+    return this.#confirmedMutation(plan, args);
   }
 
   async #setClipParameterEnvelope(args) {
@@ -943,7 +1649,7 @@ export class ToolService {
       ))
     };
     if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
+    this.#consumeConfirmation(plan, args);
     const result = await this.bridge.request("set_clip_parameter_envelope", plan);
     return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
   }
@@ -966,7 +1672,7 @@ export class ToolService {
       })
     };
     if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
+    this.#consumeConfirmation(plan, args);
     const result = await this.bridge.request("set_midi_note_properties", plan);
     return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
   }
@@ -984,7 +1690,7 @@ export class ToolService {
       changes: transformed.changes, newNotes: transformed.newNotes
     };
     if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
+    this.#consumeConfirmation(plan, args);
     const result = await this.bridge.request("transform_midi_notes", plan);
     return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
   }
@@ -1035,9 +1741,27 @@ export class ToolService {
       expectedStateVersion: args.expectedStateVersion, changes
     };
     if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
+    this.#consumeConfirmation(plan, args);
     const result = await this.bridge.request("set_track_mixer", plan);
     return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
+  }
+
+  async #setDeviceSidechainRouting(args) {
+    requireExpectedState(args);
+    const keys = ["sourceTypeId", "sourceChannelId"].filter(key => args[key] !== undefined);
+    if (keys.length !== 1) throw new Error("exactly one sidechain source type or channel change is required");
+    const key = keys[0];
+    if (typeof args[key] !== "string") throw new Error(`${key} must be a string`);
+    const before = await this.bridge.request("get_device_sidechain_routing", { trackId: args.trackId, deviceId: args.deviceId });
+    assertExpectedState(args, before);
+    if (!before.sidechain.supported) throw new Error("device sidechain routing is unsupported");
+    const isType = key === "sourceTypeId";
+    const matches = before.sidechain[isType ? "availableTypes" : "availableChannels"].filter(option => option.id === args[key]);
+    if (!matches.length) throw new Error(`unknown ${key} ${args[key]}`);
+    if (matches.length !== 1) throw new Error(`ambiguous ${key} ${args[key]}`);
+    return this.#confirmedMutation({ method: "set_device_sidechain_routing", trackId: args.trackId,
+      deviceId: args.deviceId, expectedStateVersion: args.expectedStateVersion, before,
+      changes: { [key]: { previous: before.sidechain[isType ? "type" : "channel"], value: matches[0] } } }, args);
   }
 
   async #setTrackRouting(args) {
@@ -1057,6 +1781,7 @@ export class ToolService {
       changes[argument] = { previous: observed[section][field], value: selected };
     }
     if (args.monitoring !== undefined) {
+      if (!observed.monitoring) throw new Error("monitoring is not supported on this track");
       const selected = observed.monitoring.choices.find(({ name, value }) => name === args.monitoring || value === args.monitoring);
       if (!selected) throw new Error(`unknown monitoring ${args.monitoring}`);
       changes.monitoring = { previous: { value: observed.monitoring.value, name: observed.monitoring.name }, value: selected };
@@ -1120,6 +1845,11 @@ export class ToolService {
       method, trackId: args.trackId,
       expectedStateVersion: args.expectedStateVersion,
       root: browserPath.root, path: browserPath.path, item: listing.item,
+      loadBehavior: {
+        mayReplaceExistingDevices: observed.devices.length > 0,
+        existingDeviceIds: observed.devices.map(({ id }) => id),
+        warning: "Live browser loading may replace an existing instrument or rack rather than append. Inspect the existing device hierarchy in before; use a separate staging track and move_device_to_chain to build additional rack layers."
+      },
       before: observed
     }, args);
   }
@@ -1137,6 +1867,12 @@ export class ToolService {
       : ["volume", "pan"];
     const booleanKeys = method === "set_return_mixer" ? ["mute", "solo"] : [];
     const changes = {};
+    if (method === "set_master_mixer" && args.outputChannelId !== undefined) {
+      const routing = target.outputRouting;
+      const selected = routing?.availableChannels.find(({ id }) => id === args.outputChannelId);
+      if (!routing?.supported || !selected) throw new Error("master output channel is unavailable");
+      changes.outputChannelId = { previous: routing.channel, value: selected };
+    }
     for (const key of numericKeys) {
       if (args[key] === undefined) continue;
       const requestedValue = Number(args[key]);
@@ -1174,7 +1910,7 @@ export class ToolService {
     if (args.dryRun !== false) {
       return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
     }
-    this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
+    this.#consumeConfirmation(plan, args);
     const observed = await this.bridge.request(name, plan);
     return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString() };
   }
@@ -1194,7 +1930,7 @@ export class ToolService {
     if (args.dryRun !== false) {
       return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
     }
-    this.confirmations.consume(args.confirmationToken, args.planHash || hashPlan(plan));
+    this.#consumeConfirmation(plan, args);
     const observed = await this.komplete.request(method, plan);
     return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString() };
   }

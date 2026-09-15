@@ -8,10 +8,11 @@ import { ToolService } from "../src/tool-service.mjs";
 import { createRouter } from "../src/server.mjs";
 import { startMockBridge } from "./fixtures/mock-bridge.mjs";
 
-test("MCP router executes a confirmed mutation through the Unix bridge once", async () => {
+test("MCP router executes a confirmed mutation through the Unix bridge once", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "ableton-mcp-"));
   const socketPath = join(dir, "bridge.sock");
   const server = await startMockBridge(socketPath);
+  t.after(() => new Promise((resolve) => server.close(resolve)));
   const bridge = new UnixBridgeClient(socketPath);
   const catalog = { search: () => [] };
   const route = createRouter(new ToolService({ bridge, catalog }));
@@ -24,5 +25,4 @@ test("MCP router executes a confirmed mutation through the Unix bridge once", as
   assert.equal(live.result.structuredContent.observed.stateVersion, 5);
   const replay = await route({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "set_device_parameters", arguments: confirmedArgs } });
   assert.match(replay.error.message, /unknown confirmation token/);
-  await new Promise((resolve) => server.close(resolve));
 });

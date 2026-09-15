@@ -1,6 +1,126 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ToolService } from "../src/tool-service.mjs";
+
+test("unwarped loop plans preserve seconds and reject incompatible units", async () => {
+  const observed = {
+    stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-0",
+    loop: { enabled: true, unit: "seconds", startSeconds: 0.25, endSeconds: 1.75 }
+  };
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_clip_timing") return observed;
+    if (method === "set_clip_timing") return { ...observed, stateVersion: 5, loop: { ...observed.loop, ...params.changes.loop } };
+    throw new Error(method);
+  } } });
+  const args = { trackId: observed.trackId, clipId: observed.clipId, expectedStateVersion: 4,
+    loop: { startSeconds: 0.5, endSeconds: 2 } };
+  const dry = await service.call("set_clip_timing", args);
+  assert.deepEqual(dry.plan.changes.loop, { startSeconds: 0.5, endSeconds: 2 });
+  const applied = await service.call("set_clip_timing", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.deepEqual(applied.observed.loop, { enabled: true, unit: "seconds", startSeconds: 0.5, endSeconds: 2 });
+  await assert.rejects(() => service.call("set_clip_timing", { ...args, loop: { startBeats: 1, endSeconds: 2 } }), /unwarped audio/);
+  await assert.rejects(() => service.call("set_clip_timing", { ...args, loop: { startSeconds: 2, endSeconds: 1 } }), /greater than/);
+  observed.loop = { enabled: true, startBeats: 0, endBeats: 4 };
+  await assert.rejects(() => service.call("set_clip_timing", args), /require unwarped audio/);
+});
+
+for (const kind of ["chain", "return-chain"]) test(`device-to-${kind} movement signs source and target hierarchies`, async () => {
+  const source = { id: "track-0:device-1", chains: [] };
+  const destination = { id: `track-1:device-0/${kind}-0`, devices: [] };
+  const rack = { id: "track-1:device-0", canHaveChains: true, chains: kind === "chain" ? [destination] : [], returnChains: kind === "return-chain" ? [destination] : [] };
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: params.trackId, device: params.deviceId === source.id ? source : rack };
+    if (method === "move_device_to_chain") return { stateVersion: 5, device: { id: `${destination.id}/device-0` } };
+    throw new Error(method);
+  } } });
+  const args = { trackId: "track-0", deviceId: source.id, targetTrackId: "track-1", targetChainId: destination.id, targetPosition: 0, expectedStateVersion: 4 };
+  const dry = await service.call("move_device_to_chain", args);
+  assert.deepEqual(dry.plan.beforeDevice, source);
+  assert.deepEqual(dry.plan.beforeTargetRack, rack);
+  assert.match(dry.plan.warning, /macro mappings/);
+  assert.match(dry.plan.warning, /does not restore/);
+  await assert.rejects(() => service.call("move_device_to_chain", { ...args, targetPosition: 2 }), /insertion index/);
+  const result = await service.call("move_device_to_chain", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.observed.device.id, `${destination.id}/device-0`);
+});
+
+test("rack chain creation confirms exact hierarchy and validates insertion", async () => {
+  const rack = { id: "track-0:device-0", canHaveChains: true, chains: [{ id: "track-0:device-0/chain-0", name: "Existing", devices: [] }] };
+  const calls = [];
+  const service = new ToolService({ bridge: { async request(method, params) {
+    calls.push({ method, params });
+    if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
+    if (method === "create_rack_chain") return { stateVersion: 5, createdChainId: `${rack.id}/chain-1` };
+    throw new Error(method);
+  } } });
+  const args = { trackId: "track-0", deviceId: rack.id, expectedStateVersion: 4, index: 1, name: "Bass layer" };
+  const dry = await service.call("create_rack_chain", args);
+  assert.deepEqual(dry.plan.beforeDevice, rack);
+  await assert.rejects(() => service.call("create_rack_chain", { ...args, index: 3 }), /insertion index/);
+  const result = await service.call("create_rack_chain", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.observed.createdChainId, `${rack.id}/chain-1`);
+  assert.equal(calls.at(-1).method, "create_rack_chain");
+});
+
+test("return track creation binds the current bus list and requires a nonempty name", async () => {
+  const before = { stateVersion: 4, returns: [{ id: "return-0", name: "Reverb" }] };
+  const calls = [];
+  const service = new ToolService({ bridge: { async request(method, params) {
+    calls.push({ method, params });
+    if (method === "get_set_mixer") return before;
+    if (method === "create_return_track") return { stateVersion: 5, return: { id: "return-1", name: params.name } };
+    throw new Error(method);
+  } } });
+  const args = { expectedStateVersion: 4, name: "Parallel Crush" };
+  const dry = await service.call("create_return_track", args);
+  assert.deepEqual(dry.plan.beforeReturns, before.returns);
+  await assert.rejects(() => service.call("create_return_track", { ...args, name: "  " }), /non-empty string/);
+  const result = await service.call("create_return_track", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.deepEqual(result.observed.return, { id: "return-1", name: "Parallel Crush" });
+  assert.equal(calls.at(-1).method, "create_return_track");
+});
+
+test("return track rename binds the exact current bus identity", async () => {
+  const before = { stateVersion: 4, returns: [{ id: "return-0", name: "A-Reverb" }] };
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_set_mixer") return before;
+    if (method === "rename_session_object") return { stateVersion: 5,
+      target: { ...params.target, name: "A-Short Verb" } };
+    throw new Error(method);
+  } } });
+  const args = { targetType: "return", targetId: "return-0", name: "Short Verb", expectedStateVersion: 4 };
+  const dry = await service.call("rename_session_object", args);
+  assert.equal(dry.plan.target.previousName, "A-Reverb");
+  const result = await service.call("rename_session_object", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.observed.target.name, "A-Short Verb");
+  await assert.rejects(() => service.call("rename_session_object", { ...args, targetId: "return-2" }), /unknown return/);
+});
+
+test("return track deletion discloses devices and affected send lanes", async () => {
+  const target = { id: "return-0", name: "A-Reverb", devices: [{ id: "return-0:device-0", name: "Reverb" }] };
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_set_mixer") return { stateVersion: 4, returns: [target] };
+    if (method === "list_tracks") return { stateVersion: 4, tracks: [{ id: "track-0", name: "Synth" }] };
+    if (method === "get_track_mixer") return { stateVersion: 4, trackId: params.trackId,
+      sends: [{ id: "send-0", returnTrackId: "return-0", name: "A-Reverb", value: 0.25, min: 0, max: 1 }] };
+    if (method === "delete_session_object") return { stateVersion: 5, deleted: params.target };
+    throw new Error(method);
+  } } });
+  const base = { targetType: "return", targetId: "return-0", expectedStateVersion: 4 };
+  await assert.rejects(() => service.call("delete_session_object", base), /allowContent/);
+  const dry = await service.call("delete_session_object", { ...base, allowContent: true });
+  assert.equal(dry.plan.target.devices[0].name, "Reverb");
+  assert.equal(dry.plan.target.affectedTrackSends[0].send.value, 0.25);
+  const result = await service.call("delete_session_object", { ...base, allowContent: true, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.observed.deleted.targetId, "return-0");
+});
 
 function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 1, velocity: 100,
   velocityDeviation: 0, releaseVelocity: 64, probability: 1, mute: false }] } = {}) {
@@ -20,7 +140,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
           clipTrigger: { value: 4, name: "1_bar", choices: [{ value: 4, name: "1_bar" }, { value: 7, name: "1_4" }] },
           midiRecording: { value: 5, name: "1_16", choices: [{ value: 0, name: "none" }, { value: 5, name: "1_16" }] }
         },
-        groove: { amount: 1, swingAmount: 0, pool: [{ id: "groove-0", name: "Swing 16-65" }] },
+        groove: { amount: 1, swingAmount: 0, pool: [{ id: "groove-0", name: "Swing 16-65", baseGrid: { value: 3, name: "1_16", choices: [{ value: 14, name: "1_16_triplet" }] } }] },
         loop: { enabled: false, startBeats: 0, lengthBeats: 8 }
       };
       if (method === "list_tracks") return { stateVersion: 4, tracks: [
@@ -118,7 +238,8 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         stateVersion: 4,
         master: {
           volume: { value: 0.8, min: 0, max: 1 }, pan: { value: 0, min: -1, max: 1 },
-          cueVolume: { value: 0.7, min: 0, max: 1 }, crossfader: { value: 0, min: -1, max: 1 }
+          cueVolume: { value: 0.7, min: 0, max: 1 }, crossfader: { value: 0, min: -1, max: 1 },
+          outputRouting: { supported: true, channel: { id: "1/2", name: "1/2" }, availableChannels: [{ id: "1/2", name: "1/2" }, { id: "3/4", name: "3/4" }] }
         },
         returns: [{ id: "return-0", name: "Reverb", volume: { value: 0.6, min: 0, max: 1 }, pan: { value: 0, min: -1, max: 1 }, mute: false, solo: false }]
       };
@@ -199,7 +320,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         gain: { value: 0.5, min: 0, max: 1, displayValue: "0.00 dB" },
         pitch: { coarse: 0, fine: 0 }, warping: true,
         warpMode: { value: 0, name: "beats", choices: [{ value: 0, name: "beats" }, { value: 6, name: "complex_pro" }] },
-        markers: { startBeats: 0, endBeats: 8 }
+        markers: { unit: "beats", startBeats: 0, endBeats: 8 }
       };
       if (method === "set_audio_clip_state") return { stateVersion: 5, trackId: params.trackId, clipId: params.clipId, ...params.changes };
       if (method === "get_transport_context") return {
@@ -275,6 +396,40 @@ test("search_presets remains read-only", async () => {
   assert.deepEqual(calls, []);
 });
 
+test("producer chain blueprints return ordered loadable stages and explicit bus topology", async () => {
+  const { service, calls } = fixture();
+  const mastering = await service.call("get_producer_chain_blueprint", { target: "mastering" });
+  assert.equal(mastering.blueprint.topology, "single-chain");
+  assert.deepEqual(mastering.blueprint.stages.map(({ order, profileId, root, path }) => ({ order, profileId, root, path })), [
+    { order: 1, profileId: "utility", root: "audio_effects", path: ["Utility"] },
+    { order: 2, profileId: "eq-eight", root: "audio_effects", path: ["EQ Eight"] },
+    { order: 3, profileId: "glue-compressor", root: "audio_effects", path: ["Glue Compressor"] },
+    { order: 4, profileId: "saturator", root: "audio_effects", path: ["Saturator"] },
+    { order: 5, profileId: "limiter", root: "audio_effects", path: ["Limiter"] }
+  ]);
+  const layered = await service.call("get_producer_chain_blueprint", { target: "layered-bass-system" });
+  assert.equal(layered.blueprint.topology, "shared-instrument-bus");
+  assert.deepEqual(layered.blueprint.children.map(({ role, instrumentProfileId }) => ({ role, instrumentProfileId })), [
+    { role: "sub", instrumentProfileId: "operator" },
+    { role: "body", instrumentProfileId: "wavetable" },
+    { role: "texture", instrumentProfileId: "drift" }
+  ]);
+  assert.deepEqual(calls, []);
+});
+
+test("producer chain catalog covers core tracks, buses, returns and layered instruments", async () => {
+  const { service } = fixture();
+  const result = await service.call("list_producer_chain_blueprints");
+  assert.deepEqual(result.blueprints.map(({ id }) => id), [
+    "bass", "drums", "vocals", "guitar", "keys", "synth", "mix-bus", "mastering",
+    "reverb-return", "delay-return", "layered-bass-system", "layered-synth-system"
+  ]);
+  for (const blueprint of result.blueprints) {
+    assert.ok(blueprint.topology);
+    assert.ok(blueprint.summary);
+  }
+});
+
 test("preset tags and favorites use exact revisions and confirmed plans", async () => {
   const { service } = fixture();
   assert.deepEqual(await service.call("get_preset_metadata", { presetId: "serum-2:a" }), {
@@ -344,6 +499,9 @@ test("factory browser listing is read-only and exact-path device loading is guar
   const dry = await service.call("load_factory_browser_item", args);
   assert.equal(dry.plan.item.name, "Drift");
   assert.equal(dry.plan.item.loadable, true);
+  assert.equal(dry.plan.loadBehavior.mayReplaceExistingDevices, true);
+  assert.match(dry.plan.loadBehavior.warning, /replace.*instrument.*rack/i);
+  assert.deepEqual(dry.plan.loadBehavior.existingDeviceIds, dry.plan.before.devices.map(({ id }) => id));
   const live = await service.call("load_factory_browser_item", {
     ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash
   });
@@ -368,6 +526,16 @@ test("Live browser exposes plug-ins and user content through canonical guarded t
   ]);
 });
 
+test("browser loading accepts guarded Return and Main device owners", async () => {
+  const { service, calls } = fixture();
+  for (const trackId of ["return-0", "master"]) {
+    const args = { expectedStateVersion: 4, trackId, root: "audio_effects", path: ["Drift"] };
+    const dry = await service.call("load_browser_item", args);
+    assert.equal(dry.plan.trackId, trackId);
+  }
+  assert.deepEqual(calls.filter(({ method }) => method === "list_devices").slice(-2).map(({ params }) => params.trackId), ["return-0", "master"]);
+});
+
 test("Live browser search returns exact loadable paths for user-folder content", async () => {
   const { service } = fixture();
   const result = await service.call("search_browser_items", {
@@ -378,6 +546,22 @@ test("Live browser search returns exact loadable paths for user-folder content",
   await assert.rejects(
     () => service.call("search_browser_items", { root: "user_folders", query: "", maxDepth: 4, limit: 25 }),
     /query must be a non-empty string/
+  );
+});
+
+test("browser browse passes bounded page arguments to the Live bridge", async () => {
+  const calls = [];
+  const service = new ToolService({ bridge: { async request(method, params) {
+    calls.push({ method, params });
+    return { stateVersion: 3, children: [], totalChildren: 0, nextOffset: null };
+  } } });
+  await service.call("get_browser_items", { root: "samples", offset: 100, limit: 25 });
+  assert.deepEqual(calls[0], { method: "get_browser_items", params: {
+    root: "samples", path: [], offset: 100, limit: 25,
+  } });
+  await assert.rejects(
+    () => service.call("get_browser_items", { root: "samples", offset: -1, limit: 25 }),
+    /offset must be a non-negative integer/
   );
 });
 
@@ -524,6 +708,30 @@ test("track mixer inspection exposes bounded controls and named return sends", a
   });
 });
 
+test("nested rack devices support factory context and guarded activation", async () => {
+  const deviceId = "track-0:device-0/chain-0/device-0";
+  const device = { id: deviceId, name: "Operator", className: "Operator", classDisplayName: "Operator", active: true };
+  const service = new ToolService({ catalog: {}, bridge: { request: async (method, args) => {
+    if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device };
+    if (method === "list_devices") return { stateVersion: 4, devices: [] };
+    if (method === "list_device_parameters") return { stateVersion: 4, parameters: [] };
+    if (method === "set_device_active") return { stateVersion: 5, device: { ...device, active: args.active } };
+    throw new Error(`unexpected method ${method}`);
+  } } });
+  const base = { trackId: "track-0", deviceId, expectedStateVersion: 4 };
+  const context = await service.call("get_factory_device_context", base);
+  assert.equal(context.device.id, deviceId);
+  assert.equal(context.profile.id, "operator");
+  const dry = await service.call("set_device_active", { ...base, active: false });
+  assert.equal(dry.plan.beforeDevice.id, deviceId);
+  const applied = await service.call("set_device_active", { ...base, active: false, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(applied.observed.device.active, false);
+  const deletion = await service.call("delete_device", base);
+  assert.equal(deletion.plan.deviceId, deviceId);
+  assert.equal(deletion.plan.beforeDevice.id, deviceId);
+});
+
 test("factory device context combines stable identity, knowledge, and live parameters", async () => {
   const { service } = fixture();
   const context = await service.call("get_factory_device_context", {
@@ -532,6 +740,75 @@ test("factory device context combines stable identity, knowledge, and live param
   assert.equal(context.device.className, "Eq8");
   assert.equal(context.profile.id, "eq-eight");
   assert.deepEqual(context.parameterGroups.frequency.map(({ id }) => id), ["cutoff"]);
+});
+
+test("factory device context rejects parameters read after the device topology changed", async () => {
+  const device = { id: "track-0:device-0", name: "EQ Eight", className: "Eq8" };
+  const service = new ToolService({ catalog: {}, bridge: { async request(method) {
+    if (method === "list_devices") return { stateVersion: 4, devices: [device] };
+    if (method === "list_device_parameters") return { stateVersion: 5, parameters: [{ id: "cutoff", name: "Freq" }] };
+    throw new Error(`unexpected method ${method}`);
+  } } });
+  await assert.rejects(service.call("get_factory_device_context", {
+    trackId: "track-0", deviceId: device.id
+  }), /device context changed between reads/);
+});
+
+test("factory device context reports unmapped native controls explicitly", async () => {
+  const device = { id: "track-0:device-0", name: "EQ Eight", className: "Eq8" };
+  const service = new ToolService({ catalog: {}, bridge: { async request(method) {
+    if (method === "list_devices") return { stateVersion: 4, devices: [device] };
+    if (method === "list_device_parameters") return { stateVersion: 4, parameters: [
+      { id: "frequency", name: "Freq 1" }, { id: "gain", name: "Gain 1" },
+      { id: "future", name: "Future Control" }
+    ] };
+    throw new Error(`unexpected method ${method}`);
+  } } });
+  const context = await service.call("get_factory_device_context", {
+    trackId: "track-0", deviceId: device.id
+  });
+  assert.deepEqual(context.parameterCoverage, {
+    total: 3, mapped: 2, unmapped: 1, unmappedIds: ["future"]
+  });
+});
+
+test("plug-in context does not mistake Device On for configured synth control", async () => {
+  const device = { id: "track-0:device-0", name: "Omnisphere", className: "PluginDevice" };
+  const service = new ToolService({ catalog: {}, bridge: { async request(method) {
+    if (method === "list_devices") return { stateVersion: 4, devices: [device] };
+    if (method === "list_device_parameters") return { stateVersion: 4, parameters: [
+      { id: "parameter-0", name: "Device On", originalName: "Device On", enabled: true }
+    ] };
+    throw new Error(`unexpected method ${method}`);
+  } } });
+  const context = await service.call("get_factory_device_context", {
+    trackId: "track-0", deviceId: device.id
+  });
+  assert.deepEqual(context.pluginExposure, {
+    configuredControlIds: [], writableControlIds: [], configureInLiveRequired: true,
+    hiddenPluginStateReadable: false
+  });
+});
+
+test("plug-in context distinguishes configured controls from currently writable ones", async () => {
+  const device = { id: "track-0:device-0", name: "Serum", className: "PluginDevice" };
+  const service = new ToolService({ catalog: {}, bridge: { async request(method) {
+    if (method === "list_devices") return { stateVersion: 4, devices: [device] };
+    if (method === "list_device_parameters") return { stateVersion: 4, parameters: [
+      { id: "parameter-0", name: "Device On", originalName: "Device On", enabled: true },
+      { id: "parameter-1", name: "Cutoff", originalName: "Cutoff", enabled: true },
+      { id: "parameter-2", name: "FX Mix", originalName: "FX Mix", enabled: false }
+    ] };
+    throw new Error(`unexpected method ${method}`);
+  } } });
+  const context = await service.call("get_factory_device_context", {
+    trackId: "track-0", deviceId: device.id
+  });
+  assert.deepEqual(context.pluginExposure, {
+    configuredControlIds: ["parameter-1", "parameter-2"],
+    writableControlIds: ["parameter-1"], configureInLiveRequired: false,
+    hiddenPluginStateReadable: false
+  });
 });
 
 test("device activation and deletion use guarded exact-identity plans", async () => {
@@ -642,6 +919,39 @@ test("song musical context mutation validates and signs exact producer changes",
   assert.equal(calls.at(-1).method, "get_song_musical_context");
 });
 
+test("groove edits sign complete pool state and validate native percentage units", async () => {
+  const { service } = fixture();
+  const args = { expectedStateVersion: 4, grooveId: "groove-0", name: "Bass Swing",
+    timingAmount: 70, quantizationAmount: 20, randomAmount: 10, velocityAmount: -40 };
+  const dry = await service.call("set_groove", args);
+  assert.equal(dry.plan.before.groove.pool[0].name, "Swing 16-65");
+  assert.equal(dry.plan.changes.velocityAmount.value, -40);
+  assert.equal(dry.plan.changes.name.value, "Bass Swing");
+  for (const extra of [{ timingAmount: 101 }, { quantizationAmount: -1 }, { randomAmount: Infinity }, { velocityAmount: -101 }]) {
+    await assert.rejects(service.call("set_groove", { ...args, ...extra }), /Amount/);
+  }
+  await assert.rejects(service.call("set_groove", { ...args, grooveId: "groove-9" }), /unknown groove/);
+  await assert.rejects(service.call("set_groove", { expectedStateVersion: 4, grooveId: "groove-0" }), /at least one/);
+});
+
+test("groove base selection preserves native enum identity for triplets", async () => {
+  const { service } = fixture();
+  const args = { expectedStateVersion: 4, grooveId: "groove-0", baseGrid: "1_16_triplet" };
+  const dry = await service.call("set_groove", args);
+  assert.deepEqual(dry.plan.changes.baseGrid.value, { value: 14, name: "1_16_triplet" });
+  await assert.rejects(service.call("set_groove", { ...args, baseGrid: "1_64" }), /unknown groove base/);
+});
+
+test("global groove amount accepts native maximum and rejects out-of-range values", async () => {
+  const { service } = fixture();
+  const args = { expectedStateVersion: 4, groove: { amount: 1.3125 } };
+  const dry = await service.call("set_song_musical_context", args);
+  assert.deepEqual(dry.plan.changes.groove, { amount: 1.3125 });
+  for (const amount of [-0.01, 1.3126, Infinity]) {
+    await assert.rejects(service.call("set_song_musical_context", { ...args, groove: { amount } }), /groove.amount/);
+  }
+});
+
 test("clip timing mutation rejects invalid loops and signs groove assignment", async () => {
   const { service } = fixture();
   const base = { trackId: "track-0", clipId: "track-0:clip-0", expectedStateVersion: 4 };
@@ -721,6 +1031,14 @@ test("track routing rejects unknown choices and empty changes", async () => {
   await assert.rejects(() => service.call("set_track_routing", { ...base, monitoring: "sometimes" }), /unknown monitoring/);
 });
 
+test("Group Track monitoring is rejected before mutation planning", async () => {
+  const service = new ToolService({ bridge: { async request(method) {
+    assert.equal(method, "get_track_routing");
+    return { stateVersion: 4, trackId: "track-0", monitoring: null };
+  } } });
+  await assert.rejects(service.call("set_track_routing", { trackId: "track-0", expectedStateVersion: 4, monitoring: "in" }), /monitoring is not supported/);
+});
+
 test("group fold and bus routing mutations validate exact existing track identities", async () => {
   const { service, calls } = fixture();
   const foldArgs = { expectedStateVersion: 4, trackId: "track-1", folded: true };
@@ -740,15 +1058,204 @@ test("group fold and bus routing mutations validate exact existing track identit
   await assert.rejects(() => service.call("route_tracks_to_bus", { expectedStateVersion: 4, trackIds: ["track-1"], busTrackId: "track-1" }), /cannot route.*itself/);
 });
 
+test("device listing forwards Return and Main owner IDs", async () => {
+  const { service, calls } = fixture();
+  for (const trackId of ["return-0", "master"]) {
+    await service.call("list_devices", { trackId });
+  }
+  assert.deepEqual(calls.slice(-2).map(({ params }) => params.trackId), ["return-0", "master"]);
+});
+
+test("device lifecycle planning preserves Return and Main owner identity", async () => {
+  const { service } = fixture();
+  for (const trackId of ["return-0", "master"]) {
+    const devices = await service.call("list_devices", { trackId });
+    const deviceId = devices.devices[0].id;
+    const dry = await service.call("delete_device", { trackId, deviceId, expectedStateVersion: devices.stateVersion });
+    assert.equal(dry.plan.trackId, trackId);
+    assert.equal(dry.plan.beforeDevice.id, deviceId);
+  }
+});
+
+test("device chain snapshots capture and recall exact bus topology", async () => {
+  const nativeParameter = { id: "parameter-0", originalName: "Dry/Wet", min: 0, max: 1,
+    quantized: false, valueItems: [], value: 1, enabled: true };
+  let observed = { stateVersion: 4, trackId: "return-0", devices: [
+    { id: "return-0:device-0", name: "Reverb", className: "Reverb", type: "audio_effect", parameters: [nativeParameter] }
+  ] };
+  const mutations = [];
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_device_chain_snapshot") return structuredClone(observed);
+    if (method === "set_device_chain_snapshot") {
+      mutations.push(params);
+      observed = { stateVersion: 5, trackId: params.trackId, devices: params.target.devices.map((device, index) => ({
+        id: `${params.trackId}:device-${index}`, ...device,
+        parameters: device.parameters.map((parameter, parameterIndex) => ({ id: `parameter-${parameterIndex}`, enabled: true, ...parameter }))
+      })) };
+      return structuredClone(observed);
+    }
+    throw new Error(method);
+  } } });
+  const captured = await service.call("capture_device_chain_snapshot", { trackId: "return-0" });
+  assert.equal(captured.snapshot.format, "cavi-device-chain-v1");
+  const target = structuredClone(captured.snapshot);
+  target.devices[0].name = "Long Reverb";
+  target.devices[0].parameters[0].value = 0.5;
+  const args = { trackId: "return-0", expectedStateVersion: 4, snapshot: target };
+  const dry = await service.call("recall_device_chain_snapshot", args);
+  assert.equal(dry.plan.before.devices[0].name, "Reverb");
+  assert.equal(mutations.length, 0);
+  const result = await service.call("recall_device_chain_snapshot", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.observed.devices[0].parameters[0].value, 0.5);
+  assert.equal(mutations.length, 1);
+});
+
+test("device reordering requires exact state and confirmation", async () => {
+  const { service, calls } = fixture();
+  const original = service.bridge.request.bind(service.bridge);
+  service.bridge.request = async (method, params) => method === "move_device"
+    ? { stateVersion: 5, actualPosition: params.targetPosition }
+    : original(method, params);
+  const devices = await service.call("list_devices", { trackId: "track-0" });
+  const args = { trackId: "track-0", deviceId: devices.devices[0].id, expectedStateVersion: devices.stateVersion, targetPosition: 0 };
+  await assert.rejects(() => service.call("move_device", { ...args, targetPosition: -1 }), /nonnegative/);
+  const dry = await service.call("move_device", args);
+  assert.equal(dry.plan.targetPosition, 0);
+  assert.equal(calls.some(({ method }) => method === "move_device"), false);
+  const result = await service.call("move_device", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.observed.actualPosition, 0);
+});
+
+test("Arrangement placement guards timeline overlap and exact observations", async () => {
+  const { service } = fixture();
+  const calls = [];
+  let timeline = [];
+  service.bridge.request = async (method, params) => {
+    calls.push(method);
+    if (method === "list_clips") return { stateVersion: 4, trackId: "track-0", clips: [{ id: "track-0:clip-0", hasClip: true, lengthBeats: 4 }] };
+    if (method === "list_arrangement_clips") return { stateVersion: 4, trackId: "track-0", clips: timeline };
+    if (method === "place_session_clip_in_arrangement") return { stateVersion: 5, placedClip: { startBeats: params.startBeats, endBeats: params.endBeats } };
+    throw new Error(`unexpected ${method}`);
+  };
+  const args = { trackId: "track-0", clipId: "track-0:clip-0", expectedStateVersion: 4, startBeats: 8 };
+  const dry = await service.call("place_session_clip_in_arrangement", args);
+  assert.equal(dry.plan.endBeats, 12);
+  assert.equal(calls.includes("place_session_clip_in_arrangement"), false);
+  const result = await service.call("place_session_clip_in_arrangement", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.observed.placedClip.startBeats, 8);
+  timeline = [{ startBeats: 10, endBeats: 14 }];
+  await assert.rejects(() => service.call("place_session_clip_in_arrangement", args), /overlap/);
+  await assert.rejects(() => service.call("place_session_clip_in_arrangement", { ...args, expectedStateVersion: 3 }), /state/i);
+});
+
+test("Arrangement deletion carries exact identity and requires confirmation", async () => {
+  const { service } = fixture();
+  const before = { id: "track-0:arrangement-clip-0", name: "A", startBeats: 8, endBeats: 12, lengthBeats: 4, type: "midi" };
+  const mutations = [];
+  service.bridge.request = async (method, params) => {
+    if (method === "list_arrangement_clips") return { stateVersion: 4, trackId: "track-0", clips: [before] };
+    if (method === "delete_arrangement_clip") { mutations.push(params); return { stateVersion: 5, deletedClip: params.before, clips: [] }; }
+    throw new Error(`unexpected ${method}`);
+  };
+  const args = { trackId: "track-0", clipId: before.id, expectedStateVersion: 4 };
+  const dry = await service.call("delete_arrangement_clip", args);
+  assert.deepEqual(dry.plan.before, before);
+  assert.equal(mutations.length, 0);
+  await assert.rejects(() => service.call("delete_arrangement_clip", { ...args, clipId: "track-0:arrangement-clip-99" }), /unknown/);
+  const result = await service.call("delete_arrangement_clip", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.deepEqual(result.observed.deletedClip, before);
+  assert.equal(mutations.length, 1);
+});
+
+test("Arrangement moves allow self-overlap but reject other timeline material", async () => {
+  const { service } = fixture();
+  const clip = { id: "track-0:arrangement-clip-0", name: "A", startBeats: 8, endBeats: 12, lengthBeats: 4, type: "midi" };
+  let clips = [clip];
+  service.bridge.request = async (method, params) => {
+    if (method === "list_arrangement_clips") return { stateVersion: 4, trackId: "track-0", clips };
+    if (method === "move_arrangement_clip") return { stateVersion: 5, movedClip: { ...clip, startBeats: params.startBeats, endBeats: params.startBeats + 4 } };
+    throw new Error(`unexpected ${method}`);
+  };
+  const args = { trackId: "track-0", clipId: clip.id, expectedStateVersion: 4, startBeats: 10 };
+  const dry = await service.call("move_arrangement_clip", args);
+  assert.equal(dry.plan.startBeats, 10);
+  assert.deepEqual(dry.plan.before, clip);
+  const result = await service.call("move_arrangement_clip", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.observed.movedClip.startBeats, 10);
+  clips = [clip, { id: "track-0:arrangement-clip-1", startBeats: 13, endBeats: 17 }];
+  await assert.rejects(() => service.call("move_arrangement_clip", args), /overlap another/);
+});
+
+test("Arrangement duplication signs exact source and rejects destination collisions", async () => {
+  const { service } = fixture();
+  const source = { id: "track-0:arrangement-clip-0", name: "Verse", type: "midi", startBeats: 0, endBeats: 4, lengthBeats: 4 };
+  let clips = [source, { id: "track-0:arrangement-clip-1", startBeats: 8, endBeats: 12 }];
+  service.bridge.request = async (method, params) => {
+    if (method === "list_arrangement_clips") return { stateVersion: 4, trackId: "track-0", clips };
+    if (method === "duplicate_arrangement_clip") return { stateVersion: 5,
+      duplicatedClip: { ...source, id: "track-0:arrangement-clip-2", startBeats: params.startBeats, endBeats: params.startBeats + 4 } };
+    throw new Error(`unexpected ${method}`);
+  };
+  const args = { trackId: "track-0", clipId: source.id, startBeats: 4, expectedStateVersion: 4 };
+  const dry = await service.call("duplicate_arrangement_clip", args);
+  assert.deepEqual(dry.plan.before, source);
+  const result = await service.call("duplicate_arrangement_clip", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.observed.duplicatedClip.startBeats, 4);
+  await assert.rejects(() => service.call("duplicate_arrangement_clip", { ...args, startBeats: 9 }), /overlap another/);
+});
+
+test("audio import binds the source revision and an exact empty slot", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "cavi-audio-import-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const sourcePath = join(directory, "test.wav");
+  await writeFile(sourcePath, "test-source");
+  const { service } = fixture();
+  let occupied = false;
+  const imports = [];
+  service.bridge.request = async (method, params) => {
+    if (method === "list_clips") return { stateVersion: 4, trackId: "track-0", clips: [{ id: "track-0:clip-0", hasClip: occupied }] };
+    if (method === "create_audio_clip") { imports.push(params); return { stateVersion: 5, clips: [{ id: params.clipId, hasClip: true }] }; }
+    throw new Error(`unexpected ${method}`);
+  };
+  const args = { trackId: "track-0", clipId: "track-0:clip-0", expectedStateVersion: 4, sourcePath };
+  await assert.rejects(() => service.call("create_audio_clip", { ...args, sourcePath: "relative.wav" }), /absolute/);
+  const dry = await service.call("create_audio_clip", args);
+  assert.equal(dry.plan.sourceFile.size, "11");
+  assert.equal(imports.length, 0);
+  await writeFile(sourcePath, "changed-source-longer");
+  await assert.rejects(() => service.call("create_audio_clip", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash }), /plan|hash|confirmation/i);
+  const refreshed = await service.call("create_audio_clip", args);
+  const result = await service.call("create_audio_clip", { ...args, dryRun: false, confirmationToken: refreshed.confirmation.token, planHash: refreshed.confirmation.planHash });
+  assert.equal(result.observed.clips[0].hasClip, true);
+  assert.equal(imports.length, 1);
+  occupied = true;
+  await assert.rejects(() => service.call("create_audio_clip", args), /already contains/);
+});
+
+test("confirmation binds the fresh mutation plan even when a caller supplies an old hash", async () => {
+  const { service, calls } = fixture();
+  const args = { expectedStateVersion: 4, volume: 0.5 };
+  const dry = await service.call("set_master_mixer", args);
+  await assert.rejects(() => service.call("set_master_mixer", { ...args, volume: 0.9, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash }), /plan hash mismatch/);
+  await assert.rejects(() => service.call("set_master_mixer", { ...args, volume: 0.9, dryRun: false, confirmationToken: dry.confirmation.token }), /plan hash mismatch/);
+  assert.equal(calls.some(({ method }) => method === "set_master_mixer"), false);
+  await service.call("set_master_mixer", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(calls.filter(({ method }) => method === "set_master_mixer").length, 1);
+});
+
 test("set mixer exposes master and return buses and guards bounded changes", async () => {
   const { service, calls } = fixture();
   const observed = await service.call("get_set_mixer");
   assert.equal(observed.master.cueVolume.value, 0.7);
   assert.equal(observed.returns[0].name, "Reverb");
-  const masterArgs = { expectedStateVersion: 4, volume: 2, crossfader: -2 };
+  await assert.rejects(() => service.call("set_master_mixer", { expectedStateVersion: 4, outputChannelId: "9/10" }), /unavailable/);
+  const masterArgs = { expectedStateVersion: 4, volume: 2, crossfader: -2, outputChannelId: "3/4" };
   const masterDry = await service.call("set_master_mixer", masterArgs);
   assert.equal(masterDry.plan.changes.volume.value, 1);
   assert.equal(masterDry.plan.changes.crossfader.value, -1);
+  assert.equal(masterDry.plan.changes.outputChannelId.value.id, "3/4");
   const masterLive = await service.call("set_master_mixer", {
     ...masterArgs, dryRun: false, confirmationToken: masterDry.confirmation.token, planHash: masterDry.confirmation.planHash
   });
@@ -887,12 +1394,208 @@ test("clip parameter envelope inspection is read-only and returns sampled values
   assert.equal(calls.at(-1).method, "get_clip_parameter_envelope");
 });
 
+test("device sidechain readback preserves exact native routing identity", async () => {
+  const state = { stateVersion: 4, trackId: "track-0", deviceId: "track-0:device-0",
+    sidechain: { supported: true, type: { id: "42", name: "Bass Bus" }, channel: { id: "post-fx", name: "Post FX" } } };
+  const service = new ToolService({ bridge: { async request(method, params) {
+    assert.equal(method, "get_device_sidechain_routing");
+    assert.deepEqual(params, { trackId: "track-0", deviceId: "track-0:device-0" });
+    return state;
+  } } });
+  assert.deepEqual(await service.call("get_device_sidechain_routing", { trackId: "track-0", deviceId: "track-0:device-0" }), state);
+});
+
+test("device sidechain changes bind full native state and reject ambiguous sources", async () => {
+  const before = { stateVersion: 4, trackId: "track-0", deviceId: "track-0:device-0",
+    device: { name: "Compressor", className: "Compressor2" },
+    sidechain: { supported: true, type: { id: "none", name: "No Input" },
+      channel: { id: "", name: "" }, availableTypes: [{ id: "bass", name: "Bass" }], availableChannels: [{ id: "", name: "" }] } };
+  let mutations = 0;
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_device_sidechain_routing") return structuredClone(before);
+    if (method === "set_device_sidechain_routing") {
+      assert.deepEqual(params.before, before);
+      assert.deepEqual(params.changes, { sourceTypeId: { previous: before.sidechain.type, value: { id: "bass", name: "Bass" } } });
+      mutations++;
+      return { ...before, stateVersion: 5 };
+    }
+    throw new Error(method);
+  } } });
+  const args = { trackId: before.trackId, deviceId: before.deviceId, expectedStateVersion: 4, sourceTypeId: "bass" };
+  const preview = await service.call("set_device_sidechain_routing", args);
+  assert.equal(mutations, 0);
+  await service.call("set_device_sidechain_routing", { ...args, dryRun: false,
+    confirmationToken: preview.confirmation.token, planHash: preview.confirmation.planHash });
+  assert.equal(mutations, 1);
+  await assert.rejects(service.call("set_device_sidechain_routing", { ...args, sourceChannelId: "" }), /exactly one/);
+  before.sidechain.availableTypes.push({ id: "bass", name: "Other Bass" });
+  await assert.rejects(service.call("set_device_sidechain_routing", args), /ambiguous/);
+  before.sidechain.supported = false;
+  await assert.rejects(service.call("set_device_sidechain_routing", args), /unsupported/);
+});
+
+test("audio crop confirms the native selected interval and rejects changed loop", async () => {
+  const before = { stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-2", warping: true,
+    markers: { unit: "beats", startBeats: 0, endBeats: 4 },
+    loop: { enabled: true, unit: "beats", startBeats: 1, endBeats: 3 } };
+  let mutations = 0;
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_audio_clip_state") return structuredClone(before);
+    if (method === "crop_audio_clip") {
+      assert.equal(params.before.loop.startBeats, 1);
+      assert.equal(params.before.loop.endBeats, 3);
+      mutations++;
+      return { ...before, stateVersion: 5, markers: { unit: "beats", startBeats: 0, endBeats: 2 } };
+    }
+    throw new Error(method);
+  } } });
+  const args = { trackId: "track-0", clipId: "track-0:clip-2", expectedStateVersion: 4 };
+  const preview = await service.call("crop_audio_clip", args);
+  assert.equal(mutations, 0);
+  assert.deepEqual(preview.plan.selectedRegion, { unit: "beats", start: 1, end: 3, fromLoop: true });
+  const result = await service.call("crop_audio_clip", { ...args, dryRun: false,
+    confirmationToken: preview.confirmation.token, planHash: preview.confirmation.planHash });
+  assert.equal(result.observed.markers.endBeats, 2);
+  const stale = await service.call("crop_audio_clip", args);
+  before.loop.endBeats = 4;
+  await assert.rejects(() => service.call("crop_audio_clip", { ...args, dryRun: false,
+    confirmationToken: stale.confirmation.token, planHash: stale.confirmation.planHash }), /plan|changed/);
+  assert.equal(mutations, 1);
+  before.loop.enabled = false;
+  assert.deepEqual((await service.call("crop_audio_clip", args)).plan.selectedRegion,
+    { unit: "beats", start: 0, end: 4, fromLoop: false });
+  before.warping = false;
+  before.markers = { unit: "seconds", startSeconds: 0.5, endSeconds: 1.5 };
+  before.loop = { enabled: false, unit: "seconds", startSeconds: 0.5, endSeconds: 1.5 };
+  assert.deepEqual((await service.call("crop_audio_clip", args)).plan.selectedRegion,
+    { unit: "seconds", start: 0.5, end: 1.5, fromLoop: false });
+  for (const markers of [{ unit: "seconds", startSeconds: 1, endSeconds: 1 },
+    { unit: "seconds", startSeconds: NaN, endSeconds: 2 }]) {
+    before.markers = markers;
+    await assert.rejects(() => service.call("crop_audio_clip", args), /interval/);
+  }
+});
+
+test("audio quantization signs grid amount and full native before-state", async () => {
+  const before = { stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-2", warping: true,
+    warpMarkers: { supported: true, markers: [{ sampleTime: 0.13, beatTime: 0.26 }] } };
+  let mutations = 0;
+  let swingAmount = 0;
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_audio_clip_state") return before;
+    if (method === "get_song_musical_context") return { stateVersion: 4, groove: { swingAmount } };
+    if (method === "quantize_audio_clip") {
+      mutations++;
+      assert.deepEqual(params.before, before);
+      assert.equal(params.grid, "1_8_triplet");
+      assert.equal(params.amount, 0.75);
+      return { ...before, stateVersion: 5, warpMarkers: { supported: true,
+        markers: [{ sampleTime: 0.13, beatTime: 0 }] } };
+    }
+    throw new Error(method);
+  } } });
+  const args = { trackId: "track-0", clipId: "track-0:clip-2", expectedStateVersion: 4,
+    grid: "1_8_triplet", amount: 0.75 };
+  const dry = await service.call("quantize_audio_clip", args);
+  assert.equal(mutations, 0);
+  assert.equal(dry.plan.grid, "1_8_triplet");
+  assert.equal(dry.plan.beforeSwingAmount, 0);
+  const result = await service.call("quantize_audio_clip", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.deepEqual(result.observed.warpMarkers.markers, [{ sampleTime: 0.13, beatTime: 0 }]);
+  assert.equal(mutations, 1);
+  const stale = await service.call("quantize_audio_clip", args);
+  swingAmount = 0.5;
+  await assert.rejects(() => service.call("quantize_audio_clip", { ...args, dryRun: false,
+    confirmationToken: stale.confirmation.token, planHash: stale.confirmation.planHash }), /plan|changed/);
+  assert.equal(mutations, 1);
+  for (const changes of [{ grid: "none" }, { grid: "unknown" }, { amount: -0.1 }, { amount: 1.1 }, { amount: NaN }]) {
+    await assert.rejects(() => service.call("quantize_audio_clip", { ...args, ...changes }), /grid|amount/);
+  }
+});
+
+test("warp marker creation signs explicit anchor and preserves omitted sample time", async () => {
+  const before = { stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-2", warping: true, warpMarkers: { supported: true,
+    markers: [{ sampleTime: 0, beatTime: 0 }, { sampleTime: 2, beatTime: 4 }] } };
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_audio_clip_state") return before;
+    if (method === "add_audio_warp_marker") return { ...before, stateVersion: 5,
+      warpMarkers: { supported: true, markers: [{ sampleTime: params.sampleTime, beatTime: params.beatTime }] } };
+    throw new Error(method);
+  } } });
+  const args = { trackId: "track-0", clipId: "track-0:clip-2", expectedStateVersion: 4, beatTime: 1, sampleTime: 0.6 };
+  const dry = await service.call("add_audio_warp_marker", args);
+  assert.equal(dry.plan.sampleTime, 0.6);
+  const result = await service.call("add_audio_warp_marker", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.deepEqual(result.observed.warpMarkers.markers, [{ sampleTime: 0.6, beatTime: 1 }]);
+  const natural = { ...args }; delete natural.sampleTime;
+  assert.equal(Object.hasOwn((await service.call("add_audio_warp_marker", natural)).plan, "sampleTime"), false);
+  for (const changes of [{ beatTime: 0 }, { sampleTime: -1 }, { sampleTime: NaN }]) {
+    await assert.rejects(() => service.call("add_audio_warp_marker", { ...args, ...changes }), /marker|sampleTime/);
+  }
+});
+
+test("warp marker deletion confirms exact marker and rejects hidden terminal marker", async () => {
+  const before = { stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-2", warping: true,
+    warpMarkers: { supported: true, markers: [{ sampleTime: 0, beatTime: 0 },
+      { sampleTime: 0.6, beatTime: 1.2 }, { sampleTime: 2, beatTime: 4 }, { sampleTime: 2.01, beatTime: 4.02 }] } };
+  let deleted = false;
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_audio_clip_state") return before;
+    if (method === "remove_audio_warp_marker") {
+      deleted = true;
+      return { ...before, stateVersion: 5, warpMarkers: { supported: true,
+        markers: before.warpMarkers.markers.filter(m => m.beatTime !== params.beatTime) } };
+    }
+    throw new Error(method);
+  } } });
+  const args = { trackId: before.trackId, clipId: before.clipId, expectedStateVersion: 4, beatTime: 1.2 };
+  const dry = await service.call("remove_audio_warp_marker", args);
+  assert.equal(deleted, false);
+  assert.deepEqual(dry.plan.before, before);
+  const result = await service.call("remove_audio_warp_marker", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.deepEqual(result.observed.warpMarkers.markers.map(m => m.beatTime), [0, 4, 4.02]);
+  for (const beatTime of [3, 4.02, NaN]) await assert.rejects(() =>
+    service.call("remove_audio_warp_marker", { ...args, beatTime }), /marker/);
+});
+
+test("warp marker movement signs exact audio state and requires confirmation", async () => {
+  const before = { stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-2", warping: true,
+    warpMarkers: { supported: true, markers: [
+      { sampleTime: 0, beatTime: 0 }, { sampleTime: 0.6, beatTime: 1.2 },
+      { sampleTime: 2, beatTime: 4 }, { sampleTime: 2.01, beatTime: 4.02 }
+    ] } };
+  const calls = [];
+  const service = new ToolService({ bridge: { async request(method, params) {
+    calls.push({ method, params });
+    if (method === "get_audio_clip_state") return before;
+    if (method === "move_audio_warp_marker") return { ...before, stateVersion: 5,
+      warpMarkers: { supported: true, markers: before.warpMarkers.markers.map(m =>
+        m.beatTime === 1.2 ? { ...m, beatTime: 1 } : m) } };
+    throw new Error(method);
+  } } });
+  const args = { trackId: before.trackId, clipId: before.clipId, expectedStateVersion: 4, beatTime: 1.2, targetBeatTime: 1 };
+  const dry = await service.call("move_audio_warp_marker", args);
+  assert.deepEqual(dry.plan.before, before);
+  assert.equal(calls.some(c => c.method === "move_audio_warp_marker"), false);
+  const applied = await service.call("move_audio_warp_marker", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(applied.observed.warpMarkers.markers[1].beatTime, 1);
+  const terminalMove = await service.call("move_audio_warp_marker", { ...args, beatTime: 4, targetBeatTime: 5 });
+  assert.equal(terminalMove.plan.targetBeatTime, 5);
+  for (const changes of [{ beatTime: 3 }, { targetBeatTime: 4 }, { beatTime: 4.02, targetBeatTime: 4.01 }]) {
+    await assert.rejects(() => service.call("move_audio_warp_marker", { ...args, ...changes }), /marker|neighbor/);
+  }
+});
+
 test("audio clip state exposes warp pitch gain and markers with guarded changes", async () => {
   const { service, calls } = fixture();
   const base = { trackId: "track-0", clipId: "track-0:clip-2" };
   const observed = await service.call("get_audio_clip_state", base);
   assert.equal(observed.warpMode.name, "beats");
-  const args = { ...base, expectedStateVersion: 4, gain: 2, pitchCoarse: -12, pitchFine: 17, warping: false, warpMode: "complex_pro", startMarkerBeats: 1, endMarkerBeats: 7 };
+  const args = { ...base, expectedStateVersion: 4, gain: 2, pitchCoarse: -12, pitchFine: 17, warpMode: "complex_pro", startMarkerBeats: 1, endMarkerBeats: 7 };
   const dry = await service.call("set_audio_clip_state", args);
   assert.equal(dry.plan.changes.gain.value, 1);
   assert.equal(dry.plan.changes.warpMode.value, 6);
@@ -908,6 +1611,8 @@ test("audio clip mutation rejects invalid pitch markers and empty changes", asyn
   await assert.rejects(() => service.call("set_audio_clip_state", base), /at least one audio clip change/);
   await assert.rejects(() => service.call("set_audio_clip_state", { ...base, pitchFine: 60 }), /pitchFine/);
   await assert.rejects(() => service.call("set_audio_clip_state", { ...base, startMarkerBeats: 7, endMarkerBeats: 2 }), /endMarkerBeats must be greater/);
+  await assert.rejects(() => service.call("set_audio_clip_state", { ...base, startMarkerSeconds: 1 }), /marker units/);
+  await assert.rejects(() => service.call("set_audio_clip_state", { ...base, warping: false, startMarkerBeats: 1 }), /marker units/);
 });
 
 test("clip parameter envelope replacement validates and signs exact steps", async () => {
@@ -1081,6 +1786,24 @@ test("mutations require an explicit expected state version", async () => {
   const { service, calls } = fixture();
   await assert.rejects(() => service.call("transport_stop", {}), /expectedStateVersion is required/);
   assert.deepEqual(calls, []);
+});
+
+test("parameter planning rejects disabled controls without issuing confirmation", async () => {
+  let issued = false;
+  const service = new ToolService({
+    confirmations: { issue() { issued = true; return {}; } },
+    bridge: { async request(method) {
+      assert.equal(method, "list_device_parameters");
+      return { stateVersion: 4, trackId: "track-0", deviceId: "track-0:device-0", nameAmbiguities: [], parameters: [
+        { id: "parameter-0", name: "Cutoff", originalName: "Filter Freq", min: 0, max: 1, value: 0.4, displayValue: "400 Hz", enabled: false, quantized: false, valueItems: [] }
+      ] };
+    } }
+  });
+  await assert.rejects(() => service.call("set_device_parameters", {
+    trackId: "track-0", deviceId: "track-0:device-0", expectedStateVersion: 4,
+    changes: [{ id: "parameter-0", value: 0.8 }]
+  }), /parameter parameter-0 is disabled/);
+  assert.equal(issued, false);
 });
 
 test("parameter mutation defaults to dry-run, clamps, confirms once, and returns observed state", async () => {

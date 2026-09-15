@@ -21,9 +21,17 @@ Read operations expose Live status, playhead, transport-recording, metronome, an
 
 `get_automation_capabilities` reports the exact supported surface. Ableton Live 12.4.5 exposes Session clip parameter envelopes and the per-note fields pitch, start, duration, velocity, velocity deviation, release velocity, probability, and mute. Its public API does not expose Arrangement automation envelopes or per-note pitch-bend, pressure, and slide curves; the MCP reports those boundaries instead of simulating unsupported writes.
 
-`list_factory_device_profiles` exposes the versioned producer-oriented knowledge catalog for foundational Live devices: Simpler, Sampler, Drum Rack, Analog, Drift, Operator, Wavetable, EQ Eight, Delay, Echo, Reverb, and Hybrid Reverb. `get_factory_device_context` combines a matched profile with the device's live class identity, structural capabilities, and current parameters grouped by musical role. Parameter IDs and bounds always come from the running Live instance rather than a brittle hard-coded index map.
+`list_factory_device_profiles` exposes the producer-oriented knowledge catalog for Live instruments, racks, MIDI effects, dynamics, gain/stereo tools, saturation, EQ, delay, reverb, and pitch correction. Query the tool for the current exact catalog. `get_factory_device_context` combines a matched profile with the device's live class identity, structural capabilities, and current parameters grouped by musical role. Parameter IDs and bounds always come from the running Live instance rather than a brittle hard-coded index map.
+
+See [Shared instrument audio buses](docs/shared-instrument-buses.md) for building processed buses with separate instrument children, routing verification, processing order, and explicit group/template limitations.
+
+`create_return_track` appends a guarded shared-effects bus through Live's native API. Live 12.4.5 does not expose Group Track creation or ungrouping to Remote Scripts, so `get_live_state.nativeApiSupport` reports those boundaries instead of advertising nonfunctional controls.
+
+See [Native saving and recall](docs/native-saving-and-recall.md) for Live Set and device-preset UI workflows, recall checks, and the current MCP/CLI boundaries.
 
 `get_browser_items` traverses one exact level of Live's factory, plug-in, Pack, Max for Live, project, legacy-library, or user-content hierarchy. `search_browser_items` performs a depth- and result-bounded name search below any exact browser path, including mapped Splice folders under User Folders, and returns paths directly usable by `load_browser_item`. Loading resolves the reviewed root/path again at execution time and loads only a unique loadable item onto the guarded target track. The earlier `get_factory_browser_items` and `load_factory_browser_item` names remain compatible aliases.
+
+`search_local_splice_samples` searches audio filenames under an explicit local Splice asset directory, returning canonical source paths for `analyze_audio_file`. It skips symlinks and non-audio files. This is local-file discovery, not Splice cloud catalog search, download, or sync; Live browser loading still requires the directory to be mapped into Live's User Folders.
 
 Device listings include active/bypassed state. `set_device_active` and `delete_device` require the exact observed device identity, current bridge state version, reviewed dry-run plan, and a single-use confirmation token.
 
@@ -60,7 +68,7 @@ npm run cli -- resource ableton://set/tracks --json
 npm run cli -- call list_devices --args '{"trackId":"track-0"}' --json
 ```
 
-`install` copies only `CaviMcpBridge` into the user-level Ableton Remote Scripts directory. It does not modify Ableton application bundles. Enable **CaviMcpBridge** as a Control Surface in Ableton Live preferences after installation.
+`install` copies only `CaviMcpBridge` into the user-level Ableton Remote Scripts directory by default. Enable **CaviMcpBridge** as a Control Surface in Ableton Live preferences after installation. On the tested Live 12.4.5 installation, an older copy of the same script inside the application bundle shadowed both the User Library and profile-directory copies. In that case, update only the existing custom script using `ableton-mcp install --destination "/Applications/Ableton Live 12 Suite.app/Contents/App-Resources/MIDI Remote Scripts"`, then restart Live. Application updates may replace this copy, so re-check the installed script after updating Live. This explicitly targeted install modifies the application bundle; the default install does not.
 
 Use `ableton-mcp uninstall` to remove only that installed script directory. Pass `--destination <Remote Scripts path>` when the Ableton User Library is in a non-default location.
 
