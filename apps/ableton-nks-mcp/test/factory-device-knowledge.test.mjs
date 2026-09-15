@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay"
   ]);
 });
 
@@ -637,6 +637,20 @@ test("External Audio Effect preserves its complete exposed gain and blend surfac
   assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
   assert.deepEqual(groups.input.map(p => p.id), ["parameter-3"]);
   assert.deepEqual(groups.output.map(p => p.id), ["parameter-1", "parameter-2"]);
+  assert.deepEqual(groups.other, []);
+});
+
+test("Filter Delay preserves three complete independent tap strips", () => {
+  const profile = getFactoryDeviceProfile({ className: "FilterDelay", name: "Renamed Multi Tap" });
+  assert.equal(profile?.id, "filter-delay");
+  const strip = (n) => [`${n} Input On`, `${n} Filter On`, `${n} Filter Freq`, `${n} Filter Width`, `${n} Delay Mode`, `${n} Beat Delay`, `${n} Beat Swing`, `${n} Time Delay`, `${n} Feedback`, `${n} Pan`, `${n} Volume`];
+  const names = ["Device On", ...strip(1), ...strip(2), ...strip(3), "Dry"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.deepEqual(groups.tap1.map(p => p.id), names.slice(1, 12).map((_, index) => `parameter-${index + 1}`));
+  assert.deepEqual(groups.tap2.map(p => p.id), names.slice(12, 23).map((_, index) => `parameter-${index + 12}`));
+  assert.deepEqual(groups.tap3.map(p => p.id), names.slice(23, 34).map((_, index) => `parameter-${index + 23}`));
+  assert.deepEqual(groups.output.map(p => p.id), ["parameter-34"]);
   assert.deepEqual(groups.other, []);
 });
 
