@@ -197,6 +197,10 @@ const profiles = [
     global: ["device on"], transport: ["state", "song control"], loop: ["feedback", "reverse", "speed"],
     monitoring: ["monitor"], timing: ["quantization", "tempo control"]
   }, notes: ["Looper's State parameter directly selects Stop, Record, Play, or Overdub. Treat Record and Overdub as stateful content mutations: inspect the current state and audio routing before changing them, then verify the observed state immediately.", "Feedback controls how existing material persists during overdub, Reverse changes playback direction, and Speed transposes and time-scales loop playback.", "Quantization includes bar, straight-note, and triplet boundaries. Song Control can start or start-and-stop Live's transport, while Tempo Control can follow or set and follow song tempo; coordinate these settings with global transport intentionally.", "Monitor selects Always, Never, Rec/OVR, or Rec/OVR/Stop input monitoring. Looper exposes no conventional output-gain or Dry/Wet parameter in this native surface."] }
+  ,{ id: "overdrive", name: "Overdrive", type: "audio_effect", family: "distortion", match: ["overdrive"], roles: {
+    global: ["device on"], filter: ["filter freq", "filter width"], distortion: ["drive", "tone"],
+    dynamics: ["preserve dynamics"], output: ["dry/wet"]
+  }, notes: ["Overdrive filters the signal before its nonlinear stage. Filter Freq chooses the center frequency and Filter Width sets the affected bandwidth, letting distortion focus on a selected spectral region.", "Drive controls distortion intensity and Tone adjusts the resulting brightness. Preserve Dynamics retains more input-level movement instead of flattening the signal into constant saturation.", "Dry/Wet provides parallel blend, but there is no separate output trim in the exposed surface. Use a downstream Utility or rack gain stage for level-matched comparisons.", "Use displayValue for frequency, percentages, and filter width rather than treating raw values as engineering units."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });

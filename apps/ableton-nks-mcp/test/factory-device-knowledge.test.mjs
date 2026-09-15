@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper", "overdrive"
   ]);
 });
 
@@ -692,6 +692,19 @@ test("Looper separates stateful transport, loop treatment, monitoring and timing
   assert.deepEqual(groups.loop.map(p => p.id), ["parameter-2", "parameter-3", "parameter-5"]);
   assert.deepEqual(groups.monitoring.map(p => p.id), ["parameter-4"]);
   assert.deepEqual(groups.timing.map(p => p.id), ["parameter-6", "parameter-8"]);
+  assert.deepEqual(groups.other, []);
+});
+
+test("Overdrive separates pre-filtering, distortion tone, dynamics and blend", () => {
+  const profile = getFactoryDeviceProfile({ className: "Overdrive", name: "Renamed Drive" });
+  assert.equal(profile?.id, "overdrive");
+  const names = ["Device On", "Filter Freq", "Filter Width", "Drive", "Dry/Wet", "Tone", "Preserve Dynamics"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.deepEqual(groups.filter.map(p => p.id), ["parameter-1", "parameter-2"]);
+  assert.deepEqual(groups.distortion.map(p => p.id), ["parameter-3", "parameter-5"]);
+  assert.deepEqual(groups.dynamics.map(p => p.id), ["parameter-6"]);
+  assert.deepEqual(groups.output.map(p => p.id), ["parameter-4"]);
   assert.deepEqual(groups.other, []);
 });
 
