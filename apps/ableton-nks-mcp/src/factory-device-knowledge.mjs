@@ -23,7 +23,13 @@ const profiles = [
     lfo1: [/^lfo 1 /], lfo2: [/^lfo 2 /], modulation: ["global mod amount", "matrix"],
     pitch: ["transpose", "glide"], unison: ["unison"], envelopeTiming: ["time"], amplitude: ["volume"]
   }, notes: ["InstrumentVector is Wavetable's native class, including renamed instances. Amp is the amplitude envelope; Env 2 and Env 3 are separate modulation envelopes, not amplitude ADSR controls.", "Read envelope slopes, initial/peak/final levels and loop modes alongside ADSR. LFO Attack Time belongs to that LFO, not the amplitude envelope.", "Oscillator and sub-oscillator transposition are distinct from global Transpose. Both filters expose independent native controls.", "Native parameter grouping does not expose wavetable browser selection or the modulation matrix assignments. Inspect displayValue for physical units; normalized values are not necessarily milliseconds or Hz."] },
-  { id: "eq-eight", name: "EQ Eight", type: "audio_effect", family: "equalizer", match: ["eq eight", "eq8"], roles: { ...globalRoles, frequency: ["freq", "frequency"], gain: ["gain"], resonance: ["q", "resonance"], mode: ["filter type", "mode", "stereo"] } },
+  { id: "eq-eight", name: "EQ Eight", type: "audio_effect", family: "equalizer", match: ["eq eight", "eq8"], roles: {
+    global: ["device on"], output: ["output"], scale: ["scale"], adaptiveQ: ["adaptive q"],
+    bandEnabled: ["filter on"], filterType: ["filter type"], frequency: ["frequency", "freq"],
+    gain: ["gain"], resonance: [" q "]
+  }, notes: ["EQ Eight exposes eight bands with separate A and B filter-on, type, frequency, gain and Q controls. Preserve each band's A/B identity and stable parameter ID; name-only writes can target the wrong lane.",
+    "Adaptive Q is a shared state, not an individual band resonance. Scale and Output are global gain-stage controls; inspect native displayValue before interpreting raw units.",
+    "Filter Type choices and enabled state determine whether gain and Q are meaningful for a band. Exposed controls do not prove audible response without observing device state and signal flow."] },
   { id: "delay", name: "Delay", type: "audio_effect", family: "delay", match: ["delay"], roles: {
     global: ["device on"], smoothing: ["smoothing"], stereoRouting: ["link", "ping pong"],
     timingMode: ["l sync", "r sync"], delayTime: ["l time", "r time"],

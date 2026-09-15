@@ -49,6 +49,20 @@ test("Delay keeps left-right timing and LFO controls in their native stages", ()
     mix: [26], other: [] })) assert.deepEqual(ids(role), expected, role);
 });
 
+test("EQ Eight separates shared controls from each A-B band stage", () => {
+  const profile = getFactoryDeviceProfile({ className: "Eq8", name: "EQ Eight" });
+  const names = ["Device On", "Output", "Scale", "Adaptive Q", "1 Filter On A", "1 Filter Type A",
+    "1 Frequency A", "1 Gain A", "1 Q A", "1 Filter On B", "1 Filter Type B",
+    "1 Frequency B", "1 Gain B", "1 Q B"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({
+    id: `parameter-${index}`, name, originalName: name
+  })));
+  const ids = role => (groups[role] || []).map(parameter => Number(parameter.id.slice(10)));
+  for (const [role, expected] of Object.entries({ global: [0], output: [1], scale: [2], adaptiveQ: [3],
+    bandEnabled: [4, 9], filterType: [5, 10], frequency: [6, 11], gain: [7, 12],
+    resonance: [8, 13], other: [] })) assert.deepEqual(ids(role), expected, role);
+});
+
 test("Wavetable native identity separates envelope and filter destinations", () => {
   const profile = getFactoryDeviceProfile({ className: "InstrumentVector", name: "Renamed Bass" });
   assert.equal(profile?.id, "wavetable");
