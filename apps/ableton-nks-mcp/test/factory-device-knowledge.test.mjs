@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper", "overdrive", "pedal", "redux", "resonators", "shaper", "shifter", "spectral-resonator", "spectral-time", "spectrum", "surround-panner"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper", "overdrive", "pedal", "redux", "resonators", "shaper", "shifter", "spectral-resonator", "spectral-time", "spectrum", "surround-panner", "tuner"
   ]);
 });
 
@@ -840,6 +840,14 @@ test("Surround Panner preserves spatial position, focus and speaker layout", () 
   assert.deepEqual(groups.image.map(p => p.id), ["parameter-1", "parameter-2", "parameter-3", "parameter-4"]);
   assert.deepEqual(groups.layout.map(p => p.id), ["parameter-5"]);
   assert.deepEqual(groups.position.map(p => p.id), ["parameter-6", "parameter-7"]);
+  assert.deepEqual(groups.other, []);
+});
+
+test("Tuner records the native measurement boundary without inventing controls", () => {
+  const profile = getFactoryDeviceProfile({ className: "Tuner", name: "Tuner" });
+  assert.equal(profile?.id, "tuner");
+  const groups = groupDeviceParameters(profile, [{ id: "parameter-0", name: "Device On", originalName: "Device On" }]);
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
   assert.deepEqual(groups.other, []);
 });
 
