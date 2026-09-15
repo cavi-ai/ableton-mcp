@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar"
   ]);
 });
 
@@ -145,6 +145,48 @@ test("Drum Buss separates compression, drive, transients, boom and gain staging"
   assert.deepEqual(groups.output.map(p => p.id), ["parameter-12"]);
   assert.deepEqual(groups.mix.map(p => p.id), ["parameter-13"]);
   assert.deepEqual(groups.other, []);
+});
+
+test("Roar preserves three shaper/filter stages and every modulation subsystem", () => {
+  const profile = getFactoryDeviceProfile({ className: "Roar", name: "Renamed Parallel Color" });
+  assert.equal(profile?.id, "roar");
+  const names = ["Device On", "Drive", "Tone Amt", "Tone Freq", "Color On", "Blend", "Low Mid X-Over", "Mid High X-Over",
+    "Stage 1 On", "Shaper 1 On", "Shaper 1 Type", "Shaper 1 Amt", "Shaper 1 Bias", "Shaper 1 Level", "Flt 1 On", "Flt 1 Type", "Flt 1 Freq", "Flt 1 Res", "Flt 1 Morph", "Flt 1 Peak", "Flt 1 Pre On",
+    "Stage 2 On", "Shaper 2 On", "Shaper 2 Type", "Shaper 2 Amt", "Shaper 2 Bias", "Shaper 2 Level", "Flt 2 On", "Flt 2 Type", "Flt 2 Freq", "Flt 2 Res", "Flt 2 Morph", "Flt 2 Peak", "Flt 2 Pre On",
+    "Stage 3 On", "Shaper 3 On", "Shaper 3 Type", "Shaper 3 Amt", "Shaper 3 Bias", "Shaper 3 Level", "Flt 3 On", "Flt 3 Type", "Flt 3 Freq", "Flt 3 Res", "Flt 3 Morph", "Flt 3 Peak", "Flt 3 Pre On",
+    "Feedback", "FB Time Mode", "FB Time", "FB Synced", "FB Note", "FB Freq", "FB Width", "FB Invert", "Fb Gate On",
+    "LFO 1 Rate Mode", "LFO 1 Rate", "LFO 1 Synced Rate", "LFO 1 16th", "LFO 1 Wave", "LFO 1 Morph", "LFO 1 Smooth",
+    "LFO 2 Rate Mode", "LFO 2 Rate", "LFO 2 Synced Rate", "LFO 2 16th", "LFO 2 Wave", "LFO 2 Morph", "LFO 2 Smooth",
+    "Env Gain", "Env Attack", "Env Hold On", "Env Release", "Env Thresh", "Env Freq", "Env Width",
+    "Noise Rate Mode", "Noise Rate", "Noise Synced Rate", "Noise 16th", "Noise Type", "Noise Smooth", "Global Mod Amt",
+    "Comp Amt", "Comp Hp On", "Output", "Dry/Wet", "S/C On", "S/C Gain", "S/C Mix"];
+  const parameters = names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name }));
+  const groups = groupDeviceParameters(profile, parameters);
+  const ids = role => groups[role].map(p => p.id);
+  const range = (start, count) => Array.from({ length: count }, (_, i) => `parameter-${start + i}`);
+  assert.deepEqual(ids("global"), ["parameter-0"]);
+  assert.deepEqual(ids("drive"), ["parameter-1"]);
+  assert.deepEqual(ids("tone"), range(2, 3));
+  assert.deepEqual(ids("routing"), range(5, 3));
+  assert.deepEqual(ids("stageEnabled"), ["parameter-8", "parameter-21", "parameter-34"]);
+  assert.deepEqual(ids("shaper1"), range(9, 5));
+  assert.deepEqual(ids("filter1"), range(14, 7));
+  assert.deepEqual(ids("shaper2"), range(22, 5));
+  assert.deepEqual(ids("filter2"), range(27, 7));
+  assert.deepEqual(ids("shaper3"), range(35, 5));
+  assert.deepEqual(ids("filter3"), range(40, 7));
+  assert.deepEqual(ids("feedback"), range(47, 9));
+  assert.deepEqual(ids("lfo1"), range(56, 7));
+  assert.deepEqual(ids("lfo2"), range(63, 7));
+  assert.deepEqual(ids("envelope"), range(70, 7));
+  assert.deepEqual(ids("noise"), range(77, 6));
+  assert.deepEqual(ids("modulation"), ["parameter-83"]);
+  assert.deepEqual(ids("compression"), range(84, 2));
+  assert.deepEqual(ids("output"), ["parameter-86"]);
+  assert.deepEqual(ids("mix"), ["parameter-87"]);
+  assert.deepEqual(ids("sidechain"), range(88, 3));
+  assert.deepEqual(groups.other, []);
+  assert.equal(Object.values(groups).flat().length, 91);
 });
 
 test("Compressor preserves native roles and distinguishes automatic release from device power", () => {
