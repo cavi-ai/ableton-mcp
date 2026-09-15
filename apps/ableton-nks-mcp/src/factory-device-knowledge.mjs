@@ -99,6 +99,10 @@ const profiles = [
     global: ["device on", "global "], slot1: [/^1 /], slot2: [/^2 /], slot3: [/^3 /], slot4: [/^4 /],
     slot5: [/^5 /], slot6: [/^6 /], slot7: [/^7 /], slot8: [/^8 /]
   }, notes: ["Impulse provides eight independent sample slots. Each slot has the same complete 20-control strip, so preserve slot identity when editing, snapshotting, or generating presets.", "Each slot separates sample start, transpose, velocity and random pitch, two stretch modes, saturator drive, multimode filter, trigger/gate decay envelope, pan, and volume.", "Velocity and random modulation are destination-specific. Transpose, stretch, filter, pan, and volume modulation amounts must not be collapsed into one generic variation control.", "Global Time scales slot envelopes while Global Transpose shifts all slots. Global Volume is output gain; these controls sit above the eight slot strips.", "Use displayValue for milliseconds, seconds, semitones, kilohertz, decibels, percentages, and enumerated modes."] }
+  ,{ id: "ds-kick", name: "DS Kick", type: "instrument", family: "drum-synth", match: ["ds kick"], roles: {
+    global: ["device on"], amplitudeEnvelope: ["attack", "decay"], pitchEnvelope: ["env"], drive: ["overdrive"],
+    oscillator: ["overtone", "phasereset", "pitch"], output: ["volume"], transient: ["click"]
+  }, notes: ["DS Kick is a Max for Live drum synthesizer identified by its exact device name because its native class is shared with other Max instruments.", "Attack and Decay shape amplitude, while Env controls the pitch sweep. Keep the pitch envelope separate from the amplitude envelope.", "Pitch, Overtone, and PhaseReset define the synthesized body and phase behavior. Click adds the transient independently, and Overdrive adds nonlinear weight before output level.", "Use displayValue for percentages and decibels; do not infer a physical unit for the native Pitch control when Live does not expose one."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });
