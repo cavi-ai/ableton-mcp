@@ -575,6 +575,15 @@ def _browser_item_record(item):
     }
 
 
+class _BrowserRootCollection:
+    def __init__(self, name, items):
+        self.name = name
+        self.uri = None
+        self.is_loadable = False
+        self.is_folder = True
+        self.children = items
+
+
 def _browser_item(application, root, path):
     roots = {
         name: name for name in (
@@ -586,6 +595,8 @@ def _browser_item(application, root, path):
     if root not in roots:
         raise ValueError("unknown Live browser root")
     item = getattr(application.browser, roots[root])
+    if root == "user_folders" and not hasattr(item, "children"):
+        item = _BrowserRootCollection("User Folders", item)
     for name in path:
         matches = [child for child in item.children if child.name == name]
         if len(matches) != 1:

@@ -414,6 +414,10 @@ class BrowserItem:
         self.children = tuple(children)
 
 
+class BrowserItemVector(tuple):
+    """Live's user_folders root is a collection, not a BrowserItem."""
+
+
 class Application:
     def __init__(self):
         self.loaded = []
@@ -855,6 +859,20 @@ class DispatchTest(unittest.TestCase):
             "name": "Snare.wav", "uri": "query:snare", "loadable": True, "folder": False,
             "path": ["Splice", "Drums", "Snare.wav"],
         }])
+
+    def test_live_browser_user_folders_vector_supports_listing_and_search(self):
+        application = Application()
+        application.browser.user_folders = BrowserItemVector(
+            application.browser.user_folders.children
+        )
+        listing = dispatch_request(Song(), {"method": "get_browser_items", "params": {
+            "root": "user_folders", "path": [],
+        }}, 3, application)
+        self.assertEqual([item["name"] for item in listing["children"]], ["Splice"])
+        result = dispatch_request(Song(), {"method": "search_browser_items", "params": {
+            "root": "user_folders", "path": [], "query": "snare", "maxDepth": 3, "limit": 10,
+        }}, 3, application)
+        self.assertEqual(result["results"][0]["path"], ["Splice", "Drums", "Snare.wav"])
 
     def test_live_browser_search_honors_depth_and_result_limits(self):
         shallow = dispatch_request(Song(), {"method": "search_browser_items", "params": {
