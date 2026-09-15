@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper", "overdrive", "pedal", "redux", "resonators", "shaper", "shifter", "spectral-resonator", "spectral-time", "spectrum", "surround-panner", "tuner", "vinyl-distortion", "vocoder", "cc-control", "chord", "envelope-midi", "expression-control", "midi-monitor"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper", "overdrive", "pedal", "redux", "resonators", "shaper", "shifter", "spectral-resonator", "spectral-time", "spectrum", "surround-panner", "tuner", "vinyl-distortion", "vocoder", "cc-control", "chord", "envelope-midi", "expression-control", "midi-monitor", "mpe-control"
   ]);
 });
 
@@ -948,6 +948,23 @@ test("MIDI Monitor records the native analyzer boundary without inventing event 
   const groups = groupDeviceParameters(profile, [{ id: "parameter-0", name: "Device On", originalName: "Device On" }]);
   assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
   assert.deepEqual(groups.other, []);
+});
+
+test("MPE Control preserves independent pitch, pressure and slide transfer curves", () => {
+  const profile = getFactoryDeviceProfile({ className: "MxDeviceMidiEffect", name: "MPE Control" });
+  assert.equal(profile?.id, "mpe-control");
+  const names = ["Device On", "Note PB On", "Press Default", "Press On", "Slide Default", "Slide On",
+    "Pitch 1", "Pitch 2", "Pitch Curve", "Pitch Link", "Pitch Max", "Pitch X", "Pitch Y", "Pitch Min",
+    "Press 1", "Press 2", "Press Curve", "Press Link", "Press Max", "Press X", "Press Y", "Press Min",
+    "Slide 1", "Slide 2", "Slide Curve", "Slide Link", "Slide Max", "Slide X", "Slide Y", "Slide Min"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.deepEqual(groups.input.map(p => p.id), Array.from({ length: 5 }, (_, i) => `parameter-${i + 1}`));
+  assert.deepEqual(groups.pitch.map(p => p.id), Array.from({ length: 8 }, (_, i) => `parameter-${i + 6}`));
+  assert.deepEqual(groups.pressure.map(p => p.id), Array.from({ length: 8 }, (_, i) => `parameter-${i + 14}`));
+  assert.deepEqual(groups.slide.map(p => p.id), Array.from({ length: 8 }, (_, i) => `parameter-${i + 22}`));
+  assert.deepEqual(groups.other, []);
+  assert.equal(Object.values(groups).flat().length, 30);
 });
 
 test("Compressor preserves native roles and distinguishes automatic release from device power", () => {

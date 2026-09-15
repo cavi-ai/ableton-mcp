@@ -271,6 +271,11 @@ const profiles = [
   ,{ id: "midi-monitor", name: "MIDI Monitor", type: "midi_effect", family: "midi-analyzer", match: ["midi monitor"], roles: {
     global: ["device on"]
   }, notes: ["MIDI Monitor displays incoming notes, controller messages, pitch bend, pressure, and other MIDI events in Live's device UI. Its public automatable parameter surface exposes only Device On.", "Do not infer event history, note values, channels, or controller data from this profile. Use exact clip-note inspection for stored notes and a future dedicated live-event stream if real-time MIDI diagnostics are required.", "MIDI Monitor is observational and does not transform MIDI. Display filters and clear/history actions are not exposed as device parameters through this API."] }
+  ,{ id: "mpe-control", name: "MPE Control", type: "midi_effect", family: "mpe-processor", match: ["mpe control"], roles: {
+    global: ["device on"], input: ["note pb on", "press default", "press on", "slide default", "slide on"],
+    pitch: [/^pitch (1|2|curve|link|max|x|y|min)/], pressure: [/^press (1|2|curve|link|max|x|y|min)/],
+    slide: [/^slide (1|2|curve|link|max|x|y|min)/]
+  }, notes: ["MPE Control is a Max for Live MIDI effect identified by exact device name because Live reports the generic MxDeviceMidiEffect class. It reshapes per-note pitch bend, pressure, and slide data before it reaches a downstream MPE-capable instrument.", "Note PB On, Press On, and Slide On independently enable each expression lane. Press Default and Slide Default establish values when incoming notes do not provide those dimensions; the exposed surface does not provide a corresponding pitch default.", "Pitch, pressure, and slide each expose two endpoint amounts, Straight or S Shaped curve selection, Link, Min and Max limits, and X/Y midpoint coordinates. Preserve the native bounds and displayValue because the endpoint amounts use -1 to +1 while curve coordinates and limits use MIDI-style 0-127 ranges.", "This device processes live MIDI expression but does not create or edit stored per-note expression curves in a clip. Use dedicated note-expression APIs when clip-level pitch, pressure, or slide editing becomes available."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });
