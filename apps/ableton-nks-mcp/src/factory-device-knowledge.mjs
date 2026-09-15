@@ -103,6 +103,9 @@ const profiles = [
     global: ["device on"], amplitudeEnvelope: ["attack", "decay"], pitchEnvelope: ["env"], drive: ["overdrive"],
     oscillator: ["overtone", "phasereset", "pitch"], output: ["volume"], transient: ["click"]
   }, notes: ["DS Kick is a Max for Live drum synthesizer identified by its exact device name because its native class is shared with other Max instruments.", "Attack and Decay shape amplitude, while Env controls the pitch sweep. Keep the pitch envelope separate from the amplitude envelope.", "Pitch, Overtone, and PhaseReset define the synthesized body and phase behavior. Click adds the transient independently, and Overdrive adds nonlinear weight before output level.", "Use displayValue for percentages and decibels; do not infer a physical unit for the native Pitch control when Live does not expose one."] }
+  ,{ id: "ds-snare", name: "DS Snare", type: "instrument", family: "drum-synth", match: ["ds snare"], roles: {
+    global: ["device on"], noise: ["color", "filter"], envelope: ["decay"], oscillator: ["tone", "tune"], output: ["volume"]
+  }, notes: ["DS Snare is a Max for Live drum synthesizer identified by its exact device name because its native class is shared with other Max instruments.", "Color and the LP, HP, or BP Filter shape the noise component. Tone and Tune control the pitched body independently from that noise path.", "Decay controls the synthesized hit length, and Volume is the final output gain. Preserve filter mode as an enumeration rather than treating it as a continuous cutoff.", "Use displayValue for percentages and decibels; do not infer physical units for Color, Tone, or Tune when Live exposes none."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });
