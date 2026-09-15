@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay"
   ]);
 });
 
@@ -540,6 +540,21 @@ test("Phaser-Flanger preserves dual modulation, envelope, topology and feedback 
   assert.deepEqual(groups.feedback.map(p => p.id), ["parameter-25", "parameter-27", "parameter-28"]);
   assert.deepEqual(groups.color.map(p => p.id), ["parameter-26"]);
   assert.deepEqual(groups.output.map(p => p.id), ["parameter-29", "parameter-30"]);
+  assert.deepEqual(groups.other, []);
+});
+
+test("Align Delay preserves physical units and independent channel alignment", () => {
+  const profile = getFactoryDeviceProfile({ className: "MxDeviceAudioEffect", name: "Align Delay" });
+  assert.equal(profile?.id, "align-delay");
+  assert.equal(getFactoryDeviceProfile({ className: "MxDeviceAudioEffect", name: "Renamed Max Device" }), undefined);
+  const names = ["Device On", "Celsius", "DistUnit", "Fahrenheit", "Left Feet", "Left meter", "Left ms", "Delay L Smp", "Link L/R", "Right Feet", "Right meter", "Right ms", "Delay R smp", "TempUnit", "Mode"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.deepEqual(groups.environment.map(p => p.id), ["parameter-1", "parameter-2", "parameter-3", "parameter-13"]);
+  assert.deepEqual(groups.left.map(p => p.id), ["parameter-4", "parameter-5", "parameter-6", "parameter-7"]);
+  assert.deepEqual(groups.stereo.map(p => p.id), ["parameter-8"]);
+  assert.deepEqual(groups.right.map(p => p.id), ["parameter-9", "parameter-10", "parameter-11", "parameter-12"]);
+  assert.deepEqual(groups.mode.map(p => p.id), ["parameter-14"]);
   assert.deepEqual(groups.other, []);
 });
 
