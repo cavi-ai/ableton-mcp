@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { cp, mkdir, rm } from "node:fs/promises";
 import { realpathSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir, platform as currentPlatform } from "node:os";
 import { defaultRemoteScriptRoots, resolveRuntimeConfig } from "./paths.mjs";
@@ -45,8 +45,10 @@ export async function runCli(argv, dependencies = {}) {
   if (parsed.command === "install") {
     const destinationRoot = option(parsed.args, "--destination") || defaultRemoteScriptRoots({ platform, home })[0];
     const destination = join(destinationRoot, "CaviMcpBridge");
+    const source = join(sourceRoot, "ableton", "Remote Scripts", "CaviMcpBridge");
     await fs.mkdir(destinationRoot, { recursive: true });
-    await fs.cp(join(sourceRoot, "ableton", "Remote Scripts", "CaviMcpBridge"), destination, { recursive: true });
+    await fs.cp(source, destination, { recursive: true,
+      filter: (path) => !relative(source, path).split(sep).some(part => part === "tests" || part === "__pycache__" || part.endsWith(".pyc")) });
     const result = { installed: true, destination, next: "Enable CaviMcpBridge as a Control Surface in Ableton Live preferences." };
     print(result, parsed.json, stdout);
     return result;

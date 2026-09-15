@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, symlink } from "node:fs/promises";
+import { mkdtemp, symlink, mkdir, writeFile, readFile, stat, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
@@ -75,6 +75,23 @@ test("install copies the packaged Remote Script without deleting unrelated files
   assert.equal(writes[1].from, join(source, "ableton", "Remote Scripts", "CaviMcpBridge"));
   assert.equal(writes[1].options.recursive, true);
   assert.equal("force" in writes[1].options, false);
+});
+
+test("install excludes packaged tests and Python caches while copying runtime bridge files", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ableton-mcp-install-filter-"));
+  const source = join(root, "source", "ableton", "Remote Scripts", "CaviMcpBridge");
+  const destination = join(root, "installed");
+  try {
+    await mkdir(join(source, "tests", "__pycache__"), { recursive: true });
+    await mkdir(join(source, "__pycache__"));
+    await writeFile(join(source, "bridge.py"), "runtime bridge\n");
+    await writeFile(join(source, "tests", "test_dispatch.py"), "test-only\n");
+    await writeFile(join(source, "__pycache__", "bridge.pyc"), "cache-only\n");
+    await runCli(["install", "--destination", destination], { sourceRoot: join(root, "source"), stdout: () => {} });
+    assert.equal(await readFile(join(destination, "CaviMcpBridge", "bridge.py"), "utf8"), "runtime bridge\n");
+    await assert.rejects(stat(join(destination, "CaviMcpBridge", "tests")), { code: "ENOENT" });
+    await assert.rejects(stat(join(destination, "CaviMcpBridge", "__pycache__")), { code: "ENOENT" });
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test("doctor reports actionable configuration without requiring the private NKS catalog", async () => {
