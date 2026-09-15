@@ -136,6 +136,11 @@ const profiles = [
     global: ["device on"], speaker: ["cabinet type"], microphone: ["microphone type", "microphone position"],
     channelMode: ["dual mono"], mix: ["dry/wet"]
   }, notes: ["Cabinet models five speaker configurations: 1x12, 2x12, 4x12, 4x10, and 4x10 Bass. It normally follows Amp or another drive stage when speaker coloration is desired.", "Microphone Type selects Condenser or Dynamic, while Microphone Position selects Near On-Axis, Near Off-Axis, or Far. These choices jointly determine brightness, proximity, and room impression.", "Dual Mono processes channels independently and Dry/Wet controls parallel blend. Use 100 percent wet for conventional Amp-to-Cabinet serial chains and blend deliberately for parallel coloration.", "Cabinet has no exposed output trim, so gain-match with Amp Volume or a downstream Utility device."] }
+  ,{ id: "beat-repeat", name: "Beat Repeat", type: "audio_effect", family: "rhythmic-repeat", match: ["beat repeat", "beatrepeat"], roles: {
+    global: ["device on"], timing: ["chance", "interval", "offset", "grid", "block triplets"], variation: ["variation"],
+    pitch: ["pitch decay", "pitch"], envelope: ["gate", "decay"], output: ["mix type", "volume"],
+    filter: ["filter on", "filter freq", "filter width"], performance: ["repeat"]
+  }, notes: ["Beat Repeat captures slices on an Interval and Offset, then repeats them at Grid resolution. Chance controls automatic triggering, while Repeat is the manual performance trigger.", "Block Triplets excludes triplet grid divisions rather than enabling triplet timing. Keep it off when triplet repeat grids must remain available.", "Variation and Variation Type alter repeat-grid behavior. Gate and Decay shape repeat duration and amplitude, while Pitch and Pitch Decay control transposition over the repeat.", "Mix Type selects Mix, Insert, or Gate routing. Volume controls repeated-signal level; the filter has independent enable, center frequency, and width controls.", "Use displayValue for bars, beat fractions, semitones, kilohertz, decibels, percentages, and enumerated modes."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });
