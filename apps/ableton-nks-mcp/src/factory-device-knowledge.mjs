@@ -293,6 +293,10 @@ const profiles = [
     global: ["device on"], probability: ["chance"], distribution: ["choices", "interval", "sign", "mode"],
     scale: ["use current scale"]
   }, notes: ["Random probabilistically changes incoming MIDI pitches. Chance controls how often a note is transformed; Choices and Interval define the number and spacing of available pitch offsets.", "Sign selects Add, Sub, or Bi direction and Mode selects random or alternating traversal. Preserve the native enum values rather than inferring direction from a numeric index.", "Use Current Scale changes interval interpretation to Live's current key and scale. Keep song musical context explicit when deterministic scale-aware results matter.", "Random transforms live MIDI and does not rewrite the source clip. For reproducible output, record or inspect downstream notes and preserve the device state that generated them."] }
+  ,{ id: "scale", name: "Scale", type: "midi_effect", family: "midi-scale-mapper", match: ["midiscale", "scale"], roles: {
+    global: ["device on"], scale: ["base", "internalscale", "use current scale"], transpose: ["transpose"],
+    range: ["fold", "lowest", "range"], mapping: [/^map /]
+  }, notes: ["Scale remaps each incoming pitch class through a twelve-note matrix. Map 0 through Map 11 are independent destinations; preserve every mapping and allow the native -1 value used to disable a source pitch class.", "Base transposes the mapping root. InternalScale selects User or one of Live's factory scale tables, while Use Current Scale binds the mapping to the current song key and scale.", "Transpose applies a chromatic offset after mapping. Fold, Lowest, and Range constrain output to a playable register by folding notes into the selected pitch window.", "Scale transforms live MIDI and does not rewrite source clip pitches. Preserve the song musical context and record or inspect downstream notes when exact mapped output matters."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });
