@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper", "overdrive", "pedal"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper", "overdrive", "pedal", "redux"
   ]);
 });
 
@@ -719,6 +719,19 @@ test("Pedal separates distortion model, tone stack, sub enhancement and output",
   assert.deepEqual(groups.eq.map(p => p.id), ["parameter-4", "parameter-5", "parameter-6", "parameter-7"]);
   assert.deepEqual(groups.sub.map(p => p.id), ["parameter-8"]);
   assert.deepEqual(groups.output.map(p => p.id), ["parameter-3", "parameter-9"]);
+  assert.deepEqual(groups.other, []);
+});
+
+test("Redux separates resampling, quantization, DC shift, filtering and blend", () => {
+  const profile = getFactoryDeviceProfile({ className: "Redux2", name: "Renamed Degrader" });
+  assert.equal(profile?.id, "redux");
+  const names = ["Device On", "Sample Rate", "Jitter", "Bit Depth", "Quantizer Shape", "DC Shift", "Pre-Filter On", "Post-Filter On", "Post-Filter", "Dry/Wet"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.deepEqual(groups.resampling.map(p => p.id), ["parameter-1", "parameter-2"]);
+  assert.deepEqual(groups.quantization.map(p => p.id), ["parameter-3", "parameter-4", "parameter-5"]);
+  assert.deepEqual(groups.filter.map(p => p.id), ["parameter-6", "parameter-7", "parameter-8"]);
+  assert.deepEqual(groups.output.map(p => p.id), ["parameter-9"]);
   assert.deepEqual(groups.other, []);
 });
 

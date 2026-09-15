@@ -205,6 +205,10 @@ const profiles = [
     global: ["device on"], model: ["type"], distortion: ["drive"], eq: ["bass", "mid", "treble"],
     sub: ["sub"], output: ["output", "dry/wet"]
   }, notes: ["Pedal offers Overdrive, Distortion, and Fuzz models. Type changes the nonlinear circuit behavior and Drive sets its intensity.", "Bass, Mid, and Treble form the tone stack. Mid Freq selects Low, Mid, or High focus for the mid control, so interpret both parameters together.", "Sub enables low-frequency enhancement. Check headroom and low-end mono compatibility when using it on bass-heavy material.", "Output provides post-effect trim and Dry/Wet provides parallel blend. Gain-match with Output before comparing models or drive settings."] }
+  ,{ id: "redux", name: "Redux", type: "audio_effect", family: "bit-reduction", match: ["redux", "redux2"], roles: {
+    global: ["device on"], resampling: ["sample rate", "jitter"],
+    quantization: ["bit depth", "quantizer shape", "dc shift"], filter: ["pre-filter", "post-filter"], output: ["dry/wet"]
+  }, notes: ["Redux separates sample-rate reduction from bit-depth quantization. Sample Rate sets the resampling frequency and Jitter randomizes its clock for unstable digital texture.", "Bit Depth controls amplitude resolution and Quantizer Shape changes the quantization transfer curve. DC Shift deliberately offsets the quantizer and can introduce DC energy, so monitor low-frequency headroom.", "Pre-Filter On applies antialias-style filtering before reduction. Post-Filter On enables the reconstruction filter and Post-Filter adjusts its character.", "Dry/Wet provides parallel blend. Redux exposes no separate output trim, so gain-match downstream when comparing degradation settings."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });
