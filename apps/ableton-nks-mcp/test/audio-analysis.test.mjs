@@ -189,6 +189,12 @@ test("transient warp proposal uses native beats and returns reviewable source-pr
     const proposal = reply.result.structuredContent;
     assert.equal(proposal.stateVersion, 4);
     assert.equal(proposal.nativeConversion, true);
+    assert.ok(Array.isArray(proposal.gridAlignment));
+    assert.deepEqual(proposal.gridAlignment.map(({ sourceSeconds, currentBeatTime, nearestGridBeatTime,
+      signedOffsetBeats, inClipRegion }) => ({ sourceSeconds, currentBeatTime, nearestGridBeatTime,
+      signedOffsetBeats, inClipRegion })), [
+      { sourceSeconds: 0.2, currentBeatTime: 0.4, nearestGridBeatTime: 0.5, signedOffsetBeats: -0.1, inClipRegion: true },
+      { sourceSeconds: 0.6, currentBeatTime: 1.2, nearestGridBeatTime: 1, signedOffsetBeats: 0.2, inClipRegion: true }]);
     assert.deepEqual(proposal.actions.map(({ sourceSeconds, currentBeatTime, targetBeatTime, method, sampleTime }) =>
       ({ sourceSeconds, currentBeatTime, targetBeatTime, method, sampleTime })), [
       { sourceSeconds: 0.2, currentBeatTime: 0.4, targetBeatTime: 0.5, method: "add_audio_warp_marker", sampleTime: 0.2 },

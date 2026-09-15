@@ -488,11 +488,15 @@ export class ToolService {
       }
       const after = await this.bridge.request("get_audio_clip_state", target);
       if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error("audio clip changed during transient proposal; retry against current state");
-      const actions = [];
+      const actions = [], gridAlignment = [];
       for (let index = 0; index < candidates.length; index++) {
         const candidate = candidates[index], currentBeatTime = converted.points[index].beatTime;
         const targetBeatTime = Math.round(currentBeatTime / args.gridBeats) * args.gridBeats;
-        if (currentBeatTime < before.markers.startBeats || currentBeatTime > before.markers.endBeats ||
+        const inClipRegion = currentBeatTime >= before.markers.startBeats && currentBeatTime <= before.markers.endBeats;
+        gridAlignment.push({ sourceSeconds: candidate.sourceSeconds, strength: candidate.strength,
+          currentBeatTime, nearestGridBeatTime: targetBeatTime,
+          signedOffsetBeats: Math.round((currentBeatTime - targetBeatTime) * 1e6) / 1e6, inClipRegion });
+        if (!inClipRegion ||
           targetBeatTime <= before.markers.startBeats || targetBeatTime >= before.markers.endBeats ||
           Math.abs(targetBeatTime - currentBeatTime) < 1e-6 ||
           before.warpMarkers.markers.some(marker => Math.abs(marker.beatTime - targetBeatTime) < 1e-6) ||
@@ -504,7 +508,7 @@ export class ToolService {
       }
       return { ...target, stateVersion: after.stateVersion, gridBeats: args.gridBeats,
         nativeConversion: true, sourcePath: before.source.path, sourceWindow: measurement.window,
-        candidateCount: candidates.length, actions,
+        candidateCount: candidates.length, gridAlignment, actions,
         limitation: "Heuristic source-only candidates and review-only actions. Each marker must be dry-run against fresh Live state; neighbor/BPM constraints may reject it. Does not modify or audibly validate the clip." };
     }
     if (name === "get_device_sidechain_routing") return this.bridge.request("get_device_sidechain_routing", args);
