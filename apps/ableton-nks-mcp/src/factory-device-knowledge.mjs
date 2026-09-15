@@ -125,6 +125,9 @@ const profiles = [
     global: ["device on"], resonator: ["1st tone", "2nd tone", "pitch"], articulation: ["claverepeat", "clave"],
     envelope: ["decay"], filter: ["filter"], noise: ["noise"], output: ["volume"]
   }, notes: ["DS Clang is a Max for Live drum synthesizer identified by its exact device name because its native class is shared with other Max instruments.", "First Tone, Second Tone, and Pitch shape the dual resonant body. Keep both tone controls independent when designing metallic percussion.", "Clave enables an alternate articulation and ClaveRepeat controls its repetition behavior. These are articulation controls, not envelope stages.", "Noise and Filter shape the excitation and spectrum, Decay controls duration, and Volume is final output gain. Use displayValue for percentages, decibels, and enumerated states."] }
+  ,{ id: "external-instrument", name: "External Instrument", type: "instrument", family: "routing", match: ["external instrument", "ext. instrument", "proxyinstrumentdevice"], roles: {
+    global: ["device on"], audioReturn: ["input gain"]
+  }, notes: ["External Instrument sends MIDI to external hardware or another routable destination and returns audio into the owning Live track. Its native class is ProxyInstrumentDevice.", "The generic device-parameter API exposes only Device On and Input Gain. MIDI destination, MIDI channel, audio return source, and hardware latency are routing or device-specific UI state and must not be claimed as generic parameters.", "Input Gain controls the returned audio before the rest of the track device chain. Use displayValue for decibels and preserve downstream gain staging.", "Use track routing tools for the owning track where applicable, and verify unavailable device-specific routing fields directly in Live before promising automated recall."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });
