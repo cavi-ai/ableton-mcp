@@ -828,6 +828,57 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(application.loaded[0].name, "Drift")
         self.assertEqual(loaded["stateVersion"], 4)
 
+    def test_factory_load_reports_actual_inserted_device_and_shifted_order(self):
+        song, application = Song(), Application()
+        owner = song.tracks[0]
+        before = dispatch_request(song, {"method": "list_devices", "params": {"trackId": "track-0"}}, 3)
+        application.browser.load_item = lambda item: owner.devices.insert(0, NestedDevice("EQ Eight", "Eq8", 2))
+        loaded = dispatch_request(song, {"method": "load_factory_browser_item", "params": {
+            "root": "instruments", "path": ["Drift"], "trackId": "track-0", "before": before,
+        }}, 3, application)
+        self.assertIn("deviceChainEffect", loaded)
+        self.assertEqual(loaded["deviceChainEffect"], {
+            "kind": "inserted", "insertedIndex": 0, "deviceId": "track-0:device-0",
+            "removedIndices": [], "oldOrderPreserved": True,
+        })
+        self.assertEqual([device["name"] for device in loaded["deviceChain"]["devices"]], ["EQ Eight", "Serum 2"])
+
+    def test_factory_load_reports_replacement_without_claiming_an_append(self):
+        song, application = Song(), Application()
+        owner = song.tracks[0]
+        before = dispatch_request(song, {"method": "list_devices", "params": {"trackId": "track-0"}}, 3)
+        application.browser.load_item = lambda item: owner.devices.__setitem__(0, NestedDevice("Drift", "Drift", 1))
+        loaded = dispatch_request(song, {"method": "load_factory_browser_item", "params": {
+            "root": "instruments", "path": ["Drift"], "trackId": "track-0", "before": before,
+        }}, 3, application)
+        self.assertIn("deviceChainEffect", loaded)
+        self.assertEqual(loaded["deviceChainEffect"]["kind"], "replaced")
+        self.assertEqual(loaded["deviceChainEffect"]["insertedIndex"], 0)
+        self.assertEqual(loaded["deviceChainEffect"]["removedIndices"], [0])
+
+    def test_factory_load_matches_recreated_wrappers_for_the_same_native_device(self):
+        song, application = Song(), Application()
+        owner = song.tracks[0]
+
+        class ProxyDevice(NestedDevice):
+            def __init__(self, key, name):
+                super().__init__(name, "Eq8", 2)
+                self.key = key
+
+            def __eq__(self, other):
+                return isinstance(other, ProxyDevice) and self.key == other.key
+
+        owner.devices = [ProxyDevice("existing-eq", "EQ Eight")]
+        before = dispatch_request(song, {"method": "list_devices", "params": {"trackId": "track-0"}}, 3)
+        application.browser.load_item = lambda item: setattr(owner, "devices", [
+            ProxyDevice("existing-eq", "EQ Eight"), ProxyDevice("new-utility", "Utility")])
+        loaded = dispatch_request(song, {"method": "load_factory_browser_item", "params": {
+            "root": "instruments", "path": ["Drift"], "trackId": "track-0", "before": before,
+        }}, 3, application)
+        self.assertEqual(loaded["deviceChainEffect"]["kind"], "inserted")
+        self.assertEqual(loaded["deviceChainEffect"]["insertedIndex"], 1)
+        self.assertEqual(loaded["deviceChainEffect"]["removedIndices"], [])
+
     def test_live_browser_lists_plugins_and_loads_user_library_items(self):
         song = Song()
         application = Application()

@@ -887,13 +887,35 @@ def dispatch_request(song, request, state_version, application=None):
         current_devices = dispatch_request(song, {"method": "list_devices", "params": {"trackId": params["trackId"]}}, state_version)
         if current_devices != params["before"]:
             raise ValueError("target device chain changed")
+        before_objects = tuple(getattr(track, "devices", ()))
         previous_track = song.view.selected_track
         try:
             song.view.selected_track = track
             application.browser.load_item(item)
         finally:
             song.view.selected_track = previous_track
-        return {"stateVersion": state_version + 1, "trackId": params["trackId"], "loadedItem": _browser_item_record(item)}
+        after_objects = tuple(getattr(track, "devices", ()))
+        added = [index for index, device in enumerate(after_objects)
+                 if not any(device == old for old in before_objects)]
+        removed = [index for index, device in enumerate(before_objects)
+                   if not any(device == new for new in after_objects)]
+        survivors_before = [device for device in before_objects if any(device == new for new in after_objects)]
+        survivors_after = [device for device in after_objects if any(device == old for old in before_objects)]
+        old_order_preserved = len(survivors_before) == len(survivors_after) and all(
+            old == new for old, new in zip(survivors_before, survivors_after))
+        kind = "unconfirmed"
+        if len(added) == 1 and not removed and old_order_preserved:
+            kind = "inserted"
+        elif len(added) == 1 and len(removed) == 1 and added[0] == removed[0] and old_order_preserved:
+            kind = "replaced"
+        elif added or removed or not old_order_preserved:
+            kind = "complex_change"
+        effect = {"kind": kind, "insertedIndex": added[0] if len(added) == 1 else None,
+                  "deviceId": f"{params['trackId']}:device-{added[0]}" if len(added) == 1 else None,
+                  "removedIndices": removed, "oldOrderPreserved": old_order_preserved}
+        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                "loadedItem": _browser_item_record(item), "deviceChainEffect": effect,
+                "deviceChain": dispatch_request(song, {"method": "list_devices", "params": {"trackId": params["trackId"]}}, state_version + 1)}
     if method == "get_set_mixer":
         return _set_mixer(song, state_version)
     if method == "create_return_track":
