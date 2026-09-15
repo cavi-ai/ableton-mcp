@@ -1590,6 +1590,22 @@ class DispatchTest(unittest.TestCase):
         result = dispatch_request(song, {"method": "add_audio_warp_marker", "params": {**params, "before": before}}, 3)
         self.assertEqual(result["warpMarkers"]["markers"][1], {"sampleTime": 0.5, "beatTime": 1.0})
 
+    def test_audio_source_time_conversion_uses_native_clip_mapping_not_sparse_markers(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[2].clip
+        clip.sample_rate = 48000
+        clip.sample_length = 48000
+        clip.warp_markers = tuple(SimpleNamespace(sample_time=s, beat_time=b) for s, b in ((0, 0), (1, 2)))
+        clip.sample_to_beat_time = lambda samples: samples / 24000 + (samples / 48000) ** 2
+        request = {"method": "get_audio_source_beat_times", "params": {
+            "trackId": "track-0", "clipId": "track-0:clip-2", "sourceSeconds": [0.5]}}
+        result = dispatch_request(song, request, 3)
+        self.assertEqual(result["points"], [{"sourceSeconds": 0.5, "beatTime": 1.25}])
+        self.assertEqual(result["stateVersion"], 3)
+        clip.warping = False
+        with self.assertRaisesRegex(ValueError, "warped"):
+            dispatch_request(song, request, 3)
+
     def test_remove_audio_warp_marker_returns_remaining_native_positions(self):
         song = Song()
         clip = song.tracks[0].clip_slots[2].clip

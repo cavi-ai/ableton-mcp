@@ -995,6 +995,31 @@ def dispatch_request(song, request, state_version, application=None):
         return _device_sidechain_routing(song, track_id, device_id, state_version + 1)
     if method == "get_audio_clip_state":
         return _audio_clip_state(song, params["trackId"], params["clipId"], state_version)
+    if method == "get_audio_source_beat_times":
+        track_id, clip_id = params["trackId"], params["clipId"]
+        clip, _ = _audio_clip(song, track_id, clip_id)
+        if not clip.warping:
+            raise ValueError("warped audio clip required for source-time conversion")
+        convert = getattr(clip, "sample_to_beat_time", None)
+        rate = getattr(clip, "sample_rate", None)
+        length = getattr(clip, "sample_length", None)
+        if not callable(convert) or not isinstance(rate, (int, float)) or not math.isfinite(rate) or rate <= 0:
+            raise ValueError("native audio source-to-beat conversion unavailable")
+        if not isinstance(length, (int, float)) or not math.isfinite(length) or length <= 0:
+            raise ValueError("native audio source length unavailable")
+        seconds = params.get("sourceSeconds")
+        if not isinstance(seconds, list) or not 1 <= len(seconds) <= 256:
+            raise ValueError("sourceSeconds must contain one to 256 positions")
+        points = []
+        for source in seconds:
+            if isinstance(source, bool) or not isinstance(source, (int, float)) or not math.isfinite(source) or not 0 <= source * rate <= length:
+                raise ValueError("sourceSeconds position is outside the audio source")
+            beat = convert(source * rate)
+            if isinstance(beat, bool) or not isinstance(beat, (int, float)) or not math.isfinite(beat):
+                raise ValueError("native source-to-beat conversion returned an invalid position")
+            points.append({"sourceSeconds": source, "beatTime": float(beat)})
+        return {"stateVersion": state_version, "trackId": track_id, "clipId": clip_id,
+                "sourcePath": getattr(clip, "file_path", None), "conversion": "native", "points": points}
     if method == "set_audio_clip_state":
         track_id, clip_id = params["trackId"], params["clipId"]
         clip, _ = _audio_clip(song, track_id, clip_id)
