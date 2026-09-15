@@ -56,6 +56,7 @@ const toolNames = [
   "get_clip_timing",
   "set_clip_timing",
   "create_track",
+  "create_return_track",
   "create_scene",
   "rename_session_object",
   "duplicate_session_object",

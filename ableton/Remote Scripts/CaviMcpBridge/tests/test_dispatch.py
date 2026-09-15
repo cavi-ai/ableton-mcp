@@ -1131,6 +1131,27 @@ class DispatchTest(unittest.TestCase):
         self.assertTrue(returned["return"]["mute"])
         self.assertEqual(returned["return"]["pan"]["value"], 0.5)
 
+    def test_create_return_track_appends_named_bus_and_rejects_stale_bus_list(self):
+        song = Song()
+        song.begin_undo_step = lambda: song.undo_boundaries.append("begin")
+        song.end_undo_step = lambda: song.undo_boundaries.append("end")
+        def create_return_track():
+            mixer = lambda: type("Mixer", (), {
+                "volume": type("Value", (), {"value": 0.6, "min": 0.0, "max": 1.0})(),
+                "panning": type("Value", (), {"value": 0.0, "min": -1.0, "max": 1.0})(),
+            })()
+            song.return_tracks.append(type("ReturnTrack", (), {
+                "name": "Audio", "mixer_device": mixer(), "mute": False, "solo": False,
+            })())
+        song.create_return_track = create_return_track
+        before = dispatch_request(song, {"method": "get_set_mixer"}, 3)["returns"]
+        params = {"beforeReturns": before, "name": "Parallel Crush"}
+        result = dispatch_request(song, {"method": "create_return_track", "params": params}, 3)
+        self.assertEqual(result["return"], {"id": "return-1", "name": "Parallel Crush"})
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+        with self.assertRaisesRegex(ValueError, "return tracks changed"):
+            dispatch_request(song, {"method": "create_return_track", "params": params}, 4)
+
     def test_audio_clip_state_reads_and_writes_warp_pitch_gain_and_markers(self):
         song = Song()
         params = {"trackId": "track-0", "clipId": "track-0:clip-2"}

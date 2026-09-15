@@ -834,6 +834,30 @@ def dispatch_request(song, request, state_version, application=None):
         return {"stateVersion": state_version + 1, "trackId": params["trackId"], "loadedItem": _browser_item_record(item)}
     if method == "get_set_mixer":
         return _set_mixer(song, state_version)
+    if method == "create_return_track":
+        before = _set_mixer(song, state_version)["returns"]
+        if before != params["beforeReturns"]:
+            raise ValueError("return tracks changed")
+        name = params["name"]
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("return track name must not be empty")
+        if not callable(getattr(song, "create_return_track", None)):
+            raise ValueError("Live does not expose return track creation")
+        index = len(song.return_tracks)
+        song.begin_undo_step()
+        try:
+            song.create_return_track()
+            if len(song.return_tracks) != index + 1:
+                raise RuntimeError("Live did not append exactly one return track")
+            song.return_tracks[index].name = name
+        except Exception:
+            if len(song.return_tracks) == index + 1 and callable(getattr(song, "delete_return_track", None)):
+                song.delete_return_track(index)
+            raise
+        finally:
+            song.end_undo_step()
+        return {"stateVersion": state_version + 1,
+                "return": {"id": f"return-{index}", "name": song.return_tracks[index].name}}
     if method == "set_master_mixer":
         mixer = song.master_track.mixer_device
         if "outputChannelId" in params["changes"]:

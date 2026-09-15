@@ -25,6 +25,8 @@ Read operations expose Live status, playhead, transport-recording, metronome, an
 
 See [Shared instrument audio buses](docs/shared-instrument-buses.md) for building processed buses with separate instrument children, routing verification, processing order, and explicit group/template limitations.
 
+`create_return_track` appends a guarded shared-effects bus through Live's native API. Live 12.4.5 does not expose Group Track creation or ungrouping to Remote Scripts, so `get_live_state.nativeApiSupport` reports those boundaries instead of advertising nonfunctional controls.
+
 See [Native saving and recall](docs/native-saving-and-recall.md) for Live Set and device-preset UI workflows, recall checks, and the current MCP/CLI boundaries.
 
 `get_browser_items` traverses one exact level of Live's factory, plug-in, Pack, Max for Live, project, legacy-library, or user-content hierarchy. `search_browser_items` performs a depth- and result-bounded name search below any exact browser path, including mapped Splice folders under User Folders, and returns paths directly usable by `load_browser_item`. Loading resolves the reviewed root/path again at execution time and loads only a unique loadable item onto the guarded target track. The earlier `get_factory_browser_items` and `load_factory_browser_item` names remain compatible aliases.

@@ -494,6 +494,7 @@ export class ToolService {
     if (name === "set_transport_context") return this.#setTransportContext(args);
     if (name === "set_clip_timing") return this.#setClipTiming(args);
     if (name === "create_track") return this.#createTrack(args);
+    if (name === "create_return_track") return this.#createReturnTrack(args);
     if (name === "create_scene") return this.#createScene(args);
     if (name === "rename_session_object") return this.#renameSessionObject(args);
     if (name === "duplicate_session_object") return this.#duplicateSessionObject(args);
@@ -1200,6 +1201,16 @@ export class ToolService {
     return this.#confirmedMutation({
       method: "create_track", expectedStateVersion: args.expectedStateVersion,
       type: args.type, index, name: sessionName(args.name), before: insertionContext(observed.tracks, index)
+    }, args);
+  }
+
+  async #createReturnTrack(args) {
+    requireExpectedState(args);
+    const observed = await this.bridge.request("get_set_mixer", {});
+    assertExpectedState(args, observed);
+    return this.#confirmedMutation({
+      method: "create_return_track", expectedStateVersion: args.expectedStateVersion,
+      name: sessionName(args.name), beforeReturns: observed.returns
     }, args);
   }
 

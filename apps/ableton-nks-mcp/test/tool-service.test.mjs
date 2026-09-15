@@ -66,6 +66,25 @@ test("rack chain creation confirms exact hierarchy and validates insertion", asy
   assert.equal(calls.at(-1).method, "create_rack_chain");
 });
 
+test("return track creation binds the current bus list and requires a nonempty name", async () => {
+  const before = { stateVersion: 4, returns: [{ id: "return-0", name: "Reverb" }] };
+  const calls = [];
+  const service = new ToolService({ bridge: { async request(method, params) {
+    calls.push({ method, params });
+    if (method === "get_set_mixer") return before;
+    if (method === "create_return_track") return { stateVersion: 5, return: { id: "return-1", name: params.name } };
+    throw new Error(method);
+  } } });
+  const args = { expectedStateVersion: 4, name: "Parallel Crush" };
+  const dry = await service.call("create_return_track", args);
+  assert.deepEqual(dry.plan.beforeReturns, before.returns);
+  await assert.rejects(() => service.call("create_return_track", { ...args, name: "  " }), /non-empty string/);
+  const result = await service.call("create_return_track", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.deepEqual(result.observed.return, { id: "return-1", name: "Parallel Crush" });
+  assert.equal(calls.at(-1).method, "create_return_track");
+});
+
 function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 1, velocity: 100,
   velocityDeviation: 0, releaseVelocity: 64, probability: 1, mute: false }] } = {}) {
   const calls = [];
