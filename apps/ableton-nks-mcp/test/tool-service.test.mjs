@@ -947,6 +947,17 @@ test("device listing forwards Return and Main owner IDs", async () => {
   assert.deepEqual(calls.slice(-2).map(({ params }) => params.trackId), ["return-0", "master"]);
 });
 
+test("device lifecycle planning preserves Return and Main owner identity", async () => {
+  const { service } = fixture();
+  for (const trackId of ["return-0", "master"]) {
+    const devices = await service.call("list_devices", { trackId });
+    const deviceId = devices.devices[0].id;
+    const dry = await service.call("delete_device", { trackId, deviceId, expectedStateVersion: devices.stateVersion });
+    assert.equal(dry.plan.trackId, trackId);
+    assert.equal(dry.plan.beforeDevice.id, deviceId);
+  }
+});
+
 test("device reordering requires exact state and confirmation", async () => {
   const { service, calls } = fixture();
   const original = service.bridge.request.bind(service.bridge);

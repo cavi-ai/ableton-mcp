@@ -2264,6 +2264,29 @@ class DispatchTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     dispatch_request(song, {"method": "list_devices", "params": {"trackId": owner_id}}, 1)
 
+    def test_device_lifecycle_supports_return_and_master_owners(self):
+        for owner_id in ["return-0", "master"]:
+            with self.subTest(owner_id=owner_id):
+                song = Song()
+                owner = song.return_tracks[0] if owner_id == "return-0" else song.master_track
+                owner.devices = [Device(), Device()]
+                owner.delete_device = lambda index, owner=owner: owner.devices.pop(index)
+                device_id = f"{owner_id}:device-0"
+                hierarchy = dispatch_request(song, {"method": "get_device_hierarchy", "params": {
+                    "trackId": owner_id, "deviceId": device_id,
+                }}, 3)
+                parameters = dispatch_request(song, {"method": "list_device_parameters", "params": {
+                    "trackId": owner_id, "deviceId": device_id,
+                }}, 3)
+                self.assertEqual(hierarchy["device"]["id"], device_id)
+                self.assertEqual(parameters["deviceId"], device_id)
+                deleted = dispatch_request(song, {"method": "delete_device", "params": {
+                    "trackId": owner_id, "deviceId": device_id,
+                    "beforeDevice": {"name": owner.devices[0].name, "className": owner.devices[0].class_name},
+                }}, 3)
+                self.assertEqual(deleted["deletedDevice"]["id"], device_id)
+                self.assertEqual(len(owner.devices), 1)
+
     def test_clip_resolution_rejects_negative_and_noncanonical_slot_ids(self):
         song = Song()
         song.tracks[0].clip_slots = [song.tracks[0].clip_slots[0]] * 2

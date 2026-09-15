@@ -103,8 +103,8 @@ def _track_type(track):
 
 
 def _device(song, track_id, device_id):
-    track_index, track = _track(song, track_id)
-    expected = f"track-{track_index}:device-"
+    owner_id, track = _device_owner(song, track_id)
+    expected = f"{owner_id}:device-"
     if not device_id.startswith(expected):
         raise ValueError("deviceId does not belong to trackId")
     parts = device_id.removeprefix(expected).split("/")
@@ -1675,7 +1675,7 @@ def dispatch_request(song, request, state_version, application=None):
             song.end_undo_step()
         # Moving a sibling can change the rack's positional ID. Resolve its current
         # location from the target track rather than returning the pre-move path.
-        _, target_track = _track(song, params["targetTrackId"])
+        _, target_track = _device_owner(song, params["targetTrackId"])
         def find_rack(devices, prefix):
             for index, candidate in enumerate(devices):
                 candidate_id = f"{prefix}{index}"
