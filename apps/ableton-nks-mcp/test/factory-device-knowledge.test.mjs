@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper", "overdrive", "pedal", "redux", "resonators"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper", "overdrive", "pedal", "redux", "resonators", "shaper"
   ]);
 });
 
@@ -751,6 +751,20 @@ test("Resonators preserves five independent tuned voices and shared processing",
   assert.deepEqual(groups.voice3.map(p => p.id), names.slice(22, 27).map((_, index) => `parameter-${index + 22}`));
   assert.deepEqual(groups.voice4.map(p => p.id), names.slice(27, 32).map((_, index) => `parameter-${index + 27}`));
   assert.deepEqual(groups.voice5.map(p => p.id), names.slice(32, 37).map((_, index) => `parameter-${index + 32}`));
+  assert.deepEqual(groups.other, []);
+});
+
+test("Shaper preserves duplicate rates, curve settings, trigger behavior and range", () => {
+  const profile = getFactoryDeviceProfile({ className: "MxDeviceAudioEffect", name: "Shaper" });
+  assert.equal(profile?.id, "shaper");
+  const names = ["Device On", "Depth", "Rate", "GridSize", "Jitter", "Manual", "Trigger", "Offset", "Phase", "Re-Trigger", "Smooth", "Rate", "Snap", "Time Mode", "Trigger Mode"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.deepEqual(groups.range.map(p => p.id), ["parameter-1", "parameter-7"]);
+  assert.deepEqual(groups.timing.map(p => p.id), ["parameter-2", "parameter-11", "parameter-13"]);
+  assert.deepEqual(groups.curve.map(p => p.id), ["parameter-3", "parameter-10", "parameter-12"]);
+  assert.deepEqual(groups.behavior.map(p => p.id), ["parameter-4", "parameter-5", "parameter-6", "parameter-9", "parameter-14"]);
+  assert.deepEqual(groups.phase.map(p => p.id), ["parameter-8"]);
   assert.deepEqual(groups.other, []);
 });
 
