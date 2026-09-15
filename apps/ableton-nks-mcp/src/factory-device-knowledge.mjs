@@ -289,6 +289,10 @@ const profiles = [
     global: ["device on"], transpose: ["pitch"], range: ["lowest", "range", "mode"],
     scale: ["use current scale"], fold: ["step width"]
   }, notes: ["Pitch transposes incoming MIDI notes chromatically with Pitch or diatonically with Pitch Scale Degrees. Use Current Scale binds scale-degree operations to Live's current song key and scale.", "Lowest and Range define the accepted pitch window. Mode selects Block, Fold, or Limit behavior for notes that would fall outside that window.", "Step Width controls chromatic folding and Step Width Scale Degrees controls scale-aware folding. Keep both values explicit because they use semitone and scale-degree units respectively.", "The native Pitch control spans -128 to +128 semitones and the scale-degree control spans -30 to +30. This device transforms live MIDI and does not rewrite the source clip; inspect downstream notes when exact post-transform pitches matter."] }
+  ,{ id: "random", name: "Random", type: "midi_effect", family: "midi-randomizer", match: ["midirandom", "random"], roles: {
+    global: ["device on"], probability: ["chance"], distribution: ["choices", "interval", "sign", "mode"],
+    scale: ["use current scale"]
+  }, notes: ["Random probabilistically changes incoming MIDI pitches. Chance controls how often a note is transformed; Choices and Interval define the number and spacing of available pitch offsets.", "Sign selects Add, Sub, or Bi direction and Mode selects random or alternating traversal. Preserve the native enum values rather than inferring direction from a numeric index.", "Use Current Scale changes interval interpretation to Live's current key and scale. Keep song musical context explicit when deterministic scale-aware results matter.", "Random transforms live MIDI and does not rewrite the source clip. For reproducible output, record or inspect downstream notes and preserve the device state that generated them."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });
