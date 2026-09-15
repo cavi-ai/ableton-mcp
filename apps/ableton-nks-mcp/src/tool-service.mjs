@@ -241,17 +241,28 @@ function normalizeBrowserSearch(args) {
 }
 
 export class ToolService {
-  constructor({ bridge, catalog, komplete = unavailableKomplete, confirmations = new ConfirmationStore() }) {
+  constructor({ bridge, catalog, komplete = unavailableKomplete, confirmations = new ConfirmationStore(), snapshotLibrary }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
     this.komplete = komplete;
+    this.snapshotLibrary = snapshotLibrary;
   }
 
   async call(name, args = {}) {
     if (name === "capture_device_chain_snapshot") return this.#captureDeviceChainSnapshot(args);
     if (name === "recall_device_chain_snapshot") return this.#recallDeviceChainSnapshot(args);
     if (name === "capture_track_state_snapshot") return this.#captureTrackStateSnapshot(args);
+    if (name === "save_track_state_snapshot") {
+      if (!this.snapshotLibrary) throw new Error("track snapshot library is not configured");
+      const capture = await this.#captureTrackStateSnapshot(args);
+      return { ...await this.snapshotLibrary.save(args.name, capture.snapshot), trackId: args.trackId,
+        stateVersion: capture.stateVersion, limitation: capture.limitation };
+    }
+    if (name === "load_track_state_snapshot") {
+      if (!this.snapshotLibrary) throw new Error("track snapshot library is not configured");
+      return this.snapshotLibrary.load(args.name);
+    }
     if (name === "recall_track_state_snapshot") return this.#recallTrackStateSnapshot(args);
     if (name === "capture_device_parameter_snapshot") {
       const target = { trackId: args.trackId, deviceId: args.deviceId };

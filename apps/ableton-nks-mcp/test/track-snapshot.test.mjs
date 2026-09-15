@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ToolService } from '../src/tool-service.mjs';
+import { SnapshotLibrary } from '../src/snapshot-library.mjs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 
-function fixture() {
+function fixture(snapshotLibrary) {
   const track = { id: 'track-0', name: 'Bass Bus', type: 'midi', isGroup: false, isGrouped: false, groupTrackId: null };
   const device = { id: 'track-0:device-0', name: 'EQ Three', className: 'FilterEQ3', type: 'audio_effect' };
   const parameters = [{ id: 'parameter-0', name: 'Low Gain', originalName: 'GainLo', min: 0, max: 1,
@@ -28,8 +31,22 @@ function fixture() {
     }
     throw new Error(method);
   } };
-  return { service: new ToolService({ bridge }), native };
+  return { service: new ToolService({ bridge, snapshotLibrary }), native };
 }
+
+test('saved track capture is readable as JSON for guarded recall', async () => {
+  const directory = await mkdtemp(`${tmpdir()}/cavi-track-library-test-`);
+  try {
+    const { service } = fixture(new SnapshotLibrary({ directory }));
+    const saved = await service.call('save_track_state_snapshot', { trackId: 'track-0', name: 'bass-chain' });
+    assert.equal(saved.stateVersion, 7);
+    assert.equal(saved.name, 'bass-chain');
+    const loaded = await service.call('load_track_state_snapshot', { name: 'bass-chain' });
+    assert.equal(loaded.snapshot.track.name, 'Bass Bus');
+    assert.equal(loaded.snapshot.devices[0].className, 'FilterEQ3');
+    await assert.rejects(() => service.call('save_track_state_snapshot', { trackId: 'track-0', name: 'bass-chain' }), /already exists/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
 
 test('track snapshot captures one consistent JSON state for mixer routing and ordered top-level devices', async () => {
   const { service } = fixture();
