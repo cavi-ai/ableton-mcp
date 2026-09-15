@@ -112,6 +112,9 @@ const profiles = [
   ,{ id: "ds-tom", name: "DS Tom", type: "instrument", family: "drum-synth", match: ["ds tom"], roles: {
     global: ["device on"], noise: ["color"], envelope: ["decay"], oscillator: ["pitch", "tone"], pitchEnvelope: ["bend"], output: ["volume"]
   }, notes: ["DS Tom is a Max for Live drum synthesizer identified by its exact device name because its native class is shared with other Max instruments.", "Pitch and Tone shape the resonant drum body, while Bend controls its pitch contour. Preserve Bend as a pitch-envelope control rather than a static tuning offset.", "Color controls the noise component independently from the pitched body. Decay sets the hit length and Volume is final output gain.", "Use displayValue for percentages and decibels; do not infer physical units for Pitch, Tone, or Color when Live exposes none."] }
+  ,{ id: "ds-hh", name: "DS HH", type: "instrument", family: "drum-synth", match: ["ds hh"], roles: {
+    global: ["device on"], envelope: ["attack", "decay"], filter: ["slope", "tone"], noise: ["noise"], oscillator: ["pitch"], output: ["volume"]
+  }, notes: ["DS HH is a Max for Live drum synthesizer identified by its exact device name because its native class is shared with other Max instruments.", "Attack and Decay define the exposed amplitude envelope. The device does not expose a separate open/closed articulation parameter through Live's parameter surface.", "Noise selects White or Pink excitation. Tone and the 12 or 24 dB Slope form the spectral filter controls, while Pitch changes the metallic oscillator component.", "Volume is final output gain. Use displayValue for percentages, decibels, and enumerated choices; do not infer an articulation control that Live does not expose."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });
