@@ -66,7 +66,7 @@ npm run cli -- resource ableton://set/tracks --json
 npm run cli -- call list_devices --args '{"trackId":"track-0"}' --json
 ```
 
-`install` copies only `CaviMcpBridge` into the user-level Ableton Remote Scripts directory. It does not modify Ableton application bundles. Enable **CaviMcpBridge** as a Control Surface in Ableton Live preferences after installation.
+`install` copies only `CaviMcpBridge` into the user-level Ableton Remote Scripts directory by default. Enable **CaviMcpBridge** as a Control Surface in Ableton Live preferences after installation. On the tested Live 12.4.5 installation, an older copy of the same script inside the application bundle shadowed both the User Library and profile-directory copies. In that case, update only the existing custom script using `ableton-mcp install --destination "/Applications/Ableton Live 12 Suite.app/Contents/App-Resources/MIDI Remote Scripts"`, then restart Live. Application updates may replace this copy, so re-check the installed script after updating Live. This explicitly targeted install modifies the application bundle; the default install does not.
 
 Use `ableton-mcp uninstall` to remove only that installed script directory. Pass `--destination <Remote Scripts path>` when the Ableton User Library is in a non-default location.
 
