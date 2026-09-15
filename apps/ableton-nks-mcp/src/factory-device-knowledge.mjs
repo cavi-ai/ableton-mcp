@@ -106,6 +106,9 @@ const profiles = [
   ,{ id: "ds-snare", name: "DS Snare", type: "instrument", family: "drum-synth", match: ["ds snare"], roles: {
     global: ["device on"], noise: ["color", "filter"], envelope: ["decay"], oscillator: ["tone", "tune"], output: ["volume"]
   }, notes: ["DS Snare is a Max for Live drum synthesizer identified by its exact device name because its native class is shared with other Max instruments.", "Color and the LP, HP, or BP Filter shape the noise component. Tone and Tune control the pitched body independently from that noise path.", "Decay controls the synthesized hit length, and Volume is the final output gain. Preserve filter mode as an enumeration rather than treating it as a continuous cutoff.", "Use displayValue for percentages and decibels; do not infer physical units for Color, Tone, or Tune when Live exposes none."] }
+  ,{ id: "ds-clap", name: "DS Clap", type: "instrument", family: "drum-synth", match: ["ds clap"], roles: {
+    global: ["device on"], envelope: ["decay", "tail"], burst: ["sloppy", "spread"], spectrum: ["tone", "tune"], output: ["volume"]
+  }, notes: ["DS Clap is a Max for Live drum synthesizer identified by its exact device name because its native class is shared with other Max instruments.", "Sloppy and Spread shape the multi-burst timing and variation that form the clap attack. They are distinct from Decay and Tail, which shape the sound's duration.", "Tone and Tune control spectral character and pitch independently from burst timing. Volume is the final output gain.", "Use displayValue for percentages and decibels; do not infer physical units where Live exposes none."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });

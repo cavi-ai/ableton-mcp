@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap"
   ]);
 });
 
@@ -371,6 +371,19 @@ test("DS Snare separates noise color, filter, decay, tone and tuning", () => {
   assert.deepEqual(groups.envelope.map(p => p.id), ["parameter-2"]);
   assert.deepEqual(groups.oscillator.map(p => p.id), ["parameter-4", "parameter-5"]);
   assert.deepEqual(groups.output.map(p => p.id), ["parameter-6"]);
+  assert.deepEqual(groups.other, []);
+});
+
+test("DS Clap separates burst timing, envelope and spectral controls", () => {
+  const profile = getFactoryDeviceProfile({ className: "MxDeviceInstrument", classDisplayName: "Max Instrument", name: "DS Clap" });
+  assert.equal(profile?.id, "ds-clap");
+  const names = ["Device On", "Decay", "Sloppy", "Spread", "Tail", "Tone", "Tune", "Volume"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.deepEqual(groups.envelope.map(p => p.id), ["parameter-1", "parameter-4"]);
+  assert.deepEqual(groups.burst.map(p => p.id), ["parameter-2", "parameter-3"]);
+  assert.deepEqual(groups.spectrum.map(p => p.id), ["parameter-5", "parameter-6"]);
+  assert.deepEqual(groups.output.map(p => p.id), ["parameter-7"]);
   assert.deepEqual(groups.other, []);
 });
 
