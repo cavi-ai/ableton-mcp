@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss"
   ]);
 });
 
@@ -126,6 +126,25 @@ test("Multiband Dynamics separates crossovers and each three-band dynamics stage
   assert.deepEqual(ids("sidechain"), ["parameter-35", "parameter-36", "parameter-37"]);
   assert.deepEqual(groups.other, []);
   assert.equal(Object.values(groups).flat().length, names.length);
+});
+
+test("Drum Buss separates compression, drive, transients, boom and gain staging", () => {
+  const profile = getFactoryDeviceProfile({ className: "DrumBuss", name: "Renamed Drum Weight" });
+  assert.equal(profile?.id, "drum-buss");
+  const names = ["Device On", "Compressor On", "Drive", "Drive Type", "Crunch", "Damping Freq", "Transients",
+    "Boom Freq", "Boom Amt", "Boom Decay", "Boom Audition", "Trim", "Output", "Dry/Wet"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.deepEqual(groups.compression.map(p => p.id), ["parameter-1"]);
+  assert.deepEqual(groups.drive.map(p => p.id), ["parameter-2", "parameter-3"]);
+  assert.deepEqual(groups.crunch.map(p => p.id), ["parameter-4"]);
+  assert.deepEqual(groups.damping.map(p => p.id), ["parameter-5"]);
+  assert.deepEqual(groups.transient.map(p => p.id), ["parameter-6"]);
+  assert.deepEqual(groups.boom.map(p => p.id), ["parameter-7", "parameter-8", "parameter-9", "parameter-10"]);
+  assert.deepEqual(groups.trim.map(p => p.id), ["parameter-11"]);
+  assert.deepEqual(groups.output.map(p => p.id), ["parameter-12"]);
+  assert.deepEqual(groups.mix.map(p => p.id), ["parameter-13"]);
+  assert.deepEqual(groups.other, []);
 });
 
 test("Compressor preserves native roles and distinguishes automatic release from device power", () => {

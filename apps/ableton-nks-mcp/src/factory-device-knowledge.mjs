@@ -50,6 +50,10 @@ const profiles = [
     aboveThreshold: ["above threshold"], belowThreshold: ["below threshold"], aboveRatio: ["above ratio"], belowRatio: ["below ratio"],
     timing: ["attack time", "release time"], output: ["output"]
   }, notes: ["Crossover values are logarithmic native values; use displayValue for Hz. Attack and release values are also logarithmic; use displayValue for milliseconds.", "Above and Below Threshold and Ratio form separate upward/downward dynamics stages for each Low, Mid, and High band. Do not treat a raw ratio value as the displayed compression or expansion ratio.", "Amount and Time Scaling affect the complete processor. Band input and output gains, band activators, and the final Output are separate gain stages.", "Sidechain controls do not identify the external source. Use the dedicated device-sidechain routing workflow and read the current native routing choices."] }
+  ,{ id: "drum-buss", name: "Drum Buss", type: "audio_effect", family: "drum-processing", match: ["drum buss", "drumbuss"], roles: {
+    global: ["device on"], compression: ["compressor on"], drive: ["drive"], crunch: ["crunch"], damping: ["damping freq"],
+    transient: ["transients"], boom: ["boom"], trim: ["trim"], output: ["output"], mix: ["dry/wet"]
+  }, notes: ["Drive, Crunch, Damping Freq, Boom controls, Trim, Output, and Dry/Wet expose normalized raw values; use displayValue for frequency, dB, and percentages.", "Drive Type selects Soft, Medium, or Hard independently from Drive amount. Compressor On is a fixed internal compression stage, not a full compressor parameter set.", "Transients is bipolar. Boom Freq, Amount, Decay, and Audition form a separate tuned low-frequency resonator; audition is monitoring state, not normal processing output.", "Trim precedes the final Output control in the exposed gain staging. Compare processing at matched level before judging tone or dynamics."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });
