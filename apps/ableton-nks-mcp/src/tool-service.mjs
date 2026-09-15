@@ -459,6 +459,54 @@ export class ToolService {
     if (name === "get_clip_parameter_envelope") return this.bridge.request("get_clip_parameter_envelope", args);
     if (name === "get_clip_timing") return this.bridge.request("get_clip_timing", args);
     if (name === "get_audio_clip_state") return this.bridge.request("get_audio_clip_state", args);
+    if (name === "get_audio_source_beat_times") {
+      const result = await this.bridge.request("get_audio_source_beat_times", args);
+      if (result.trackId !== args.trackId || result.clipId !== args.clipId) throw new Error("audio clip identity mismatch");
+      if (result.conversion !== "native" || result.points?.length !== args.sourceSeconds.length ||
+        result.points.some((point, index) => point.sourceSeconds !== args.sourceSeconds[index] || !Number.isFinite(point.beatTime))) {
+        throw new Error("invalid native source-time conversion response");
+      }
+      return result;
+    }
+    if (name === "propose_audio_transient_warp") {
+      const target = { trackId: args.trackId, clipId: args.clipId };
+      const before = await this.bridge.request("get_audio_clip_state", target);
+      if (before.trackId !== target.trackId || before.clipId !== target.clipId) throw new Error("audio clip identity mismatch");
+      if (!before.warping || !before.warpMarkers?.supported || before.markers?.unit !== "beats") throw new Error("warped audio marker API required");
+      if (typeof before.source?.path !== "string" || !before.source.path) throw new Error("clip source file is unavailable");
+      const measurement = await analyzeAudioFile(before.source.path, { startSeconds: args.startSeconds,
+        durationSeconds: args.durationSeconds, channelIndex: args.channelIndex, includeTransients: true });
+      const candidates = measurement.transients.candidates;
+      const converted = candidates.length ? await this.bridge.request("get_audio_source_beat_times", {
+        ...target, sourceSeconds: candidates.map(candidate => candidate.sourceSeconds)
+      }) : null;
+      if (converted && (converted.trackId !== target.trackId || converted.clipId !== target.clipId ||
+        converted.stateVersion !== before.stateVersion || converted.sourcePath !== before.source.path ||
+        converted.conversion !== "native" || converted.points?.length !== candidates.length ||
+        converted.points.some((point, index) => point.sourceSeconds !== candidates[index].sourceSeconds || !Number.isFinite(point.beatTime)))) {
+        throw new Error("native conversion does not match the observed audio clip");
+      }
+      const after = await this.bridge.request("get_audio_clip_state", target);
+      if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error("audio clip changed during transient proposal; retry against current state");
+      const actions = [];
+      for (let index = 0; index < candidates.length; index++) {
+        const candidate = candidates[index], currentBeatTime = converted.points[index].beatTime;
+        const targetBeatTime = Math.round(currentBeatTime / args.gridBeats) * args.gridBeats;
+        if (currentBeatTime < before.markers.startBeats || currentBeatTime > before.markers.endBeats ||
+          targetBeatTime <= before.markers.startBeats || targetBeatTime >= before.markers.endBeats ||
+          Math.abs(targetBeatTime - currentBeatTime) < 1e-6 ||
+          before.warpMarkers.markers.some(marker => Math.abs(marker.beatTime - targetBeatTime) < 1e-6) ||
+          actions.some(action => Math.abs(action.targetBeatTime - targetBeatTime) < 1e-6)) continue;
+        const existing = before.warpMarkers.markers.find(marker => Math.abs(marker.sampleTime - candidate.sourceSeconds) < 1e-6);
+        actions.push({ sourceSeconds: candidate.sourceSeconds, strength: candidate.strength, currentBeatTime,
+          targetBeatTime, method: existing ? "move_audio_warp_marker" : "add_audio_warp_marker",
+          ...(existing ? { beatTime: existing.beatTime } : { beatTime: targetBeatTime, sampleTime: candidate.sourceSeconds }) });
+      }
+      return { ...target, stateVersion: after.stateVersion, gridBeats: args.gridBeats,
+        nativeConversion: true, sourcePath: before.source.path, sourceWindow: measurement.window,
+        candidateCount: candidates.length, actions,
+        limitation: "Heuristic source-only candidates and review-only actions. Each marker must be dry-run against fresh Live state; neighbor/BPM constraints may reject it. Does not modify or audibly validate the clip." };
+    }
     if (name === "get_device_sidechain_routing") return this.bridge.request("get_device_sidechain_routing", args);
     if (name === "analyze_audio_file") return analyzeAudioFile(args.sourcePath, args);
     if (name === "analyze_audio_clip") {

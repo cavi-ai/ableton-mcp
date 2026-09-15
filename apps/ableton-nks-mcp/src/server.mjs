@@ -65,6 +65,8 @@ const toolNames = [
   "duplicate_session_object",
   "delete_session_object",
   "get_audio_clip_state",
+  "get_audio_source_beat_times",
+  "propose_audio_transient_warp",
   "get_device_sidechain_routing",
   "set_device_sidechain_routing",
   "analyze_audio_file",

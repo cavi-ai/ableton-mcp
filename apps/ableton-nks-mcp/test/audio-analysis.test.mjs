@@ -149,6 +149,53 @@ test("transient analysis reports timed source onsets through file and clip tools
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+test("native source-time tool rejects a response for another audio clip", async () => {
+  const service = new ToolService({ bridge: { async request(method, target) {
+    assert.equal(method, "get_audio_source_beat_times");
+    assert.deepEqual(target, { trackId: "track-2", clipId: "track-2:clip-0", sourceSeconds: [0.2] });
+    return { stateVersion: 4, trackId: "track-3", clipId: "track-3:clip-0", sourcePath: "/tmp/pulse.wav",
+      conversion: "native", points: [{ sourceSeconds: 0.2, beatTime: 0.4 }] };
+  } } });
+  await assert.rejects(() => service.call("get_audio_source_beat_times", {
+    trackId: "track-2", clipId: "track-2:clip-0", sourceSeconds: [0.2] }), /audio clip identity mismatch/);
+});
+
+test("transient warp proposal uses native beats and returns reviewable source-preserving marker actions", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cavi-warp-proposals-"));
+  try {
+    const sourcePath = join(directory, "pulses.wav");
+    await promisify(execFile)("ffmpeg", ["-nostdin", "-v", "error", "-f", "lavfi", "-i",
+      "aevalsrc=if(between(t\\,0.2\\,0.22)\\,0.8\\,if(between(t\\,0.6\\,0.62)\\,0.8\\,0)):s=48000:d=1",
+      "-c:a", "pcm_f32le", sourcePath]);
+    const clipState = { stateVersion: 4, trackId: "track-2", clipId: "track-2:clip-0", location: "session",
+      timeline: null, source: { path: sourcePath, lengthSamples: 48000 }, gain: { value: 0.4, min: 0, max: 1, displayValue: "0.00 dB" },
+      pitch: { coarse: 0, fine: 0 }, warping: true, warpMode: { value: 0, name: "beats", choices: [] },
+      warpMarkers: { supported: true, markers: [{ sampleTime: 0, beatTime: 0 }, { sampleTime: 0.015625, beatTime: 0.03125 }] },
+      markers: { unit: "beats", startBeats: 0, endBeats: 2 }, loop: { enabled: false, unit: "beats", startBeats: 0, endBeats: 2 } };
+    const service = new ToolService({ bridge: { async request(method, target) {
+      if (method === "get_audio_clip_state") {
+        assert.deepEqual(target, { trackId: "track-2", clipId: "track-2:clip-0" });
+        return clipState;
+      }
+      assert.equal(method, "get_audio_source_beat_times");
+      assert.deepEqual(target, { trackId: "track-2", clipId: "track-2:clip-0", sourceSeconds: [0.2, 0.6] });
+      return { stateVersion: 4, trackId: "track-2", clipId: "track-2:clip-0", sourcePath,
+        conversion: "native", points: [{ sourceSeconds: 0.2, beatTime: 0.4 }, { sourceSeconds: 0.6, beatTime: 1.2 }] };
+    } } });
+    const reply = await createRouter(service)({ id: 1, method: "tools/call", params: {
+      name: "propose_audio_transient_warp", arguments: { trackId: "track-2", clipId: "track-2:clip-0",
+        gridBeats: 0.5, startSeconds: 0.1, durationSeconds: 0.8 } } });
+    assert.equal(reply.error, undefined);
+    const proposal = reply.result.structuredContent;
+    assert.equal(proposal.stateVersion, 4);
+    assert.equal(proposal.nativeConversion, true);
+    assert.deepEqual(proposal.actions.map(({ sourceSeconds, currentBeatTime, targetBeatTime, method, sampleTime }) =>
+      ({ sourceSeconds, currentBeatTime, targetBeatTime, method, sampleTime })), [
+      { sourceSeconds: 0.2, currentBeatTime: 0.4, targetBeatTime: 0.5, method: "add_audio_warp_marker", sampleTime: 0.2 },
+      { sourceSeconds: 0.6, currentBeatTime: 1.2, targetBeatTime: 1, method: "add_audio_warp_marker", sampleTime: 0.6 }]);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("pitch analysis reports time-varying notes and unvoiced frames across the source window", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cavi-pitch-trajectory-"));
   try {
