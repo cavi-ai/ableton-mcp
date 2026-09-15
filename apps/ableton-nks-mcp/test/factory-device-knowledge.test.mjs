@@ -63,6 +63,33 @@ test("EQ Eight separates shared controls from each A-B band stage", () => {
     resonance: [8, 13], other: [] })) assert.deepEqual(ids(role), expected, role);
 });
 
+test("MultiSampler separates volume and filter envelopes from sample playback", () => {
+  const profile = getFactoryDeviceProfile({ className: "MultiSampler", name: "Sampler" });
+  const names = ["Device On", "Reverse", "Snap", "Sample Selector", "Osc On", "Spread", "Key Zone Shift",
+    "Glide Mode", "Glide Time", "Time", "Time < Key", "Transpose", "Detune", "Pitch < LFO",
+    "Pe On", "Volume", "Vol < Vel", "Vol < LFO", "Pan", "Pan < Rnd", "Pan < LFO",
+    "Ve Attack", "Ve Init", "Ve A Slope", "Ve Decay", "Ve Peak", "Ve D Slope", "Ve Sustain",
+    "Ve Release", "Ve R Slope", "Ve Mode", "Ve Loop", "Ve Retrig", "Ve R < Vel",
+    "Fade In", "Trigger Mode", "Fade Out", "F On", "Filter Type", "Filter Circuit - LP/HP",
+    "Filter Circuit - BP/NO/Morph", "Filter Slope", "Filter Freq", "Filter Res", "Filter Morph",
+    "Filter Drive", "Fe On", "Fe < Env", "Fe Attack", "Fe Init", "Fe A Slope", "Fe Decay",
+    "Fe Peak", "Fe D Slope", "Fe Sustain", "Fe Release", "Fe R Slope", "Fe Mode",
+    "Fe End", "Fe Loop", "Fe Retrig", "Fe R < Vel", "Filt < Key", "Filt < Vel",
+    "Filt < LFO", "Shaper On", "L 1 On", "L 2 On", "L 3 On", "Ae On"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({
+    id: `parameter-${index}`, name, originalName: name
+  })));
+  const ids = role => (groups[role] || []).map(parameter => Number(parameter.id.slice(10)));
+  for (const [role, expected] of Object.entries({ global: [0], samplePlayback: [1, 2, 34, 35, 36],
+    sampleSelection: [3, 6], oscillator: [4, 5], glide: [7, 8, 9, 10], pitch: [11, 12],
+    pitchModulation: [13], pitchEnvelopeState: [14], output: [15], volumeResponse: [16, 17],
+    stereo: [18, 19, 20], volumeEnvelope: [21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33],
+    filter: [37, 38, 39, 40, 41, 42, 43, 44, 45],
+    filterEnvelope: [46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61],
+    filterModulation: [62, 63, 64], shaperState: [65], lfoState: [66, 67, 68],
+    aeState: [69], other: [] })) assert.deepEqual(ids(role), expected, role);
+});
+
 test("Wavetable native identity separates envelope and filter destinations", () => {
   const profile = getFactoryDeviceProfile({ className: "InstrumentVector", name: "Renamed Bass" });
   assert.equal(profile?.id, "wavetable");
