@@ -118,6 +118,9 @@ const profiles = [
   ,{ id: "ds-cymbal", name: "DS Cymbal", type: "instrument", family: "drum-synth", match: ["ds cymbal"], roles: {
     global: ["device on"], envelope: ["decay"], oscillator: ["pitch", "tone"], output: ["volume"]
   }, notes: ["DS Cymbal is a Max for Live drum synthesizer identified by its exact device name because its native class is shared with other Max instruments.", "The complete Live-exposed surface is Device On, Decay, Pitch, Tone, and Volume. The device does not expose separate resonator, noise, or damping controls through Live parameters.", "Decay shapes duration, Pitch and Tone define the metallic body, and Volume is final output gain.", "Use displayValue for percentages and decibels; do not invent physical units or hidden synthesis controls."] }
+  ,{ id: "ds-fm", name: "DS FM", type: "instrument", family: "drum-synth", match: ["ds fm"], roles: {
+    global: ["device on"], modulation: ["amount", "feedb.", "mod"], envelope: ["decay"], oscillator: ["pitch", "tone"], output: ["volume"]
+  }, notes: ["DS FM is a Max for Live drum synthesizer identified by its exact device name because its native class is shared with other Max instruments.", "Amount, Mod, and Feedback form the exposed FM interaction controls. Live does not expose separate carrier and modulator envelopes or a velocity-response control for this device.", "Decay shapes hit duration, Pitch and Tone set the synthesized body, and Volume is final output gain.", "Use displayValue for percentages and decibels; do not infer hidden operator structure or physical units beyond the native surface."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });
