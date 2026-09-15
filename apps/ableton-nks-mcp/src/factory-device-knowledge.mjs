@@ -201,6 +201,10 @@ const profiles = [
     global: ["device on"], filter: ["filter freq", "filter width"], distortion: ["drive", "tone"],
     dynamics: ["preserve dynamics"], output: ["dry/wet"]
   }, notes: ["Overdrive filters the signal before its nonlinear stage. Filter Freq chooses the center frequency and Filter Width sets the affected bandwidth, letting distortion focus on a selected spectral region.", "Drive controls distortion intensity and Tone adjusts the resulting brightness. Preserve Dynamics retains more input-level movement instead of flattening the signal into constant saturation.", "Dry/Wet provides parallel blend, but there is no separate output trim in the exposed surface. Use a downstream Utility or rack gain stage for level-matched comparisons.", "Use displayValue for frequency, percentages, and filter width rather than treating raw values as engineering units."] }
+  ,{ id: "pedal", name: "Pedal", type: "audio_effect", family: "distortion", match: ["pedal"], roles: {
+    global: ["device on"], model: ["type"], distortion: ["drive"], eq: ["bass", "mid", "treble"],
+    sub: ["sub"], output: ["output", "dry/wet"]
+  }, notes: ["Pedal offers Overdrive, Distortion, and Fuzz models. Type changes the nonlinear circuit behavior and Drive sets its intensity.", "Bass, Mid, and Treble form the tone stack. Mid Freq selects Low, Mid, or High focus for the mid control, so interpret both parameters together.", "Sub enables low-frequency enhancement. Check headroom and low-end mono compatibility when using it on bass-heavy material.", "Output provides post-effect trim and Dry/Wet provides parallel blend. Gain-match with Output before comparing models or drive settings."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });
