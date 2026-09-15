@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper", "overdrive", "pedal", "redux", "resonators", "shaper", "shifter", "spectral-resonator", "spectral-time", "spectrum", "surround-panner", "tuner", "vinyl-distortion", "vocoder", "cc-control", "chord", "envelope-midi"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper", "overdrive", "pedal", "redux", "resonators", "shaper", "shifter", "spectral-resonator", "spectral-time", "spectrum", "surround-panner", "tuner", "vinyl-distortion", "vocoder", "cc-control", "chord", "envelope-midi", "expression-control"
   ]);
 });
 
@@ -922,6 +922,24 @@ test("Envelope MIDI preserves ADSR slopes, repeat behavior and timing modes", ()
   assert.deepEqual(groups.envelope.map(p => p.id), Array.from({ length: 9 }, (_, i) => `parameter-${i + 4}`));
   assert.deepEqual(groups.timing.map(p => p.id), ["parameter-13", "parameter-14", "parameter-15"]);
   assert.deepEqual(groups.other, []);
+});
+
+test("Expression Control preserves every repeated five-lane shaping block", () => {
+  const profile = getFactoryDeviceProfile({ className: "MxDeviceMidiEffect", name: "Expression Control" });
+  assert.equal(profile?.id, "expression-control");
+  const names = ["Device On"];
+  for (const name of ["Curve A", "Curve B", "Link", "Max", "Min", "Curve Type", "Steps", "Mid X", "Mid Y", "Mod Amount", "Random Amt", "Range Max", "Range Min", "Fall", "Rise", "Smooth Type"]) names.push(...Array(5).fill(name));
+  names.push("Source 1", "Source 2", "Source 3", "Source 4", "Source 5");
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.equal(groups.curve.length, 30);
+  assert.equal(groups.link.length, 5);
+  assert.equal(groups.range.length, 20);
+  assert.equal(groups.modulation.length, 10);
+  assert.equal(groups.smoothing.length, 15);
+  assert.deepEqual(groups.source.map(p => p.id), ["parameter-81", "parameter-82", "parameter-83", "parameter-84", "parameter-85"]);
+  assert.deepEqual(groups.other, []);
+  assert.equal(Object.values(groups).flat().length, 86);
 });
 
 test("Compressor preserves native roles and distinguishes automatic release from device power", () => {
