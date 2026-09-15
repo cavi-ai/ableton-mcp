@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from bridge import SocketBridge, dispatch_request, _device_type, _persisted_device_chain
+from bridge import SocketBridge, dispatch_request, _device_type, _persisted_device_chain, _track_topology_signature
 
 
 class Parameter:
@@ -624,6 +624,34 @@ class DispatchTest(unittest.TestCase):
         self.assertNotIn("error", client.messages[-1], client.messages[-1])
         self.assertEqual(client.messages[-1]["result"]["stateVersion"], first_version + 1)
         self.assertEqual(client.messages[-1]["result"]["tracks"][1]["groupTrackId"], "track-0")
+
+    def test_topology_signature_ignores_fresh_live_object_wrappers(self):
+        class TrackProxy:
+            def __init__(self, token, parent=None):
+                self.token = token
+                self.parent = parent
+                self.is_grouped = parent is not None
+                self.is_foldable = token == "bus"
+
+            @property
+            def group_track(self):
+                return TrackProxy(self.parent) if self.parent else None
+
+            def __eq__(self, other):
+                return isinstance(other, TrackProxy) and self.token == other.token
+
+        class ProxiedSong:
+            parent = "bus"
+
+            @property
+            def tracks(self):
+                return (TrackProxy("bus"), TrackProxy("child", self.parent))
+
+        song = ProxiedSong()
+        before = _track_topology_signature(song)
+        self.assertEqual(_track_topology_signature(song), before)
+        song.parent = None
+        self.assertNotEqual(_track_topology_signature(song), before)
 
     def test_arrangement_cue_point_lifecycle_and_jump(self):
         song = Song()

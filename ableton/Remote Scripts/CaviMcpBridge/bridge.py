@@ -2036,8 +2036,8 @@ def dispatch_request(song, request, state_version, application=None):
 
 
 def _track_topology_signature(song):
-    return tuple((id(track), bool(getattr(track, "is_foldable", False)),
-                  id(getattr(track, "group_track", None)) if bool(getattr(track, "is_grouped", False)) else None)
+    return tuple((track, bool(getattr(track, "is_foldable", False)),
+                  getattr(track, "group_track", None) if bool(getattr(track, "is_grouped", False)) else None)
                  for track in song.tracks)
 
 
