@@ -1243,6 +1243,13 @@ def dispatch_request(song, request, state_version, application=None):
         target = params["target"]
         if target["targetType"] == "track":
             _, item = _track(song, target["targetId"])
+        elif target["targetType"] == "return":
+            suffix = target["targetId"].removeprefix("return-")
+            if not suffix.isascii() or not suffix.isdigit() or str(int(suffix)) != suffix or int(suffix) >= len(song.return_tracks):
+                raise ValueError("return track is unavailable")
+            item = song.return_tracks[int(suffix)]
+            if item.name != target["previousName"]:
+                raise ValueError("return track identity changed")
         elif target["targetType"] == "scene":
             item = song.scenes[int(target["targetId"].removeprefix("scene-"))]
         else:

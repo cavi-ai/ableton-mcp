@@ -1152,6 +1152,16 @@ class DispatchTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "return tracks changed"):
             dispatch_request(song, {"method": "create_return_track", "params": params}, 4)
 
+    def test_rename_return_track_requires_exact_current_identity(self):
+        song = Song()
+        target = {"targetType": "return", "targetId": "return-0",
+                  "previousName": "Reverb", "name": "Short Verb"}
+        result = dispatch_request(song, {"method": "rename_session_object", "params": {"target": target}}, 3)
+        self.assertEqual(result["target"]["name"], "Short Verb")
+        self.assertEqual(song.return_tracks[0].name, "Short Verb")
+        with self.assertRaisesRegex(ValueError, "return track identity changed"):
+            dispatch_request(song, {"method": "rename_session_object", "params": {"target": target}}, 4)
+
     def test_audio_clip_state_reads_and_writes_warp_pitch_gain_and_markers(self):
         song = Song()
         params = {"trackId": "track-0", "clipId": "track-0:clip-2"}

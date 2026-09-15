@@ -85,6 +85,23 @@ test("return track creation binds the current bus list and requires a nonempty n
   assert.equal(calls.at(-1).method, "create_return_track");
 });
 
+test("return track rename binds the exact current bus identity", async () => {
+  const before = { stateVersion: 4, returns: [{ id: "return-0", name: "A-Reverb" }] };
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_set_mixer") return before;
+    if (method === "rename_session_object") return { stateVersion: 5,
+      target: { ...params.target, name: "A-Short Verb" } };
+    throw new Error(method);
+  } } });
+  const args = { targetType: "return", targetId: "return-0", name: "Short Verb", expectedStateVersion: 4 };
+  const dry = await service.call("rename_session_object", args);
+  assert.equal(dry.plan.target.previousName, "A-Reverb");
+  const result = await service.call("rename_session_object", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.observed.target.name, "A-Short Verb");
+  await assert.rejects(() => service.call("rename_session_object", { ...args, targetId: "return-2" }), /unknown return/);
+});
+
 function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 1, velocity: 100,
   velocityDeviation: 0, releaseVelocity: 64, probability: 1, mute: false }] } = {}) {
   const calls = [];
