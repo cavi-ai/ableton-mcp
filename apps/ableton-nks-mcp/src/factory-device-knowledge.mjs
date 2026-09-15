@@ -109,6 +109,9 @@ const profiles = [
   ,{ id: "ds-clap", name: "DS Clap", type: "instrument", family: "drum-synth", match: ["ds clap"], roles: {
     global: ["device on"], envelope: ["decay", "tail"], burst: ["sloppy", "spread"], spectrum: ["tone", "tune"], output: ["volume"]
   }, notes: ["DS Clap is a Max for Live drum synthesizer identified by its exact device name because its native class is shared with other Max instruments.", "Sloppy and Spread shape the multi-burst timing and variation that form the clap attack. They are distinct from Decay and Tail, which shape the sound's duration.", "Tone and Tune control spectral character and pitch independently from burst timing. Volume is the final output gain.", "Use displayValue for percentages and decibels; do not infer physical units where Live exposes none."] }
+  ,{ id: "ds-tom", name: "DS Tom", type: "instrument", family: "drum-synth", match: ["ds tom"], roles: {
+    global: ["device on"], noise: ["color"], envelope: ["decay"], oscillator: ["pitch", "tone"], pitchEnvelope: ["bend"], output: ["volume"]
+  }, notes: ["DS Tom is a Max for Live drum synthesizer identified by its exact device name because its native class is shared with other Max instruments.", "Pitch and Tone shape the resonant drum body, while Bend controls its pitch contour. Preserve Bend as a pitch-envelope control rather than a static tuning offset.", "Color controls the noise component independently from the pitched body. Decay sets the hit length and Volume is final output gain.", "Use displayValue for percentages and decibels; do not infer physical units for Pitch, Tone, or Color when Live exposes none."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });
