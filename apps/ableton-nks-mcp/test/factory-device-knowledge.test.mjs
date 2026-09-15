@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics"
   ]);
 });
 
@@ -95,6 +95,37 @@ test("Channel EQ preserves its high-pass, three bands and output gain", () => {
   assert.deepEqual(groups.highBand.map(p => p.id), ["parameter-5"]);
   assert.deepEqual(groups.output.map(p => p.id), ["parameter-6"]);
   assert.deepEqual(groups.other, []);
+});
+
+test("Multiband Dynamics separates crossovers and each three-band dynamics stage", () => {
+  const profile = getFactoryDeviceProfile({ className: "MultibandDynamics", name: "Renamed Master Dynamics" });
+  assert.equal(profile?.id, "multiband-dynamics");
+  const names = ["Device On", "Low-Mid Crossover", "Mid-High Crossover", "Soft Knee On/Off", "Peak/RMS Mode", "Output",
+    "Amount", "Time Scaling", "Output Gain (Low)", "Output Gain (Mid)", "Output Gain (High)", "Input Gain (Low)",
+    "Input Gain (Mid)", "Input Gain (High)", "Band Activator (Low)", "Band Activator (Mid)", "Band Activator (High)",
+    "Above Threshold (Low)", "Above Threshold (Mid)", "Above Threshold (High)", "Below Threshold (Low)",
+    "Below Threshold (Mid)", "Below Threshold (High)", "Above Ratio (Low)", "Above Ratio (Mid)", "Above Ratio (High)",
+    "Below Ratio (Low)", "Below Ratio (Mid)", "Below Ratio (High)", "Attack Time (Low)", "Attack Time (Mid)",
+    "Attack Time (High)", "Release Time (Low)", "Release Time (Mid)", "Release Time (High)", "S/C On", "S/C Gain", "S/C Mix"];
+  const parameters = names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name }));
+  const groups = groupDeviceParameters(profile, parameters);
+  const ids = role => groups[role].map(p => p.id);
+  assert.deepEqual(ids("global"), ["parameter-0"]);
+  assert.deepEqual(ids("crossover"), ["parameter-1", "parameter-2"]);
+  assert.deepEqual(ids("detector"), ["parameter-3", "parameter-4"]);
+  assert.deepEqual(ids("output"), ["parameter-5"]);
+  assert.deepEqual(ids("globalControl"), ["parameter-6", "parameter-7"]);
+  assert.deepEqual(ids("bandOutput"), ["parameter-8", "parameter-9", "parameter-10"]);
+  assert.deepEqual(ids("bandInput"), ["parameter-11", "parameter-12", "parameter-13"]);
+  assert.deepEqual(ids("bandEnabled"), ["parameter-14", "parameter-15", "parameter-16"]);
+  assert.deepEqual(ids("aboveThreshold"), ["parameter-17", "parameter-18", "parameter-19"]);
+  assert.deepEqual(ids("belowThreshold"), ["parameter-20", "parameter-21", "parameter-22"]);
+  assert.deepEqual(ids("aboveRatio"), ["parameter-23", "parameter-24", "parameter-25"]);
+  assert.deepEqual(ids("belowRatio"), ["parameter-26", "parameter-27", "parameter-28"]);
+  assert.deepEqual(ids("timing"), Array.from({ length: 6 }, (_, i) => `parameter-${i + 29}`));
+  assert.deepEqual(ids("sidechain"), ["parameter-35", "parameter-36", "parameter-37"]);
+  assert.deepEqual(groups.other, []);
+  assert.equal(Object.values(groups).flat().length, names.length);
 });
 
 test("Compressor preserves native roles and distinguishes automatic release from device power", () => {

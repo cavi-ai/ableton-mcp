@@ -44,6 +44,12 @@ const profiles = [
   ,{ id: "channel-eq", name: "Channel EQ", type: "audio_effect", family: "equalizer", match: ["channel eq", "channeleq"], roles: {
     global: ["device on"], highpass: ["highpass"], lowBand: ["low gain"], midBand: ["mid gain", "mid freq"], highBand: ["high gain"], output: ["output"]
   }, notes: ["Low, Mid, High, and Output expose normalized raw values; use native displayValue for dB. Mid Freq is normalized and should be read through displayValue for Hz.", "Highpass On is a dedicated low-cut switch. The low and high bands have fixed frequency behavior; only the mid band exposes a center-frequency control."] }
+  ,{ id: "multiband-dynamics", name: "Multiband Dynamics", type: "audio_effect", family: "multiband-dynamics", match: ["multiband dynamics", "multibanddynamics"], roles: {
+    global: ["device on"], crossover: ["crossover"], detector: ["soft knee", "peak/rms"], sidechain: ["s/c"],
+    globalControl: ["amount", "time scaling"], bandOutput: ["output gain"], bandInput: ["input gain"], bandEnabled: ["band activator"],
+    aboveThreshold: ["above threshold"], belowThreshold: ["below threshold"], aboveRatio: ["above ratio"], belowRatio: ["below ratio"],
+    timing: ["attack time", "release time"], output: ["output"]
+  }, notes: ["Crossover values are logarithmic native values; use displayValue for Hz. Attack and release values are also logarithmic; use displayValue for milliseconds.", "Above and Below Threshold and Ratio form separate upward/downward dynamics stages for each Low, Mid, and High band. Do not treat a raw ratio value as the displayed compression or expansion ratio.", "Amount and Time Scaling affect the complete processor. Band input and output gains, band activators, and the final Output are separate gain stages.", "Sidechain controls do not identify the external source. Use the dedicated device-sidechain routing workflow and read the current native routing choices."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });
