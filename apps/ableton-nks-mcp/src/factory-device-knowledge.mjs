@@ -132,6 +132,10 @@ const profiles = [
     global: ["device on"], model: ["amp type"], toneStack: ["bass", "middle", "treble", "presence"],
     gain: ["input gain", "volume"], channelMode: ["dual mono"], mix: ["dry/wet"]
   }, notes: ["Amp models seven amplifier families: Clean, Boost, Blues, Rock, Lead, Heavy, and Bass. Model changes alter the response of the tone stack and gain structure, so read enabled state and displayValue after switching.", "Bass, Middle, Treble, and Presence form the amplifier tone stack. They are not interchangeable with a downstream corrective EQ.", "Input Gain drives the amplifier model while Volume controls output level. Preserve that distinction when gain matching or building parallel distortion chains.", "Dual Mono processes left and right independently, while Dry/Wet controls parallel blend. Cabinet is a separate Live device and should normally follow Amp when speaker coloration is desired."] }
+  ,{ id: "cabinet", name: "Cabinet", type: "audio_effect", family: "speaker-simulation", match: ["cabinet"], roles: {
+    global: ["device on"], speaker: ["cabinet type"], microphone: ["microphone type", "microphone position"],
+    channelMode: ["dual mono"], mix: ["dry/wet"]
+  }, notes: ["Cabinet models five speaker configurations: 1x12, 2x12, 4x12, 4x10, and 4x10 Bass. It normally follows Amp or another drive stage when speaker coloration is desired.", "Microphone Type selects Condenser or Dynamic, while Microphone Position selects Near On-Axis, Near Off-Axis, or Far. These choices jointly determine brightness, proximity, and room impression.", "Dual Mono processes channels independently and Dry/Wet controls parallel blend. Use 100 percent wet for conventional Amp-to-Cabinet serial chains and blend deliberately for parallel coloration.", "Cabinet has no exposed output trim, so gain-match with Amp Volume or a downstream Utility device."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });

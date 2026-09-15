@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet"
   ]);
 });
 
@@ -476,6 +476,19 @@ test("Amp separates model, tone stack, gain staging, channel mode and mix", () =
   assert.deepEqual(groups.gain.map(p => p.id), ["parameter-6", "parameter-7"]);
   assert.deepEqual(groups.channelMode.map(p => p.id), ["parameter-8"]);
   assert.deepEqual(groups.mix.map(p => p.id), ["parameter-9"]);
+  assert.deepEqual(groups.other, []);
+});
+
+test("Cabinet separates speaker, microphone, channel mode and mix", () => {
+  const profile = getFactoryDeviceProfile({ className: "Cabinet", name: "Renamed Speaker" });
+  assert.equal(profile?.id, "cabinet");
+  const names = ["Device On", "Cabinet Type", "Microphone Type", "Microphone Position", "Dual Mono", "Dry/Wet"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.deepEqual(groups.speaker.map(p => p.id), ["parameter-1"]);
+  assert.deepEqual(groups.microphone.map(p => p.id), ["parameter-2", "parameter-3"]);
+  assert.deepEqual(groups.channelMode.map(p => p.id), ["parameter-4"]);
+  assert.deepEqual(groups.mix.map(p => p.id), ["parameter-5"]);
   assert.deepEqual(groups.other, []);
 });
 
