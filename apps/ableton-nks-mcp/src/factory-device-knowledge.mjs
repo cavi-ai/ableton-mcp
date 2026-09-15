@@ -128,6 +128,10 @@ const profiles = [
   ,{ id: "external-instrument", name: "External Instrument", type: "instrument", family: "routing", match: ["external instrument", "ext. instrument", "proxyinstrumentdevice"], roles: {
     global: ["device on"], audioReturn: ["input gain"]
   }, notes: ["External Instrument sends MIDI to external hardware or another routable destination and returns audio into the owning Live track. Its native class is ProxyInstrumentDevice.", "The generic device-parameter API exposes only Device On and Input Gain. MIDI destination, MIDI channel, audio return source, and hardware latency are routing or device-specific UI state and must not be claimed as generic parameters.", "Input Gain controls the returned audio before the rest of the track device chain. Use displayValue for decibels and preserve downstream gain staging.", "Use track routing tools for the owning track where applicable, and verify unavailable device-specific routing fields directly in Live before promising automated recall."] }
+  ,{ id: "amp", name: "Amp", type: "audio_effect", family: "amplifier", match: ["amp"], roles: {
+    global: ["device on"], model: ["amp type"], toneStack: ["bass", "middle", "treble", "presence"],
+    gain: ["input gain", "volume"], channelMode: ["dual mono"], mix: ["dry/wet"]
+  }, notes: ["Amp models seven amplifier families: Clean, Boost, Blues, Rock, Lead, Heavy, and Bass. Model changes alter the response of the tone stack and gain structure, so read enabled state and displayValue after switching.", "Bass, Middle, Treble, and Presence form the amplifier tone stack. They are not interchangeable with a downstream corrective EQ.", "Input Gain drives the amplifier model while Volume controls output level. Preserve that distinction when gain matching or building parallel distortion chains.", "Dual Mono processes left and right independently, while Dry/Wet controls parallel blend. Cabinet is a separate Live device and should normally follow Amp when speaker coloration is desired."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });

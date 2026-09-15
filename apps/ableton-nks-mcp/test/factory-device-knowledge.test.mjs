@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp"
   ]);
 });
 
@@ -462,6 +462,20 @@ test("External Instrument preserves its complete exposed audio-return surface", 
   const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
   assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
   assert.deepEqual(groups.audioReturn.map(p => p.id), ["parameter-1"]);
+  assert.deepEqual(groups.other, []);
+});
+
+test("Amp separates model, tone stack, gain staging, channel mode and mix", () => {
+  const profile = getFactoryDeviceProfile({ className: "Amp", name: "Renamed Amp" });
+  assert.equal(profile?.id, "amp");
+  const names = ["Device On", "Amp Type", "Bass", "Middle", "Treble", "Presence", "Input Gain", "Volume", "Dual Mono", "Dry/Wet"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.deepEqual(groups.model.map(p => p.id), ["parameter-1"]);
+  assert.deepEqual(groups.toneStack.map(p => p.id), ["parameter-2", "parameter-3", "parameter-4", "parameter-5"]);
+  assert.deepEqual(groups.gain.map(p => p.id), ["parameter-6", "parameter-7"]);
+  assert.deepEqual(groups.channelMode.map(p => p.id), ["parameter-8"]);
+  assert.deepEqual(groups.mix.map(p => p.id), ["parameter-9"]);
   assert.deepEqual(groups.other, []);
 });
 
