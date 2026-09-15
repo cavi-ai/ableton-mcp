@@ -415,13 +415,24 @@ export class ToolService {
         throw new Error("device context changed between reads");
       const parameterGroups = groupDeviceParameters(profile, observed.parameters);
       const unmappedIds = parameterGroups.other.map(parameter => parameter.id);
+      const configuredPluginControls = device.className === "PluginDevice"
+        ? observed.parameters.filter(parameter =>
+            (parameter.originalName || parameter.name || "").trim().toLowerCase() !== "device on")
+        : null;
       return {
         stateVersion: observed.stateVersion, trackId: args.trackId, device,
         profile: profile || null,
         parameterGroups,
         parameterCoverage: { total: observed.parameters.length,
           mapped: observed.parameters.length - unmappedIds.length,
-          unmapped: unmappedIds.length, unmappedIds }
+          unmapped: unmappedIds.length, unmappedIds },
+        pluginExposure: configuredPluginControls === null ? null : {
+          configuredControlIds: configuredPluginControls.map(parameter => parameter.id),
+          writableControlIds: configuredPluginControls.filter(parameter => parameter.enabled !== false)
+            .map(parameter => parameter.id),
+          configureInLiveRequired: configuredPluginControls.length === 0,
+          hiddenPluginStateReadable: false
+        }
       };
     }
     if (name === "get_automation_capabilities") return {

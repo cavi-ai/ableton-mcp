@@ -772,6 +772,45 @@ test("factory device context reports unmapped native controls explicitly", async
   });
 });
 
+test("plug-in context does not mistake Device On for configured synth control", async () => {
+  const device = { id: "track-0:device-0", name: "Omnisphere", className: "PluginDevice" };
+  const service = new ToolService({ catalog: {}, bridge: { async request(method) {
+    if (method === "list_devices") return { stateVersion: 4, devices: [device] };
+    if (method === "list_device_parameters") return { stateVersion: 4, parameters: [
+      { id: "parameter-0", name: "Device On", originalName: "Device On", enabled: true }
+    ] };
+    throw new Error(`unexpected method ${method}`);
+  } } });
+  const context = await service.call("get_factory_device_context", {
+    trackId: "track-0", deviceId: device.id
+  });
+  assert.deepEqual(context.pluginExposure, {
+    configuredControlIds: [], writableControlIds: [], configureInLiveRequired: true,
+    hiddenPluginStateReadable: false
+  });
+});
+
+test("plug-in context distinguishes configured controls from currently writable ones", async () => {
+  const device = { id: "track-0:device-0", name: "Serum", className: "PluginDevice" };
+  const service = new ToolService({ catalog: {}, bridge: { async request(method) {
+    if (method === "list_devices") return { stateVersion: 4, devices: [device] };
+    if (method === "list_device_parameters") return { stateVersion: 4, parameters: [
+      { id: "parameter-0", name: "Device On", originalName: "Device On", enabled: true },
+      { id: "parameter-1", name: "Cutoff", originalName: "Cutoff", enabled: true },
+      { id: "parameter-2", name: "FX Mix", originalName: "FX Mix", enabled: false }
+    ] };
+    throw new Error(`unexpected method ${method}`);
+  } } });
+  const context = await service.call("get_factory_device_context", {
+    trackId: "track-0", deviceId: device.id
+  });
+  assert.deepEqual(context.pluginExposure, {
+    configuredControlIds: ["parameter-1", "parameter-2"],
+    writableControlIds: ["parameter-1"], configureInLiveRequired: false,
+    hiddenPluginStateReadable: false
+  });
+});
+
 test("device activation and deletion use guarded exact-identity plans", async () => {
   const { service, calls } = fixture();
   const base = { expectedStateVersion: 4, trackId: "track-0", deviceId: "track-0:device-1" };
