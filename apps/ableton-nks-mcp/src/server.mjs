@@ -40,6 +40,7 @@ const toolNames = [
   "undo",
   "redo",
   "get_song_musical_context",
+  "get_song_grid_reference",
   "get_clip_groove_context",
   "inspect_clip_groove_postconditions",
   "set_song_musical_context",
