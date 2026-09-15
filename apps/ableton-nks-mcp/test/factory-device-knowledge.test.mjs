@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube"
   ]);
 });
 
@@ -588,6 +588,19 @@ test("Corpus preserves resonator, modulation, MIDI follow and ambiguous width co
   assert.deepEqual(groups.width.map(p => p.id), ["parameter-29", "parameter-36"]);
   assert.deepEqual(groups.midi.map(p => p.id), names.slice(30, 35).map((_, index) => `parameter-${index + 30}`));
   assert.deepEqual(groups.output.map(p => p.id), ["parameter-35", "parameter-37", "parameter-38"]);
+  assert.deepEqual(groups.other, []);
+});
+
+test("Dynamic Tube separates tube drive, envelope response, tone and output", () => {
+  const profile = getFactoryDeviceProfile({ className: "Tube", name: "Renamed Saturator" });
+  assert.equal(profile?.id, "dynamic-tube");
+  const names = ["Device On", "Dry/Wet", "Drive", "Output", "Bias", "Envelope", "Attack", "Release", "Tone", "Tube Type"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.deepEqual(groups.tube.map(p => p.id), ["parameter-2", "parameter-4", "parameter-9"]);
+  assert.deepEqual(groups.envelope.map(p => p.id), ["parameter-5", "parameter-6", "parameter-7"]);
+  assert.deepEqual(groups.tone.map(p => p.id), ["parameter-8"]);
+  assert.deepEqual(groups.output.map(p => p.id), ["parameter-1", "parameter-3"]);
   assert.deepEqual(groups.other, []);
 });
 
