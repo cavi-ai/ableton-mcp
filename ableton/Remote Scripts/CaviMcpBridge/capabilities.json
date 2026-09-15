@@ -1,5 +1,5 @@
 [
-  "get_live_state", "get_track_state_snapshot", "get_history_state", "undo", "redo", "get_transport_context", "set_transport_context",
+  "get_live_state", "get_track_state_snapshot", "set_track_state_snapshot", "get_history_state", "undo", "redo", "get_transport_context", "set_transport_context",
   "get_device_sidechain_routing",
   "get_clip_groove_context",
   "set_device_sidechain_routing",

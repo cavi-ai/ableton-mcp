@@ -380,6 +380,24 @@ def _routing_id(option):
     return _routing_option(option)["id"]
 
 
+def _current_routing_option(current, available):
+    current_record = _routing_option(current)
+    identifier_matches = [option for option in available if _routing_option(option)["id"] == current_record["id"]]
+    if len(identifier_matches) == 1:
+        return _routing_option(identifier_matches[0])
+    aliases = {current_record["name"]}
+    if current_record["name"].startswith("Ext: "):
+        aliases.add(current_record["name"].removeprefix("Ext: "))
+    if current_record["name"] == "Master":
+        aliases.add("Main")
+    if current_record["name"] == "":
+        aliases.add("All Channels")
+    label_matches = [option for option in available if _routing_option(option)["name"] in aliases]
+    if len(label_matches) > 1:
+        raise ValueError("ambiguous current routing label")
+    return _routing_option(label_matches[0] if label_matches else current)
+
+
 def _device_sidechain_routing(song, track_id, device_id, state_version):
     _, _, device = _device(song, track_id, device_id)
     supported = all(hasattr(device, attribute) for attribute in (
@@ -399,19 +417,23 @@ def _device_sidechain_routing(song, track_id, device_id, state_version):
 
 def _track_routing(song, track_id, state_version):
     _, track = _track(song, track_id)
+    input_types = list(track.available_input_routing_types)
+    input_channels = list(track.available_input_routing_channels)
+    output_types = list(track.available_output_routing_types)
+    output_channels = list(track.available_output_routing_channels)
     return {
         "stateVersion": state_version, "trackId": track_id,
         "input": {
-            "type": _routing_option(track.current_input_routing),
-            "channel": _routing_option(track.current_input_sub_routing),
-            "availableTypes": [_routing_option(option) for option in track.available_input_routing_types],
-            "availableChannels": [_routing_option(option) for option in track.available_input_routing_channels],
+            "type": _current_routing_option(track.current_input_routing, input_types),
+            "channel": _current_routing_option(track.current_input_sub_routing, input_channels),
+            "availableTypes": [_routing_option(option) for option in input_types],
+            "availableChannels": [_routing_option(option) for option in input_channels],
         },
         "output": {
-            "type": _routing_option(track.current_output_routing),
-            "channel": _routing_option(track.current_output_sub_routing),
-            "availableTypes": [_routing_option(option) for option in track.available_output_routing_types],
-            "availableChannels": [_routing_option(option) for option in track.available_output_routing_channels],
+            "type": _current_routing_option(track.current_output_routing, output_types),
+            "channel": _current_routing_option(track.current_output_sub_routing, output_channels),
+            "availableTypes": [_routing_option(option) for option in output_types],
+            "availableChannels": [_routing_option(option) for option in output_channels],
         },
         "monitoring": None if bool(getattr(track, "is_foldable", False)) else _enum_record(track.current_monitoring_state, ("in", "auto", "off")),
     }
@@ -446,6 +468,42 @@ def _set_mixer(song, state_version):
             },
         },
         "returns": [_return_mixer_record(track, index) for index, track in enumerate(song.return_tracks)],
+    }
+
+
+def _track_state_snapshot(song, track_id, state_version):
+    track_index, track = _track(song, track_id)
+    routing = _track_routing(song, track_id, state_version)
+    return {
+        "stateVersion": state_version, "trackId": track_id,
+        "track": {**_track_record(song, track, track_index), "type": _track_type(track)},
+        "mixer": {"volume": _value_record(track.mixer_device.volume), "pan": _value_record(track.mixer_device.panning),
+                  "mute": bool(track.mute), "solo": bool(track.solo), "sends": _send_records(song, track)},
+        "routing": {"input": routing["input"], "output": routing["output"], "monitoring": routing["monitoring"]},
+        "devices": [{**_device_record(device, f"{track_id}:device-{index}"),
+                     "parameters": [_parameter_record(parameter, parameter_index)
+                                    for parameter_index, parameter in enumerate(device.parameters)]}
+                    for index, device in enumerate(track.devices)],
+    }
+
+
+def _persisted_track_state(record):
+    return {
+        "format": "cavi-track-state-v1",
+        "track": {"name": record["track"]["name"], "type": record["track"]["type"], "isGroup": record["track"]["isGroup"]},
+        "mixer": {"volume": record["mixer"]["volume"]["value"], "pan": record["mixer"]["pan"]["value"],
+                  "mute": record["mixer"]["mute"], "solo": record["mixer"]["solo"],
+                  "sends": [{"id": item["id"], "name": item["name"], "value": item["value"]} for item in record["mixer"]["sends"]]},
+        "routing": {"inputTypeId": record["routing"]["input"]["type"]["id"],
+                    "inputChannelId": record["routing"]["input"]["channel"]["id"],
+                    "outputTypeId": record["routing"]["output"]["type"]["id"],
+                    "outputChannelId": record["routing"]["output"]["channel"]["id"],
+                    "monitoring": record["routing"]["monitoring"]["value"] if record["routing"]["monitoring"] else None},
+        "devices": [{"name": device["name"], "className": device["className"], "type": device["type"],
+                     "parameters": [{"originalName": parameter["originalName"], "min": parameter["min"], "max": parameter["max"],
+                                     "quantized": parameter["quantized"], "valueItems": parameter["valueItems"], "value": parameter["value"]}
+                                    for parameter in device["parameters"]]}
+                    for device in record["devices"]],
     }
 
 
@@ -1008,22 +1066,128 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "list_tracks":
         return {"stateVersion": state_version, "tracks": [_track_record(song, track, i) for i, track in enumerate(song.tracks)]}
     if method == "get_track_state_snapshot":
-        track_id = params["trackId"]
-        track_index, track = _track(song, track_id)
-        routing = _track_routing(song, track_id, state_version)
-        return {
-            "stateVersion": state_version, "trackId": track_id,
-            "track": {**_track_record(song, track, track_index), "type": _track_type(track)},
-            "mixer": {
-                "volume": _value_record(track.mixer_device.volume), "pan": _value_record(track.mixer_device.panning),
-                "mute": bool(track.mute), "solo": bool(track.solo), "sends": _send_records(song, track),
-            },
-            "routing": {"input": routing["input"], "output": routing["output"], "monitoring": routing["monitoring"]},
-            "devices": [{**_device_record(device, f"{track_id}:device-{index}"),
-                         "parameters": [_parameter_record(parameter, parameter_index)
-                                        for parameter_index, parameter in enumerate(device.parameters)]}
-                        for index, device in enumerate(track.devices)],
-        }
+        return _track_state_snapshot(song, params["trackId"], state_version)
+    if method == "set_track_state_snapshot":
+        track_id, target = params["trackId"], params["target"]
+        current = _track_state_snapshot(song, track_id, state_version)
+        if current != params["before"]:
+            raise ValueError("track state changed after planning")
+        if target.get("format") != "cavi-track-state-v1":
+            raise ValueError("invalid track snapshot format")
+        persisted = _persisted_track_state(current)
+        if target["track"]["type"] != persisted["track"]["type"] or target["track"]["isGroup"] != persisted["track"]["isGroup"]:
+            raise ValueError("snapshot track type is incompatible")
+        if len(target["mixer"]["sends"]) != len(current["mixer"]["sends"]):
+            raise ValueError("snapshot send layout mismatch")
+        for saved, native in zip(target["mixer"]["sends"], current["mixer"]["sends"]):
+            if saved["id"] != native["id"] or saved["name"] != native["name"]:
+                raise ValueError("snapshot send layout mismatch")
+            if not math.isfinite(saved["value"]) or not native["min"] <= saved["value"] <= native["max"]:
+                raise ValueError("snapshot send value outside native range")
+        for key in ("volume", "pan"):
+            value, native = target["mixer"][key], current["mixer"][key]
+            if not math.isfinite(value) or not native["min"] <= value <= native["max"]:
+                raise ValueError(f"snapshot mixer {key} outside native range")
+        routing_specs = (
+            ("inputTypeId", current["routing"]["input"]["availableTypes"]),
+            ("outputTypeId", current["routing"]["output"]["availableTypes"]),
+        )
+        selected_routes = {}
+        for key, choices in routing_specs:
+            identifier = target["routing"][key]
+            selected = next((choice for choice in choices if choice["id"] == identifier), None) if identifier is not None else None
+            if identifier is not None and selected is None:
+                raise ValueError(f"snapshot routing {key} is unavailable")
+            if selected is not None and sum(choice["name"] == selected["name"] for choice in choices) > 1:
+                raise ValueError(f"snapshot routing {key} has an ambiguous routing label")
+            selected_routes[key] = selected
+        monitoring = current["routing"]["monitoring"]
+        if target["routing"]["monitoring"] is not None and (monitoring is None or not any(
+                choice["value"] == target["routing"]["monitoring"] for choice in monitoring["choices"])):
+            raise ValueError("snapshot routing monitoring is unavailable")
+        if len(target["devices"]) != len(current["devices"]):
+            raise ValueError("snapshot device topology mismatch")
+        for saved_device, native_device in zip(target["devices"], current["devices"]):
+            if saved_device["className"] != native_device["className"] or saved_device["type"] != native_device["type"] or len(saved_device["parameters"]) != len(native_device["parameters"]):
+                raise ValueError("snapshot device topology mismatch")
+            for saved, native in zip(saved_device["parameters"], native_device["parameters"]):
+                if any(saved[field] != native[field] for field in ("originalName", "min", "max", "quantized", "valueItems")):
+                    raise ValueError("snapshot parameter layout mismatch")
+                if not math.isfinite(saved["value"]) or not native["min"] <= saved["value"] <= native["max"] or (native["quantized"] and not float(saved["value"]).is_integer()):
+                    raise ValueError("snapshot parameter value outside native range")
+                if saved["value"] != native["value"] and not native["enabled"]:
+                    raise ValueError(f"parameter {native['id']} is disabled")
+        _, track = _track(song, track_id)
+        writes = []
+        route_previous = {}
+        def write(owner, attribute, value):
+            previous = getattr(owner, attribute)
+            if previous != value:
+                writes.append((owner, attribute, previous))
+                setattr(owner, attribute, value)
+        def write_route(attribute, value):
+            previous = getattr(track, attribute)
+            if previous != value:
+                route_previous.setdefault(attribute, previous)
+                setattr(track, attribute, value)
+        song.begin_undo_step()
+        try:
+            write(track, "name", target["track"]["name"])
+            write(track.mixer_device.volume, "value", target["mixer"]["volume"])
+            write(track.mixer_device.panning, "value", target["mixer"]["pan"])
+            write(track, "mute", target["mixer"]["mute"])
+            write(track, "solo", target["mixer"]["solo"])
+            for send, saved in zip(track.mixer_device.sends, target["mixer"]["sends"]):
+                write(send, "value", saved["value"])
+            route_attributes = {"inputTypeId": "current_input_routing", "outputTypeId": "current_output_routing"}
+            for key, attribute in route_attributes.items():
+                selected = selected_routes[key]
+                if selected is not None:
+                    write_route(attribute, selected["name"])
+            channel_specs = (
+                ("inputChannelId", "current_input_sub_routing", track.available_input_routing_channels),
+                ("outputChannelId", "current_output_sub_routing", track.available_output_routing_channels),
+            )
+            for key, attribute, native_choices in channel_specs:
+                choices = [_routing_option(choice) for choice in native_choices]
+                identifier = target["routing"][key]
+                selected = next((choice for choice in choices if choice["id"] == identifier), None) if identifier is not None else None
+                if identifier is not None and selected is None:
+                    raise ValueError(f"snapshot routing {key} is unavailable after changing routing type")
+                if selected is not None and sum(choice["name"] == selected["name"] for choice in choices) > 1:
+                    raise ValueError(f"snapshot routing {key} has an ambiguous routing label")
+                if selected is not None:
+                    write_route(attribute, selected["name"])
+            if target["routing"]["monitoring"] is not None:
+                write(track, "current_monitoring_state", target["routing"]["monitoring"])
+            for device, saved_device in zip(track.devices, target["devices"]):
+                write(device, "name", saved_device["name"])
+                for parameter, saved in zip(device.parameters, saved_device["parameters"]):
+                    write(parameter, "value", saved["value"])
+            result = _track_state_snapshot(song, track_id, state_version + 1)
+            if _persisted_track_state(result) != target:
+                raise ValueError("Live did not apply the complete track snapshot")
+        except Exception as error:
+            rollback_errors = []
+            for owner, attribute, previous in reversed(writes):
+                try:
+                    setattr(owner, attribute, previous)
+                except Exception as rollback_error:
+                    rollback_errors.append(rollback_error)
+            for attribute in ("current_input_routing", "current_output_routing",
+                              "current_input_sub_routing", "current_output_sub_routing"):
+                if attribute in route_previous:
+                    try:
+                        setattr(track, attribute, route_previous[attribute])
+                    except Exception as rollback_error:
+                        rollback_errors.append(rollback_error)
+            if rollback_errors:
+                details = "; ".join(str(item) for item in rollback_errors)
+                raise RuntimeError(f"track recall failed: {error}; rollback failed: {details}; use Live undo") from error
+            raise
+        finally:
+            song.end_undo_step()
+        return result
     if method == "create_track":
         index = int(params["index"])
         if params["type"] == "midi":

@@ -1,6 +1,5 @@
 import copy
 import json
-import copy
 import os
 import sys
 import unittest
@@ -606,7 +605,7 @@ class DispatchTest(unittest.TestCase):
     def test_track_routing_reads_choices_and_applies_exact_identifiers(self):
         song = Song()
         observed = dispatch_request(song, {"method": "get_track_routing", "params": {"trackId": "track-0"}}, 3)
-        self.assertEqual(observed["input"]["type"], {"id": "All Ins", "name": "All Ins"})
+        self.assertEqual(observed["input"]["type"], {"id": "all-ins", "name": "All Ins"})
         self.assertEqual(observed["monitoring"]["name"], "auto")
         changed = dispatch_request(song, {"method": "set_track_routing", "params": {
             "trackId": "track-0", "changes": {
@@ -616,9 +615,122 @@ class DispatchTest(unittest.TestCase):
             }
         }}, 3)
         self.assertEqual(changed["stateVersion"], 4)
-        self.assertEqual(changed["input"]["channel"]["id"], "Ch. 1")
-        self.assertEqual(changed["output"]["type"]["id"], "No Output")
+        self.assertEqual(changed["input"]["channel"]["id"], "channel-1")
+        self.assertEqual(changed["output"]["type"]["id"], "no-output")
         self.assertEqual(changed["monitoring"]["name"], "off")
+
+    def test_track_routing_rejects_ambiguous_label_only_current_choice(self):
+        song = Song()
+        route = lambda identifier: type("Route", (), {"identifier": identifier, "display_name": "Bass"})()
+        song.tracks[0].available_output_routing_types = [route("bass-a"), route("bass-b")]
+        song.tracks[0].current_output_routing = "Bass"
+        with self.assertRaisesRegex(ValueError, "ambiguous current routing label"):
+            dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 3)
+
+    def test_track_routing_normalizes_live_current_route_aliases_to_available_choices(self):
+        song = Song()
+        track = song.tracks[0]
+        route = lambda identifier, label: type("Route", (), {"identifier": identifier, "display_name": label})()
+        track.available_input_routing_types = [route("all-ins", "All Ins")]
+        track.available_input_routing_channels = [route("all-channels", "All Channels")]
+        track.available_output_routing_types = [route("main", "Main")]
+        track.available_output_routing_channels = [route("", "")]
+        track.current_input_routing = "Ext: All Ins"
+        track.current_input_sub_routing = ""
+        track.current_output_routing = "Master"
+        track.current_output_sub_routing = ""
+
+        observed = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 3)
+
+        self.assertEqual(observed["routing"]["input"]["type"], {"id": "all-ins", "name": "All Ins"})
+        self.assertEqual(observed["routing"]["input"]["channel"], {"id": "all-channels", "name": "All Channels"})
+        self.assertEqual(observed["routing"]["output"]["type"], {"id": "main", "name": "Main"})
+
+    def test_track_state_recall_rejects_ambiguous_native_setter_label(self):
+        song = Song()
+        route = lambda identifier: type("Route", (), {"identifier": identifier, "display_name": "Bass"})()
+        song.tracks[0].available_output_routing_types = [route("bass-a"), route("bass-b")]
+        song.tracks[0].current_output_routing = song.tracks[0].available_output_routing_types[0]
+        before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
+        target = {"format": "cavi-track-state-v1",
+                  "track": {"name": "Synth", "type": "midi", "isGroup": False},
+                  "mixer": {"volume": 0.75, "pan": 0.0, "mute": False, "solo": False,
+                            "sends": [{"id": "send-0", "name": "Reverb", "value": 0.2}]},
+                  "routing": {"inputTypeId": "all-ins", "inputChannelId": "all-channels",
+                              "outputTypeId": "bass-b", "outputChannelId": "post-mixer", "monitoring": 1},
+                  "devices": [{"name": "Serum 2", "className": "PluginDevice", "type": "unknown",
+                               "parameters": [{"originalName": "Filter Freq", "min": 0.0, "max": 1.0,
+                                               "quantized": False, "valueItems": [], "value": 0.4},
+                                              {"originalName": "Filter Type", "min": 0.0, "max": 2.0,
+                                               "quantized": True, "valueItems": ["Low-pass", "Band-pass", "High-pass"], "value": 1.0}]}]}
+        with self.assertRaisesRegex(ValueError, "ambiguous routing label"):
+            dispatch_request(song, {"method": "set_track_state_snapshot", "params": {
+                "trackId": "track-0", "before": before, "target": target}}, 6)
+
+    def test_track_state_recall_refreshes_channels_after_changing_routing_type(self):
+        class DynamicTrack(Track):
+            @property
+            def current_output_routing(self):
+                return self._current_output_routing
+            @current_output_routing.setter
+            def current_output_routing(self, value):
+                self._current_output_routing = value
+                name = str(getattr(value, "display_name", value))
+                route = lambda identifier, label: type("Route", (), {"identifier": identifier, "display_name": label})()
+                self.available_output_routing_channels = [route("external-3-4", "3/4")] if name == "External Out" else [route("post-mixer", "Post Mixer")]
+            @property
+            def current_output_sub_routing(self):
+                return self._current_output_sub_routing
+            @current_output_sub_routing.setter
+            def current_output_sub_routing(self, value):
+                name = str(getattr(value, "display_name", value))
+                if hasattr(self, "available_output_routing_channels") and not any(
+                        str(getattr(choice, "display_name", choice)) == name for choice in self.available_output_routing_channels):
+                    raise RuntimeError("channel unavailable for current type")
+                self._current_output_sub_routing = value
+        song = Song()
+        song.tracks[0] = DynamicTrack()
+        song.tracks[0].clip_slots = [ClipSlot(), ClipSlot(False)]
+        route = lambda identifier, label: type("Route", (), {"identifier": identifier, "display_name": label})()
+        song.tracks[0].available_output_routing_types = [route("main", "Main"), route("external", "External Out")]
+        song.tracks[0].current_output_routing = song.tracks[0].available_output_routing_types[0]
+        before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
+        target = {"format": "cavi-track-state-v1", "track": {"name": "Synth", "type": "midi", "isGroup": False},
+                  "mixer": {"volume": 0.75, "pan": 0.0, "mute": False, "solo": False,
+                            "sends": [{"id": "send-0", "name": "Reverb", "value": 0.2}]},
+                  "routing": {"inputTypeId": "all-ins", "inputChannelId": "all-channels",
+                              "outputTypeId": "external", "outputChannelId": "external-3-4", "monitoring": 1},
+                  "devices": [{"name": "Serum 2", "className": "PluginDevice", "type": "unknown",
+                               "parameters": [{"originalName": "Filter Freq", "min": 0.0, "max": 1.0,
+                                               "quantized": False, "valueItems": [], "value": 0.4},
+                                              {"originalName": "Filter Type", "min": 0.0, "max": 2.0,
+                                               "quantized": True, "valueItems": ["Low-pass", "Band-pass", "High-pass"], "value": 1.0}]}]}
+        result = dispatch_request(song, {"method": "set_track_state_snapshot", "params": {
+            "trackId": "track-0", "before": before, "target": target}}, 6)
+        self.assertEqual(result["routing"]["output"]["type"]["id"], "external")
+        self.assertEqual(result["routing"]["output"]["channel"]["id"], "external-3-4")
+        parameter = song.tracks[0].devices[0].parameters[0]
+        class FailingParameter(type(parameter)):
+            @property
+            def value(self):
+                return self._value
+            @value.setter
+            def value(self, value):
+                if value == 0.9:
+                    raise RuntimeError("parameter write failed")
+                self._value = value
+        failing = FailingParameter()
+        failing._value = parameter.value
+        song.tracks[0].devices[0].parameters[0] = failing
+        before_failure = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 7)
+        rollback_target = copy.deepcopy(target)
+        rollback_target["routing"].update({"outputTypeId": "main", "outputChannelId": "post-mixer"})
+        rollback_target["devices"][0]["parameters"][0]["value"] = 0.9
+        with self.assertRaisesRegex(RuntimeError, "parameter write failed"):
+            dispatch_request(song, {"method": "set_track_state_snapshot", "params": {
+                "trackId": "track-0", "before": before_failure, "target": rollback_target}}, 7)
+        after_failure = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 7)
+        self.assertEqual(after_failure, before_failure)
 
     def test_group_routing_does_not_access_unsupported_monitoring(self):
         song = Song()
@@ -1988,6 +2100,70 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(result["routing"]["output"]["type"]["name"], "Main")
         self.assertEqual([device["id"] for device in result["devices"]], ["track-0:device-0"])
         self.assertEqual(result["devices"][0]["parameters"][0]["originalName"], "Filter Freq")
+
+    def test_track_state_recall_applies_complete_target_in_one_undo_step(self):
+        song = Song()
+        before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
+        target = {
+            "format": "cavi-track-state-v1",
+            "track": {"name": "Saved Bass", "type": "midi", "isGroup": False},
+            "mixer": {"volume": 0.5, "pan": -0.25, "mute": True, "solo": False,
+                      "sends": [{"id": "send-0", "name": "Reverb", "value": 0.6}]},
+            "routing": {"inputTypeId": "all-ins", "inputChannelId": "all-channels",
+                        "outputTypeId": "main", "outputChannelId": "post-mixer", "monitoring": 1},
+            "devices": [{"name": "Saved Device", "className": "PluginDevice", "type": "unknown",
+                         "parameters": [{"originalName": "Filter Freq", "min": 0.0, "max": 1.0,
+                                         "quantized": False, "valueItems": [], "value": 0.9},
+                                        {"originalName": "Filter Type", "min": 0.0, "max": 2.0,
+                                         "quantized": True, "valueItems": ["Low-pass", "Band-pass", "High-pass"], "value": 2.0}]}],
+        }
+        result = dispatch_request(song, {"method": "set_track_state_snapshot", "params": {
+            "trackId": "track-0", "before": before, "target": target}}, 6)
+        self.assertEqual(result["stateVersion"], 7)
+        self.assertEqual(result["track"]["name"], "Saved Bass")
+        self.assertEqual(result["mixer"]["volume"]["value"], 0.5)
+        self.assertEqual(result["mixer"]["sends"][0]["value"], 0.6)
+        self.assertEqual(result["routing"]["output"]["type"]["id"], "main")
+        self.assertEqual(result["devices"][0]["parameters"][0]["value"], 0.9)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
+    def test_track_state_recall_rolls_back_prior_writes_on_failure(self):
+        song = Song()
+        before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
+        target = {
+            "format": "cavi-track-state-v1",
+            "track": {"name": "Should Roll Back", "type": "midi", "isGroup": False},
+            "mixer": {"volume": 0.5, "pan": 0.0, "mute": False, "solo": False,
+                      "sends": [{"id": "send-0", "name": "Reverb", "value": 0.2}]},
+            "routing": {"inputTypeId": "all-ins", "inputChannelId": "all-channels",
+                        "outputTypeId": "main", "outputChannelId": "post-mixer", "monitoring": 1},
+            "devices": [{"name": "Device", "className": "PluginDevice", "type": "unknown",
+                         "parameters": [{"originalName": "Filter Freq", "min": 0.0, "max": 1.0,
+                                         "quantized": False, "valueItems": [], "value": 0.9},
+                                        {"originalName": "Filter Type", "min": 0.0, "max": 2.0,
+                                         "quantized": True, "valueItems": ["Low-pass", "Band-pass", "High-pass"], "value": 1.0}]}],
+        }
+        parameter = song.tracks[0].devices[0].parameters[0]
+        parameter_type = type(parameter)
+        class FailingParameter(parameter_type):
+            @property
+            def value(self):
+                return self._value
+            @value.setter
+            def value(self, value):
+                if value == 0.9:
+                    raise RuntimeError("parameter write failed")
+                self._value = value
+        failing = FailingParameter()
+        failing._value = parameter.value
+        song.tracks[0].devices[0].parameters[0] = failing
+        before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
+        with self.assertRaisesRegex(RuntimeError, "parameter write failed"):
+            dispatch_request(song, {"method": "set_track_state_snapshot", "params": {
+                "trackId": "track-0", "before": before, "target": target}}, 6)
+        after = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
+        self.assertEqual(after, before)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
     def test_duplicate_parameter_names_report_exact_ambiguous_ids(self):
         song = Song()

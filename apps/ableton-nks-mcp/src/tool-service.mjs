@@ -249,6 +249,7 @@ export class ToolService {
 
   async call(name, args = {}) {
     if (name === "capture_track_state_snapshot") return this.#captureTrackStateSnapshot(args);
+    if (name === "recall_track_state_snapshot") return this.#recallTrackStateSnapshot(args);
     if (name === "capture_device_parameter_snapshot") {
       const target = { trackId: args.trackId, deviceId: args.deviceId };
       const before = await this.#observeDevice(target);
@@ -545,6 +546,69 @@ export class ToolService {
         parameters: device.parameters.map(p => ({ originalName: p.originalName, min: p.min, max: p.max,
           quantized: p.quantized, valueItems: p.valueItems, value: p.value })) }))
     }, limitation: "Captures mixer, routing and exposed parameters for ordered top-level devices on one existing track. Not a native track preset: excludes clips, nested rack devices, hidden plugin state, samples, automation and mappings." };
+  }
+
+  async #recallTrackStateSnapshot(args) {
+    requireExpectedState(args);
+    const snapshot = args.snapshot;
+    if (snapshot?.format !== "cavi-track-state-v1" || !snapshot.track || !snapshot.mixer || !snapshot.routing || !Array.isArray(snapshot.devices)) {
+      throw new Error("invalid track snapshot format");
+    }
+    const before = await this.bridge.request("get_track_state_snapshot", { trackId: args.trackId });
+    assertExpectedState(args, before);
+    if (before.trackId !== args.trackId || before.track?.id !== args.trackId) throw new Error("track snapshot target mismatch");
+    if (snapshot.track.type !== before.track.type || Boolean(snapshot.track.isGroup) !== Boolean(before.track.isGroup)) {
+      throw new Error("snapshot track type is incompatible");
+    }
+    if (typeof snapshot.track.name !== "string" || !snapshot.track.name.trim()) throw new Error("snapshot track name is invalid");
+    for (const key of ["volume", "pan"]) {
+      const value = snapshot.mixer[key], bounds = before.mixer[key];
+      if (!Number.isFinite(value) || value < bounds.min || value > bounds.max) throw new Error(`snapshot mixer ${key} is outside native range`);
+    }
+    for (const key of ["mute", "solo"]) if (typeof snapshot.mixer[key] !== "boolean") throw new Error(`snapshot mixer ${key} is invalid`);
+    if (!Array.isArray(snapshot.mixer.sends) || snapshot.mixer.sends.length !== before.mixer.sends.length) throw new Error("snapshot send layout mismatch");
+    snapshot.mixer.sends.forEach((saved, index) => {
+      const native = before.mixer.sends[index];
+      if (saved.id !== native.id || saved.name !== native.name) throw new Error("snapshot send layout mismatch");
+      if (!Number.isFinite(saved.value) || saved.value < native.min || saved.value > native.max) throw new Error("snapshot send value outside native range");
+    });
+    for (const [key, choices] of [["inputTypeId", before.routing.input.availableTypes], ["outputTypeId", before.routing.output.availableTypes]]) {
+      const value = snapshot.routing[key];
+      if (value !== null && !choices.some(({ id }) => id === value)) throw new Error(`snapshot routing ${key} is unavailable`);
+    }
+    for (const [key, typeKey, side] of [["inputChannelId", "inputTypeId", "input"], ["outputChannelId", "outputTypeId", "output"]]) {
+      const value = snapshot.routing[key];
+      if (snapshot.routing[typeKey] === before.routing[side].type?.id && value !== null &&
+          !before.routing[side].availableChannels.some(({ id }) => id === value)) throw new Error(`snapshot routing ${key} is unavailable`);
+    }
+    if (snapshot.routing.monitoring !== null && !before.routing.monitoring?.choices.some(({ value }) => value === snapshot.routing.monitoring)) {
+      throw new Error("snapshot routing monitoring is unavailable");
+    }
+    if (snapshot.devices.length !== before.devices.length) throw new Error("snapshot device topology mismatch");
+    snapshot.devices.forEach((savedDevice, deviceIndex) => {
+      const nativeDevice = before.devices[deviceIndex];
+      if (savedDevice.className !== nativeDevice.className || savedDevice.type !== nativeDevice.type || !Array.isArray(savedDevice.parameters) ||
+          savedDevice.parameters.length !== nativeDevice.parameters.length) throw new Error("snapshot device topology mismatch");
+      savedDevice.parameters.forEach((saved, parameterIndex) => {
+        const native = nativeDevice.parameters[parameterIndex];
+        for (const field of ["originalName", "min", "max", "quantized", "valueItems"]) {
+          if (JSON.stringify(saved[field]) !== JSON.stringify(native[field])) throw new Error("snapshot parameter layout mismatch");
+        }
+        if (!Number.isFinite(saved.value) || saved.value < native.min || saved.value > native.max ||
+            (native.quantized && !Number.isInteger(saved.value))) throw new Error("snapshot parameter value outside native range");
+        if (saved.value !== native.value && !native.enabled) throw new Error(`parameter ${native.id} is disabled`);
+      });
+    });
+    const target = structuredClone(snapshot);
+    const current = (await this.#captureTrackStateSnapshot(args)).snapshot;
+    if (JSON.stringify(current) === JSON.stringify(target)) throw new Error("snapshot already matches; no track changes required");
+    const plan = { method: "set_track_state_snapshot", trackId: args.trackId,
+      expectedStateVersion: args.expectedStateVersion, before, target };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    this.#consumeConfirmation(plan, args);
+    const observed = await this.bridge.request("set_track_state_snapshot", plan);
+    return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString(),
+      rollback: "One Live undo step restores the complete pre-recall track state; native rollback is also attempted if recall fails." };
   }
 
   async readResource(uri) {

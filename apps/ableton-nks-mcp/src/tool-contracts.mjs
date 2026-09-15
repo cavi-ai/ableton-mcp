@@ -36,13 +36,27 @@ const empty = object();
 const track = object({ trackId: ids.trackId }, ["trackId"]);
 const clip = object({ trackId: ids.trackId, clipId: ids.clipId }, ["trackId", "clipId"]);
 const device = object({ trackId: ids.trackId, deviceId: ids.deviceId }, ["trackId", "deviceId"]);
+const snapshotParameter = object({ originalName: string("Native parameter identity in index order."),
+  min: number("Native minimum."), max: number("Native maximum."), quantized: boolean("Native quantization."),
+  valueItems: array(string("Native value label."), "Exact ordered choice labels."), value: number("Captured native value.")
+}, ["originalName", "min", "max", "quantized", "valueItems", "value"]);
 const parameterSnapshot = object({
   format: { const: "cavi-device-parameters-v1" }, deviceClass: string("Exact native device class."),
-  parameters: array(object({ originalName: string("Native parameter identity in index order."),
-    min: number("Native minimum."), max: number("Native maximum."), quantized: boolean("Native quantization."),
-    valueItems: array(string("Native value label."), "Exact ordered choice labels."), value: number("Captured native value.")
-  }, ["originalName", "min", "max", "quantized", "valueItems", "value"]), "Complete ordered parameter layout and values.")
+  parameters: array(snapshotParameter, "Complete ordered parameter layout and values.")
 }, ["format", "deviceClass", "parameters"]);
+const trackStateSnapshot = object({
+  format: { const: "cavi-track-state-v1" },
+  track: object({ name: string("Captured track name."), type: { type: "string", enum: ["midi", "audio", "group", "unknown"] }, isGroup: boolean("Captured Group Track state.") }, ["name", "type", "isGroup"]),
+  mixer: object({ volume: number("Captured volume."), pan: number("Captured pan."), mute: boolean("Captured mute."), solo: boolean("Captured solo."),
+    sends: array(object({ id: string("Stable return ID."), name: string("Captured return name."), value: number("Captured send value.") }, ["id", "name", "value"]), "Ordered named sends.")
+  }, ["volume", "pan", "mute", "solo", "sends"]),
+  routing: object({ inputTypeId: { type: ["string", "null"] }, inputChannelId: { type: ["string", "null"] },
+    outputTypeId: { type: ["string", "null"] }, outputChannelId: { type: ["string", "null"] }, monitoring: { type: ["integer", "null"] }
+  }, ["inputTypeId", "inputChannelId", "outputTypeId", "outputChannelId", "monitoring"]),
+  devices: array(object({ name: string("Captured device name."), className: string("Exact native device class."), type: string("Native device type."),
+    parameters: array(snapshotParameter, "Complete ordered exposed parameter layout and values.")
+  }, ["name", "className", "type", "parameters"]), "Ordered top-level device topology.")
+}, ["format", "track", "mixer", "routing", "devices"]);
 
 const note = object({
   pitch: { type: "integer", minimum: 0, maximum: 127 }, start: number("Start in beats.", { minimum: 0 }),
@@ -57,6 +71,7 @@ const envelopePoint = object({
 export const toolContracts = {
   capture_device_parameter_snapshot: { description: "Capture exposed device parameters as persistable JSON, with a consistent live identity check. Not a native preset: excludes hidden plugin state, samples, automation and mappings.", inputSchema: device },
   capture_track_state_snapshot: { description: "Capture one consistent, persistable JSON snapshot of an existing track's mixer, routing, and exposed parameters for ordered top-level devices. Not a native track preset; excludes clips, nested devices, hidden state, samples, automation and mappings.", inputSchema: track },
+  recall_track_state_snapshot: { description: "Plan or recall a captured track-state JSON snapshot onto the same exact compatible track topology. Restores track name, mixer, sends, routing and exposed top-level-device parameters in one guarded native undo step; does not load devices, clips, samples, hidden state, automation or mappings.", inputSchema: guarded({ trackId: ids.trackId, snapshot: trackStateSnapshot }, ["trackId", "snapshot"]) },
   recall_device_parameter_snapshot: { description: "Guarded recall of parameter JSON onto a matching native device class and exact ordered parameter layout. Rejects incompatible bounds/choices and disabled changed controls. Does not restore hidden state.", inputSchema: guarded({ trackId: ids.trackId, deviceId: ids.deviceId, snapshot: parameterSnapshot }, ["trackId", "deviceId", "snapshot"]) },
   get_factory_coverage: { description: "Compare observed top-level Live factory browser devices with name-matched knowledge profiles. Reports missing profiles, not verified deep integration or all presets/Packs/plugins.", inputSchema: empty },
   search_presets: { description: "Search the optional local NKS preset catalog.", inputSchema: object({ productSlug: string("Product slug."), query: string("Name query."), category: string("Normalized category."), favorite: boolean("Return only favorites or non-favorites."), tags: array(string("Normalized user tag."), "Require every supplied tag."), limit: { type: "integer", minimum: 1 } }) },

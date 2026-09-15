@@ -30,7 +30,9 @@ Read the current state version, obtain the load dry-run plan, then execute with 
 
 Read parameters independently after recall rather than treating the mutation acknowledgment as acceptance. EQ Three acceptance captured ten parameters, changed low gain, and recalled all original values exactly. These snapshots are not `.adv`, `.adg`, NKS or complete third-party presets: they omit hidden state, samples, automation and mappings. Native preset saving remains necessary for those other forms of state.
 
-`capture_track_state_snapshot` extends the same truthful JSON workflow to an existing track. One synchronous Remote Script callback captures its name/type, mixer values and named sends, exact routing-choice IDs, and exposed parameters for each ordered top-level device. This is not yet a recall command or a native track template: clips, nested rack devices, hidden plug-in state, samples, automation and mappings are excluded.
+`capture_track_state_snapshot` extends the same truthful JSON workflow to an existing track. One synchronous Remote Script callback captures its name/type, mixer values and named sends, exact routing-choice IDs, and exposed parameters for each ordered top-level device. `recall_track_state_snapshot` restores those fields onto an existing track only when its type, send layout, routing choices, ordered device classes/types, and complete parameter layouts remain compatible. The confirmed write rechecks the full native pre-state, groups changes into one Live undo step, verifies complete readback, and attempts explicit rollback if any write fails.
+
+Track-state JSON is not a native track template: recall does not create tracks or load missing devices, clips, nested rack devices, hidden plug-in state, samples, automation or mappings. Use native Live Set or `.adg` saving when those elements must travel with the preset.
 
 ## Live browser Favorites
 
