@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper", "overdrive", "pedal", "redux", "resonators", "shaper"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper", "overdrive", "pedal", "redux", "resonators", "shaper", "shifter"
   ]);
 });
 
@@ -766,6 +766,26 @@ test("Shaper preserves duplicate rates, curve settings, trigger behavior and ran
   assert.deepEqual(groups.behavior.map(p => p.id), ["parameter-4", "parameter-5", "parameter-6", "parameter-9", "parameter-14"]);
   assert.deepEqual(groups.phase.map(p => p.id), ["parameter-8"]);
   assert.deepEqual(groups.other, []);
+});
+
+test("Shifter separates pitch, frequency and ring modulation with its control sources", () => {
+  const profile = getFactoryDeviceProfile({ className: "Shifter", name: "Shifter" });
+  assert.equal(profile?.id, "shifter");
+  const names = ["Device On", "Lfo Amount Hz", "Lfo Amount St", "Lfo Waveform", "Lfo Sync", "Lfo Rate Hz", "Lfo S. Rate", "Lfo Spin", "Lfo Phase", "Lfo Spin Amount", "Lfo Offset", "Lfo Width", "Lfo Duty Cycle", "Pitch Coarse", "Pitch Fine", "Pitch Window", "Mod Fine", "FShift Coarse", "RM Coarse", "RM Drive", "RM Drive Gain", "MidiPitch Glide", "Env On", "Env Attack", "Env Release", "Env Amount Hz", "Env Amount St", "Delay On", "Delay Sync", "Delay Time", "Delay Synced", "Delay Feedback", "Mode", "Tone", "Wide", "Dry/Wet"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.deepEqual(groups.lfo.map(p => p.id), Array.from({ length: 12 }, (_, i) => `parameter-${i + 1}`));
+  assert.deepEqual(groups.pitch.map(p => p.id), ["parameter-13", "parameter-14", "parameter-15", "parameter-21"]);
+  assert.deepEqual(groups.frequencyShift.map(p => p.id), ["parameter-16", "parameter-17"]);
+  assert.deepEqual(groups.ringMod.map(p => p.id), ["parameter-18", "parameter-19", "parameter-20"]);
+  assert.deepEqual(groups.envelope.map(p => p.id), Array.from({ length: 5 }, (_, i) => `parameter-${i + 22}`));
+  assert.deepEqual(groups.delay.map(p => p.id), Array.from({ length: 5 }, (_, i) => `parameter-${i + 27}`));
+  assert.deepEqual(groups.mode.map(p => p.id), ["parameter-32"]);
+  assert.deepEqual(groups.tone.map(p => p.id), ["parameter-33"]);
+  assert.deepEqual(groups.stereo.map(p => p.id), ["parameter-34"]);
+  assert.deepEqual(groups.mix.map(p => p.id), ["parameter-35"]);
+  assert.deepEqual(groups.other, []);
+  assert.equal(Object.values(groups).flat().length, names.length);
 });
 
 test("Compressor preserves native roles and distinguishes automatic release from device power", () => {
