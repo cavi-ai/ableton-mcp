@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo"
   ]);
 });
 
@@ -665,6 +665,20 @@ test("Grain Delay separates grain generation, pitch, feedback, timing and blend"
   assert.deepEqual(groups.feedback.map(p => p.id), ["parameter-5"]);
   assert.deepEqual(groups.output.map(p => p.id), ["parameter-6"]);
   assert.deepEqual(groups.timing.map(p => p.id), ["parameter-7", "parameter-8", "parameter-9", "parameter-10"]);
+  assert.deepEqual(groups.other, []);
+});
+
+test("LFO preserves duplicate rates, output range, waveform and trigger behavior", () => {
+  const profile = getFactoryDeviceProfile({ className: "MxDeviceAudioEffect", name: "LFO" });
+  assert.equal(profile?.id, "lfo");
+  const names = ["Device On", "Depth", "Rate", "Hold", "Jitter", "Offset", "Phase", "Re-Trigger", "Shape", "Smooth", "Steps", "Rate", "Time Mode", "Wave Shape", "x10"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.deepEqual(groups.range.map(p => p.id), ["parameter-1", "parameter-5"]);
+  assert.deepEqual(groups.timing.map(p => p.id), ["parameter-2", "parameter-11", "parameter-12", "parameter-14"]);
+  assert.deepEqual(groups.behavior.map(p => p.id), ["parameter-3", "parameter-4", "parameter-7"]);
+  assert.deepEqual(groups.stereo.map(p => p.id), ["parameter-6"]);
+  assert.deepEqual(groups.waveform.map(p => p.id), ["parameter-8", "parameter-9", "parameter-10", "parameter-13"]);
   assert.deepEqual(groups.other, []);
 });
 

@@ -189,6 +189,10 @@ const profiles = [
     global: ["device on"], grain: ["spray", "frequency", "random"], pitch: ["pitch"], feedback: ["feedback"],
     output: ["drywet"], timing: ["delay mode", "beat delay", "beat swing", "time delay"]
   }, notes: ["Grain Delay fragments the delay stream into grains. Spray randomizes grain timing, Frequency sets grain repetition rate, and Random introduces pitch variation.", "Pitch transposes grains over a broad semitone range. Feedback recirculates processed grains and is capped below unity, but high settings can still build substantial energy.", "Delay Mode switches between synchronized Beat Delay and free Time Delay. Beat Swing offsets synchronized timing; use displayValue to distinguish beat counts from milliseconds.", "DryWet is the final direct/processed blend. Gain-match downstream because Grain Delay exposes no separate output trim."] }
+  ,{ id: "lfo", name: "LFO", type: "audio_effect", family: "modulation", match: ["lfo"], roles: {
+    global: ["device on"], range: ["depth", "offset"], timing: ["rate", "time mode", "x10"],
+    behavior: ["hold", "jitter", "re-trigger"], stereo: ["phase"], waveform: ["shape", "smooth", "steps"]
+  }, notes: ["LFO is a Max for Live factory modulation source. Live reports the generic MxDeviceAudioEffect class, so exact factory-name identity is required; a renamed instance cannot be identified reliably from the exposed API alone.", "Depth and Offset define the modulation output range. The mapped target and its min/max assignment UI are not exposed as normal device parameters, so this profile does not claim programmatic target assignment.", "Time Mode switches between free and synchronized timing. Live exposes two parameters both named Rate: free Hz and synchronized divisions; x10 extends the free-rate range. Use stable IDs, bounds, quantization, and displayValue to distinguish them.", "Shape, Wave Shape, Smooth, and Steps construct the waveform. Hold, Jitter, and Re-Trigger alter motion and reset behavior, while Phase offsets the cycle."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });
