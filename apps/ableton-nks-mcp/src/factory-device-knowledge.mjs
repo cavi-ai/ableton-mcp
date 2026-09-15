@@ -236,6 +236,9 @@ const profiles = [
   ,{ id: "spectrum", name: "Spectrum", type: "audio_effect", family: "analyzer", match: ["spectrumanalyzer", "spectrum"], roles: {
     global: ["device on"]
   }, notes: ["Spectrum is a read-only frequency analyzer in Live's device UI. The public device parameter surface exposes only Device On; graph scale, block size, channel, averaging, and visual range are not automatable parameters through this API.", "Do not infer analyzer settings or spectral measurements from this profile. Use the dedicated bounded audio-analysis tools for machine-readable spectrum, spectrogram, pitch, harmonic, or resonance-candidate evidence."] }
+  ,{ id: "surround-panner", name: "Surround Panner", type: "audio_effect", family: "spatial-panner", match: ["surround panner"], roles: {
+    global: ["device on"], image: ["center", "focus", "rotation", "smooth"], layout: ["speakerpos"], position: ["x-axis", "y-axis"]
+  }, notes: ["Surround Panner is a Max for Live factory device identified by exact factory name because Live reports the generic MxDeviceAudioEffect class. A renamed instance cannot be identified reliably from the exposed API alone.", "X-Axis and Y-Axis position the source in the surround field. Center, Focus, Rotation, and Smooth shape the spatial image and movement response independently.", "SpeakerPos selects one of nine native four-, six-, or eight-speaker Room, Circle, or Center layouts. Preserve the selected layout and do not assume it matches the current interface or hardware output configuration.", "This device controls surround placement but does not assign Live's Main or Cue hardware outputs. Use explicit mixer output-routing tools for hardware channels such as 3/4."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });

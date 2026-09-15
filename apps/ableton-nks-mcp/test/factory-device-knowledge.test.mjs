@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper", "overdrive", "pedal", "redux", "resonators", "shaper", "shifter", "spectral-resonator", "spectral-time", "spectrum"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper", "overdrive", "pedal", "redux", "resonators", "shaper", "shifter", "spectral-resonator", "spectral-time", "spectrum", "surround-panner"
   ]);
 });
 
@@ -829,6 +829,18 @@ test("Spectrum records the native analyzer boundary without inventing display co
   assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
   assert.deepEqual(groups.other, []);
   assert.equal(Object.values(groups).flat().length, 1);
+});
+
+test("Surround Panner preserves spatial position, focus and speaker layout", () => {
+  const profile = getFactoryDeviceProfile({ className: "MxDeviceAudioEffect", name: "Surround Panner" });
+  assert.equal(profile?.id, "surround-panner");
+  const names = ["Device On", "Center", "Focus", "Rotation", "Smooth", "SpeakerPos", "X-Axis", "Y-Axis"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.deepEqual(groups.image.map(p => p.id), ["parameter-1", "parameter-2", "parameter-3", "parameter-4"]);
+  assert.deepEqual(groups.layout.map(p => p.id), ["parameter-5"]);
+  assert.deepEqual(groups.position.map(p => p.id), ["parameter-6", "parameter-7"]);
+  assert.deepEqual(groups.other, []);
 });
 
 test("Compressor preserves native roles and distinguishes automatic release from device power", () => {
