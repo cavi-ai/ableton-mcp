@@ -102,6 +102,26 @@ test("return track rename binds the exact current bus identity", async () => {
   await assert.rejects(() => service.call("rename_session_object", { ...args, targetId: "return-2" }), /unknown return/);
 });
 
+test("return track deletion discloses devices and affected send lanes", async () => {
+  const target = { id: "return-0", name: "A-Reverb", devices: [{ id: "return-0:device-0", name: "Reverb" }] };
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_set_mixer") return { stateVersion: 4, returns: [target] };
+    if (method === "list_tracks") return { stateVersion: 4, tracks: [{ id: "track-0", name: "Synth" }] };
+    if (method === "get_track_mixer") return { stateVersion: 4, trackId: params.trackId,
+      sends: [{ id: "send-0", returnTrackId: "return-0", name: "A-Reverb", value: 0.25, min: 0, max: 1 }] };
+    if (method === "delete_session_object") return { stateVersion: 5, deleted: params.target };
+    throw new Error(method);
+  } } });
+  const base = { targetType: "return", targetId: "return-0", expectedStateVersion: 4 };
+  await assert.rejects(() => service.call("delete_session_object", base), /allowContent/);
+  const dry = await service.call("delete_session_object", { ...base, allowContent: true });
+  assert.equal(dry.plan.target.devices[0].name, "Reverb");
+  assert.equal(dry.plan.target.affectedTrackSends[0].send.value, 0.25);
+  const result = await service.call("delete_session_object", { ...base, allowContent: true, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.observed.deleted.targetId, "return-0");
+});
+
 function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 1, velocity: 100,
   velocityDeviation: 0, releaseVelocity: 64, probability: 1, mute: false }] } = {}) {
   const calls = [];

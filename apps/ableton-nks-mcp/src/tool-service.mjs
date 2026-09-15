@@ -1311,6 +1311,26 @@ export class ToolService {
 
   async #deleteSessionObject(args) {
     requireExpectedState(args);
+    if (args.targetType === "return") {
+      const observed = await this.bridge.request("get_set_mixer", {});
+      assertExpectedState(args, observed);
+      const target = observed.returns.find(({ id }) => id === args.targetId);
+      if (!target) throw new Error(`unknown return ${args.targetId}`);
+      if (args.allowContent !== true) {
+        throw new Error("allowContent: true is required to delete a Return Track, its devices, and its send lane");
+      }
+      const tracks = (await this.bridge.request("list_tracks", {})).tracks;
+      const affectedTrackSends = [];
+      for (const track of tracks) {
+        const mixer = await this.bridge.request("get_track_mixer", { trackId: track.id });
+        const send = mixer.sends.find(({ returnTrackId }) => returnTrackId === target.id);
+        if (send) affectedTrackSends.push({ trackId: track.id, trackName: track.name, send });
+      }
+      return this.#confirmedMutation({ method: "delete_session_object",
+        expectedStateVersion: args.expectedStateVersion,
+        target: { targetType: "return", targetId: target.id, ...target, affectedTrackSends }
+      }, args);
+    }
     if (args.targetType === "clip") {
       const observed = await this.bridge.request("list_clips", { trackId: args.trackId });
       assertExpectedState(args, observed);
@@ -1340,7 +1360,7 @@ export class ToolService {
           clipCount: clips.length, deviceCount: devices.length, clips, devices }
       }, args);
     }
-    if (args.targetType !== "scene") throw new Error("targetType must be track, scene, or clip");
+    if (args.targetType !== "scene") throw new Error("targetType must be track, return, scene, or clip");
     const observed = await this.bridge.request("list_scenes", {});
     assertExpectedState(args, observed);
     if (observed.scenes.length <= 1) throw new Error("cannot delete the last scene");

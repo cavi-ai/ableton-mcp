@@ -449,6 +449,8 @@ def _return_mixer_record(track, index):
         "volume": _value_record(track.mixer_device.volume),
         "pan": _value_record(track.mixer_device.panning),
         "mute": bool(track.mute), "solo": bool(track.solo),
+        "devices": [_device_tree(device, f"return-{index}:device-{device_index}")
+                    for device_index, device in enumerate(getattr(track, "devices", ()))],
     }
 
 
@@ -1283,6 +1285,22 @@ def dispatch_request(song, request, state_version, application=None):
         target = params["target"]
         if target["targetType"] == "track":
             song.delete_track(int(target["targetId"].removeprefix("track-")))
+        elif target["targetType"] == "return":
+            suffix = target["targetId"].removeprefix("return-")
+            if not suffix.isascii() or not suffix.isdigit() or str(int(suffix)) != suffix or int(suffix) >= len(song.return_tracks):
+                raise ValueError("return track is unavailable")
+            index = int(suffix)
+            current = _return_mixer_record(song.return_tracks[index], index)
+            expected = {key: target[key] for key in current}
+            if current != expected:
+                raise ValueError("return track state changed")
+            if not callable(getattr(song, "delete_return_track", None)):
+                raise ValueError("Live does not expose return track deletion")
+            song.begin_undo_step()
+            try:
+                song.delete_return_track(index)
+            finally:
+                song.end_undo_step()
         elif target["targetType"] == "scene":
             song.delete_scene(int(target["targetId"].removeprefix("scene-")))
         else:
