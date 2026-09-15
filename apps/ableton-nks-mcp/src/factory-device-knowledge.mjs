@@ -146,6 +146,12 @@ const profiles = [
     feedback: ["feedback", "fb invert"], delay: ["delay time", "delay taps"], filter: ["hp on", "hp freq"],
     stereo: ["width"], color: ["warmth"], output: ["output", "dry/wet"]
   }, notes: ["Chorus-Ensemble offers Chorus, Ensemble, and Vibrato modes. Mode changes the delay and modulation topology, so verify enabled controls and display values after switching.", "Shape, Rate, Amount, and Offset define the modulation LFO and stereo phase relationship. Offset is displayed in degrees.", "Feedback and FB Invert control regeneration and polarity. Delay Time and Delay Taps define the underlying modulated-delay structure.", "HP On and HP Freq keep low frequencies out of the wet path; Width controls stereo spread and Warmth adds color. Output trim and Dry/Wet provide final gain matching and blend.", "Use displayValue for Hz, milliseconds, degrees, dB, percentages, and enumerated modes."] }
+  ,{ id: "phaser-flanger", name: "Phaser-Flanger", type: "audio_effect", family: "modulation", match: ["phaser-flanger", "phasernew"], roles: {
+    global: ["device on"], envelope: ["env enabled", "env amount", "env attack", "env release"],
+    modulation: ["amount", "mod wave", "mod freq", "mod freq 2", "mod sync", "mod sync 2", "mod rate", "mod rate 2", "mod phase", "spin enabled", "spin", "duty cycle", "lfo blend"], mode: ["mode"],
+    topology: ["notches", "flanger time", "doubler time", "mod blend", "center freq", "spread"],
+    feedback: ["feedback", "safe freq", "fb invert"], color: ["warmth"], output: ["output", "dry/wet"]
+  }, notes: ["Phaser-Flanger switches among Phaser, Flanger, and Doubler modes. Notches, Flanger Time, Doubler Time, Mod Blend, Center Freq, and Spread describe mode-dependent delay and filter topology; verify enabled state after changing Mode.", "The modulation section exposes two free rates, two synced rates, waveform, phase, spin, duty cycle, LFO blend, and overall Amount. Use the displayed value to distinguish Hz from synchronized beat divisions.", "The envelope follower has independent enable, amount, attack, and release controls and can supplement or oppose LFO motion.", "Feedback includes polarity inversion and Safe Freq low-frequency protection. Warmth adds color after the feedback structure; Output and Dry/Wet provide final gain matching and blend.", "Use displayValue for Hz, beat divisions, milliseconds, degrees, dB, percentages, and enumerated modes."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });
