@@ -902,6 +902,19 @@ class DispatchTest(unittest.TestCase):
         }}, 3, application)
         self.assertEqual(result["results"][0]["path"], ["Splice", "Drums", "Snare.wav"])
 
+    def test_browser_listing_pages_large_roots_without_serializing_all_children(self):
+        application = Application()
+        items = tuple(BrowserItem(f"Sound-{index}", f"query:sound-{index}", True) for index in range(250))
+        application.browser.samples = BrowserItem("Samples", "query:samples", children=items)
+        page = dispatch_request(Song(), {"method": "get_browser_items", "params": {
+            "root": "samples", "path": [], "offset": 100, "limit": 25,
+        }}, 3, application)
+        self.assertEqual(len(page["children"]), 25)
+        self.assertEqual(page["children"][0]["name"], "Sound-100")
+        self.assertEqual(page["children"][-1]["name"], "Sound-124")
+        self.assertEqual(page["totalChildren"], 250)
+        self.assertEqual(page["nextOffset"], 125)
+
     def test_live_browser_search_honors_depth_and_result_limits(self):
         shallow = dispatch_request(Song(), {"method": "search_browser_items", "params": {
             "root": "user_folders", "path": [], "query": "snare", "maxDepth": 2, "limit": 10,

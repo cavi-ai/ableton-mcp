@@ -854,10 +854,21 @@ def dispatch_request(song, request, state_version, application=None):
         return {"stateVersion": state_version + 1, "busTrackId": params["busTrackId"], "routes": routes}
     if method in ("get_browser_items", "get_factory_browser_items"):
         item = _browser_item(application, params["root"], params.get("path", []))
+        children = item.children
+        total_children = len(children)
+        offset = params.get("offset", 0)
+        limit = params.get("limit")
+        if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
+            raise ValueError("browser offset must be a non-negative integer")
+        if limit is not None and (not isinstance(limit, int) or isinstance(limit, bool) or limit < 1 or limit > 200):
+            raise ValueError("browser limit must be an integer from 1 to 200")
+        end = total_children if limit is None else min(offset + limit, total_children)
         return {
             "stateVersion": state_version, "root": params["root"], "path": params.get("path", []),
             "item": _browser_item_record(item),
-            "children": [_browser_item_record(child) for child in item.children],
+            "children": [_browser_item_record(child) for child in children[offset:end]],
+            "totalChildren": total_children,
+            "nextOffset": end if end < total_children else None,
         }
     if method == "search_browser_items":
         return {

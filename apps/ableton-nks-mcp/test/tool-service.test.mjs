@@ -549,6 +549,22 @@ test("Live browser search returns exact loadable paths for user-folder content",
   );
 });
 
+test("browser browse passes bounded page arguments to the Live bridge", async () => {
+  const calls = [];
+  const service = new ToolService({ bridge: { async request(method, params) {
+    calls.push({ method, params });
+    return { stateVersion: 3, children: [], totalChildren: 0, nextOffset: null };
+  } } });
+  await service.call("get_browser_items", { root: "samples", offset: 100, limit: 25 });
+  assert.deepEqual(calls[0], { method: "get_browser_items", params: {
+    root: "samples", path: [], offset: 100, limit: 25,
+  } });
+  await assert.rejects(
+    () => service.call("get_browser_items", { root: "samples", offset: -1, limit: 25 }),
+    /offset must be a non-negative integer/
+  );
+});
+
 test("factory browser loading rejects non-loadable and ambiguous requests", async () => {
   const { service } = fixture();
   const base = { expectedStateVersion: 4, trackId: "track-0", root: "instruments" };

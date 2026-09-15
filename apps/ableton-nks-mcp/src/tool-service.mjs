@@ -231,6 +231,17 @@ function normalizeBrowserPath(args) {
   return { root: args.root, path: path.map((part) => part.trim()) };
 }
 
+function normalizeBrowserPage(args) {
+  const path = normalizeBrowserPath(args);
+  if (args.offset === undefined && args.limit === undefined) return path;
+  const offset = args.offset ?? 0;
+  if (!Number.isInteger(offset) || offset < 0) throw new Error("offset must be a non-negative integer");
+  if (!Number.isInteger(args.limit) || args.limit < 1 || args.limit > 200) {
+    throw new Error("limit must be an integer from 1 to 200 when paging");
+  }
+  return { ...path, offset, limit: args.limit };
+}
+
 function normalizeBrowserSearch(args) {
   const browserPath = normalizeBrowserPath(args);
   if (typeof args.query !== "string" || !args.query.trim()) throw new Error("query must be a non-empty string");
@@ -376,7 +387,7 @@ export class ToolService {
         limitation: "Three sequential top-level factory browser observations, not an atomic inventory or exhaustive preset/Pack/third-party catalog. Profile matches use browser names; verify native class identity and actual controls after loading. A profile or loadable item does not prove save/recall, modulation, signal flow, or complete device integration." };
     }
     if (name === "get_browser_items" || name === "get_factory_browser_items") {
-      return this.bridge.request(name, normalizeBrowserPath(args));
+      return this.bridge.request(name, normalizeBrowserPage(args));
     }
     if (name === "search_browser_items") return this.bridge.request(name, normalizeBrowserSearch(args));
     if (name === "get_factory_device_context") {
