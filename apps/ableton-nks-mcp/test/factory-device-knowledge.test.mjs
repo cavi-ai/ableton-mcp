@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse"
   ]);
 });
 
@@ -327,6 +327,23 @@ test("Electric separates mallet, noise, fork, pickup and damper mechanics", () =
   assert.deepEqual(ids("pickup"), Array.from({ length: 6 }, (_, i) => `parameter-${i + 25}`));
   assert.deepEqual(ids("damper"), Array.from({ length: 3 }, (_, i) => `parameter-${i + 31}`));
   assert.deepEqual(groups.other, []);
+});
+
+test("Impulse preserves all eight complete sample-slot control strips", () => {
+  const profile = getFactoryDeviceProfile({ className: "InstrumentImpulse", name: "Renamed Drum Slots" });
+  assert.equal(profile?.id, "impulse");
+  const slotControls = ["Start", "Transpose", "Transpose <- Vel", "Transpose <- Random", "Stretch Mode", "Stretch Factor",
+    "Stretch <- Vel", "Saturator Drive", "Filter Type", "Filter Freq", "Filter Res", "Filter <- Vel", "Filter <- Random",
+    "Envelope Type", "Envelope Decay", "Pan", "Pan <- Vel", "Pan <- Random", "Volume", "Volume <- Vel"];
+  const names = ["Device On", "Global Volume", "Global Time", "Global Transpose",
+    ...Array.from({ length: 8 }, (_, slot) => slotControls.map(control => `${slot + 1} ${control}`)).flat()];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  assert.deepEqual(groups.global.map(p => p.id), Array.from({ length: 4 }, (_, i) => `parameter-${i}`));
+  for (let slot = 1; slot <= 8; slot += 1) {
+    assert.deepEqual(groups[`slot${slot}`].map(p => p.id), Array.from({ length: 20 }, (_, i) => `parameter-${4 + ((slot - 1) * 20) + i}`));
+  }
+  assert.deepEqual(groups.other, []);
+  assert.equal(Object.values(groups).flat().length, 164);
 });
 
 test("Compressor preserves native roles and distinguishes automatic release from device power", () => {
