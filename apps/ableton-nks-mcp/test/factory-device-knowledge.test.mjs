@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion"
   ]);
 });
 
@@ -614,6 +614,18 @@ test("Envelope Follower preserves duplicate delay modes, detector and sidechain 
   assert.deepEqual(groups.envelope.map(p => p.id), ["parameter-3", "parameter-4", "parameter-6"]);
   assert.deepEqual(groups.output.map(p => p.id), ["parameter-5"]);
   assert.deepEqual(groups.sidechain.map(p => p.id), ["parameter-7"]);
+  assert.deepEqual(groups.other, []);
+});
+
+test("Erosion separates noise excitation, spectral focus and stereo width", () => {
+  const profile = getFactoryDeviceProfile({ className: "Erosion2", name: "Renamed Texture" });
+  assert.equal(profile?.id, "erosion");
+  const names = ["Device On", "Amount", "Frequency", "Filter Width", "Noise Blend", "Stereo Width"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.deepEqual(groups.texture.map(p => p.id), ["parameter-1", "parameter-4"]);
+  assert.deepEqual(groups.filter.map(p => p.id), ["parameter-2", "parameter-3"]);
+  assert.deepEqual(groups.stereo.map(p => p.id), ["parameter-5"]);
   assert.deepEqual(groups.other, []);
 });
 
