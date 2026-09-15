@@ -6,6 +6,7 @@ const object = (properties = {}, required = []) => ({ type: "object", properties
 
 const ids = {
   trackId: string("Stable track ID returned by list_tracks."),
+  deviceOwnerId: string("Stable device-owner ID: track-N from list_tracks, return-N from get_set_mixer, or master."),
   sceneId: string("Stable scene ID returned by list_scenes."),
   clipId: string("Stable clip-slot ID returned by list_clips."),
   deviceId: string("Stable device ID returned by list_devices."),
@@ -157,7 +158,7 @@ export const toolContracts = {
   move_device_to_chain: { description: "Plan or move an exact device into a rack chain, including cross-track and nested destinations. Live may choose the nearest valid position; use the returned device ID and actualPosition.", inputSchema: guarded({ trackId: ids.trackId, deviceId: ids.deviceId, targetTrackId: ids.trackId, targetChainId: string("Exact chain ID from device hierarchy."), targetPosition: { type: "integer", minimum: 0 } }, ["trackId", "deviceId", "targetTrackId", "targetChainId", "targetPosition"]) },
   create_rack_chain: { description: "Plan or create a named empty chain in an exact rack, including nested racks. Omitted index appends. Drum-pad assignment is separate.", inputSchema: guarded({ trackId: ids.trackId, deviceId: ids.deviceId, index: { type: "integer", minimum: 0 }, name: string("New chain name.") }, ["trackId", "deviceId", "name"]) },
   get_clip_parameter_envelope: { description: "Sample one Session clip parameter envelope at exact beat positions.", inputSchema: object({ trackId: ids.trackId, clipId: ids.clipId, deviceId: ids.deviceId, parameterId: ids.parameterId, sampleTimes: array(number("Beat position.", { minimum: 0 }), "Beat positions to sample.") }, ["trackId", "clipId", "deviceId", "parameterId"]) },
-  list_devices: { description: "List loaded devices on one exact track.", inputSchema: track },
+  list_devices: { description: "List loaded devices on one exact ordinary, Return, or Main track.", inputSchema: object({ trackId: ids.deviceOwnerId }, ["trackId"]) },
   get_device_sidechain_routing: { description: "Read exact native external-sidechain source type and channel choices for one loaded device. Reports unsupported explicitly; does not confuse device-sidechain routing with track input routing.", inputSchema: device },
   set_device_sidechain_routing: { description: "Plan or apply one guarded native device-sidechain source type or channel change. Read refreshed channels after changing source type. Rejects unsupported devices and ambiguous choices; does not enable external sidechain automatically.", inputSchema: guarded({ ...device.properties, sourceTypeId: string("Exact available sidechain source type ID."), sourceChannelId: string("Exact available sidechain channel ID.") }, ["trackId", "deviceId"]) },
   crop_audio_clip: { description: "Plan or apply Live native cropping of one exact audio clip. Preview reports the selected loop interval when enabled, otherwise start/end markers, in current units. Live may retain pre-loop playback material and creates a processed source. Selected interval is not a guarantee of exclusive source-file bounds. Binds audio and loop state and reads back native results.", inputSchema: guarded({ trackId: ids.trackId, clipId: ids.clipId }, ["trackId", "clipId"]) },

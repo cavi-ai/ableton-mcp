@@ -929,6 +929,14 @@ test("group fold and bus routing mutations validate exact existing track identit
   await assert.rejects(() => service.call("route_tracks_to_bus", { expectedStateVersion: 4, trackIds: ["track-1"], busTrackId: "track-1" }), /cannot route.*itself/);
 });
 
+test("device listing forwards Return and Main owner IDs", async () => {
+  const { service, calls } = fixture();
+  for (const trackId of ["return-0", "master"]) {
+    await service.call("list_devices", { trackId });
+  }
+  assert.deepEqual(calls.slice(-2).map(({ params }) => params.trackId), ["return-0", "master"]);
+});
+
 test("device reordering requires exact state and confirmation", async () => {
   const { service, calls } = fixture();
   const original = service.bridge.request.bind(service.bridge);

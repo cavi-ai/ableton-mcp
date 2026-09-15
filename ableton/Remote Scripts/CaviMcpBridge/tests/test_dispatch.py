@@ -2229,12 +2229,25 @@ class DispatchTest(unittest.TestCase):
 
     def test_track_resolution_rejects_noncanonical_and_out_of_range_ids(self):
         song = Song()
-        for track_id in ["track--1", "0", "track-00", "return-0", "track-999", None]:
+        for track_id in ["track--1", "0", "track-00", "track-999", None]:
             with self.subTest(track_id=track_id):
                 with self.assertRaises(ValueError):
                     dispatch_request(song, {"method": "list_devices", "params": {"trackId": track_id}}, 1)
         result = dispatch_request(song, {"method": "list_devices", "params": {"trackId": "track-0"}}, 1)
         self.assertEqual(result["trackId"], "track-0")
+
+    def test_list_devices_supports_return_and_master_owners(self):
+        song = Song()
+        song.return_tracks[0].devices = [Device()]
+        song.master_track.devices = [Device()]
+        returned = dispatch_request(song, {"method": "list_devices", "params": {"trackId": "return-0"}}, 1)
+        mastered = dispatch_request(song, {"method": "list_devices", "params": {"trackId": "master"}}, 1)
+        self.assertEqual(returned["devices"][0]["id"], "return-0:device-0")
+        self.assertEqual(mastered["devices"][0]["id"], "master:device-0")
+        for owner_id in ["return--1", "return-00", "return-999"]:
+            with self.subTest(owner_id=owner_id):
+                with self.assertRaises(ValueError):
+                    dispatch_request(song, {"method": "list_devices", "params": {"trackId": owner_id}}, 1)
 
     def test_clip_resolution_rejects_negative_and_noncanonical_slot_ids(self):
         song = Song()

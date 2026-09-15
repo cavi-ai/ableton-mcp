@@ -59,6 +59,21 @@ def _track(song, track_id):
     return index, song.tracks[index]
 
 
+def _device_owner(song, owner_id):
+    if owner_id == "master":
+        return "master", song.master_track
+    if isinstance(owner_id, str) and owner_id.startswith("return-"):
+        suffix = owner_id.removeprefix("return-")
+        if not suffix.isascii() or not suffix.isdigit():
+            raise ValueError("invalid device owner ID")
+        index = int(suffix)
+        if str(index) != suffix or index >= len(song.return_tracks):
+            raise ValueError("device owner ID is noncanonical or unavailable")
+        return owner_id, song.return_tracks[index]
+    index, track = _track(song, owner_id)
+    return f"track-{index}", track
+
+
 def _track_record(song, track, index):
     is_group = bool(getattr(track, "is_foldable", False))
     is_grouped = bool(getattr(track, "is_grouped", False))
@@ -1593,8 +1608,8 @@ def dispatch_request(song, request, state_version, application=None):
             ],
         }
     if method == "list_devices":
-        index, track = _track(song, params["trackId"])
-        return {"stateVersion": state_version, "trackId": params["trackId"], "devices": [_device_tree(device, f"track-{index}:device-{i}") for i, device in enumerate(track.devices)]}
+        owner_id, track = _device_owner(song, params["trackId"])
+        return {"stateVersion": state_version, "trackId": owner_id, "devices": [_device_tree(device, f"{owner_id}:device-{i}") for i, device in enumerate(track.devices)]}
     if method in ("set_device_active", "delete_device", "move_device"):
         track, index, device = _device(song, params["trackId"], params["deviceId"])
         before = params["beforeDevice"]
