@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension"
   ]);
 });
 
@@ -276,6 +276,37 @@ test("Collision separates exciters, resonators, LFOs and performance expression"
   assert.deepEqual(ids("lfo1"), Array.from({ length: 4 }, (_, i) => `parameter-${i + 23}`));
   assert.deepEqual(ids("lfo2"), Array.from({ length: 3 }, (_, i) => `parameter-${i + 27}`));
   assert.deepEqual(ids("expression"), Array.from({ length: 8 }, (_, i) => `parameter-${i + 30}`));
+  assert.deepEqual(groups.other, []);
+});
+
+test("Tension separates physical string stages, filter envelope and expression", () => {
+  const profile = getFactoryDeviceProfile({ className: "StringStudio", name: "Renamed Bowed String" });
+  assert.equal(profile?.id, "tension");
+  const names = ["Device On", "Voices", "PB Range", "Octave", "Semitone", "Fine Tune", "Key Priority", "Unison On/Off",
+    "Uni Detune", "Uni Delay", "Stretch", "Error", "Vibrato On/Off", "Vib Speed", "Vib < ModWh", "Porta On/Off",
+    "Porta Time", "Porta Legato", "E Pos", "E Pos < Vel", "Damp Pos", "D Pos < Key", "Exc On/Off", "Exciter Type",
+    "Exc ForceMassProt", "Exc Damping", "Pickup On/Off", "Pickup Pos", "Damper On", "Damper Mass", "Damper Gated",
+    "Str Damping", "String Decay", "Str Inharmon", "Term On/Off", "Term Mass", "Term Fret Stiff", "LFO On/Off",
+    "LFO Shape", "LFO Fade In", "Filter On/Off", "Filter Type", "Freq < Env", "Filter Reso", "FEG On/Off", "FEG Attack",
+    "FEG Sustain", "Body On/Off", "Body Type", "Body Low-Cut", "Body Mix", "Volume", "Note PB Range", "Press Dest A",
+    "Press Amt B", "Slide Dest A", "Slide Amt B"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  const ids = role => groups[role].map(p => p.id);
+  assert.deepEqual(ids("global"), Array.from({ length: 12 }, (_, i) => `parameter-${i}`));
+  assert.deepEqual(ids("vibrato"), ["parameter-12", "parameter-13", "parameter-14"]);
+  assert.deepEqual(ids("portamento"), ["parameter-15", "parameter-16", "parameter-17"]);
+  assert.deepEqual(ids("position"), ["parameter-18", "parameter-19", "parameter-20", "parameter-21"]);
+  assert.deepEqual(ids("exciter"), ["parameter-22", "parameter-23", "parameter-24", "parameter-25"]);
+  assert.deepEqual(ids("pickup"), ["parameter-26", "parameter-27"]);
+  assert.deepEqual(ids("damper"), ["parameter-28", "parameter-29", "parameter-30"]);
+  assert.deepEqual(ids("string"), ["parameter-31", "parameter-32", "parameter-33"]);
+  assert.deepEqual(ids("termination"), ["parameter-34", "parameter-35", "parameter-36"]);
+  assert.deepEqual(ids("lfo"), ["parameter-37", "parameter-38", "parameter-39"]);
+  assert.deepEqual(ids("filter"), ["parameter-40", "parameter-41", "parameter-42", "parameter-43"]);
+  assert.deepEqual(ids("filterEnvelope"), ["parameter-44", "parameter-45", "parameter-46"]);
+  assert.deepEqual(ids("body"), ["parameter-47", "parameter-48", "parameter-49", "parameter-50"]);
+  assert.deepEqual(ids("output"), ["parameter-51"]);
+  assert.deepEqual(ids("expression"), ["parameter-52", "parameter-53", "parameter-54", "parameter-55", "parameter-56"]);
   assert.deepEqual(groups.other, []);
 });
 
