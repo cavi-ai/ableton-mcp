@@ -127,3 +127,43 @@ export function getProducerChainBlueprint(target) {
     limitation: "A deterministic factory-device starting point, not automatic mixing or mastering. Measure the source, inspect native parameters, audition changes, and preserve headroom before committing settings."
   });
 }
+
+export function verifyProducerChain(target, devices) {
+  const blueprint = getProducerChainBlueprint(target);
+  if (!Array.isArray(devices)) throw new TypeError("devices must be an array");
+  const stagesById = new Map(blueprint.stages.map((stage) => [stage.profileId, stage]));
+  const observed = [];
+  const unexpectedDevices = [];
+  const seen = new Set();
+  for (const device of devices) {
+    const profileId = getFactoryDeviceProfile(device)?.id;
+    if (!profileId || !stagesById.has(profileId) || seen.has(profileId)) {
+      unexpectedDevices.push(device);
+      continue;
+    }
+    seen.add(profileId);
+    observed.push({ profileId, deviceId: device.id, order: stagesById.get(profileId).order });
+  }
+  const missingRequired = blueprint.stages.filter((stage) => !stage.optional && !seen.has(stage.profileId));
+  const optionalOmitted = blueprint.stages.filter((stage) => stage.optional && !seen.has(stage.profileId));
+  const inversions = new Set();
+  for (let left = 0; left < observed.length; left++) {
+    for (let right = left + 1; right < observed.length; right++) {
+      if (observed[left].order > observed[right].order) {
+        inversions.add(left);
+        inversions.add(right);
+      }
+    }
+  }
+  const outOfOrder = observed.filter((_, index) => inversions.has(index));
+  return {
+    target,
+    matchesRequiredOrder: missingRequired.length === 0 && outOfOrder.length === 0 && unexpectedDevices.length === 0,
+    observed,
+    missingRequired,
+    optionalOmitted,
+    outOfOrder,
+    unexpectedDevices
+  };
+}
+import { getFactoryDeviceProfile } from "./factory-device-knowledge.mjs";
