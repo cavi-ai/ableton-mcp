@@ -2,6 +2,7 @@ import { assertExpectedState } from "./bridge-protocol.mjs";
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { analyzeAudioFile } from "./audio-analysis.mjs";
+import { buildSongGridReference } from "./song-grid-reference.mjs";
 import { searchLocalSpliceSamples } from "./splice-local-search.mjs";
 import { inspectGroovePostconditions } from "./groove-workflow.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
@@ -308,6 +309,16 @@ export class ToolService {
     if (name === "get_transport_context") return this.bridge.request("get_transport_context", {});
     if (name === "get_history_state") return this.bridge.request("get_history_state", {});
     if (name === "get_song_musical_context") return this.bridge.request("get_song_musical_context", {});
+    if (name === "get_song_grid_reference") {
+      const live = await this.bridge.request("get_live_state", {});
+      const context = await this.bridge.request("get_song_musical_context", {});
+      const afterContext = await this.bridge.request("get_song_musical_context", {});
+      const afterLive = await this.bridge.request("get_live_state", {});
+      if (live.stateVersion !== context.stateVersion || JSON.stringify(context) !== JSON.stringify(afterContext) ||
+        live.stateVersion !== afterLive.stateVersion || live.setFingerprint !== afterLive.setFingerprint ||
+        live.tempo !== afterLive.tempo) throw new Error("song grid context changed; retry");
+      return { stateVersion: live.stateVersion, ...buildSongGridReference(context.timeSignature, live.tempo) };
+    }
     if (name === "get_clip_groove_context") return this.bridge.request("get_clip_groove_context", args);
     if (name === "inspect_clip_groove_postconditions") {
       if (args.before?.trackId !== args.trackId || args.before?.clipId !== args.clipId) throw new Error("before snapshot does not match target");
