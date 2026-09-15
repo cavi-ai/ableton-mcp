@@ -56,8 +56,31 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter"
   ]);
+});
+
+test("Auto Filter preserves filter, modulation, envelope, sidechain and output controls", () => {
+  const profile = getFactoryDeviceProfile({ className: "AutoFilter2", name: "Renamed Sweep" });
+  assert.equal(profile?.id, "auto-filter");
+  const names = ["Device On", "Frequency", "Resonance", "Filter Morph", "Filter Type", "Filter Slope", "Morph Slope",
+    "Circuit", "Drive", "Control", "Pitch", "Formant", "LFO Amount", "LFO Wave", "LFO T Mode", "LFO Freq",
+    "LFO Time", "LFO Rate", "LFO 16th", "LFO Phase", "LFO Offset", "LFO S Mode", "LFO Spin", "LFO Morph",
+    "LFO Smoothing", "LFO Q Mode", "LFO Steps", "LFO S&H", "Env Amount", "Env Attack", "Env Hold On",
+    "Env Release", "Env S&H On", "Env S&H", "Output", "Soft Clip On", "Dry/Wet", "S/C EQ On", "S/C EQ Type",
+    "S/C EQ Freq", "S/C EQ Q", "S/C EQ Gain", "S/C On", "S/C Gain", "S/C Mix"];
+  const parameters = names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name }));
+  const groups = groupDeviceParameters(profile, parameters);
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.deepEqual(groups.filter.map(p => p.id), Array.from({ length: 7 }, (_, i) => `parameter-${i + 1}`));
+  assert.deepEqual(groups.character.map(p => p.id), ["parameter-8", "parameter-9", "parameter-10", "parameter-11"]);
+  assert.deepEqual(groups.lfo.map(p => p.id), Array.from({ length: 16 }, (_, i) => `parameter-${i + 12}`));
+  assert.deepEqual(groups.envelope.map(p => p.id), Array.from({ length: 6 }, (_, i) => `parameter-${i + 28}`));
+  assert.deepEqual(groups.output.map(p => p.id), ["parameter-34", "parameter-35"]);
+  assert.deepEqual(groups.mix.map(p => p.id), ["parameter-36"]);
+  assert.deepEqual(groups.sidechain.map(p => p.id), Array.from({ length: 8 }, (_, i) => `parameter-${i + 37}`));
+  assert.deepEqual(groups.other, []);
+  assert.equal(Object.values(groups).flat().length, names.length);
 });
 
 test("Compressor preserves native roles and distinguishes automatic release from device power", () => {
