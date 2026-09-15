@@ -24,7 +24,16 @@ const profiles = [
     pitch: ["transpose", "glide"], unison: ["unison"], envelopeTiming: ["time"], amplitude: ["volume"]
   }, notes: ["InstrumentVector is Wavetable's native class, including renamed instances. Amp is the amplitude envelope; Env 2 and Env 3 are separate modulation envelopes, not amplitude ADSR controls.", "Read envelope slopes, initial/peak/final levels and loop modes alongside ADSR. LFO Attack Time belongs to that LFO, not the amplitude envelope.", "Oscillator and sub-oscillator transposition are distinct from global Transpose. Both filters expose independent native controls.", "Native parameter grouping does not expose wavetable browser selection or the modulation matrix assignments. Inspect displayValue for physical units; normalized values are not necessarily milliseconds or Hz."] },
   { id: "eq-eight", name: "EQ Eight", type: "audio_effect", family: "equalizer", match: ["eq eight", "eq8"], roles: { ...globalRoles, frequency: ["freq", "frequency"], gain: ["gain"], resonance: ["q", "resonance"], mode: ["filter type", "mode", "stereo"] } },
-  { id: "delay", name: "Delay", type: "audio_effect", family: "delay", match: ["delay"], roles: { ...globalRoles, time: ["time", "sync", "division"], feedback: ["feedback"], filter: ["filter", "freq"], modulation: ["modulation", "lfo"], mix: ["dry/wet", "mix"] } },
+  { id: "delay", name: "Delay", type: "audio_effect", family: "delay", match: ["delay"], roles: {
+    global: ["device on"], smoothing: ["smoothing"], stereoRouting: ["link", "ping pong"],
+    timingMode: ["l sync", "r sync"], delayTime: ["l time", "r time"],
+    timingDivision: ["l 16th", "r 16th"], offset: ["l offset", "r offset"],
+    feedback: ["feedback"], freeze: ["freeze"], filter: ["filter on", "filter freq", "filter width"],
+    lfo: ["lfo "], mix: ["dry/wet"]
+  }, notes: ["Left and right delay lanes each have independent sync, free-time, rhythmic-division and offset controls. Link and Ping Pong alter stereo signal flow; neither is a delay-time value.",
+    "Feedback and Freeze are separate states. The feedback filter's on, frequency and width controls are distinct from LFO > Filter modulation depth.",
+    "LFO Mode, free/synced time, rhythmic division, waveform, morph and destination depths form one modulation subsystem; do not treat LFO Time as the audio delay time.",
+    "Read native enabled state and displayValue after switching sync or LFO mode; raw time and frequency values are not guaranteed to be physical units."] },
   { id: "echo", name: "Echo", type: "audio_effect", family: "delay", match: ["echo"], roles: { ...globalRoles, time: ["time", "sync", "division"], feedback: ["feedback"], filter: ["filter", "freq"], modulation: ["modulation", "wobble", "noise"], mix: ["dry/wet", "mix"] } },
   { id: "reverb", name: "Reverb", type: "audio_effect", family: "reverb", match: ["reverb"], roles: {
     global: ["device on"], predelay: ["predelay"], inputFilter: ["in lo cut", "in hi cut", "input freq", "input width"],

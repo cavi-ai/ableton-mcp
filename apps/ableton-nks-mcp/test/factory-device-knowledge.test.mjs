@@ -33,6 +33,22 @@ test("Reverb groups every observed native control by its processing stage", () =
   }
 });
 
+test("Delay keeps left-right timing and LFO controls in their native stages", () => {
+  const profile = getFactoryDeviceProfile({ className: "Delay", name: "B-Delay" });
+  const names = ["Device On", "Smoothing", "Link", "Ping Pong", "L Sync", "R Sync", "L Time",
+    "R Time", "L 16th", "R 16th", "L Offset", "R Offset", "Feedback", "Freeze",
+    "Filter On", "Filter Freq", "Filter Width", "LFO Mode", "LFO Freq", "LFO Time",
+    "LFO Synced", "LFO 16th", "LFO Wave", "LFO Morph", "LFO > Delay", "LFO > Filter", "Dry/Wet"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({
+    id: `parameter-${index}`, name, originalName: name
+  })));
+  const ids = role => (groups[role] || []).map(parameter => Number(parameter.id.slice(10)));
+  for (const [role, expected] of Object.entries({ global: [0], smoothing: [1], stereoRouting: [2, 3],
+    timingMode: [4, 5], delayTime: [6, 7], timingDivision: [8, 9], offset: [10, 11],
+    feedback: [12], freeze: [13], filter: [14, 15, 16], lfo: [17, 18, 19, 20, 21, 22, 23, 24, 25],
+    mix: [26], other: [] })) assert.deepEqual(ids(role), expected, role);
+});
+
 test("Wavetable native identity separates envelope and filter destinations", () => {
   const profile = getFactoryDeviceProfile({ className: "InstrumentVector", name: "Renamed Bass" });
   assert.equal(profile?.id, "wavetable");
@@ -1213,11 +1229,11 @@ test("parameter grouping preserves live IDs while assigning producer roles", () 
   const grouped = groupDeviceParameters(getFactoryDeviceProfile({ name: "Delay" }), [
     { id: "parameter-1", name: "Dry/Wet", originalName: "Dry/Wet" },
     { id: "parameter-2", name: "Feedback", originalName: "Feedback" },
-    { id: "parameter-3", name: "L Time", originalName: "L Sync Time" },
+    { id: "parameter-3", name: "L Time", originalName: "L Time" },
     { id: "parameter-4", name: "Device On", originalName: "Device On" }
   ]);
   assert.deepEqual(grouped.mix.map(({ id }) => id), ["parameter-1"]);
   assert.deepEqual(grouped.feedback.map(({ id }) => id), ["parameter-2"]);
-  assert.deepEqual(grouped.time.map(({ id }) => id), ["parameter-3"]);
+  assert.deepEqual(grouped.delayTime.map(({ id }) => id), ["parameter-3"]);
   assert.deepEqual(grouped.global.map(({ id }) => id), ["parameter-4"]);
 });
