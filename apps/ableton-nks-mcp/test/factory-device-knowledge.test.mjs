@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric"
   ]);
 });
 
@@ -307,6 +307,25 @@ test("Tension separates physical string stages, filter envelope and expression",
   assert.deepEqual(ids("body"), ["parameter-47", "parameter-48", "parameter-49", "parameter-50"]);
   assert.deepEqual(ids("output"), ["parameter-51"]);
   assert.deepEqual(ids("expression"), ["parameter-52", "parameter-53", "parameter-54", "parameter-55", "parameter-56"]);
+  assert.deepEqual(groups.other, []);
+});
+
+test("Electric separates mallet, noise, fork, pickup and damper mechanics", () => {
+  const profile = getFactoryDeviceProfile({ className: "LoungeLizard", name: "Renamed Electric Piano" });
+  assert.equal(profile?.id, "electric");
+  const names = ["Device On", "Voices", "PB Range", "Note PB Range", "Volume", "Semitone", "Detune", "KB Stretch",
+    "M Stiffness", "M Stiff < Key", "M Stiff < Vel", "M Force", "M Force < Key", "M Force < Vel",
+    "Noise Pitch", "Noise Decay", "Noise Amount", "Noise < Key", "F Release", "F Tine Decay", "F Tine Vol",
+    "F Tine < Key", "F Tine Color", "F Tone Decay", "F Tone Vol", "P Symmetry", "P Distance", "Pickup Model",
+    "P Amp In", "P Amp Out", "P Amp < Key", "Damp Tone", "Damp Amount", "Damp Balance"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  const ids = role => groups[role].map(p => p.id);
+  assert.deepEqual(ids("global"), Array.from({ length: 8 }, (_, i) => `parameter-${i}`));
+  assert.deepEqual(ids("mallet"), Array.from({ length: 6 }, (_, i) => `parameter-${i + 8}`));
+  assert.deepEqual(ids("noise"), Array.from({ length: 4 }, (_, i) => `parameter-${i + 14}`));
+  assert.deepEqual(ids("fork"), Array.from({ length: 7 }, (_, i) => `parameter-${i + 18}`));
+  assert.deepEqual(ids("pickup"), Array.from({ length: 6 }, (_, i) => `parameter-${i + 25}`));
+  assert.deepEqual(ids("damper"), Array.from({ length: 3 }, (_, i) => `parameter-${i + 31}`));
   assert.deepEqual(groups.other, []);
 });
 
