@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper", "overdrive", "pedal", "redux", "resonators", "shaper", "shifter", "spectral-resonator", "spectral-time", "spectrum", "surround-panner", "tuner", "vinyl-distortion"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper", "overdrive", "pedal", "redux", "resonators", "shaper", "shifter", "spectral-resonator", "spectral-time", "spectrum", "surround-panner", "tuner", "vinyl-distortion", "vocoder"
   ]);
 });
 
@@ -861,6 +861,25 @@ test("Vinyl Distortion separates tracing, pinch and crackle stages", () => {
   assert.deepEqual(groups.pinch.map(p => p.id), ["parameter-5", "parameter-6", "parameter-7", "parameter-8", "parameter-10", "parameter-11"]);
   assert.deepEqual(groups.drive.map(p => p.id), ["parameter-9"]);
   assert.deepEqual(groups.crackle.map(p => p.id), ["parameter-12", "parameter-13"]);
+  assert.deepEqual(groups.other, []);
+});
+
+test("Vocoder separates filter bank, envelope, unvoiced and carrier controls", () => {
+  const profile = getFactoryDeviceProfile({ className: "Vocoder", name: "Vocoder" });
+  assert.equal(profile?.id, "vocoder");
+  const names = ["Device On", "Lower Filter Band", "Upper Filter Band", "Formant Shift", "Filter Width", "Precise/Retro", "Gate Threshold", "Output", "Attack Time", "Release Time", "Unvoiced Sensitivity", "Unvoiced Speed", "Unvoiced Level", "Enhance", "Mono/Stereo", "Dry/Wet", "Envelope Depth", "Noise Rate", "Noise Crackle", "Lower Pitch Detection", "Upper Pitch Detection", "Oscillator Pitch", "Oscillator Waveform", "Ext. In Gain"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.deepEqual(groups.filterBank.map(p => p.id), ["parameter-1", "parameter-2", "parameter-3", "parameter-4", "parameter-5"]);
+  assert.deepEqual(groups.gate.map(p => p.id), ["parameter-6"]);
+  assert.deepEqual(groups.output.map(p => p.id), ["parameter-7", "parameter-14", "parameter-15"]);
+  assert.deepEqual(groups.envelope.map(p => p.id), ["parameter-8", "parameter-9", "parameter-16"]);
+  assert.deepEqual(groups.unvoiced.map(p => p.id), ["parameter-10", "parameter-11", "parameter-12"]);
+  assert.deepEqual(groups.enhance.map(p => p.id), ["parameter-13"]);
+  assert.deepEqual(groups.noise.map(p => p.id), ["parameter-17", "parameter-18"]);
+  assert.deepEqual(groups.pitchDetection.map(p => p.id), ["parameter-19", "parameter-20"]);
+  assert.deepEqual(groups.oscillator.map(p => p.id), ["parameter-21", "parameter-22"]);
+  assert.deepEqual(groups.carrierInput.map(p => p.id), ["parameter-23"]);
   assert.deepEqual(groups.other, []);
 });
 
