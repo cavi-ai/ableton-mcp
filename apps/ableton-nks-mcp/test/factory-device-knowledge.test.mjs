@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay"
   ]);
 });
 
@@ -651,6 +651,20 @@ test("Filter Delay preserves three complete independent tap strips", () => {
   assert.deepEqual(groups.tap2.map(p => p.id), names.slice(12, 23).map((_, index) => `parameter-${index + 12}`));
   assert.deepEqual(groups.tap3.map(p => p.id), names.slice(23, 34).map((_, index) => `parameter-${index + 23}`));
   assert.deepEqual(groups.output.map(p => p.id), ["parameter-34"]);
+  assert.deepEqual(groups.other, []);
+});
+
+test("Grain Delay separates grain generation, pitch, feedback, timing and blend", () => {
+  const profile = getFactoryDeviceProfile({ className: "GrainDelay", name: "Renamed Granulator" });
+  assert.equal(profile?.id, "grain-delay");
+  const names = ["Device On", "Spray", "Frequency", "Pitch", "Random", "Feedback", "DryWet", "Delay Mode", "Beat Delay", "Beat Swing", "Time Delay"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.deepEqual(groups.grain.map(p => p.id), ["parameter-1", "parameter-2", "parameter-4"]);
+  assert.deepEqual(groups.pitch.map(p => p.id), ["parameter-3"]);
+  assert.deepEqual(groups.feedback.map(p => p.id), ["parameter-5"]);
+  assert.deepEqual(groups.output.map(p => p.id), ["parameter-6"]);
+  assert.deepEqual(groups.timing.map(p => p.id), ["parameter-7", "parameter-8", "parameter-9", "parameter-10"]);
   assert.deepEqual(groups.other, []);
 });
 
