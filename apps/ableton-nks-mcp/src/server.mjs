@@ -111,6 +111,7 @@ const toolNames = [
   "list_devices",
   "list_device_parameters",
   "capture_device_parameter_snapshot",
+  "capture_track_state_snapshot",
   "recall_device_parameter_snapshot",
   "set_device_parameters",
   "create_midi_clip",

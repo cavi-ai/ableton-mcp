@@ -30,6 +30,8 @@ Read the current state version, obtain the load dry-run plan, then execute with 
 
 Read parameters independently after recall rather than treating the mutation acknowledgment as acceptance. EQ Three acceptance captured ten parameters, changed low gain, and recalled all original values exactly. These snapshots are not `.adv`, `.adg`, NKS or complete third-party presets: they omit hidden state, samples, automation and mappings. Native preset saving remains necessary for those other forms of state.
 
+`capture_track_state_snapshot` extends the same truthful JSON workflow to an existing track. One synchronous Remote Script callback captures its name/type, mixer values and named sends, exact routing-choice IDs, and exposed parameters for each ordered top-level device. This is not yet a recall command or a native track template: clips, nested rack devices, hidden plug-in state, samples, automation and mappings are excluded.
+
 ## Live browser Favorites
 
 Live's color Collections are separate from NKS catalog tags and favorites. In the native browser, open the saved item's context menu and select the named collection. In the exercised acceptance, the menu initially showed Clear All Colors checked and Favorites unchecked; selecting Favorites made the saved EQ Three preset appear in the Favorites collection's one-item list.

@@ -248,6 +248,7 @@ export class ToolService {
   }
 
   async call(name, args = {}) {
+    if (name === "capture_track_state_snapshot") return this.#captureTrackStateSnapshot(args);
     if (name === "capture_device_parameter_snapshot") {
       const target = { trackId: args.trackId, deviceId: args.deviceId };
       const before = await this.#observeDevice(target);
@@ -526,6 +527,24 @@ export class ToolService {
       return this.#genericMutation(name, args);
     }
     throw new Error(`unknown tool ${name}`);
+  }
+
+  async #captureTrackStateSnapshot(args) {
+    const observed = await this.bridge.request("get_track_state_snapshot", { trackId: args.trackId });
+    if (observed.trackId !== args.trackId || observed.track?.id !== args.trackId) throw new Error("track snapshot target mismatch");
+    const { track, mixer, routing } = observed;
+    return { trackId: args.trackId, stateVersion: observed.stateVersion, snapshot: {
+      format: "cavi-track-state-v1",
+      track: { name: track.name, type: track.type, isGroup: Boolean(track.isGroup) },
+      mixer: { volume: mixer.volume.value, pan: mixer.pan.value, mute: mixer.mute, solo: mixer.solo,
+        sends: mixer.sends.map(send => ({ id: send.id, name: send.name, value: send.value })) },
+      routing: { inputTypeId: routing.input.type?.id ?? null, inputChannelId: routing.input.channel?.id ?? null,
+        outputTypeId: routing.output.type?.id ?? null, outputChannelId: routing.output.channel?.id ?? null,
+        monitoring: routing.monitoring?.value ?? null },
+      devices: observed.devices.map(device => ({ name: device.name, className: device.className, type: device.type,
+        parameters: device.parameters.map(p => ({ originalName: p.originalName, min: p.min, max: p.max,
+          quantized: p.quantized, valueItems: p.valueItems, value: p.value })) }))
+    }, limitation: "Captures mixer, routing and exposed parameters for ordered top-level devices on one existing track. Not a native track preset: excludes clips, nested rack devices, hidden plugin state, samples, automation and mappings." };
   }
 
   async readResource(uri) {

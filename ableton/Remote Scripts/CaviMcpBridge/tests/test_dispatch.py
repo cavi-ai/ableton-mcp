@@ -94,6 +94,8 @@ class DrumRack(NestedDevice):
 class Track:
     def __init__(self):
         self.name = "Synth"
+        self.has_midi_input = True
+        self.has_audio_input = False
         self.devices = [Device()]
         self.mute = False
         self.solo = False
@@ -1974,6 +1976,18 @@ class DispatchTest(unittest.TestCase):
         del song.group_tracks
         result = dispatch_request(song, {"method": "get_live_state"}, 4)
         self.assertFalse(result["nativeApiSupport"]["groupTracks"])
+
+    def test_track_state_snapshot_is_one_native_callback_with_ordered_device_parameters(self):
+        song = Song()
+        result = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
+        self.assertEqual(result["stateVersion"], 6)
+        self.assertEqual(result["trackId"], "track-0")
+        self.assertEqual(result["track"]["name"], song.tracks[0].name)
+        self.assertEqual(result["track"]["type"], "midi")
+        self.assertEqual(result["mixer"]["volume"]["value"], song.tracks[0].mixer_device.volume.value)
+        self.assertEqual(result["routing"]["output"]["type"]["name"], "Main")
+        self.assertEqual([device["id"] for device in result["devices"]], ["track-0:device-0"])
+        self.assertEqual(result["devices"][0]["parameters"][0]["originalName"], "Filter Freq")
 
     def test_duplicate_parameter_names_report_exact_ambiguous_ids(self):
         song = Song()

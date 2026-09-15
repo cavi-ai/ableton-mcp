@@ -77,6 +77,16 @@ def _track_record(song, track, index):
     }
 
 
+def _track_type(track):
+    if bool(getattr(track, "is_foldable", False)):
+        return "group"
+    if bool(getattr(track, "has_midi_input", False)):
+        return "midi"
+    if bool(getattr(track, "has_audio_input", False)):
+        return "audio"
+    return "unknown"
+
+
 def _device(song, track_id, device_id):
     track_index, track = _track(song, track_id)
     expected = f"track-{track_index}:device-"
@@ -997,6 +1007,23 @@ def dispatch_request(song, request, state_version, application=None):
         return _song_musical_context(song, state_version + 1)
     if method == "list_tracks":
         return {"stateVersion": state_version, "tracks": [_track_record(song, track, i) for i, track in enumerate(song.tracks)]}
+    if method == "get_track_state_snapshot":
+        track_id = params["trackId"]
+        track_index, track = _track(song, track_id)
+        routing = _track_routing(song, track_id, state_version)
+        return {
+            "stateVersion": state_version, "trackId": track_id,
+            "track": {**_track_record(song, track, track_index), "type": _track_type(track)},
+            "mixer": {
+                "volume": _value_record(track.mixer_device.volume), "pan": _value_record(track.mixer_device.panning),
+                "mute": bool(track.mute), "solo": bool(track.solo), "sends": _send_records(song, track),
+            },
+            "routing": {"input": routing["input"], "output": routing["output"], "monitoring": routing["monitoring"]},
+            "devices": [{**_device_record(device, f"{track_id}:device-{index}"),
+                         "parameters": [_parameter_record(parameter, parameter_index)
+                                        for parameter_index, parameter in enumerate(device.parameters)]}
+                        for index, device in enumerate(track.devices)],
+        }
     if method == "create_track":
         index = int(params["index"])
         if params["type"] == "midi":
