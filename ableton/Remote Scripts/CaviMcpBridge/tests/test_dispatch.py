@@ -587,6 +587,40 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(client.messages[0]["result"]["cuePoint"]["name"], "Chorus")
         self.assertEqual(song.current_song_time, 4.0)
 
+    def test_socket_bridge_advances_state_version_after_external_group_topology_change(self):
+        song = Song()
+
+        class Surface:
+            def song(self):
+                return song
+
+            def application(self):
+                return None
+
+        class Client:
+            def __init__(self):
+                self.messages = []
+
+            def sendall(self, payload):
+                self.messages.append(json.loads(payload))
+
+        client = Client()
+        bridge = SocketBridge(Surface(), "/unused")
+        bridge.requests.put((client, {"id": 1, "method": "list_tracks"}))
+        bridge.drain()
+        first_version = client.messages[-1]["result"]["stateVersion"]
+        group, child = song.tracks
+        group.is_foldable = True
+        group.is_grouped = False
+        group.fold_state = 0
+        child.is_grouped = True
+        child.group_track = group
+        bridge.requests.put((client, {"id": 2, "method": "list_tracks"}))
+        bridge.drain()
+        self.assertNotIn("error", client.messages[-1], client.messages[-1])
+        self.assertEqual(client.messages[-1]["result"]["stateVersion"], first_version + 1)
+        self.assertEqual(client.messages[-1]["result"]["tracks"][1]["groupTrackId"], "track-0")
+
     def test_arrangement_cue_point_lifecycle_and_jump(self):
         song = Song()
         observed = dispatch_request(song, {"method": "list_arrangement_cue_points"}, 3)

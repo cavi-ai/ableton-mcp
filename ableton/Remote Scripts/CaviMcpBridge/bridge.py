@@ -2024,6 +2024,12 @@ def dispatch_request(song, request, state_version, application=None):
     raise ValueError(f"unsupported method {method}")
 
 
+def _track_topology_signature(song):
+    return tuple((id(track), bool(getattr(track, "is_foldable", False)),
+                  id(getattr(track, "group_track", None)) if bool(getattr(track, "is_grouped", False)) else None)
+                 for track in song.tracks)
+
+
 class SocketBridge:
     def __init__(self, control_surface, socket_path):
         self.control_surface = control_surface
@@ -2031,6 +2037,7 @@ class SocketBridge:
         self.requests = queue.Queue()
         self.stopped = threading.Event()
         self.state_version = 1
+        self._last_topology_signature = None
         self.deferred_request = False
         self.thread = threading.Thread(target=self._serve, name="CaviMcpBridge", daemon=True)
 
@@ -2084,10 +2091,16 @@ class SocketBridge:
                 self._defer_cue_mutation(client, request)
                 return
             try:
+                song = self.control_surface.song()
+                topology = _track_topology_signature(song)
+                if self._last_topology_signature is not None and topology != self._last_topology_signature:
+                    self.state_version += 1
+                self._last_topology_signature = topology
                 result = dispatch_request(
-                    self.control_surface.song(), request, self.state_version, self.control_surface.application()
+                    song, request, self.state_version, self.control_surface.application()
                 )
                 self.state_version = result.get("stateVersion", self.state_version)
+                self._last_topology_signature = _track_topology_signature(song)
                 response = {"id": request.get("id"), "result": result}
             except Exception as error:
                 response = {"id": request.get("id"), "error": {"message": str(error) or error.__class__.__name__}}
