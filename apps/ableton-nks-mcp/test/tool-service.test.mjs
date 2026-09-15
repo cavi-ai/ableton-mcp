@@ -958,6 +958,40 @@ test("device lifecycle planning preserves Return and Main owner identity", async
   }
 });
 
+test("device chain snapshots capture and recall exact bus topology", async () => {
+  const nativeParameter = { id: "parameter-0", originalName: "Dry/Wet", min: 0, max: 1,
+    quantized: false, valueItems: [], value: 1, enabled: true };
+  let observed = { stateVersion: 4, trackId: "return-0", devices: [
+    { id: "return-0:device-0", name: "Reverb", className: "Reverb", type: "audio_effect", parameters: [nativeParameter] }
+  ] };
+  const mutations = [];
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_device_chain_snapshot") return structuredClone(observed);
+    if (method === "set_device_chain_snapshot") {
+      mutations.push(params);
+      observed = { stateVersion: 5, trackId: params.trackId, devices: params.target.devices.map((device, index) => ({
+        id: `${params.trackId}:device-${index}`, ...device,
+        parameters: device.parameters.map((parameter, parameterIndex) => ({ id: `parameter-${parameterIndex}`, enabled: true, ...parameter }))
+      })) };
+      return structuredClone(observed);
+    }
+    throw new Error(method);
+  } } });
+  const captured = await service.call("capture_device_chain_snapshot", { trackId: "return-0" });
+  assert.equal(captured.snapshot.format, "cavi-device-chain-v1");
+  const target = structuredClone(captured.snapshot);
+  target.devices[0].name = "Long Reverb";
+  target.devices[0].parameters[0].value = 0.5;
+  const args = { trackId: "return-0", expectedStateVersion: 4, snapshot: target };
+  const dry = await service.call("recall_device_chain_snapshot", args);
+  assert.equal(dry.plan.before.devices[0].name, "Reverb");
+  assert.equal(mutations.length, 0);
+  const result = await service.call("recall_device_chain_snapshot", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.observed.devices[0].parameters[0].value, 0.5);
+  assert.equal(mutations.length, 1);
+});
+
 test("device reordering requires exact state and confirmation", async () => {
   const { service, calls } = fixture();
   const original = service.bridge.request.bind(service.bridge);

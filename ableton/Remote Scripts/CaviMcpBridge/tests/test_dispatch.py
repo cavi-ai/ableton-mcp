@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from bridge import SocketBridge, dispatch_request, _device_type
+from bridge import SocketBridge, dispatch_request, _device_type, _persisted_device_chain
 
 
 class Parameter:
@@ -2286,6 +2286,24 @@ class DispatchTest(unittest.TestCase):
                 }}, 3)
                 self.assertEqual(deleted["deletedDevice"]["id"], device_id)
                 self.assertEqual(len(owner.devices), 1)
+
+    def test_device_chain_snapshot_recall_is_atomic_for_bus_owners(self):
+        for owner_id in ["return-0", "master"]:
+            with self.subTest(owner_id=owner_id):
+                song = Song()
+                owner = song.return_tracks[0] if owner_id == "return-0" else song.master_track
+                owner.devices = [Device()]
+                before = dispatch_request(song, {"method": "get_device_chain_snapshot", "params": {"trackId": owner_id}}, 6)
+                target = _persisted_device_chain(before)
+                target["devices"][0]["name"] = "Saved Device"
+                target["devices"][0]["parameters"][0]["value"] = 0.25
+                result = dispatch_request(song, {"method": "set_device_chain_snapshot", "params": {
+                    "trackId": owner_id, "before": before, "target": target,
+                }}, 6)
+                self.assertEqual(result["stateVersion"], 7)
+                self.assertEqual(owner.devices[0].name, "Saved Device")
+                self.assertEqual(owner.devices[0].parameters[0].value, 0.25)
+                self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
 
     def test_clip_resolution_rejects_negative_and_noncanonical_slot_ids(self):
         song = Song()

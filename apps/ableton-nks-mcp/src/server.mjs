@@ -112,6 +112,8 @@ const toolNames = [
   "list_devices",
   "list_device_parameters",
   "capture_device_parameter_snapshot",
+  "capture_device_chain_snapshot",
+  "recall_device_chain_snapshot",
   "capture_track_state_snapshot",
   "recall_track_state_snapshot",
   "recall_device_parameter_snapshot",

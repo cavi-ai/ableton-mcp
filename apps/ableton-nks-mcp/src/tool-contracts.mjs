@@ -45,6 +45,12 @@ const parameterSnapshot = object({
   format: { const: "cavi-device-parameters-v1" }, deviceClass: string("Exact native device class."),
   parameters: array(snapshotParameter, "Complete ordered parameter layout and values.")
 }, ["format", "deviceClass", "parameters"]);
+const deviceChainSnapshot = object({
+  format: { const: "cavi-device-chain-v1" },
+  devices: array(object({ name: string("Captured device name."), className: string("Exact native device class."), type: string("Native device type."),
+    parameters: array(snapshotParameter, "Complete ordered exposed parameter layout and values.")
+  }, ["name", "className", "type", "parameters"]), "Ordered top-level device topology.")
+}, ["format", "devices"]);
 const trackStateSnapshot = object({
   format: { const: "cavi-track-state-v1" },
   track: object({ name: string("Captured track name."), type: { type: "string", enum: ["midi", "audio", "group", "unknown"] }, isGroup: boolean("Captured Group Track state.") }, ["name", "type", "isGroup"]),
@@ -70,6 +76,8 @@ const envelopePoint = object({
 }, ["time", "duration", "value"]);
 
 export const toolContracts = {
+  capture_device_chain_snapshot: { description: "Capture an ordinary, Return, or Main track's ordered top-level devices and exposed parameters as persistable JSON. Not a native rack or preset; excludes hidden plugin state, samples, automation, nested devices, and mappings.", inputSchema: object({ trackId: ids.deviceOwnerId }, ["trackId"]) },
+  recall_device_chain_snapshot: { description: "Plan or recall exposed parameters and names onto the same exact compatible ordered device topology in one guarded Live undo step. Does not create, delete, or load devices and cannot restore hidden plugin state.", inputSchema: guarded({ trackId: ids.deviceOwnerId, snapshot: deviceChainSnapshot }, ["trackId", "snapshot"]) },
   capture_device_parameter_snapshot: { description: "Capture exposed device parameters as persistable JSON, with a consistent live identity check. Not a native preset: excludes hidden plugin state, samples, automation and mappings.", inputSchema: device },
   capture_track_state_snapshot: { description: "Capture one consistent, persistable JSON snapshot of an existing track's mixer, routing, and exposed parameters for ordered top-level devices. Not a native track preset; excludes clips, nested devices, hidden state, samples, automation and mappings.", inputSchema: track },
   recall_track_state_snapshot: { description: "Plan or recall a captured track-state JSON snapshot onto the same exact compatible track topology. Restores track name, mixer, sends, routing and exposed top-level-device parameters in one guarded native undo step; does not load devices, clips, samples, hidden state, automation or mappings.", inputSchema: guarded({ trackId: ids.trackId, snapshot: trackStateSnapshot }, ["trackId", "snapshot"]) },

@@ -524,6 +524,29 @@ def _persisted_track_state(record):
     }
 
 
+def _device_chain_snapshot(song, owner_id, state_version):
+    owner_id, owner = _device_owner(song, owner_id)
+    return {
+        "stateVersion": state_version, "trackId": owner_id,
+        "devices": [{**_device_record(device, f"{owner_id}:device-{index}"),
+                     "parameters": [_parameter_record(parameter, parameter_index)
+                                    for parameter_index, parameter in enumerate(device.parameters)]}
+                    for index, device in enumerate(owner.devices)],
+    }
+
+
+def _persisted_device_chain(record):
+    return {
+        "format": "cavi-device-chain-v1",
+        "devices": [{"name": device["name"], "className": device["className"], "type": device["type"],
+                     "parameters": [{"originalName": parameter["originalName"], "min": parameter["min"],
+                                     "max": parameter["max"], "quantized": parameter["quantized"],
+                                     "valueItems": parameter["valueItems"], "value": parameter["value"]}
+                                    for parameter in device["parameters"]]}
+                    for device in record["devices"]],
+    }
+
+
 def _device_type(device):
     if Live is None:
         return "unknown"
@@ -1108,6 +1131,60 @@ def dispatch_request(song, request, state_version, application=None):
         return {"stateVersion": state_version, "tracks": [_track_record(song, track, i) for i, track in enumerate(song.tracks)]}
     if method == "get_track_state_snapshot":
         return _track_state_snapshot(song, params["trackId"], state_version)
+    if method == "get_device_chain_snapshot":
+        return _device_chain_snapshot(song, params["trackId"], state_version)
+    if method == "set_device_chain_snapshot":
+        owner_id, owner = _device_owner(song, params["trackId"])
+        current = _device_chain_snapshot(song, owner_id, state_version)
+        if current != params["before"]:
+            raise ValueError("device chain changed after planning")
+        target = params["target"]
+        if target.get("format") != "cavi-device-chain-v1" or len(target.get("devices", ())) != len(current["devices"]):
+            raise ValueError("device chain topology mismatch")
+        for saved_device, native_device in zip(target["devices"], current["devices"]):
+            if (saved_device.get("className") != native_device["className"] or
+                    saved_device.get("type") != native_device["type"] or
+                    not isinstance(saved_device.get("name"), str) or not saved_device["name"].strip() or
+                    len(saved_device.get("parameters", ())) != len(native_device["parameters"])):
+                raise ValueError("device chain topology mismatch")
+            for saved, native in zip(saved_device["parameters"], native_device["parameters"]):
+                if any(saved.get(field) != native[field] for field in ("originalName", "min", "max", "quantized", "valueItems")):
+                    raise ValueError("device parameter layout mismatch")
+                value = saved.get("value")
+                if (type(value) not in (int, float) or not math.isfinite(value) or not native["min"] <= value <= native["max"] or
+                        (native["quantized"] and not float(value).is_integer())):
+                    raise ValueError("device parameter value outside native range")
+                if value != native["value"] and not native["enabled"]:
+                    raise ValueError(f"parameter {native['id']} is disabled")
+        writes = []
+        def write(target_object, attribute, value):
+            previous = getattr(target_object, attribute)
+            if previous != value:
+                writes.append((target_object, attribute, previous))
+                setattr(target_object, attribute, value)
+        song.begin_undo_step()
+        try:
+            for device, saved_device in zip(owner.devices, target["devices"]):
+                write(device, "name", saved_device["name"])
+                for parameter, saved in zip(device.parameters, saved_device["parameters"]):
+                    write(parameter, "value", saved["value"])
+            result = _device_chain_snapshot(song, owner_id, state_version + 1)
+            if _persisted_device_chain(result) != target:
+                raise ValueError("Live did not apply the complete device chain snapshot")
+        except Exception as error:
+            rollback_errors = []
+            for target_object, attribute, previous in reversed(writes):
+                try:
+                    setattr(target_object, attribute, previous)
+                except Exception as rollback_error:
+                    rollback_errors.append(rollback_error)
+            if rollback_errors:
+                details = "; ".join(str(item) for item in rollback_errors)
+                raise RuntimeError(f"device chain recall failed: {error}; rollback failed: {details}; use Live undo") from error
+            raise
+        finally:
+            song.end_undo_step()
+        return result
     if method == "set_track_state_snapshot":
         track_id, target = params["trackId"], params["target"]
         current = _track_state_snapshot(song, track_id, state_version)

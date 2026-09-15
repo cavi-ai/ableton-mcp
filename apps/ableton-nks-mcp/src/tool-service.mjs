@@ -248,6 +248,8 @@ export class ToolService {
   }
 
   async call(name, args = {}) {
+    if (name === "capture_device_chain_snapshot") return this.#captureDeviceChainSnapshot(args);
+    if (name === "recall_device_chain_snapshot") return this.#recallDeviceChainSnapshot(args);
     if (name === "capture_track_state_snapshot") return this.#captureTrackStateSnapshot(args);
     if (name === "recall_track_state_snapshot") return this.#recallTrackStateSnapshot(args);
     if (name === "capture_device_parameter_snapshot") {
@@ -547,6 +549,55 @@ export class ToolService {
         parameters: device.parameters.map(p => ({ originalName: p.originalName, min: p.min, max: p.max,
           quantized: p.quantized, valueItems: p.valueItems, value: p.value })) }))
     }, limitation: "Captures mixer, routing and exposed parameters for ordered top-level devices on one existing track. Not a native track preset: excludes clips, nested rack devices, hidden plugin state, samples, automation and mappings." };
+  }
+
+  async #captureDeviceChainSnapshot(args) {
+    const observed = await this.bridge.request("get_device_chain_snapshot", { trackId: args.trackId });
+    if (observed.trackId !== args.trackId || !Array.isArray(observed.devices)) throw new Error("device chain snapshot target mismatch");
+    return { trackId: args.trackId, stateVersion: observed.stateVersion,
+      snapshot: { format: "cavi-device-chain-v1", devices: observed.devices.map(device => ({
+        name: device.name, className: device.className, type: device.type,
+        parameters: device.parameters.map(p => ({ originalName: p.originalName, min: p.min, max: p.max,
+          quantized: p.quantized, valueItems: p.valueItems, value: p.value }))
+      })) },
+      limitation: "Exact current topology and exposed parameters only. Not a native rack or plug-in preset; excludes hidden state, samples, automation, nested devices, and mappings."
+    };
+  }
+
+  async #recallDeviceChainSnapshot(args) {
+    requireExpectedState(args);
+    if (args.snapshot?.format !== "cavi-device-chain-v1" || !Array.isArray(args.snapshot.devices)) throw new Error("invalid device chain snapshot format");
+    const before = await this.bridge.request("get_device_chain_snapshot", { trackId: args.trackId });
+    assertExpectedState(args, before);
+    if (before.trackId !== args.trackId || before.devices.length !== args.snapshot.devices.length) throw new Error("device chain topology mismatch");
+    args.snapshot.devices.forEach((savedDevice, deviceIndex) => {
+      const nativeDevice = before.devices[deviceIndex];
+      if (savedDevice.className !== nativeDevice.className || savedDevice.type !== nativeDevice.type ||
+          !Array.isArray(savedDevice.parameters) || savedDevice.parameters.length !== nativeDevice.parameters.length) throw new Error("device chain topology mismatch");
+      savedDevice.parameters.forEach((saved, parameterIndex) => {
+        const native = nativeDevice.parameters[parameterIndex];
+        for (const field of ["originalName", "min", "max", "quantized", "valueItems"]) {
+          if (JSON.stringify(saved[field]) !== JSON.stringify(native[field])) throw new Error("device parameter layout mismatch");
+        }
+        if (!Number.isFinite(saved.value) || saved.value < native.min || saved.value > native.max ||
+            (native.quantized && !Number.isInteger(saved.value))) throw new Error("device parameter value outside native range");
+        if (saved.value !== native.value && !native.enabled) throw new Error(`parameter ${native.id} is disabled`);
+      });
+    });
+    const target = structuredClone(args.snapshot);
+    const current = { format: "cavi-device-chain-v1", devices: before.devices.map(device => ({
+      name: device.name, className: device.className, type: device.type,
+      parameters: device.parameters.map(p => ({ originalName: p.originalName, min: p.min, max: p.max,
+        quantized: p.quantized, valueItems: p.valueItems, value: p.value }))
+    })) };
+    if (JSON.stringify(current) === JSON.stringify(target)) throw new Error("snapshot already matches; no device chain changes required");
+    const plan = { method: "set_device_chain_snapshot", trackId: args.trackId,
+      expectedStateVersion: args.expectedStateVersion, before, target };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    this.#consumeConfirmation(plan, args);
+    const observed = await this.bridge.request("set_device_chain_snapshot", plan);
+    return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString(),
+      rollback: "One Live undo step restores all exposed device names and parameters; native rollback is attempted if recall fails." };
   }
 
   async #recallTrackStateSnapshot(args) {
