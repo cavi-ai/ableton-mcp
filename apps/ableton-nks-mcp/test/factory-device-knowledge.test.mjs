@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper", "overdrive", "pedal", "redux", "resonators", "shaper", "shifter", "spectral-resonator", "spectral-time", "spectrum", "surround-panner", "tuner", "vinyl-distortion", "vocoder", "cc-control", "chord", "envelope-midi", "expression-control"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper", "overdrive", "pedal", "redux", "resonators", "shaper", "shifter", "spectral-resonator", "spectral-time", "spectrum", "surround-panner", "tuner", "vinyl-distortion", "vocoder", "cc-control", "chord", "envelope-midi", "expression-control", "midi-monitor"
   ]);
 });
 
@@ -940,6 +940,14 @@ test("Expression Control preserves every repeated five-lane shaping block", () =
   assert.deepEqual(groups.source.map(p => p.id), ["parameter-81", "parameter-82", "parameter-83", "parameter-84", "parameter-85"]);
   assert.deepEqual(groups.other, []);
   assert.equal(Object.values(groups).flat().length, 86);
+});
+
+test("MIDI Monitor records the native analyzer boundary without inventing event controls", () => {
+  const profile = getFactoryDeviceProfile({ className: "MxDeviceMidiEffect", name: "MIDI Monitor" });
+  assert.equal(profile?.id, "midi-monitor");
+  const groups = groupDeviceParameters(profile, [{ id: "parameter-0", name: "Device On", originalName: "Device On" }]);
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.deepEqual(groups.other, []);
 });
 
 test("Compressor preserves native roles and distinguishes automatic release from device power", () => {
