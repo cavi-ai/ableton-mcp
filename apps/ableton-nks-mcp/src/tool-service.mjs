@@ -372,10 +372,26 @@ export class ToolService {
     if (name === "get_factory_coverage") {
       const roots = {};
       for (const root of ["instruments", "audio_effects", "midi_effects"]) {
-        const observed = await this.bridge.request("get_factory_browser_items", { root });
-        if (observed.root !== root || !Array.isArray(observed.children)) throw new Error("invalid factory browser observation");
+        const children = [];
+        let offset = 0;
+        let stateVersion;
+        let observed;
+        do {
+          observed = await this.bridge.request("get_factory_browser_items", { root, offset, limit: 200 });
+          if (observed.root !== root || !Array.isArray(observed.children) ||
+              (stateVersion !== undefined && observed.stateVersion !== stateVersion))
+            throw new Error("invalid or changed factory browser observation");
+          stateVersion = observed.stateVersion;
+          children.push(...observed.children);
+          if (observed.nextOffset != null &&
+              (!Number.isInteger(observed.nextOffset) || observed.nextOffset <= offset || observed.nextOffset !== children.length))
+            throw new Error("invalid factory browser pagination");
+          offset = observed.nextOffset;
+        } while (offset != null);
+        if (Number.isInteger(observed.totalChildren) && children.length !== observed.totalChildren)
+          throw new Error("incomplete factory browser pagination");
         const profiledByName = [], missingProfiles = [];
-        for (const item of observed.children.filter(item => item.loadable)) {
+        for (const item of children.filter(item => item.loadable)) {
           const profile = getFactoryDeviceProfile({ name: item.name });
           const record = { name: item.name, uri: item.uri, path: [item.name] };
           if (profile) profiledByName.push({ ...record, profileId: profile.id });
@@ -384,7 +400,7 @@ export class ToolService {
         roots[root] = { stateVersion: observed.stateVersion, loadableCount: profiledByName.length + missingProfiles.length, profiledByName, missingProfiles };
       }
       return { roots, deepIntegrationVerified: false,
-        limitation: "Three sequential top-level factory browser observations, not an atomic inventory or exhaustive preset/Pack/third-party catalog. Profile matches use browser names; verify native class identity and actual controls after loading. A profile or loadable item does not prove save/recall, modulation, signal flow, or complete device integration." };
+        limitation: "Paged top-level factory browser observations, not an atomic inventory or exhaustive preset/Pack/third-party catalog. Profile matches use browser names; verify native class identity and actual controls after loading. A profile or loadable item does not prove save/recall, modulation, signal flow, or complete device integration." };
     }
     if (name === "get_browser_items" || name === "get_factory_browser_items") {
       return this.bridge.request(name, normalizeBrowserPage(args));
