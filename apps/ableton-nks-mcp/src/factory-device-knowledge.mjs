@@ -115,6 +115,9 @@ const profiles = [
   ,{ id: "ds-hh", name: "DS HH", type: "instrument", family: "drum-synth", match: ["ds hh"], roles: {
     global: ["device on"], envelope: ["attack", "decay"], filter: ["slope", "tone"], noise: ["noise"], oscillator: ["pitch"], output: ["volume"]
   }, notes: ["DS HH is a Max for Live drum synthesizer identified by its exact device name because its native class is shared with other Max instruments.", "Attack and Decay define the exposed amplitude envelope. The device does not expose a separate open/closed articulation parameter through Live's parameter surface.", "Noise selects White or Pink excitation. Tone and the 12 or 24 dB Slope form the spectral filter controls, while Pitch changes the metallic oscillator component.", "Volume is final output gain. Use displayValue for percentages, decibels, and enumerated choices; do not infer an articulation control that Live does not expose."] }
+  ,{ id: "ds-cymbal", name: "DS Cymbal", type: "instrument", family: "drum-synth", match: ["ds cymbal"], roles: {
+    global: ["device on"], envelope: ["decay"], oscillator: ["pitch", "tone"], output: ["volume"]
+  }, notes: ["DS Cymbal is a Max for Live drum synthesizer identified by its exact device name because its native class is shared with other Max instruments.", "The complete Live-exposed surface is Device On, Decay, Pitch, Tone, and Volume. The device does not expose separate resonator, noise, or damping controls through Live parameters.", "Decay shapes duration, Pitch and Tone define the metallic body, and Volume is final output gain.", "Use displayValue for percentages and decibels; do not invent physical units or hidden synthesis controls."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });
