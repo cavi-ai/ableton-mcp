@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo"
   ]);
 });
 
@@ -555,6 +555,22 @@ test("Align Delay preserves physical units and independent channel alignment", (
   assert.deepEqual(groups.stereo.map(p => p.id), ["parameter-8"]);
   assert.deepEqual(groups.right.map(p => p.id), ["parameter-9", "parameter-10", "parameter-11", "parameter-12"]);
   assert.deepEqual(groups.mode.map(p => p.id), ["parameter-14"]);
+  assert.deepEqual(groups.other, []);
+});
+
+test("Auto Pan-Tremolo separates mode, clocking, stereo motion, shaping and dynamics", () => {
+  const profile = getFactoryDeviceProfile({ className: "AutoPan2", name: "Renamed Motion" });
+  assert.equal(profile?.id, "auto-pan-tremolo");
+  const names = ["Device On", "Mode", "Amount", "Waveform", "Invert", "Time Mode", "Frequency", "Time", "Rate", "16th", "Phase", "Offset", "Stereo Mode", "Spin", "Panning Shape", "Tremolo Shape", "Attack Time", "Dyn Mod", "Harmonic", "Vintage"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.deepEqual(groups.mode.map(p => p.id), ["parameter-1"]);
+  assert.deepEqual(groups.modulation.map(p => p.id), ["parameter-2", "parameter-3", "parameter-4"]);
+  assert.deepEqual(groups.timing.map(p => p.id), ["parameter-5", "parameter-6", "parameter-7", "parameter-8", "parameter-9"]);
+  assert.deepEqual(groups.stereo.map(p => p.id), ["parameter-10", "parameter-11", "parameter-12", "parameter-13"]);
+  assert.deepEqual(groups.shape.map(p => p.id), ["parameter-14", "parameter-15"]);
+  assert.deepEqual(groups.dynamics.map(p => p.id), ["parameter-16", "parameter-17"]);
+  assert.deepEqual(groups.color.map(p => p.id), ["parameter-18", "parameter-19"]);
   assert.deepEqual(groups.other, []);
 });
 
