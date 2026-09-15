@@ -2,6 +2,7 @@ import { assertExpectedState } from "./bridge-protocol.mjs";
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { analyzeAudioFile } from "./audio-analysis.mjs";
+import { searchLocalSpliceSamples } from "./splice-local-search.mjs";
 import { inspectGroovePostconditions } from "./groove-workflow.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { CatalogService } from "./catalog-service.mjs";
@@ -250,6 +251,7 @@ export class ToolService {
   }
 
   async call(name, args = {}) {
+    if (name === "search_local_splice_samples") return searchLocalSpliceSamples(args);
     if (name === "capture_device_chain_snapshot") return this.#captureDeviceChainSnapshot(args);
     if (name === "recall_device_chain_snapshot") return this.#recallDeviceChainSnapshot(args);
     if (name === "capture_track_state_snapshot") return this.#captureTrackStateSnapshot(args);

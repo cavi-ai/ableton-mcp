@@ -103,6 +103,7 @@ const toolNames = [
   "get_browser_items",
   "load_browser_item",
   "search_browser_items",
+  "search_local_splice_samples",
   "set_device_active",
   "delete_device",
   "get_device_hierarchy",

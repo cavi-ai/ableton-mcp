@@ -31,6 +31,8 @@ See [Native saving and recall](docs/native-saving-and-recall.md) for Live Set an
 
 `get_browser_items` traverses one exact level of Live's factory, plug-in, Pack, Max for Live, project, legacy-library, or user-content hierarchy. `search_browser_items` performs a depth- and result-bounded name search below any exact browser path, including mapped Splice folders under User Folders, and returns paths directly usable by `load_browser_item`. Loading resolves the reviewed root/path again at execution time and loads only a unique loadable item onto the guarded target track. The earlier `get_factory_browser_items` and `load_factory_browser_item` names remain compatible aliases.
 
+`search_local_splice_samples` searches audio filenames under an explicit local Splice asset directory, returning canonical source paths for `analyze_audio_file`. It skips symlinks and non-audio files. This is local-file discovery, not Splice cloud catalog search, download, or sync; Live browser loading still requires the directory to be mapped into Live's User Folders.
+
 Device listings include active/bypassed state. `set_device_active` and `delete_device` require the exact observed device identity, current bridge state version, reviewed dry-run plan, and a single-use confirmation token.
 
 `get_device_hierarchy` traverses nested rack chains and devices and reports only loaded Drum Rack pads, with stable path-based IDs and pad-to-chain references. It is read-only and works recursively for racks inside racks.
