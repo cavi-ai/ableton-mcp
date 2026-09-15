@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision"
   ]);
 });
 
@@ -255,6 +255,28 @@ test("Drum Sampler preserves sample, envelope, filter and algorithm-specific con
   assert.deepEqual(ids("ringMod"), range(38, 2));
   assert.deepEqual(groups.other, []);
   assert.equal(Object.values(groups).flat().length, 40);
+});
+
+test("Collision separates exciters, resonators, LFOs and performance expression", () => {
+  const profile = getFactoryDeviceProfile({ className: "Collision", name: "Renamed Physical Bell" });
+  assert.equal(profile?.id, "collision");
+  const names = ["Device On", "Structure", "PB Range", "Voices", "Retrigger", "Volume", "Note PB Range",
+    "Mallet On/Off", "Mallet Stiffness", "Mallet Noise Color", "Noise On/Off", "Noise Filter Type", "Noise Attack",
+    "Res 1 On/Off", "Res 1 Type", "Res 1 Pitch Env. Time", "Res 1 Material", "Res 1 Listening L",
+    "Res 2 On/Off", "Res 2 Type", "Res 2 Decay", "Res 2 Inharmonics", "Res 2 Pan",
+    "LFO 1 On/Off", "LFO 1 Shape", "LFO 1 Dest A", "LFO 1 Amt B", "LFO 2 On/Off", "LFO 2 Rate", "LFO 2 Dest B",
+    "PB Dest A", "PB Amt A", "MW Dest B", "MW Amt B", "Press Dest A", "Press Amt B", "Slide Dest A", "Slide Amt B"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  const ids = role => groups[role].map(p => p.id);
+  assert.deepEqual(ids("global"), Array.from({ length: 7 }, (_, i) => `parameter-${i}`));
+  assert.deepEqual(ids("malletExciter"), ["parameter-7", "parameter-8", "parameter-9"]);
+  assert.deepEqual(ids("noiseExciter"), ["parameter-10", "parameter-11", "parameter-12"]);
+  assert.deepEqual(ids("resonator1"), Array.from({ length: 5 }, (_, i) => `parameter-${i + 13}`));
+  assert.deepEqual(ids("resonator2"), Array.from({ length: 5 }, (_, i) => `parameter-${i + 18}`));
+  assert.deepEqual(ids("lfo1"), Array.from({ length: 4 }, (_, i) => `parameter-${i + 23}`));
+  assert.deepEqual(ids("lfo2"), Array.from({ length: 3 }, (_, i) => `parameter-${i + 27}`));
+  assert.deepEqual(ids("expression"), Array.from({ length: 8 }, (_, i) => `parameter-${i + 30}`));
+  assert.deepEqual(groups.other, []);
 });
 
 test("Compressor preserves native roles and distinguishes automatic release from device power", () => {
