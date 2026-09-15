@@ -121,6 +121,10 @@ const profiles = [
   ,{ id: "ds-fm", name: "DS FM", type: "instrument", family: "drum-synth", match: ["ds fm"], roles: {
     global: ["device on"], modulation: ["amount", "feedb.", "mod"], envelope: ["decay"], oscillator: ["pitch", "tone"], output: ["volume"]
   }, notes: ["DS FM is a Max for Live drum synthesizer identified by its exact device name because its native class is shared with other Max instruments.", "Amount, Mod, and Feedback form the exposed FM interaction controls. Live does not expose separate carrier and modulator envelopes or a velocity-response control for this device.", "Decay shapes hit duration, Pitch and Tone set the synthesized body, and Volume is final output gain.", "Use displayValue for percentages and decibels; do not infer hidden operator structure or physical units beyond the native surface."] }
+  ,{ id: "ds-clang", name: "DS Clang", type: "instrument", family: "drum-synth", match: ["ds clang"], roles: {
+    global: ["device on"], resonator: ["1st tone", "2nd tone", "pitch"], articulation: ["claverepeat", "clave"],
+    envelope: ["decay"], filter: ["filter"], noise: ["noise"], output: ["volume"]
+  }, notes: ["DS Clang is a Max for Live drum synthesizer identified by its exact device name because its native class is shared with other Max instruments.", "First Tone, Second Tone, and Pitch shape the dual resonant body. Keep both tone controls independent when designing metallic percussion.", "Clave enables an alternate articulation and ClaveRepeat controls its repetition behavior. These are articulation controls, not envelope stages.", "Noise and Filter shape the excitation and spectrum, Decay controls duration, and Volume is final output gain. Use displayValue for percentages, decibels, and enumerated states."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });
