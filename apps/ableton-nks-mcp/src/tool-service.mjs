@@ -6,6 +6,7 @@ import { inspectGroovePostconditions } from "./groove-workflow.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { CatalogService } from "./catalog-service.mjs";
 import { getFactoryDeviceProfile, groupDeviceParameters, listFactoryDeviceProfiles } from "./factory-device-knowledge.mjs";
+import { getProducerChainBlueprint, listProducerChainBlueprints } from "./producer-chain-knowledge.mjs";
 
 function requireExpectedState(args) {
   if (!Number.isInteger(args.expectedStateVersion)) {
@@ -296,6 +297,8 @@ export class ToolService {
     if (name === "get_track_mixer") return this.bridge.request("get_track_mixer", args);
     if (name === "get_track_routing") return this.bridge.request("get_track_routing", args);
     if (name === "get_set_mixer") return this.bridge.request("get_set_mixer", {});
+    if (name === "list_producer_chain_blueprints") return { blueprints: listProducerChainBlueprints() };
+    if (name === "get_producer_chain_blueprint") return { blueprint: getProducerChainBlueprint(args.target) };
     if (name === "list_factory_device_profiles") return { profiles: listFactoryDeviceProfiles() };
     if (name === "get_factory_coverage") {
       const roots = {};

@@ -396,6 +396,40 @@ test("search_presets remains read-only", async () => {
   assert.deepEqual(calls, []);
 });
 
+test("producer chain blueprints return ordered loadable stages and explicit bus topology", async () => {
+  const { service, calls } = fixture();
+  const mastering = await service.call("get_producer_chain_blueprint", { target: "mastering" });
+  assert.equal(mastering.blueprint.topology, "single-chain");
+  assert.deepEqual(mastering.blueprint.stages.map(({ order, profileId, root, path }) => ({ order, profileId, root, path })), [
+    { order: 1, profileId: "utility", root: "audio_effects", path: ["Utility"] },
+    { order: 2, profileId: "eq-eight", root: "audio_effects", path: ["EQ Eight"] },
+    { order: 3, profileId: "glue-compressor", root: "audio_effects", path: ["Glue Compressor"] },
+    { order: 4, profileId: "saturator", root: "audio_effects", path: ["Saturator"] },
+    { order: 5, profileId: "limiter", root: "audio_effects", path: ["Limiter"] }
+  ]);
+  const layered = await service.call("get_producer_chain_blueprint", { target: "layered-bass-system" });
+  assert.equal(layered.blueprint.topology, "shared-instrument-bus");
+  assert.deepEqual(layered.blueprint.children.map(({ role, instrumentProfileId }) => ({ role, instrumentProfileId })), [
+    { role: "sub", instrumentProfileId: "operator" },
+    { role: "body", instrumentProfileId: "wavetable" },
+    { role: "texture", instrumentProfileId: "drift" }
+  ]);
+  assert.deepEqual(calls, []);
+});
+
+test("producer chain catalog covers core tracks, buses, returns and layered instruments", async () => {
+  const { service } = fixture();
+  const result = await service.call("list_producer_chain_blueprints");
+  assert.deepEqual(result.blueprints.map(({ id }) => id), [
+    "bass", "drums", "vocals", "guitar", "keys", "synth", "mix-bus", "mastering",
+    "reverb-return", "delay-return", "layered-bass-system", "layered-synth-system"
+  ]);
+  for (const blueprint of result.blueprints) {
+    assert.ok(blueprint.topology);
+    assert.ok(blueprint.summary);
+  }
+});
+
 test("preset tags and favorites use exact revisions and confirmed plans", async () => {
   const { service } = fixture();
   assert.deepEqual(await service.call("get_preset_metadata", { presetId: "serum-2:a" }), {

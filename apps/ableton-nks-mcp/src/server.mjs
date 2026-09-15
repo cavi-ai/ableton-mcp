@@ -82,6 +82,8 @@ const toolNames = [
   "set_group_fold_state",
   "route_tracks_to_bus",
   "get_set_mixer",
+  "list_producer_chain_blueprints",
+  "get_producer_chain_blueprint",
   "set_master_mixer",
   "move_device",
   "list_arrangement_clips",
