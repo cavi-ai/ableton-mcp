@@ -115,6 +115,40 @@ test("waveform overview covers the complete source window with bounded extrema a
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+test("transient analysis reports timed source onsets through file and clip tools", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cavi-transients-"));
+  try {
+    const sourcePath = join(directory, "pulses.wav");
+    await promisify(execFile)("ffmpeg", ["-nostdin", "-v", "error", "-f", "lavfi", "-i",
+      "aevalsrc=if(between(t\\,0.2\\,0.22)\\,0.8\\,if(between(t\\,0.6\\,0.62)\\,0.8\\,0)):s=48000:d=1",
+      "-c:a", "pcm_f32le", sourcePath]);
+    const route = createRouter(new ToolService({}));
+    const fileReply = await route({ id: 1, method: "tools/call", params: { name: "analyze_audio_file",
+      arguments: { sourcePath, startSeconds: 0.1, durationSeconds: 0.8, includeTransients: true } } });
+    assert.equal(fileReply.error, undefined);
+    const transients = fileReply.result.structuredContent.transients;
+    assert.equal(transients.scope, "source_audio");
+    assert.equal(transients.channelIndex, 0);
+    assert.equal(transients.candidates.length, 2);
+    for (let index = 0; index < 2; index++) {
+      assert.ok(Math.abs(transients.candidates[index].sourceSeconds - [0.2, 0.6][index]) <= 0.015);
+      const candidate = transients.candidates[index];
+      assert.ok(candidate.strength > 0 && candidate.strength <= 1);
+    }
+    const clipRoute = createRouter(new ToolService({ bridge: { async request(method, target) {
+      assert.equal(method, "get_audio_clip_state");
+      assert.deepEqual(target, { trackId: "track-2", clipId: "track-2:clip-0" });
+      return { stateVersion: 4, ...target, source: { path: sourcePath } };
+    } } }));
+    const clipReply = await clipRoute({ id: 2, method: "tools/call", params: { name: "analyze_audio_clip",
+      arguments: { trackId: "track-2", clipId: "track-2:clip-0", startSeconds: 0.1, durationSeconds: 0.8, includeTransients: true } } });
+    assert.equal(clipReply.error, undefined);
+    assert.deepEqual(clipReply.result.structuredContent.measurement.transients.candidates, transients.candidates);
+    assert.equal((await analyzeAudioFile(sourcePath)).transients, undefined);
+    await assert.rejects(() => analyzeAudioFile(sourcePath, { includeTransients: "yes" }), /includeTransients/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("pitch analysis reports time-varying notes and unvoiced frames across the source window", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cavi-pitch-trajectory-"));
   try {
