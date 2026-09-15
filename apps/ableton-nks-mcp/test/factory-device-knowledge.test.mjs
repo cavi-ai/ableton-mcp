@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler"
   ]);
 });
 
@@ -222,6 +222,39 @@ test("Meld keeps both synthesis engines and their envelopes and modulators indep
   assert.deepEqual(ids("output"), ["parameter-24"]);
   assert.deepEqual(ids("monoMode"), ["parameter-25"]);
   assert.deepEqual(groups.other, []);
+});
+
+test("Drum Sampler preserves sample, envelope, filter and algorithm-specific controls", () => {
+  const profile = getFactoryDeviceProfile({ className: "DrumCell", name: "Renamed One Shot" });
+  assert.equal(profile?.id, "drum-sampler");
+  const names = ["Device On", "Transpose", "Detune", "Vel > Vol", "Mod Src", "Mod Dest", "Mod Amt", "Filter On",
+    "Filter Freq", "Filter Res", "Filter Type", "Filter Gain", "Attack", "Hold", "Decay", "Env Mode", "Start", "Length",
+    "Volume", "Pan", "FX On", "FX Type", "Pitch Env Amt", "Pitch Env Decay", "Sub Amt", "Sub Freq", "Noise Amt",
+    "Noise Color", "Loop Offset", "Loop Length", "Stretch Factor", "Grain Size", "Punch Amt", "Punch Release",
+    "8-Bit Rate", "8-Bit Flt Decay", "FM Amt", "FM Freq", "RM Amt", "RM Freq"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  const ids = role => groups[role].map(p => p.id);
+  const range = (start, count) => Array.from({ length: count }, (_, i) => `parameter-${start + i}`);
+  assert.deepEqual(ids("global"), ["parameter-0"]);
+  assert.deepEqual(ids("pitch"), range(1, 2));
+  assert.deepEqual(ids("velocity"), ["parameter-3"]);
+  assert.deepEqual(ids("modulation"), range(4, 3));
+  assert.deepEqual(ids("filter"), range(7, 5));
+  assert.deepEqual(ids("envelope"), range(12, 4));
+  assert.deepEqual(ids("sample"), range(16, 2));
+  assert.deepEqual(ids("mixer"), range(18, 2));
+  assert.deepEqual(ids("fxMode"), range(20, 2));
+  assert.deepEqual(ids("pitchEnvelope"), range(22, 2));
+  assert.deepEqual(ids("sub"), range(24, 2));
+  assert.deepEqual(ids("noise"), range(26, 2));
+  assert.deepEqual(ids("loop"), range(28, 2));
+  assert.deepEqual(ids("stretch"), range(30, 2));
+  assert.deepEqual(ids("punch"), range(32, 2));
+  assert.deepEqual(ids("bitReduction"), range(34, 2));
+  assert.deepEqual(ids("fm"), range(36, 2));
+  assert.deepEqual(ids("ringMod"), range(38, 2));
+  assert.deepEqual(groups.other, []);
+  assert.equal(Object.values(groups).flat().length, 40);
 });
 
 test("Compressor preserves native roles and distinguishes automatic release from device power", () => {
