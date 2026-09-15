@@ -209,6 +209,11 @@ const profiles = [
     global: ["device on"], resampling: ["sample rate", "jitter"],
     quantization: ["bit depth", "quantizer shape", "dc shift"], filter: ["pre-filter", "post-filter"], output: ["dry/wet"]
   }, notes: ["Redux separates sample-rate reduction from bit-depth quantization. Sample Rate sets the resampling frequency and Jitter randomizes its clock for unstable digital texture.", "Bit Depth controls amplitude resolution and Quantizer Shape changes the quantization transfer curve. DC Shift deliberately offsets the quantizer and can introduce DC energy, so monitor low-frequency headroom.", "Pre-Filter On applies antialias-style filtering before reduction. Post-Filter On enables the reconstruction filter and Post-Filter adjusts its character.", "Dry/Wet provides parallel blend. Redux exposes no separate output trim, so gain-match downstream when comparing degradation settings."] }
+  ,{ id: "resonators", name: "Resonators", type: "audio_effect", family: "resonator", match: ["resonators", "resonator"], roles: {
+    global: ["device on"], voice1: [/^i /], voice2: [/^ii /], voice3: [/^iii /], voice4: [/^iv /], voice5: [/^v /],
+    filter: ["filter on", "frequency", "filter type"], resonance: ["mode", "decay", "const", "color"],
+    stereo: ["width"], output: ["dry/wet", "output"], scale: ["use current scale"]
+  }, notes: ["Resonators combines five tuned resonator voices. Voice I establishes an absolute Note, while voices II through V use relative Pitch; every voice has enable, scale-degree offset, fine Tune, and Gain.", "Use Current Scale makes the scale-degree parameters follow Live's current scale. Preserve the distinction between semitone pitch, scale-degree offsets, and cent tuning when editing voices.", "The shared Filter has enable, frequency, and low-pass, high-pass, band-pass, or notch Type. Mode, Decay, Const, and Color shape the resonator response shared by all voices.", "Width controls stereo spread. Output trims the processed result and Dry/Wet blends it with the source; gain-match dense resonant chords and watch feedback-like energy buildup."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });

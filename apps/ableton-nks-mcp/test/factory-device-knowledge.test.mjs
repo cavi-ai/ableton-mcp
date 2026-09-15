@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper", "overdrive", "pedal", "redux"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper", "overdrive", "pedal", "redux", "resonators"
   ]);
 });
 
@@ -732,6 +732,25 @@ test("Redux separates resampling, quantization, DC shift, filtering and blend", 
   assert.deepEqual(groups.quantization.map(p => p.id), ["parameter-3", "parameter-4", "parameter-5"]);
   assert.deepEqual(groups.filter.map(p => p.id), ["parameter-6", "parameter-7", "parameter-8"]);
   assert.deepEqual(groups.output.map(p => p.id), ["parameter-9"]);
+  assert.deepEqual(groups.other, []);
+});
+
+test("Resonators preserves five independent tuned voices and shared processing", () => {
+  const profile = getFactoryDeviceProfile({ className: "Resonator", name: "Renamed Chord Resonator" });
+  assert.equal(profile?.id, "resonators");
+  const names = ["Device On", "Filter On", "Frequency", "Filter Type", "Mode", "Decay", "Const", "Color", "Width", "Dry/Wet", "Output", "Use Current Scale", "I On", "I Note", "I Note Scale Degrees", "I Tune", "I Gain", "II On", "II Pitch", "II Pitch Scale Degrees", "II Tune", "II Gain", "III On", "III Pitch", "III Pitch Scale Degrees", "III Tune", "III Gain", "IV On", "IV Pitch", "IV Pitch Scale Degrees", "IV Tune", "IV Gain", "V On", "V Pitch", "V Pitch Scale Degrees", "V Tune", "V Gain"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.deepEqual(groups.filter.map(p => p.id), ["parameter-1", "parameter-2", "parameter-3"]);
+  assert.deepEqual(groups.resonance.map(p => p.id), ["parameter-4", "parameter-5", "parameter-6", "parameter-7"]);
+  assert.deepEqual(groups.stereo.map(p => p.id), ["parameter-8"]);
+  assert.deepEqual(groups.output.map(p => p.id), ["parameter-9", "parameter-10"]);
+  assert.deepEqual(groups.scale.map(p => p.id), ["parameter-11"]);
+  assert.deepEqual(groups.voice1.map(p => p.id), names.slice(12, 17).map((_, index) => `parameter-${index + 12}`));
+  assert.deepEqual(groups.voice2.map(p => p.id), names.slice(17, 22).map((_, index) => `parameter-${index + 17}`));
+  assert.deepEqual(groups.voice3.map(p => p.id), names.slice(22, 27).map((_, index) => `parameter-${index + 22}`));
+  assert.deepEqual(groups.voice4.map(p => p.id), names.slice(27, 32).map((_, index) => `parameter-${index + 27}`));
+  assert.deepEqual(groups.voice5.map(p => p.id), names.slice(32, 37).map((_, index) => `parameter-${index + 32}`));
   assert.deepEqual(groups.other, []);
 });
 
