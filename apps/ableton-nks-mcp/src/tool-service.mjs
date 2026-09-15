@@ -305,6 +305,45 @@ export class ToolService {
       return { stateVersion: observed.stateVersion, trackId: observed.trackId,
         verification: verifyProducerChain(args.target, observed.devices) };
     }
+    if (name === "inspect_producer_bus") {
+      const blueprint = getProducerChainBlueprint(args.target);
+      if (blueprint.topology !== "shared-instrument-bus") throw new Error("target must be a shared-instrument-bus blueprint");
+      if (!Array.isArray(args.children) || args.children.length !== blueprint.children.length ||
+        new Set(args.children.map(({ role }) => role)).size !== args.children.length ||
+        new Set(args.children.map(({ trackId }) => trackId)).size !== args.children.length ||
+        blueprint.children.some(({ role }) => !args.children.some((child) => child.role === role))) {
+        throw new Error("children must map each blueprint role to one distinct track");
+      }
+      const trackList = await this.bridge.request("list_tracks", {});
+      const bus = trackList.tracks.find(({ id }) => id === args.busTrackId);
+      if (!bus?.isGroup) throw new Error("busTrackId must identify an existing Group Track");
+      const read = async (method, trackId) => {
+        const observed = await this.bridge.request(method, { trackId });
+        if (observed.trackId !== trackId || observed.stateVersion !== trackList.stateVersion)
+          throw new Error(`${method} observation changed track identity or state version`);
+        return observed;
+      };
+      const busDevices = await read("list_devices", args.busTrackId);
+      const busChain = verifyProducerChain(args.target, busDevices.devices);
+      const children = [];
+      for (const expected of blueprint.children) {
+        const { trackId } = args.children.find(({ role }) => role === expected.role);
+        const track = trackList.tracks.find(({ id }) => id === trackId);
+        if (!track) throw new Error(`unknown child track ${trackId}`);
+        const childDevices = await read("list_devices", trackId);
+        const routing = await read("get_track_routing", trackId);
+        children.push({ role: expected.role, trackId,
+          expectedInstrumentProfileId: expected.instrumentProfileId,
+          observedInstrumentProfileIds: childDevices.devices.map((device) => getFactoryDeviceProfile(device)?.id).filter(Boolean),
+          instrumentMatches: childDevices.devices.some((device) => getFactoryDeviceProfile(device)?.id === expected.instrumentProfileId),
+          grouped: track.groupTrackId === args.busTrackId,
+          routed: routing.output?.type?.id === args.busTrackId });
+      }
+      return { target: args.target, busTrackId: args.busTrackId, stateVersion: trackList.stateVersion,
+        busChain, children,
+        matchesBlueprint: busChain.matchesRequiredOrder && children.every(({ instrumentMatches, grouped, routed }) => instrumentMatches && grouped && routed),
+        limitation: "Sequential read-only observations; state-version equality guards against intervening Live edits but does not prove signal flow, sound quality or hidden plugin state." };
+    }
     if (name === "list_factory_device_profiles") return { profiles: listFactoryDeviceProfiles() };
     if (name === "get_factory_coverage") {
       const roots = {};
