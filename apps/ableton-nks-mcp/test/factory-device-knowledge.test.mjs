@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble"
   ]);
 });
 
@@ -506,6 +506,24 @@ test("Beat Repeat separates timing, triplets, variation, gate, pitch, filter and
   assert.deepEqual(groups.output.map(p => p.id), ["parameter-12", "parameter-13"]);
   assert.deepEqual(groups.filter.map(p => p.id), ["parameter-14", "parameter-15", "parameter-16"]);
   assert.deepEqual(groups.performance.map(p => p.id), ["parameter-17"]);
+  assert.deepEqual(groups.other, []);
+});
+
+test("Chorus-Ensemble separates modulation, delay, feedback, width, color and output", () => {
+  const profile = getFactoryDeviceProfile({ className: "Chorus2", name: "Renamed Modulator" });
+  assert.equal(profile?.id, "chorus-ensemble");
+  const names = ["Device On", "Mode", "Shape", "Rate", "Amount", "Feedback", "FB Invert", "Offset", "Delay Time",
+    "Delay Taps", "HP On", "HP Freq", "Width", "Warmth", "Output", "Dry/Wet"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.deepEqual(groups.mode.map(p => p.id), ["parameter-1"]);
+  assert.deepEqual(groups.modulation.map(p => p.id), ["parameter-2", "parameter-3", "parameter-4", "parameter-7"]);
+  assert.deepEqual(groups.feedback.map(p => p.id), ["parameter-5", "parameter-6"]);
+  assert.deepEqual(groups.delay.map(p => p.id), ["parameter-8", "parameter-9"]);
+  assert.deepEqual(groups.filter.map(p => p.id), ["parameter-10", "parameter-11"]);
+  assert.deepEqual(groups.stereo.map(p => p.id), ["parameter-12"]);
+  assert.deepEqual(groups.color.map(p => p.id), ["parameter-13"]);
+  assert.deepEqual(groups.output.map(p => p.id), ["parameter-14", "parameter-15"]);
   assert.deepEqual(groups.other, []);
 });
 

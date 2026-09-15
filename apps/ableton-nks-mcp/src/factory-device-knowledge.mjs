@@ -141,6 +141,11 @@ const profiles = [
     pitch: ["pitch decay", "pitch"], envelope: ["gate", "decay"], output: ["mix type", "volume"],
     filter: ["filter on", "filter freq", "filter width"], performance: ["repeat"]
   }, notes: ["Beat Repeat captures slices on an Interval and Offset, then repeats them at Grid resolution. Chance controls automatic triggering, while Repeat is the manual performance trigger.", "Block Triplets excludes triplet grid divisions rather than enabling triplet timing. Keep it off when triplet repeat grids must remain available.", "Variation and Variation Type alter repeat-grid behavior. Gate and Decay shape repeat duration and amplitude, while Pitch and Pitch Decay control transposition over the repeat.", "Mix Type selects Mix, Insert, or Gate routing. Volume controls repeated-signal level; the filter has independent enable, center frequency, and width controls.", "Use displayValue for bars, beat fractions, semitones, kilohertz, decibels, percentages, and enumerated modes."] }
+  ,{ id: "chorus-ensemble", name: "Chorus-Ensemble", type: "audio_effect", family: "modulation", match: ["chorus-ensemble", "chorus2"], roles: {
+    global: ["device on"], mode: ["mode"], modulation: ["shape", "rate", "amount", "offset"],
+    feedback: ["feedback", "fb invert"], delay: ["delay time", "delay taps"], filter: ["hp on", "hp freq"],
+    stereo: ["width"], color: ["warmth"], output: ["output", "dry/wet"]
+  }, notes: ["Chorus-Ensemble offers Chorus, Ensemble, and Vibrato modes. Mode changes the delay and modulation topology, so verify enabled controls and display values after switching.", "Shape, Rate, Amount, and Offset define the modulation LFO and stereo phase relationship. Offset is displayed in degrees.", "Feedback and FB Invert control regeneration and polarity. Delay Time and Delay Taps define the underlying modulated-delay structure.", "HP On and HP Freq keep low frequencies out of the wet path; Width controls stereo spread and Warmth adds color. Output trim and Dry/Wet provide final gain matching and blend.", "Use displayValue for Hz, milliseconds, degrees, dB, percentages, and enumerated modes."] }
 ];
 
 const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });
