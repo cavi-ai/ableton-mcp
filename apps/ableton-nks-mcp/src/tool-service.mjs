@@ -248,6 +248,21 @@ export class ToolService {
   }
 
   async call(name, args = {}) {
+    if (name === "capture_device_parameter_snapshot") {
+      const target = { trackId: args.trackId, deviceId: args.deviceId };
+      const before = await this.#observeDevice(target);
+      const parameters = await this.bridge.request("list_device_parameters", target);
+      const after = await this.#observeDevice(target);
+      if (JSON.stringify(before) !== JSON.stringify(after) || before.stateVersion !== parameters.stateVersion ||
+          parameters.trackId !== args.trackId || parameters.deviceId !== args.deviceId) throw new Error("device changed during capture");
+      if (!before.device.className) throw new Error("device class is unavailable");
+      return { ...target, stateVersion: parameters.stateVersion, snapshot: {
+        format: "cavi-device-parameters-v1", deviceClass: before.device.className,
+        parameters: parameters.parameters.map(p => ({ originalName: p.originalName, min: p.min, max: p.max,
+          quantized: p.quantized, valueItems: p.valueItems, value: p.value })),
+      }, limitation: "Exposed parameters only. Not a native preset: excludes hidden plugin state, samples, macro mappings and automation. Persist the snapshot JSON in your own local file." };
+    }
+    if (name === "recall_device_parameter_snapshot") return this.#setDeviceParameters(args, args.snapshot);
     if (name === "search_presets") {
       return { presets: this.catalog.search(args) };
     }
@@ -556,15 +571,37 @@ export class ToolService {
     throw new Error(`unknown resource ${uri}`);
   }
 
-  async #setDeviceParameters(args) {
+  async #setDeviceParameters(args, snapshot) {
     requireExpectedState(args);
     const observed = await this.bridge.request("list_device_parameters", {
       trackId: args.trackId,
       deviceId: args.deviceId
     });
     assertExpectedState(args, observed);
+    let beforeDevice;
+    let requestedChanges = args.changes;
+    if (snapshot !== undefined) {
+      if (snapshot?.format !== "cavi-device-parameters-v1" || !Array.isArray(snapshot.parameters)) throw new Error("invalid parameter snapshot format");
+      const identity = await this.#observeDevice(args);
+      assertExpectedState({ expectedStateVersion: args.expectedStateVersion, trackId: args.trackId }, identity);
+      beforeDevice = identity.device;
+      if (beforeDevice.className !== snapshot.deviceClass) throw new Error("snapshot device class mismatch");
+      if (snapshot.parameters.length !== observed.parameters.length) throw new Error("snapshot parameter layout mismatch");
+      requestedChanges = snapshot.parameters.flatMap((saved, index) => {
+        const native = observed.parameters[index];
+        for (const field of ["originalName", "min", "max", "quantized", "valueItems"]) {
+          if (JSON.stringify(saved[field]) !== JSON.stringify(native[field])) throw new Error("snapshot parameter layout mismatch");
+        }
+        if (!Number.isFinite(saved.value) || saved.value < native.min || saved.value > native.max ||
+            (native.quantized && !Number.isInteger(saved.value))) throw new Error("snapshot parameter value outside native range");
+        if (saved.value === native.value) return [];
+        if (!native.enabled) throw new Error(`parameter ${native.id} is disabled`);
+        return [{ id: native.id, value: saved.value }];
+      });
+      if (!requestedChanges.length) throw new Error("snapshot already matches; no parameter changes required");
+    }
     const allowed = new Map(observed.parameters.map((parameter) => [parameter.id, parameter]));
-    const changes = args.changes.map((change) => {
+    const changes = requestedChanges.map((change) => {
       const parameter = allowed.get(change.id);
       if (!parameter) throw new Error(`parameter ${change.id} is not allowlisted`);
       if (!parameter.enabled) throw new Error(`parameter ${change.id} is disabled`);
@@ -585,6 +622,7 @@ export class ToolService {
       trackId: args.trackId,
       deviceId: args.deviceId,
       expectedStateVersion: args.expectedStateVersion,
+      ...(beforeDevice ? { beforeDevice, beforeParameters: observed.parameters } : {}),
       changes
     };
     if (args.dryRun !== false) {

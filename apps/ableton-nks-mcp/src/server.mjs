@@ -109,6 +109,8 @@ const toolNames = [
   "get_clip_parameter_envelope",
   "list_devices",
   "list_device_parameters",
+  "capture_device_parameter_snapshot",
+  "recall_device_parameter_snapshot",
   "set_device_parameters",
   "create_midi_clip",
   "set_clip_parameter_envelope",

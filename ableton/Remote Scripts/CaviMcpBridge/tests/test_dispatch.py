@@ -1960,6 +1960,27 @@ class DispatchTest(unittest.TestCase):
             }}, 4)
         self.assertEqual([parameter.value for parameter in parameters], before)
 
+    def test_parameter_recall_rechecks_device_and_full_state_before_writes(self):
+        for mutation in ("class", "layout", "value"):
+            song = Song()
+            ids = {"trackId": "track-0", "deviceId": "track-0:device-0"}
+            device = song.tracks[0].devices[0]
+            before_device = dispatch_request(song, {"method": "get_device_hierarchy", "params": ids}, 4)["device"]
+            before_parameters = dispatch_request(song, {"method": "list_device_parameters", "params": ids}, 4)["parameters"]
+            if mutation == "class":
+                device.class_name = "OtherDevice"
+            elif mutation == "layout":
+                device.parameters[0].original_name = "DifferentControl"
+            else:
+                device.parameters[0].value = 0.3
+            unchanged = [p.value for p in device.parameters]
+            with self.assertRaisesRegex(ValueError, "snapshot target changed"):
+                dispatch_request(song, {"method": "set_device_parameters", "params": {
+                    **ids, "beforeDevice": before_device, "beforeParameters": before_parameters,
+                    "changes": [{"id": "parameter-0", "value": 0.8}]
+                }}, 4)
+            self.assertEqual([p.value for p in device.parameters], unchanged)
+
     def test_status_and_parameter_write_return_observed_state(self):
         song = Song()
         status = dispatch_request(song, {"method": "get_live_state", "params": {}}, 4)

@@ -36,6 +36,13 @@ const empty = object();
 const track = object({ trackId: ids.trackId }, ["trackId"]);
 const clip = object({ trackId: ids.trackId, clipId: ids.clipId }, ["trackId", "clipId"]);
 const device = object({ trackId: ids.trackId, deviceId: ids.deviceId }, ["trackId", "deviceId"]);
+const parameterSnapshot = object({
+  format: { const: "cavi-device-parameters-v1" }, deviceClass: string("Exact native device class."),
+  parameters: array(object({ originalName: string("Native parameter identity in index order."),
+    min: number("Native minimum."), max: number("Native maximum."), quantized: boolean("Native quantization."),
+    valueItems: array(string("Native value label."), "Exact ordered choice labels."), value: number("Captured native value.")
+  }, ["originalName", "min", "max", "quantized", "valueItems", "value"]), "Complete ordered parameter layout and values.")
+}, ["format", "deviceClass", "parameters"]);
 
 const note = object({
   pitch: { type: "integer", minimum: 0, maximum: 127 }, start: number("Start in beats.", { minimum: 0 }),
@@ -48,6 +55,8 @@ const envelopePoint = object({
 }, ["time", "duration", "value"]);
 
 export const toolContracts = {
+  capture_device_parameter_snapshot: { description: "Capture exposed device parameters as persistable JSON, with a consistent live identity check. Not a native preset: excludes hidden plugin state, samples, automation and mappings.", inputSchema: device },
+  recall_device_parameter_snapshot: { description: "Guarded recall of parameter JSON onto a matching native device class and exact ordered parameter layout. Rejects incompatible bounds/choices and disabled changed controls. Does not restore hidden state.", inputSchema: guarded({ trackId: ids.trackId, deviceId: ids.deviceId, snapshot: parameterSnapshot }, ["trackId", "deviceId", "snapshot"]) },
   get_factory_coverage: { description: "Compare observed top-level Live factory browser devices with name-matched knowledge profiles. Reports missing profiles, not verified deep integration or all presets/Packs/plugins.", inputSchema: empty },
   search_presets: { description: "Search the optional local NKS preset catalog.", inputSchema: object({ productSlug: string("Product slug."), query: string("Name query."), category: string("Normalized category."), favorite: boolean("Return only favorites or non-favorites."), tags: array(string("Normalized user tag."), "Require every supplied tag."), limit: { type: "integer", minimum: 1 } }) },
   get_preset: { description: "Read one exact NKS preset catalog record.", inputSchema: object({ presetId: ids.presetId }, ["presetId"]) },

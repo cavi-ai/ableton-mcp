@@ -1538,6 +1538,11 @@ def dispatch_request(song, request, state_version, application=None):
                 "parameters": parameters, "nameAmbiguities": ambiguities}
     if method == "set_device_parameters":
         _, _, device = _device(song, params["trackId"], params["deviceId"])
+        if "beforeDevice" in params or "beforeParameters" in params:
+            current_parameters = [_parameter_record(p, i) for i, p in enumerate(device.parameters)]
+            if (_device_tree(device, params["deviceId"]) != params.get("beforeDevice") or
+                    current_parameters != params.get("beforeParameters")):
+                raise ValueError("snapshot target changed before parameter write")
         # Validate the whole batch before writing. Recheck enabled state below,
         # since changing a mode may disable a later control during execution.
         for change in params["changes"]:

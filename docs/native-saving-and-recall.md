@@ -24,6 +24,12 @@ Saved native device presets can already be found with `search_browser_items` and
 
 Read the current state version, obtain the load dry-run plan, then execute with its confirmation token and plan hash. Observe the chain again afterward. The exercised MCP load added a third EQ Three to the acceptance track; all ten exposed parameter names and raw values matched the source. It did not replace either existing device. Saving still required native UI.
 
+## Exposed-parameter JSON capture and recall
+
+`capture_device_parameter_snapshot` returns a JSON `snapshot` for an exact loaded device. Persist that object locally, then pass it to guarded `recall_device_parameter_snapshot` with the target track/device and fresh state version. Recall supports a matching native class and exact ordered parameter layout, including bounds and enumerated choices; renamed devices are allowed. Changed disabled controls are rejected, unchanged controls are left alone, and a snapshot already matching the target reports that no changes are required.
+
+Read parameters independently after recall rather than treating the mutation acknowledgment as acceptance. EQ Three acceptance captured ten parameters, changed low gain, and recalled all original values exactly. These snapshots are not `.adv`, `.adg`, NKS or complete third-party presets: they omit hidden state, samples, automation and mappings. Native preset saving remains necessary for those other forms of state.
+
 ## Live browser Favorites
 
 Live's color Collections are separate from NKS catalog tags and favorites. In the native browser, open the saved item's context menu and select the named collection. In the exercised acceptance, the menu initially showed Clear All Colors checked and Favorites unchecked; selecting Favorites made the saved EQ Three preset appear in the Favorites collection's one-item list.
