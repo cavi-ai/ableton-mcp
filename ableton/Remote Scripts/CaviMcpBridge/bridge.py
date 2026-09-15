@@ -1073,7 +1073,7 @@ def dispatch_request(song, request, state_version, application=None):
         return _clip_list(song, params["trackId"], state_version)
     if method == "list_arrangement_clips":
         return _arrangement_clips(song, params["trackId"], state_version)
-    if method in ("delete_arrangement_clip", "move_arrangement_clip"):
+    if method in ("delete_arrangement_clip", "move_arrangement_clip", "duplicate_arrangement_clip"):
         track_id = params["trackId"]
         _, track = _track(song, track_id)
         prefix = f"{track_id}:arrangement-clip-"
@@ -1086,6 +1086,45 @@ def dispatch_request(song, request, state_version, application=None):
         before = _arrangement_clip_record(clip, track_id, index)
         if before != params["before"]:
             raise ValueError("Arrangement clip identity changed")
+        if method == "duplicate_arrangement_clip":
+            start = float(params["startBeats"])
+            end = start + before["lengthBeats"]
+            if not math.isfinite(start) or start < 0 or not math.isfinite(end) or end <= start:
+                raise ValueError("duplication must define a finite positive interval")
+            if any(start < other.end_time and end > other.start_time for other in track.arrangement_clips):
+                raise ValueError("duplication would overlap another Arrangement clip")
+            duplicate = None
+            song.begin_undo_step()
+            try:
+                duplicate = track.duplicate_clip_to_arrangement(clip, start)
+                if not (
+                    math.isclose(float(duplicate.start_time), start, rel_tol=0.0, abs_tol=1e-8)
+                    and math.isclose(float(duplicate.end_time), end, rel_tol=0.0, abs_tol=1e-8)
+                ):
+                    raise ValueError("Live changed the duplicated clip interval")
+                if any(
+                    other is not duplicate
+                    and float(duplicate.start_time) < float(other.end_time)
+                    and float(duplicate.end_time) > float(other.start_time)
+                    for other in track.arrangement_clips
+                ):
+                    raise ValueError("duplicated clip overlaps another Arrangement clip after the native copy")
+            except Exception as error:
+                if duplicate is not None:
+                    try:
+                        track.delete_clip(duplicate)
+                    except Exception as rollback_error:
+                        raise RuntimeError(
+                            f"duplication failed: {error}; rollback failed: {rollback_error}; use Live undo"
+                        ) from error
+                raise
+            finally:
+                song.end_undo_step()
+            result = _arrangement_clips(song, track_id, state_version + 1)
+            duplicate_index = next(i for i, item in enumerate(track.arrangement_clips) if item == duplicate)
+            result["duplicatedClip"] = _arrangement_clip_record(duplicate, track_id, duplicate_index)
+            result["sourceClip"] = before
+            return result
         if method == "move_arrangement_clip":
             start = float(params["startBeats"])
             end = start + before["lengthBeats"]

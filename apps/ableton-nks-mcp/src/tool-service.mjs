@@ -286,7 +286,7 @@ export class ToolService {
     if (name === "list_clips") return this.bridge.request("list_clips", args);
     if (name === "list_arrangement_clips") return this.bridge.request(name, args);
     if (name === "place_session_clip_in_arrangement") return this.#placeSessionClipInArrangement(args);
-    if (name === "delete_arrangement_clip" || name === "move_arrangement_clip") return this.#mutateArrangementClip(name, args);
+    if (["delete_arrangement_clip", "move_arrangement_clip", "duplicate_arrangement_clip"].includes(name)) return this.#mutateArrangementClip(name, args);
     if (name === "get_midi_clip_notes") return this.bridge.request("get_midi_clip_notes", args);
     if (name === "get_midi_clip_notes_extended") return this.bridge.request("get_midi_clip_notes_extended", args);
     if (name === "get_track_mixer") return this.bridge.request("get_track_mixer", args);
@@ -1053,11 +1053,11 @@ export class ToolService {
     const before = observed.clips.find(({ id }) => id === args.clipId);
     if (!before) throw new Error(`unknown Arrangement clip ID ${args.clipId}`);
     const plan = { method, trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion, before };
-    if (method === "move_arrangement_clip") {
+    if (method === "move_arrangement_clip" || method === "duplicate_arrangement_clip") {
       plan.startBeats = finiteRange(args.startBeats, "startBeats", 0, Number.MAX_SAFE_INTEGER);
       const end = plan.startBeats + before.lengthBeats;
-      if (!Number.isFinite(end) || end > Number.MAX_SAFE_INTEGER || before.lengthBeats <= 0) throw new Error("move interval is invalid");
-      if (observed.clips.some((clip) => clip.id !== before.id && plan.startBeats < clip.endBeats && end > clip.startBeats)) throw new Error("move would overlap another Arrangement clip");
+      if (!Number.isFinite(end) || end > Number.MAX_SAFE_INTEGER || before.lengthBeats <= 0) throw new Error(`${method === "move_arrangement_clip" ? "move" : "duplication"} interval is invalid`);
+      if (observed.clips.some((clip) => (method !== "move_arrangement_clip" || clip.id !== before.id) && plan.startBeats < clip.endBeats && end > clip.startBeats)) throw new Error(`${method === "move_arrangement_clip" ? "move" : "duplication"} would overlap another Arrangement clip`);
       plan.beforeArrangement = observed.clips;
     }
     return this.#confirmedMutation(plan, args);

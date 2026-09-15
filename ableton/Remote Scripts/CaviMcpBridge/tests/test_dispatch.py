@@ -793,6 +793,12 @@ class DispatchTest(unittest.TestCase):
             track.arrangement_clips.append(result)
             return result
         track.duplicate_clip_to_arrangement = duplicate
+        boundaries = []
+        song.begin_undo_step = lambda: boundaries.append("begin")
+        song.end_undo_step = lambda: boundaries.append("end")
+        boundaries = []
+        song.begin_undo_step = lambda: boundaries.append("begin")
+        song.end_undo_step = lambda: boundaries.append("end")
         params = {"trackId": "track-0", "clipId": "track-0:clip-0", "startBeats": 8.0}
         result = dispatch_request(song, {"method": "place_session_clip_in_arrangement", "params": params}, 3)
         self.assertEqual(result["placedClip"]["startBeats"], 8.0)
@@ -819,6 +825,78 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(result["deletedClip"], before)
         self.assertEqual([clip["name"] for clip in result["clips"]], ["B"])
         self.assertEqual(boundaries, ["begin", "end"])
+
+    def test_arrangement_duplication_checks_identity_collision_and_preserves_source(self):
+        song = Song()
+        boundaries = []
+        song.begin_undo_step = lambda: boundaries.append("begin")
+        song.end_undo_step = lambda: boundaries.append("end")
+        track = song.tracks[0]
+        source = SimpleNamespace(name="Verse", start_time=0, end_time=4, length=4, is_audio_clip=False)
+        track.arrangement_clips = [source]
+        def duplicate(clip, start):
+            result = copy.deepcopy(clip)
+            result.start_time, result.end_time = start, start + 4
+            track.arrangement_clips.append(result)
+            return result
+        track.duplicate_clip_to_arrangement = duplicate
+        before = {"id": "track-0:arrangement-clip-0", "name": "Verse", "startBeats": 0.0,
+                  "endBeats": 4.0, "lengthBeats": 4.0, "type": "midi"}
+        params = {"trackId": "track-0", "clipId": before["id"], "before": before, "startBeats": 4.0}
+        result = dispatch_request(song, {"method": "duplicate_arrangement_clip", "params": params}, 3)
+        self.assertEqual(result["duplicatedClip"]["startBeats"], 4.0)
+        self.assertIs(track.arrangement_clips[0], source)
+        self.assertEqual(boundaries, ["begin", "end"])
+        with self.assertRaisesRegex(ValueError, "identity changed"):
+            dispatch_request(song, {"method": "duplicate_arrangement_clip", "params": {**params, "before": {**before, "name": "Wrong"}}}, 4)
+        with self.assertRaisesRegex(ValueError, "overlap"):
+            dispatch_request(song, {"method": "duplicate_arrangement_clip", "params": {**params, "startBeats": 2.0}}, 4)
+
+    def test_arrangement_duplication_rejects_shifted_native_copy_and_reports_failed_cleanup(self):
+        for cleanup_fails in (False, True):
+            song = Song()
+            track = song.tracks[0]
+            source = SimpleNamespace(name="Verse", start_time=0, end_time=4, length=4, is_audio_clip=False)
+            track.arrangement_clips = [source]
+            def duplicate(clip, start):
+                result = copy.deepcopy(clip)
+                result.start_time, result.end_time = start + 1, start + 5
+                track.arrangement_clips.append(result)
+                return result
+            track.duplicate_clip_to_arrangement = duplicate
+            def delete(clip):
+                if cleanup_fails:
+                    raise RuntimeError("cleanup exploded")
+                track.arrangement_clips.remove(clip)
+            track.delete_clip = delete
+            before = {"id": "track-0:arrangement-clip-0", "name": "Verse", "startBeats": 0.0,
+                      "endBeats": 4.0, "lengthBeats": 4.0, "type": "midi"}
+            message = "rollback failed.*cleanup exploded" if cleanup_fails else "changed the duplicated clip interval"
+            with self.assertRaisesRegex((RuntimeError if cleanup_fails else ValueError), message):
+                dispatch_request(song, {"method": "duplicate_arrangement_clip", "params": {
+                    "trackId": "track-0", "clipId": before["id"], "before": before, "startBeats": 8.0}}, 3)
+            self.assertEqual(len(track.arrangement_clips), 2 if cleanup_fails else 1)
+            self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
+    def test_arrangement_duplication_rejects_large_position_relative_drift(self):
+        song = Song()
+        track = song.tracks[0]
+        source = SimpleNamespace(name="Verse", start_time=0, end_time=4, length=4, is_audio_clip=False)
+        track.arrangement_clips = [source]
+        def duplicate(clip, start):
+            result = copy.deepcopy(clip)
+            result.start_time, result.end_time = start + 1_000_000, start + 1_000_004
+            track.arrangement_clips.append(result)
+            return result
+        track.duplicate_clip_to_arrangement = duplicate
+        track.delete_clip = lambda clip: track.arrangement_clips.remove(clip)
+        before = {"id": "track-0:arrangement-clip-0", "name": "Verse", "startBeats": 0.0,
+                  "endBeats": 4.0, "lengthBeats": 4.0, "type": "midi"}
+        with self.assertRaisesRegex(ValueError, "changed the duplicated clip interval"):
+            dispatch_request(song, {"method": "duplicate_arrangement_clip", "params": {
+                "trackId": "track-0", "clipId": before["id"], "before": before,
+                "startBeats": 9_000_000_000_000_000.0}}, 3)
+        self.assertEqual(track.arrangement_clips, [source])
 
     def test_arrangement_move_rolls_back_failed_destination_copy(self):
         song = Song()

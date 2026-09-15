@@ -949,6 +949,25 @@ test("Arrangement moves allow self-overlap but reject other timeline material", 
   await assert.rejects(() => service.call("move_arrangement_clip", args), /overlap another/);
 });
 
+test("Arrangement duplication signs exact source and rejects destination collisions", async () => {
+  const { service } = fixture();
+  const source = { id: "track-0:arrangement-clip-0", name: "Verse", type: "midi", startBeats: 0, endBeats: 4, lengthBeats: 4 };
+  let clips = [source, { id: "track-0:arrangement-clip-1", startBeats: 8, endBeats: 12 }];
+  service.bridge.request = async (method, params) => {
+    if (method === "list_arrangement_clips") return { stateVersion: 4, trackId: "track-0", clips };
+    if (method === "duplicate_arrangement_clip") return { stateVersion: 5,
+      duplicatedClip: { ...source, id: "track-0:arrangement-clip-2", startBeats: params.startBeats, endBeats: params.startBeats + 4 } };
+    throw new Error(`unexpected ${method}`);
+  };
+  const args = { trackId: "track-0", clipId: source.id, startBeats: 4, expectedStateVersion: 4 };
+  const dry = await service.call("duplicate_arrangement_clip", args);
+  assert.deepEqual(dry.plan.before, source);
+  const result = await service.call("duplicate_arrangement_clip", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.observed.duplicatedClip.startBeats, 4);
+  await assert.rejects(() => service.call("duplicate_arrangement_clip", { ...args, startBeats: 9 }), /overlap another/);
+});
+
 test("audio import binds the source revision and an exact empty slot", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "cavi-audio-import-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
