@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper"
   ]);
 });
 
@@ -679,6 +679,19 @@ test("LFO preserves duplicate rates, output range, waveform and trigger behavior
   assert.deepEqual(groups.behavior.map(p => p.id), ["parameter-3", "parameter-4", "parameter-7"]);
   assert.deepEqual(groups.stereo.map(p => p.id), ["parameter-6"]);
   assert.deepEqual(groups.waveform.map(p => p.id), ["parameter-8", "parameter-9", "parameter-10", "parameter-13"]);
+  assert.deepEqual(groups.other, []);
+});
+
+test("Looper separates stateful transport, loop treatment, monitoring and timing", () => {
+  const profile = getFactoryDeviceProfile({ className: "Looper", name: "Renamed Loop Capture" });
+  assert.equal(profile?.id, "looper");
+  const names = ["Device On", "State", "Feedback", "Reverse", "Monitor", "Speed", "Quantization", "Song Control", "Tempo Control"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.deepEqual(groups.transport.map(p => p.id), ["parameter-1", "parameter-7"]);
+  assert.deepEqual(groups.loop.map(p => p.id), ["parameter-2", "parameter-3", "parameter-5"]);
+  assert.deepEqual(groups.monitoring.map(p => p.id), ["parameter-4"]);
+  assert.deepEqual(groups.timing.map(p => p.id), ["parameter-6", "parameter-8"]);
   assert.deepEqual(groups.other, []);
 });
 
