@@ -56,7 +56,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper", "overdrive", "pedal", "redux", "resonators", "shaper", "shifter", "spectral-resonator", "spectral-time", "spectrum", "surround-panner", "tuner", "vinyl-distortion", "vocoder"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper", "overdrive", "pedal", "redux", "resonators", "shaper", "shifter", "spectral-resonator", "spectral-time", "spectrum", "surround-panner", "tuner", "vinyl-distortion", "vocoder", "cc-control"
   ]);
 });
 
@@ -880,6 +880,17 @@ test("Vocoder separates filter bank, envelope, unvoiced and carrier controls", (
   assert.deepEqual(groups.pitchDetection.map(p => p.id), ["parameter-19", "parameter-20"]);
   assert.deepEqual(groups.oscillator.map(p => p.id), ["parameter-21", "parameter-22"]);
   assert.deepEqual(groups.carrierInput.map(p => p.id), ["parameter-23"]);
+  assert.deepEqual(groups.other, []);
+});
+
+test("CC Control preserves standard expression lanes and every custom controller lane", () => {
+  const profile = getFactoryDeviceProfile({ className: "MidiCcControl", name: "CC Control" });
+  assert.equal(profile?.id, "cc-control");
+  const names = ["Device On", "Mod Wheel", "Pitch Bend", "Pressure", ..."ABCDEFGHIJKLM".split("").map(letter => `Custom ${letter}`)];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, name, originalName: name })));
+  assert.deepEqual(groups.global.map(p => p.id), ["parameter-0"]);
+  assert.deepEqual(groups.expression.map(p => p.id), ["parameter-1", "parameter-2", "parameter-3"]);
+  assert.deepEqual(groups.custom.map(p => p.id), Array.from({ length: 13 }, (_, i) => `parameter-${i + 4}`));
   assert.deepEqual(groups.other, []);
 });
 
