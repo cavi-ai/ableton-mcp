@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
+import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createConfiguredService } from "../src/runtime.mjs";
@@ -30,4 +31,12 @@ test("configured runtime opens the SQLite catalog and bridge client", async () =
   assert.equal(typeof runtime.service.call, "function");
   assert.equal(runtime.service.komplete.socketPath, join(dir, "komplete.sock"));
   runtime.close();
+});
+
+test("configured runtime lazily opens private browser metadata at the selected path", () => {
+  const dir = mkdtempSync(join(tmpdir(), "mcp-browser-metadata-"));
+  const runtime = createConfiguredService({ CAVI_MCP_BROWSER_METADATA_PATH: join(dir, "browser.sqlite") });
+  try {
+    assert.deepEqual(runtime.service.browserMetadata().search(), []);
+  } finally { runtime.close(); rmSync(dir, { recursive: true, force: true }); }
 });

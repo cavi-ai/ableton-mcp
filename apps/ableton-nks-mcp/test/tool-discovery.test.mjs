@@ -11,4 +11,7 @@ test("MCP discovery exposes every contracted producer tool", async () => {
   for (const name of ["create_rack_chain", "move_device_to_chain"]) {
     assert.equal(tools.find(tool => tool.name === name).inputSchema.additionalProperties, false);
   }
+  const metadata = tools.find(tool => tool.name === "set_browser_item_metadata");
+  assert.deepEqual(metadata.inputSchema.required, ["expectedMetadataRevision", "root", "path"]);
+  assert.match(metadata.description, /private|native/i);
 });

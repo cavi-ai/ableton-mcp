@@ -16,4 +16,5 @@ test("runtime configuration defaults the socket and treats the catalog as option
   assert.equal(config.socketPath, "/tmp/cavi-ableton-mcp.sock");
   assert.equal(config.kompleteSocketPath, "/tmp/cavi-komplete-automation.sock");
   assert.equal(config.catalogPath, undefined);
+  assert.equal(config.browserMetadataPath, "/Users/test/.cavi/ableton-mcp/browser-metadata.sqlite");
 });

@@ -253,12 +253,13 @@ function normalizeBrowserSearch(args) {
 }
 
 export class ToolService {
-  constructor({ bridge, catalog, komplete = unavailableKomplete, confirmations = new ConfirmationStore(), snapshotLibrary }) {
+  constructor({ bridge, catalog, komplete = unavailableKomplete, confirmations = new ConfirmationStore(), snapshotLibrary, browserMetadata }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
     this.komplete = komplete;
     this.snapshotLibrary = snapshotLibrary;
+    this.browserMetadata = browserMetadata;
   }
 
   async call(name, args = {}) {
@@ -298,6 +299,11 @@ export class ToolService {
     if (name === "get_preset") return { preset: this.catalog.get(args.presetId) };
     if (name === "get_preset_metadata") return { presetId: args.presetId, metadata: this.catalog.metadata(args.presetId) };
     if (name === "set_preset_metadata") return this.#setPresetMetadata(args);
+    if (name === "get_browser_item_metadata") return this.#getBrowserItemMetadata(args);
+    if (name === "set_browser_item_metadata") return this.#setBrowserItemMetadata(args);
+    if (name === "search_browser_item_metadata") {
+      return { items: this.#browserMetadataLibrary().search(args), limitation: "Private MCP tags and favorites only; saved browser identities are not reverified against Live in this search and do not change Live's native collections." };
+    }
     if (name === "get_live_state") return this.bridge.request("get_live_state", {});
     if (name === "get_transport_context") return this.bridge.request("get_transport_context", {});
     if (name === "get_history_state") return this.bridge.request("get_history_state", {});
@@ -1347,6 +1353,38 @@ export class ToolService {
     this.#consumeConfirmation(plan, args);
     const observed = this.catalog.setMetadata(args.presetId, args.expectedMetadataRevision, changes);
     return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString() };
+  }
+
+  async #observeBrowserMetadataItem(args) {
+    const target = normalizeBrowserPath(args);
+    if (target.path.length === 0) throw new Error("a browser item path is required");
+    const observed = await this.bridge.request("get_browser_items", { ...target, offset: 0, limit: 1 });
+    const item = observed.item;
+    if (!item || item.name !== target.path.at(-1) || typeof item.uri !== "string" || !item.uri)
+      throw new Error("exact Live browser item identity is unavailable");
+    return { ...target, uri: item.uri, stateVersion: observed.stateVersion };
+  }
+
+  #browserMetadataLibrary() {
+    if (!this.browserMetadata) throw new Error("browser metadata library is not configured");
+    return typeof this.browserMetadata === "function" ? this.browserMetadata() : this.browserMetadata;
+  }
+
+  async #getBrowserItemMetadata(args) {
+    const item = await this.#observeBrowserMetadataItem(args);
+    return { item, metadata: this.#browserMetadataLibrary().get(item), nativeLiveCollectionsModified: false };
+  }
+
+  async #setBrowserItemMetadata(args) {
+    const item = await this.#observeBrowserMetadataItem(args);
+    const changes = { favorite: args.favorite, tags: args.tags };
+    const update = this.#browserMetadataLibrary().plan(item, args.expectedMetadataRevision, changes);
+    const plan = { method: "set_browser_item_metadata", item, expectedMetadataRevision: args.expectedMetadataRevision,
+      before: update.before, after: update.after, nativeLiveCollectionsModified: false };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    this.#consumeConfirmation(plan, args);
+    const observed = this.#browserMetadataLibrary().set(item, args.expectedMetadataRevision, changes);
+    return { dryRun: false, requested: plan, observed, nativeLiveCollectionsModified: false, timestamp: new Date().toISOString() };
   }
 
   async #createTrack(args) {
