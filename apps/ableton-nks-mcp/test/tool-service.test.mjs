@@ -742,6 +742,36 @@ test("factory device context combines stable identity, knowledge, and live param
   assert.deepEqual(context.parameterGroups.frequency.map(({ id }) => id), ["cutoff"]);
 });
 
+test("factory device context rejects parameters read after the device topology changed", async () => {
+  const device = { id: "track-0:device-0", name: "EQ Eight", className: "Eq8" };
+  const service = new ToolService({ catalog: {}, bridge: { async request(method) {
+    if (method === "list_devices") return { stateVersion: 4, devices: [device] };
+    if (method === "list_device_parameters") return { stateVersion: 5, parameters: [{ id: "cutoff", name: "Freq" }] };
+    throw new Error(`unexpected method ${method}`);
+  } } });
+  await assert.rejects(service.call("get_factory_device_context", {
+    trackId: "track-0", deviceId: device.id
+  }), /device context changed between reads/);
+});
+
+test("factory device context reports unmapped native controls explicitly", async () => {
+  const device = { id: "track-0:device-0", name: "EQ Eight", className: "Eq8" };
+  const service = new ToolService({ catalog: {}, bridge: { async request(method) {
+    if (method === "list_devices") return { stateVersion: 4, devices: [device] };
+    if (method === "list_device_parameters") return { stateVersion: 4, parameters: [
+      { id: "frequency", name: "Freq 1" }, { id: "gain", name: "Gain 1" },
+      { id: "future", name: "Future Control" }
+    ] };
+    throw new Error(`unexpected method ${method}`);
+  } } });
+  const context = await service.call("get_factory_device_context", {
+    trackId: "track-0", deviceId: device.id
+  });
+  assert.deepEqual(context.parameterCoverage, {
+    total: 3, mapped: 2, unmapped: 1, unmappedIds: ["future"]
+  });
+});
+
 test("device activation and deletion use guarded exact-identity plans", async () => {
   const { service, calls } = fixture();
   const base = { expectedStateVersion: 4, trackId: "track-0", deviceId: "track-0:device-1" };

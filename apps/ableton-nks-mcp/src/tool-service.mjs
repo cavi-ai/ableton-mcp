@@ -407,13 +407,21 @@ export class ToolService {
     }
     if (name === "search_browser_items") return this.bridge.request(name, normalizeBrowserSearch(args));
     if (name === "get_factory_device_context") {
-      const { device } = await this.#observeDevice(args);
+      const identity = await this.#observeDevice(args);
+      const { device } = identity;
       const profile = getFactoryDeviceProfile(device);
       const observed = await this.bridge.request("list_device_parameters", args);
+      if (observed.stateVersion !== identity.stateVersion)
+        throw new Error("device context changed between reads");
+      const parameterGroups = groupDeviceParameters(profile, observed.parameters);
+      const unmappedIds = parameterGroups.other.map(parameter => parameter.id);
       return {
         stateVersion: observed.stateVersion, trackId: args.trackId, device,
         profile: profile || null,
-        parameterGroups: groupDeviceParameters(profile, observed.parameters)
+        parameterGroups,
+        parameterCoverage: { total: observed.parameters.length,
+          mapped: observed.parameters.length - unmappedIds.length,
+          unmapped: unmappedIds.length, unmappedIds }
       };
     }
     if (name === "get_automation_capabilities") return {

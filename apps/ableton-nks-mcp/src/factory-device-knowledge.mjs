@@ -26,7 +26,17 @@ const profiles = [
   { id: "eq-eight", name: "EQ Eight", type: "audio_effect", family: "equalizer", match: ["eq eight", "eq8"], roles: { ...globalRoles, frequency: ["freq", "frequency"], gain: ["gain"], resonance: ["q", "resonance"], mode: ["filter type", "mode", "stereo"] } },
   { id: "delay", name: "Delay", type: "audio_effect", family: "delay", match: ["delay"], roles: { ...globalRoles, time: ["time", "sync", "division"], feedback: ["feedback"], filter: ["filter", "freq"], modulation: ["modulation", "lfo"], mix: ["dry/wet", "mix"] } },
   { id: "echo", name: "Echo", type: "audio_effect", family: "delay", match: ["echo"], roles: { ...globalRoles, time: ["time", "sync", "division"], feedback: ["feedback"], filter: ["filter", "freq"], modulation: ["modulation", "wobble", "noise"], mix: ["dry/wet", "mix"] } },
-  { id: "reverb", name: "Reverb", type: "audio_effect", family: "reverb", match: ["reverb"], roles: { ...globalRoles, time: ["decay", "time", "size", "pre-delay"], tone: ["filter", "freq", "damping", "diffusion"], modulation: ["modulation", "chorus"], mix: ["dry/wet", "mix"] } },
+  { id: "reverb", name: "Reverb", type: "audio_effect", family: "reverb", match: ["reverb"], roles: {
+    global: ["device on"], predelay: ["predelay"], inputFilter: ["in lo cut", "in hi cut", "input freq", "input width"],
+    earlyReflections: ["er spin", "er shape"], diffusionHigh: ["diff. hi", "hishelf gain"],
+    diffusionLow: ["diff. lo", "lowshelf gain"], chorus: ["chorus"], decay: ["decay time"],
+    diffusion: ["diffusion"], scale: ["scale"], freeze: ["freeze on", "flat on", "cut on"],
+    room: ["room size", "size smoothing"], stereo: ["stereo image"], density: ["density"],
+    levels: ["reflect level", "diffuse level"], mix: ["dry/wet"]
+  }, notes: ["Input cuts and width shape the reverb input; ER Spin and Shape belong to the early-reflection stage, not the late chorus.",
+    "High and low diffusion filters have separate enable, frequency, type or shelf-gain controls. Read native enabled state and displayValue before changing dependent controls.",
+    "Freeze, Flat and Cut are separate states; Decay Time, Room Size, Scale, Density and output reflection/diffusion levels are not interchangeable time controls.",
+    "Dry/Wet is the final blend. Predelay and modulation rates use native display units; do not treat normalized raw values as seconds or Hz."] },
   { id: "hybrid-reverb", name: "Hybrid Reverb", type: "audio_effect", family: "reverb", match: ["hybrid reverb"], roles: { ...globalRoles, algorithm: ["algorithm", "convolution", "ir"], time: ["decay", "time", "size", "pre-delay"], tone: ["filter", "freq", "damping"], modulation: ["modulation"], mix: ["dry/wet", "mix", "blend"] } }
   ,{ id: "auto-shift", name: "Auto Shift", type: "audio_effect", family: "pitch-correction", match: ["auto shift", "autoshift"], roles: { ...globalRoles, expression: ["midi >", "pb range", "latch", "scale aware", "glide", "attack time", "release time"], modulation: ["lfo", "vibrato"], correction: ["quantizer", "smooth", "strength", "root", "scale"], pitch: ["pitch st.", "pitch scale deg.", "pitch fine"], formant: ["formant"], mix: ["input gain", "dry/wet"] } }
   ,{ id: "glue-compressor", name: "Glue Compressor", type: "audio_effect", family: "compressor", match: ["glue compressor", "gluecompressor"], roles: { ...globalRoles, sidechain: ["s/c"], dynamics: ["threshold", "range", "ratio", "peak clip"], timing: ["attack", "release"], gain: ["output"], mix: ["dry/wet"] } }

@@ -13,6 +13,26 @@ test("EQ Three preserves native band gains, crossovers and band switches", () =>
   assert.equal(Object.values(groups).flat().length, names.length);
 });
 
+test("Reverb groups every observed native control by its processing stage", () => {
+  const profile = getFactoryDeviceProfile({ className: "Reverb", name: "A-Reverb" });
+  const names = ["Device On", "Predelay", "In Lo Cut On", "In Hi Cut On", "Input Freq", "Input Width",
+    "ER Spin On", "ER Spin Rate", "ER Spin Amount", "ER Shape", "Diff. Hi On", "Diff. Hi Type",
+    "Diff. Hi Freq", "HiShelf Gain", "Diff. Lo On", "Diff. Lo Freq", "LowShelf Gain",
+    "Chorus On", "Chorus Rate", "Chorus Amount", "Decay Time", "Diffusion", "Scale",
+    "Freeze On", "Flat On", "Cut On", "Room Size", "Size Smoothing", "Stereo Image",
+    "Density", "Reflect Level", "Diffuse Level", "Dry/Wet"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({
+    id: `parameter-${index}`, name, originalName: name
+  })));
+  const ids = role => (groups[role] || []).map(parameter => Number(parameter.id.slice(10)));
+  for (const [role, expected] of Object.entries({ global: [0], predelay: [1], inputFilter: [2, 3, 4, 5],
+    earlyReflections: [6, 7, 8, 9], diffusionHigh: [10, 11, 12, 13], diffusionLow: [14, 15, 16],
+    chorus: [17, 18, 19], decay: [20], diffusion: [21], scale: [22], freeze: [23, 24, 25],
+    room: [26, 27], stereo: [28], density: [29], levels: [30, 31], mix: [32], other: [] })) {
+    assert.deepEqual(ids(role), expected, role);
+  }
+});
+
 test("Wavetable native identity separates envelope and filter destinations", () => {
   const profile = getFactoryDeviceProfile({ className: "InstrumentVector", name: "Renamed Bass" });
   assert.equal(profile?.id, "wavetable");
