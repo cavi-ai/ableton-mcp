@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { planDrumPattern } from "../src/drum-pattern.mjs";
+import { matchDrumPatternEditReadback, planDrumPattern, planDrumPatternEdit } from "../src/drum-pattern.mjs";
 import { ToolService } from "../src/tool-service.mjs";
 import { validateToolArguments } from "../src/tool-validation.mjs";
+import { buildSongGridReference } from "../src/song-grid-reference.mjs";
 
 const reference = {
   stateVersion: 80,
@@ -140,7 +141,121 @@ test("drum tools expose strict planner and guarded creator contracts", () => {
     expectedStateVersion: 80, trackId: "track-0", clipId: "track-0:clip-0", name: "Drums",
     grid: "straight16", bars: 1, lanes: [lane]
   }).expectedStateVersion, 80);
+  assert.equal(validateToolArguments("plan_drum_pattern_edit", {
+    trackId: "track-0", clipId: "track-0:clip-0", grid: "straight16", startBar: 0, bars: 1,
+    lanes: [{ ...lane, activeSteps: [] }]
+  }).lanes[0].activeSteps.length, 0);
+  assert.equal(validateToolArguments("edit_drum_pattern_clip", {
+    expectedStateVersion: 80, trackId: "track-0", clipId: "track-0:clip-0", grid: "straight16",
+    startBar: 0, bars: 1, lanes: [lane]
+  }).expectedStateVersion, 80);
   assert.throws(() => validateToolArguments("plan_drum_pattern", {
     grid: "straight16", bars: 1, lanes: [{ ...lane, extra: true }]
   }), /invalid tool arguments/);
+});
+
+test("drum edits replace only selected lanes inside the requested bar range", () => {
+  const observed = { lengthBeats: 8, notes: [
+    { noteId: 1, pitch: 36, start: 0, duration: 0.125, velocity: 100, mute: false },
+    { noteId: 2, pitch: 38, start: 1, duration: 0.125, velocity: 100, mute: false },
+    { noteId: 3, pitch: 42, start: 0.5, duration: 0.125, velocity: 70, mute: false },
+    { noteId: 4, pitch: 36, start: 4, duration: 0.125, velocity: 100, mute: false }
+  ] };
+  const edit = planDrumPatternEdit(reference, observed, {
+    grid: "straight16", startBar: 0, bars: 1, lanes: [
+      { role: "kick", note: 36, activeSteps: [1, 7, 9, 13], velocity: 110, gate: 0.5 },
+      { role: "snare", note: 38, activeSteps: [], velocity: 105, gate: 0.5 }
+    ]
+  });
+  assert.deepEqual(edit.removeNoteIds, [1, 2]);
+  assert.equal(edit.newNotes.length, 4);
+  assert.deepEqual(edit.preservedNotes.map(note => note.noteId), [3, 4]);
+  assert.equal(edit.range.startBeat, 0);
+  assert.equal(edit.range.endBeat, 4);
+});
+
+test("drum edits reject target-lane notes crossing the edit boundary", () => {
+  assert.throws(() => planDrumPatternEdit(reference, { lengthBeats: 8, notes: [
+    { noteId: 9, pitch: 42, start: 3.9, duration: 0.2, velocity: 70, mute: false }
+  ] }, { grid: "straight16", startBar: 1, bars: 1, lanes: [
+    { role: "hat", note: 42, activeSteps: [1], velocity: 80, gate: 0.5 }
+  ] }), /crosses the edit boundary/);
+  assert.throws(() => planDrumPatternEdit(reference, { lengthBeats: 4, notes: [] }, {
+    grid: "straight16", startBar: 0, bars: 1, lanes: [
+      { role: "snare", note: 38, activeSteps: [], velocity: 100, gate: 0.5 }
+    ]
+  }), /would not change any notes/);
+});
+
+test("drum edits use the clip-local meter and cap total mutation size", () => {
+  const clipReference = buildSongGridReference({ numerator: 3, denominator: 4 }, 120);
+  const edit = planDrumPatternEdit(clipReference, { lengthBeats: 6, notes: [] }, {
+    grid: "straight16", startBar: 1, bars: 1, lanes: [
+      { role: "snare", note: 38, activeSteps: [1], velocity: 100, gate: 0.5 }
+    ]
+  });
+  assert.equal(edit.range.startBeat, 3);
+  assert.equal(edit.newNotes[0].start, 3);
+  assert.throws(() => planDrumPatternEdit(reference, { lengthBeats: 4,
+    notes: Array.from({ length: 4097 }, (_, noteId) => ({ noteId, pitch: 42, start: 0,
+      duration: 0.1, velocity: 80, velocityDeviation: 0, releaseVelocity: 0,
+      probability: 1, mute: false })) }, {
+    grid: "straight16", startBar: 0, bars: 1, lanes: [
+      { role: "kick", note: 36, activeSteps: [1], velocity: 100, gate: 0.5 }
+    ]
+  }), /at most 4096 existing MIDI notes/);
+});
+
+test("drum edit readback verifies preserved expression and exact added IDs", () => {
+  const preserved = { noteId: 8, pitch: 42, start: 0.5, duration: 0.125, velocity: 70,
+    velocityDeviation: -4, releaseVelocity: 63, probability: 0.75, mute: false };
+  const added = { noteId: 100, pitch: 36, start: 0, duration: 0.125, velocity: 110,
+    velocityDeviation: 0, releaseVelocity: 0, probability: 1, mute: false };
+  const edit = { preservedNotes: [preserved], newNotes: [{ pitch: 36, start: 0,
+    duration: 0.125, velocity: 110, mute: false }] };
+  assert.equal(matchDrumPatternEditReadback(edit, { addedNoteIds: [100] }, [preserved, added]), true);
+  assert.equal(matchDrumPatternEditReadback(edit, { addedNoteIds: [100] }, [
+    { ...preserved, probability: 1 }, added
+  ]), false);
+  assert.equal(matchDrumPatternEditReadback(edit, { addedNoteIds: [101] }, [preserved, added]), false);
+});
+
+test("guarded drum edits preserve unrelated notes and verify native replacement", async () => {
+  let stateVersion = 80;
+  let notes = [
+    { noteId: 1, pitch: 36, start: 0, duration: 0.125, velocity: 100, velocityDeviation: 0,
+      releaseVelocity: 64, probability: 1, mute: false },
+    { noteId: 2, pitch: 42, start: 0.5, duration: 0.125, velocity: 70, velocityDeviation: 0,
+      releaseVelocity: 64, probability: 1, mute: false }
+  ];
+  const bridge = { async request(method, args) {
+    if (method === "get_live_state") return { stateVersion, setFingerprint: "set:drum-edit", tempo: 120 };
+    if (method === "get_song_musical_context") return { stateVersion, timeSignature: reference.timeSignature, key: {} };
+    if (method === "get_clip_timing") return { stateVersion, trackId: args.trackId, clipId: args.clipId,
+      timeSignature: reference.timeSignature };
+    if (method === "get_midi_clip_notes_extended") return {
+      stateVersion, trackId: args.trackId, clipId: args.clipId, lengthBeats: 4, notes
+    };
+    if (method === "replace_midi_notes") {
+      notes = notes.filter(note => !args.removeNoteIds.includes(note.noteId)).concat(
+        args.newNotes.map((note, index) => ({ ...note, noteId: 100 + index, velocityDeviation: 0,
+          releaseVelocity: 0, probability: 1 })));
+      stateVersion++;
+      return { stateVersion, trackId: args.trackId, clipId: args.clipId, lengthBeats: 4,
+        removedNoteIds: args.removeNoteIds, addedNoteIds: args.newNotes.map((_, index) => 100 + index), notes };
+    }
+    throw new Error(`unexpected ${method}`);
+  } };
+  const service = new ToolService({ bridge, catalog: {} });
+  const args = { expectedStateVersion: 80, trackId: "track-0", clipId: "track-0:clip-0",
+    grid: "straight16", startBar: 0, bars: 1, lanes: [
+      { role: "kick", note: 36, activeSteps: [1, 5, 9, 13], velocity: 110, gate: 0.5 }
+    ] };
+  const dry = await service.call("edit_drum_pattern_clip", args);
+  assert.deepEqual(dry.plan.removeNoteIds, [1]);
+  const result = await service.call("edit_drum_pattern_clip", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.verification.matchesExpectedNotes, true);
+  assert.equal(result.verification.notes.notes.some(note => note.noteId === 2), true);
+  assert.equal(result.verification.notes.notes.filter(note => note.pitch === 36).length, 4);
 });

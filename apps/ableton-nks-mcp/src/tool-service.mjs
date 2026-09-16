@@ -15,7 +15,7 @@ import { analyzeMidiNotesAgainstScale, planMidiScaleCorrections } from "./midi-s
 import { analyzeMidiChordEvents } from "./midi-chord-analysis.mjs";
 import { matchMidiNoteReadback, planScaleChordProgression } from "./scale-chord-progression.mjs";
 import { planScaleBassline } from "./scale-bassline.mjs";
-import { planDrumPattern } from "./drum-pattern.mjs";
+import { matchDrumPatternEditReadback, planDrumPattern, planDrumPatternEdit } from "./drum-pattern.mjs";
 
 function requireExpectedState(args) {
   if (!Number.isInteger(args.expectedStateVersion)) {
@@ -346,6 +346,7 @@ export class ToolService {
       return { stateVersion: reference.stateVersion, gridReference: reference,
         plan: planDrumPattern(reference, args) };
     }
+    if (name === "plan_drum_pattern_edit") return this.#planDrumPatternEdit(args);
     if (name === "get_clip_groove_context") return this.bridge.request("get_clip_groove_context", args);
     if (name === "inspect_clip_groove_postconditions") {
       if (args.before?.trackId !== args.trackId || args.before?.clipId !== args.clipId) throw new Error("before snapshot does not match target");
@@ -806,6 +807,7 @@ export class ToolService {
     if (name === "create_scale_chord_progression_clip") return this.#createScaleChordProgressionClip(args);
     if (name === "create_scale_bassline_clip") return this.#createScaleBasslineClip(args);
     if (name === "create_drum_pattern_clip") return this.#createDrumPatternClip(args);
+    if (name === "edit_drum_pattern_clip") return this.#editDrumPatternClip(args);
     if (name === "create_audio_clip") return this.#createAudioClip(args);
     if (name === "set_clip_parameter_envelope") return this.#setClipParameterEnvelope(args);
     if (name === "set_midi_note_properties") return this.#setMidiNoteProperties(args);
@@ -2025,6 +2027,65 @@ export class ToolService {
       throw new Error("drum pattern clip note readback mismatch");
     return { dryRun: false, requested: plan, observed,
       verification: { matchesRequestedNotes: true, notes }, timestamp: new Date().toISOString() };
+  }
+
+  async #planDrumPatternEdit(args) {
+    const beforeReference = await this.call("get_song_grid_reference", {});
+    const clipTiming = await this.bridge.request("get_clip_timing", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    const before = await this.bridge.request("get_midi_clip_notes_extended", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    if (clipTiming.stateVersion !== beforeReference.stateVersion || before.stateVersion !== beforeReference.stateVersion ||
+        clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId || before.trackId !== args.trackId ||
+        before.clipId !== args.clipId) throw new Error("drum edit target changed during inspection; retry");
+    const clipReference = { ...buildSongGridReference(clipTiming.timeSignature, beforeReference.tempoBpm),
+      stateVersion: beforeReference.stateVersion };
+    const edit = planDrumPatternEdit(clipReference, before, args);
+    const afterReference = await this.call("get_song_grid_reference", {});
+    const afterClipTiming = await this.bridge.request("get_clip_timing", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    if (JSON.stringify(beforeReference) !== JSON.stringify(afterReference))
+      throw new Error("song grid context changed during drum edit planning; retry");
+    if (JSON.stringify(clipTiming) !== JSON.stringify(afterClipTiming))
+      throw new Error("clip timing changed during drum edit planning; retry");
+    return { stateVersion: before.stateVersion, gridReference: beforeReference, clipTiming, before, edit };
+  }
+
+  async #editDrumPatternClip(args) {
+    requireExpectedState(args);
+    const planned = await this.#planDrumPatternEdit(args);
+    if (planned.stateVersion !== args.expectedStateVersion)
+      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${planned.stateVersion}`);
+    const plan = { method: "replace_midi_notes", operation: "edit_drum_pattern_clip",
+      trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
+      removeNoteIds: planned.edit.removeNoteIds, newNotes: planned.edit.newNotes,
+      edit: planned.edit, gridReference: planned.gridReference, clipTiming: planned.clipTiming, before: planned.before };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    this.#consumeConfirmation(plan, args);
+    const observed = await this.bridge.request("replace_midi_notes", plan);
+    if (observed.stateVersion !== args.expectedStateVersion + 1 || observed.trackId !== args.trackId ||
+        observed.clipId !== args.clipId) throw new Error("drum edit readback mismatch");
+    const notes = await this.bridge.request("get_midi_clip_notes_extended", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    const finalReference = await this.call("get_song_grid_reference", {});
+    const finalClipTiming = await this.bridge.request("get_clip_timing", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    const withoutState = ({ stateVersion, ...value }) => value;
+    if (notes.stateVersion !== observed.stateVersion || finalReference.stateVersion !== observed.stateVersion ||
+        notes.trackId !== args.trackId || notes.clipId !== args.clipId ||
+        finalClipTiming.stateVersion !== observed.stateVersion ||
+        JSON.stringify(withoutState(finalReference)) !== JSON.stringify(withoutState(planned.gridReference)) ||
+        JSON.stringify(withoutState(finalClipTiming)) !== JSON.stringify(withoutState(planned.clipTiming)))
+      throw new Error("drum edit verification context mismatch");
+    if (!matchDrumPatternEditReadback(planned.edit, observed, notes.notes))
+      throw new Error("drum edit note readback mismatch");
+    return { dryRun: false, requested: plan, observed,
+      verification: { matchesExpectedNotes: true, notes }, timestamp: new Date().toISOString() };
   }
 
   async #createAudioClip(args) {
