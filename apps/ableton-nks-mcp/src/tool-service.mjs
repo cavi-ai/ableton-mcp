@@ -673,6 +673,7 @@ export class ToolService {
     if (name === "set_device_parameters") return this.#setDeviceParameters(args);
     if (name === "set_looper_state") return this.#setLooperState(args);
     if (name === "set_beat_repeat_enabled") return this.#setBeatRepeatEnabled(args);
+    if (name === "set_beat_repeat_grid") return this.#setBeatRepeatGrid(args);
     if (name === "set_device_active" || name === "delete_device" || name === "move_device") return this.#deviceLifecycle(name, args);
     if (name === "set_song_musical_context") return this.#setSongMusicalContext(args);
     if (name === "set_groove") return this.#setGroove(args);
@@ -1021,6 +1022,27 @@ export class ToolService {
     if (repeat.displayValue === target) throw new Error("native Beat Repeat control is already selected");
     const plan = { method: "set_beat_repeat_enabled", trackId: args.trackId, deviceId: args.deviceId,
       expectedStateVersion: args.expectedStateVersion, enabled: args.enabled, before };
+    return this.#confirmedMutation(plan, args);
+  }
+
+  async #setBeatRepeatGrid(args) {
+    requireExpectedState(args);
+    const before = await this.bridge.request("get_beat_repeat_performance_context", {
+      trackId: args.trackId, deviceId: args.deviceId
+    });
+    assertExpectedState(args, before);
+    const grid = before.controls?.Grid;
+    const matches = before.gridChoices?.filter(choice => choice.displayValue === args.gridDisplayValue) ?? [];
+    if (before.device?.className !== "BeatRepeat" || !grid?.enabled ||
+        !Number.isInteger(grid.min) || !Number.isInteger(grid.max) ||
+        matches.length !== 1 || !Number.isInteger(matches[0].value) ||
+        matches[0].value < grid.min || matches[0].value > grid.max) {
+      throw new Error("exact native Beat Repeat grid choice is unavailable or ambiguous");
+    }
+    if (matches[0].value === grid.value) throw new Error("native Beat Repeat Grid is already selected");
+    const plan = { method: "set_beat_repeat_grid", trackId: args.trackId, deviceId: args.deviceId,
+      expectedStateVersion: args.expectedStateVersion, gridDisplayValue: args.gridDisplayValue,
+      gridValue: matches[0].value, before };
     return this.#confirmedMutation(plan, args);
   }
 

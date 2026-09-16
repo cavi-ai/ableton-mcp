@@ -272,12 +272,25 @@ def _beat_repeat_performance_context(song, track_id, device_id, state_version):
         matches = [parameter for parameter in parameters if parameter["originalName"] == name]
         if len(matches) == 1:
             controls[name] = matches[0]
-        elif name == "Repeat":
-            raise ValueError("native Beat Repeat Repeat control is unavailable or ambiguous")
+        elif name in ("Repeat", "Grid"):
+            raise ValueError(f"native Beat Repeat {name} control is unavailable or ambiguous")
+    grid = controls["Grid"]
+    low, high = grid["min"], grid["max"]
+    if (not grid["enabled"] or not math.isfinite(low) or not math.isfinite(high) or
+            not float(low).is_integer() or not float(high).is_integer() or
+            low < 0 or high < low or high - low > 31):
+        raise ValueError("native Beat Repeat Grid cannot be enumerated safely")
+    grid_parameter = device.parameters[int(grid["id"].removeprefix("parameter-"))]
+    try:
+        grid_choices = [{"value": value, "displayValue": grid_parameter.str_for_value(value)}
+                        for value in range(int(low), int(high) + 1)]
+    except Exception as error:
+        raise ValueError("native Beat Repeat Grid display mapping failed") from error
     return {
         "stateVersion": state_version, "trackId": track_id, "deviceId": device_id,
         "device": _device_record(device, device_id), "parameters": parameters,
-        "controls": controls, "routing": _track_routing(song, track_id, state_version),
+        "controls": controls, "gridChoices": grid_choices,
+        "routing": _track_routing(song, track_id, state_version),
         "transport": _transport_context(song, state_version),
         "globalLaunchQuantization": _enum_record(song.clip_trigger_quantization, CLIP_QUANTIZATION_NAMES),
     }
@@ -745,6 +758,32 @@ def dispatch_request(song, request, state_version, application=None):
         return _looper_performance_context(song, params["trackId"], params["deviceId"], state_version)
     if method == "get_beat_repeat_performance_context":
         return _beat_repeat_performance_context(song, params["trackId"], params["deviceId"], state_version)
+    if method == "set_beat_repeat_grid":
+        if params.get("expectedStateVersion") != state_version:
+            raise ValueError("Beat Repeat state version changed")
+        before = _beat_repeat_performance_context(song, params["trackId"], params["deviceId"], state_version)
+        if params.get("before") != before:
+            raise ValueError("Beat Repeat performance context changed")
+        grid_value = params.get("gridValue")
+        grid_display = params.get("gridDisplayValue")
+        matches = [choice for choice in before["gridChoices"]
+                   if choice["value"] == grid_value and choice["displayValue"] == grid_display]
+        label_matches = [choice for choice in before["gridChoices"]
+                         if choice["displayValue"] == grid_display]
+        if (type(grid_value) is not int or type(grid_display) is not str or
+                len(matches) != 1 or len(label_matches) != 1):
+            raise ValueError("exact native Beat Repeat grid choice is unavailable")
+        grid = before["controls"]["Grid"]
+        if grid_value == grid["value"]:
+            raise ValueError("native Beat Repeat Grid is already selected")
+        _, _, device = _device(song, params["trackId"], params["deviceId"])
+        device.parameters[int(grid["id"].removeprefix("parameter-"))].value = grid_value
+        observed = _beat_repeat_performance_context(song, params["trackId"], params["deviceId"], state_version + 1)
+        observed["gridParameterMatchesTarget"] = (
+            observed["controls"]["Grid"]["value"] == grid_value and
+            observed["controls"]["Grid"]["displayValue"] == grid_display)
+        observed["gridDisplayValue"] = grid_display
+        return observed
     if method == "set_beat_repeat_enabled":
         if params.get("expectedStateVersion") != state_version:
             raise ValueError("Beat Repeat state version changed")

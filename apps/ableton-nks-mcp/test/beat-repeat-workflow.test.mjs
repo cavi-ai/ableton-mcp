@@ -15,6 +15,8 @@ function context() {
   return { stateVersion: 3, trackId: "track-0", deviceId: "track-0:device-0",
     device: { id: "track-0:device-0", className: "BeatRepeat", name: "Beat Repeat", active: true },
     parameters, controls: { Grid: parameters[0], "Block Triplets": parameters[1], Repeat: parameters[2] },
+    gridChoices: [{ value: 6, displayValue: "1/8" }, { value: 7, displayValue: "1/16" },
+      { value: 8, displayValue: "1/16T" }],
     routing: { stateVersion: 3, input: { type: { name: "Ext. In" } }, monitoring: { name: "off" } },
     transport: { stateVersion: 3, isPlaying: false },
     globalLaunchQuantization: { value: 4, name: "2_bars" } };
@@ -63,4 +65,39 @@ test("Beat Repeat toggle rejects a disabled or already selected native Repeat co
   await assert.rejects(() => service.call("set_beat_repeat_enabled", {
     trackId: "track-0", deviceId: "track-0:device-0", expectedStateVersion: 3, enabled: true
   }), /native Beat Repeat control/);
+});
+
+test("guarded Beat Repeat grid selects one exact native display without guessing raw indices", async () => {
+  let writes = 0;
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_beat_repeat_performance_context") return structuredClone(context());
+    if (method === "set_beat_repeat_grid") {
+      writes++;
+      assert.equal(params.gridValue, 8);
+      assert.equal(params.gridDisplayValue, "1/16T");
+      assert.deepEqual(params.before.gridChoices, context().gridChoices);
+      return { stateVersion: 4, gridParameterMatchesTarget: true,
+        controls: { Grid: { value: 8, displayValue: "1/16T" } } };
+    }
+    throw new Error(`unexpected method ${method}`);
+  } } });
+  const args = { trackId: "track-0", deviceId: "track-0:device-0",
+    expectedStateVersion: 3, gridDisplayValue: "1/16T" };
+  const dry = await service.call("set_beat_repeat_grid", args);
+  assert.equal(dry.plan.gridValue, 8);
+  assert.equal(writes, 0);
+  const live = await service.call("set_beat_repeat_grid", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(writes, 1);
+  assert.equal(live.observed.gridParameterMatchesTarget, true);
+});
+
+test("Beat Repeat grid refuses ambiguous native display labels", async () => {
+  const observed = context();
+  observed.gridChoices.push({ value: 9, displayValue: "1/16T" });
+  const service = new ToolService({ bridge: { async request() { return structuredClone(observed); } } });
+  await assert.rejects(() => service.call("set_beat_repeat_grid", {
+    trackId: "track-0", deviceId: "track-0:device-0", expectedStateVersion: 3,
+    gridDisplayValue: "1/16T"
+  }), /exact native Beat Repeat grid choice/);
 });
