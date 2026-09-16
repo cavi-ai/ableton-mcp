@@ -2,7 +2,7 @@ import { assertExpectedState } from "./bridge-protocol.mjs";
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { analyzeAudioFile } from "./audio-analysis.mjs";
-import { buildSongGridReference } from "./song-grid-reference.mjs";
+import { buildSongGridReference, planGridEnvelopePattern } from "./song-grid-reference.mjs";
 import { searchLocalSpliceSamples } from "./splice-local-search.mjs";
 import { inspectGroovePostconditions } from "./groove-workflow.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
@@ -321,6 +321,10 @@ export class ToolService {
         live.stateVersion !== afterLive.stateVersion || live.setFingerprint !== afterLive.setFingerprint ||
         live.tempo !== afterLive.tempo) throw new Error("song grid context changed; retry");
       return { stateVersion: live.stateVersion, ...buildSongGridReference(context.timeSignature, live.tempo) };
+    }
+    if (name === "plan_grid_envelope_pattern") {
+      const reference = await this.call("get_song_grid_reference", {});
+      return planGridEnvelopePattern(reference, args);
     }
     if (name === "get_clip_groove_context") return this.bridge.request("get_clip_groove_context", args);
     if (name === "inspect_clip_groove_postconditions") {
