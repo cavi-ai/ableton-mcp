@@ -2792,6 +2792,63 @@ class DispatchTest(unittest.TestCase):
                                           "params": {**params, "sampleTimes": [0.0, 0.5]}}, 4)
         self.assertEqual(sampled["samples"], written["samples"])
 
+    def test_looper_performance_context_and_state_write_recheck_routing(self):
+        song = Song()
+        track = song.tracks[0]
+        track.has_audio_input = True
+        looper = Device()
+        looper.name = "Looper"
+        looper.class_name = "Looper"
+        looper.class_display_name = "Looper"
+        controls = {
+            "State": (("Stop", "Record", "Play", "Overdub"), 2),
+            "Quantization": (("Global", "None", "1 Bar", "1/8T"), 2),
+            "Monitor": (("Always", "Never", "Rec/OVR"), 0),
+            "Song Control": (("None", "Start Song"), 1),
+            "Tempo Control": (("None", "Follow song tempo"), 1),
+        }
+        looper.parameters = []
+        for name, (choices, value) in controls.items():
+            parameter = QuantizedParameter()
+            parameter.name = name
+            parameter.original_name = name
+            parameter.value_items = choices
+            parameter.max = float(len(choices) - 1)
+            parameter.value = float(value)
+            looper.parameters.append(parameter)
+        track.devices[0] = looper
+        target = {"trackId": "track-0", "deviceId": "track-0:device-0"}
+        before = dispatch_request(song, {"method": "get_looper_performance_context", "params": target}, 3)
+        self.assertEqual(before["controls"]["State"]["displayValue"], "Play")
+        self.assertEqual(before["controls"]["Quantization"]["displayValue"], "1 Bar")
+        self.assertEqual(before["globalLaunchQuantization"]["name"], "2_bars")
+        self.assertEqual(before["routing"]["input"]["type"]["name"], "All Ins")
+        self.assertFalse(before["transport"]["isPlaying"])
+
+        track.current_input_routing = "No Input"
+        with self.assertRaisesRegex(ValueError, "Looper performance context changed"):
+            dispatch_request(song, {"method": "set_looper_state", "params": {
+                **target, "expectedStateVersion": 3, "before": before, "targetState": "Record"
+            }}, 3)
+        self.assertEqual(looper.parameters[0].value, 2)
+
+        track.current_input_routing = "All Ins"
+        song.is_playing = True
+        with self.assertRaisesRegex(ValueError, "Looper performance context changed"):
+            dispatch_request(song, {"method": "set_looper_state", "params": {
+                **target, "expectedStateVersion": 3, "before": before, "targetState": "Record"
+            }}, 3)
+        self.assertEqual(looper.parameters[0].value, 2)
+        song.is_playing = False
+        changed = dispatch_request(song, {"method": "set_looper_state", "params": {
+            **target, "expectedStateVersion": 3, "before": before, "targetState": "Record"
+        }}, 3)
+        self.assertEqual(changed["stateVersion"], 4)
+        self.assertEqual(changed["controls"]["State"]["displayValue"], "Record")
+        self.assertTrue(changed["stateParameterMatchesTarget"])
+        self.assertNotIn("targetReached", changed)
+        self.assertEqual(looper.parameters[0].value, 1)
+
 
 if __name__ == "__main__":
     unittest.main()
