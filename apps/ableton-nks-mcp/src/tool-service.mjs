@@ -310,6 +310,7 @@ export class ToolService {
     }
     if (name === "get_live_state") return this.bridge.request("get_live_state", {});
     if (name === "get_transport_context") return this.bridge.request("get_transport_context", {});
+    if (name === "get_looper_performance_context") return this.bridge.request("get_looper_performance_context", args);
     if (name === "get_history_state") return this.bridge.request("get_history_state", {});
     if (name === "get_song_musical_context") return this.bridge.request("get_song_musical_context", {});
     if (name === "get_song_grid_reference") {
@@ -669,6 +670,7 @@ export class ToolService {
     }[name];
     if (kompleteMethod) return this.#kompleteMutation(kompleteMethod, args);
     if (name === "set_device_parameters") return this.#setDeviceParameters(args);
+    if (name === "set_looper_state") return this.#setLooperState(args);
     if (name === "set_device_active" || name === "delete_device" || name === "move_device") return this.#deviceLifecycle(name, args);
     if (name === "set_song_musical_context") return this.#setSongMusicalContext(args);
     if (name === "set_groove") return this.#setGroove(args);
@@ -972,6 +974,33 @@ export class ToolService {
         ? "No automatic rollback for recorded loop content; changing the State parameter back does not restore captured audio."
         : "Recall the prior macro snapshot or restore the previous parameter values."
     };
+  }
+
+  async #setLooperState(args) {
+    requireExpectedState(args);
+    const before = await this.bridge.request("get_looper_performance_context", {
+      trackId: args.trackId, deviceId: args.deviceId
+    });
+    assertExpectedState(args, before);
+    if (before.device?.className !== "Looper") throw new Error("device is not a native Looper");
+    const state = before.controls?.State;
+    if (!state?.enabled || !state.quantized || !Array.isArray(state.valueItems) ||
+        !["Stop", "Record", "Play", "Overdub"].includes(args.targetState) ||
+        state.valueItems.filter(label => label === args.targetState).length !== 1) {
+      throw new Error("targetState must be an available native Looper state choice");
+    }
+    if (state.displayValue === args.targetState) throw new Error("Looper target state is already selected");
+    const contentMutationRisk = ["Record", "Overdub"].includes(args.targetState)
+      ? { kind: "recorded_loop_content", targetState: args.targetState,
+        parameterRollbackRestoresContent: false } : null;
+    const plan = { method: "set_looper_state", trackId: args.trackId, deviceId: args.deviceId,
+      expectedStateVersion: args.expectedStateVersion, targetState: args.targetState, before,
+      ...(contentMutationRisk ? { contentMutationRisk } : {}) };
+    const result = await this.#confirmedMutation(plan, args);
+    if (result.dryRun) return result;
+    return { ...result, rollback: contentMutationRisk
+      ? "No automatic rollback for recorded loop content; changing State back does not restore captured audio."
+      : "Changing State back changes playback only; it does not recover recorded loop content." };
   }
 
   async #observeDevice(args) {

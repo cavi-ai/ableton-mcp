@@ -242,6 +242,26 @@ def _transport_context(song, state_version):
     }
 
 
+def _looper_performance_context(song, track_id, device_id, state_version):
+    _, _, device = _device(song, track_id, device_id)
+    if device.class_name != "Looper":
+        raise ValueError("device is not a native Looper")
+    parameters = [_parameter_record(parameter, index) for index, parameter in enumerate(device.parameters)]
+    controls = {}
+    for name in ("State", "Quantization", "Monitor", "Song Control", "Tempo Control"):
+        matches = [parameter for parameter in parameters if parameter["originalName"] == name]
+        if len(matches) != 1:
+            raise ValueError(f"native Looper {name} control is unavailable or ambiguous")
+        controls[name] = matches[0]
+    return {
+        "stateVersion": state_version, "trackId": track_id, "deviceId": device_id,
+        "device": _device_record(device, device_id), "parameters": parameters,
+        "controls": controls, "routing": _track_routing(song, track_id, state_version),
+        "transport": _transport_context(song, state_version),
+        "globalLaunchQuantization": _enum_record(song.clip_trigger_quantization, CLIP_QUANTIZATION_NAMES),
+    }
+
+
 def _clip_timing(song, track_id, clip_id, state_version):
     _, _, slot = _clip_slot(song, track_id, clip_id)
     if not slot.has_clip:
@@ -700,6 +720,32 @@ def dispatch_request(song, request, state_version, application=None):
                                      "ungroupTrack": callable(getattr(song, "ungroup_track", None))}}
     if method == "get_transport_context":
         return _transport_context(song, state_version)
+    if method == "get_looper_performance_context":
+        return _looper_performance_context(song, params["trackId"], params["deviceId"], state_version)
+    if method == "set_looper_state":
+        if params.get("expectedStateVersion") != state_version:
+            raise ValueError("Looper state version changed")
+        before = _looper_performance_context(song, params["trackId"], params["deviceId"], state_version)
+        if params.get("before") != before:
+            raise ValueError("Looper performance context changed")
+        target_state = params["targetState"]
+        if target_state not in ("Stop", "Record", "Play", "Overdub"):
+            raise ValueError("unknown Looper target state")
+        state_record = before["controls"]["State"]
+        if not state_record["enabled"] or not state_record["quantized"]:
+            raise ValueError("Looper State control is unavailable")
+        choices = state_record["valueItems"]
+        if choices.count(target_state) != 1:
+            raise ValueError("Looper target state is not an exact native choice")
+        target_value = state_record["min"] + choices.index(target_state)
+        if target_value > state_record["max"] or target_value == state_record["value"]:
+            raise ValueError("Looper target state is unavailable or already selected")
+        _, _, device = _device(song, params["trackId"], params["deviceId"])
+        device.parameters[int(state_record["id"].removeprefix("parameter-"))].value = target_value
+        observed = _looper_performance_context(song, params["trackId"], params["deviceId"], state_version + 1)
+        observed["targetState"] = target_state
+        observed["stateParameterMatchesTarget"] = observed["controls"]["State"]["displayValue"] == target_state
+        return observed
     if method == "set_transport_context":
         changes = params["changes"]
         if "metronome" in changes:
