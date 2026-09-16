@@ -55,6 +55,46 @@ function chordMetadata(pitches, key, rootPitchClass) {
   return candidates.find(candidate => candidate.rootPitchClass === rootPitchClass) ?? null;
 }
 
+function normalizeArticulation(articulation, chordBeats) {
+  if (articulation === undefined) return { mode: "block", stepBeats: chordBeats, gate: 1, stepsPerChord: 1 };
+  if (!articulation || typeof articulation !== "object" || Array.isArray(articulation))
+    throw new Error("articulation must be an object");
+  const { mode, stepBeats, gate } = articulation;
+  if (!["block", "pulse", "arpeggio_up", "arpeggio_down"].includes(mode))
+    throw new Error("articulation mode must be block, pulse, arpeggio_up, or arpeggio_down");
+  if (mode === "block") {
+    if (stepBeats !== undefined || gate !== undefined)
+      throw new Error("block articulation does not accept stepBeats or gate");
+    return { mode, stepBeats: chordBeats, gate: 1, stepsPerChord: 1 };
+  }
+  if (!Number.isFinite(stepBeats) || stepBeats <= 0) throw new Error("articulation stepBeats must be positive");
+  if (!Number.isFinite(gate) || gate <= 0 || gate > 1) throw new Error("articulation gate must be greater than zero and at most one");
+  const stepsPerChord = Math.round(chordBeats / stepBeats);
+  if (stepsPerChord < 1 || Math.abs(stepsPerChord * stepBeats - chordBeats) > 1e-9)
+    throw new Error("articulation stepBeats must divide chordBeats exactly");
+  return { mode, stepBeats, gate, stepsPerChord };
+}
+
+function articulateChords(chords, options, articulation) {
+  return chords.flatMap((chord, chordIndex) => {
+    const chordStart = options.startBeats + chordIndex * options.chordBeats;
+    if (articulation.mode === "block") return chord.pitches.map(pitch => ({
+      pitch, start: chordStart, duration: options.chordBeats, velocity: options.velocity, mute: false
+    }));
+    const pitches = articulation.mode === "arpeggio_down" ? chord.pitches.toReversed() : chord.pitches;
+    return Array.from({ length: articulation.stepsPerChord }, (_, stepIndex) => {
+      const eventPitches = articulation.mode === "pulse" ? pitches : [pitches[stepIndex % pitches.length]];
+      return eventPitches.map(pitch => ({
+        pitch,
+        start: chordStart + stepIndex * articulation.stepBeats,
+        duration: articulation.stepBeats * articulation.gate,
+        velocity: options.velocity,
+        mute: false
+      }));
+    }).flat();
+  });
+}
+
 export function planScaleChordProgression(key, options) {
   const scale = getLiveScaleReference(key?.scaleName, key?.rootNote);
   if (JSON.stringify(scale.intervals) !== JSON.stringify(key?.scaleIntervals))
@@ -70,6 +110,7 @@ export function planScaleChordProgression(key, options) {
   if (options.minPitch > options.maxPitch) throw new Error("minPitch must not exceed maxPitch");
   if (!["closest", "root_position"].includes(options.voiceLeading))
     throw new Error("voiceLeading must be closest or root_position");
+  const articulation = normalizeArticulation(options.articulation, options.chordBeats);
 
   let previous = null;
   const chords = options.degrees.map((degree, chordIndex) => {
@@ -97,18 +138,13 @@ export function planScaleChordProgression(key, options) {
       romanNumeral: scale.intervals.length === 7 ? (metadata?.romanNumeral ?? null) : null
     };
   });
-  const notes = chords.flatMap((chord, chordIndex) => chord.pitches.map(pitch => ({
-    pitch,
-    start: options.startBeats + chordIndex * options.chordBeats,
-    duration: options.chordBeats,
-    velocity: options.velocity,
-    mute: false
-  })));
+  const notes = articulateChords(chords, options, articulation);
   return {
     scale,
     scaleSize: scale.intervals.length,
     voiceLeading: options.voiceLeading,
     notesPerChord: options.notesPerChord,
+    articulation,
     chords,
     notes,
     lengthBeats: options.startBeats + options.degrees.length * options.chordBeats,

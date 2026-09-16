@@ -1924,14 +1924,21 @@ export class ToolService {
     const order = (a, b) => a.start - b.start || a.pitch - b.pitch || a.duration - b.duration;
     const requestedNotes = plan.notes.map(project).sort(order);
     const observedNotes = notes.notes.map(project).sort(order);
-    if (JSON.stringify(requestedNotes) !== JSON.stringify(observedNotes))
+    const sameNotes = requestedNotes.length === observedNotes.length && requestedNotes.every((expected, index) => {
+      const actual = observedNotes[index];
+      return expected.pitch === actual.pitch && expected.velocity === actual.velocity && expected.mute === actual.mute &&
+        Math.abs(expected.start - actual.start) <= 1e-9 && Math.abs(expected.duration - actual.duration) <= 1e-9;
+    });
+    if (!sameNotes)
       throw new Error("progression clip note readback mismatch");
     const analysis = analyzeMidiChordEvents(notes.notes, finalContext.key);
     const roots = analysis.events.map(event => event.candidates[0]?.rootPitchClass ?? null);
-    if (JSON.stringify(roots) !== JSON.stringify(progression.chords.map(chord => chord.rootPitchClass)))
+    const harmonicReadbackSupported = ["block", "pulse"].includes(progression.articulation.mode);
+    const expectedRoots = progression.chords.map(chord => chord.rootPitchClass);
+    if (harmonicReadbackSupported && JSON.stringify(roots) !== JSON.stringify(expectedRoots))
       throw new Error("progression clip chord readback mismatch");
     return { dryRun: false, requested: plan, observed,
-      verification: { matchesRequestedNotes: true, notes, analysis }, timestamp: new Date().toISOString() };
+      verification: { matchesRequestedNotes: true, harmonicReadbackSupported, notes, analysis }, timestamp: new Date().toISOString() };
   }
 
   async #createAudioClip(args) {

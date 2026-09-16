@@ -32,6 +32,44 @@ test("root-position mode never substitutes an inversion", () => {
   assert.deepEqual(result.chords.map(chord => chord.inversion), [0, 0]);
 });
 
+test("pulse articulation repeats every voicing on a straight grid", () => {
+  const result = planScaleChordProgression(cMajor, {
+    ...base, degrees: [1], chordBeats: 2,
+    articulation: { mode: "pulse", stepBeats: 0.5, gate: 0.5 }
+  });
+  assert.deepEqual(result.articulation, {
+    mode: "pulse", stepBeats: 0.5, gate: 0.5, stepsPerChord: 4
+  });
+  assert.equal(result.notes.length, 12);
+  assert.deepEqual(result.notes.slice(0, 4), [
+    { pitch: 60, start: 0, duration: 0.25, velocity: 96, mute: false },
+    { pitch: 64, start: 0, duration: 0.25, velocity: 96, mute: false },
+    { pitch: 67, start: 0, duration: 0.25, velocity: 96, mute: false },
+    { pitch: 60, start: 0.5, duration: 0.25, velocity: 96, mute: false }
+  ]);
+});
+
+test("arpeggio articulation cycles chord tones on a triplet grid", () => {
+  const stepBeats = 1 / 3;
+  const result = planScaleChordProgression(cMajor, {
+    ...base, degrees: [1], chordBeats: 2,
+    articulation: { mode: "arpeggio_down", stepBeats, gate: 0.75 }
+  });
+  assert.equal(result.articulation.stepsPerChord, 6);
+  assert.deepEqual(result.notes.map(note => note.pitch), [67, 64, 60, 67, 64, 60]);
+  assert.deepEqual(result.notes.map(note => note.start), [0, stepBeats, 2 * stepBeats, 1, 4 * stepBeats, 5 * stepBeats]);
+  assert.ok(result.notes.every(note => Math.abs(note.duration - 0.25) < 1e-12));
+});
+
+test("articulation rejects drifting grids and invalid gates", () => {
+  assert.throws(() => planScaleChordProgression(cMajor, {
+    ...base, articulation: { mode: "pulse", stepBeats: 0.3, gate: 1 }
+  }), /divide chordBeats exactly/);
+  assert.throws(() => planScaleChordProgression(cMajor, {
+    ...base, articulation: { mode: "pulse", stepBeats: 0.5, gate: 0 }
+  }), /gate/);
+});
+
 test("non-heptatonic Live scales use degree labels without fake Roman numerals", () => {
   const result = planScaleChordProgression({ rootNote: 0, rootName: "C", scaleName: "Minor Pentatonic",
     scaleMode: true, scaleIntervals: [0, 3, 5, 7, 10] }, {
@@ -99,6 +137,37 @@ test("guarded progression creation verifies native notes and chord functions", a
   assert.equal(live.observed.clip.noteCount, 12);
   assert.equal(live.verification.matchesRequestedNotes, true);
   assert.deepEqual(live.verification.analysis.events.map(event => event.candidates[0].romanNumeral), ["I", "V", "vi", "IV"]);
+});
+
+test("guarded triplet arpeggio accepts only sub-nanobeat native normalization", async () => {
+  let created = false;
+  let requestedNotes = [];
+  const bridge = { async request(method, args) {
+    if (method === "get_song_musical_context") return { stateVersion: created ? 61 : 60, key: cMajor };
+    if (method === "list_clips") return { stateVersion: 60, trackId: args.trackId,
+      clips: [{ id: "track-0:clip-0", name: null, hasClip: false }] };
+    if (method === "create_midi_clip") {
+      created = true;
+      requestedNotes = args.notes;
+      return { stateVersion: 61, trackId: args.trackId,
+        clip: { id: args.clipId, name: args.name, hasClip: true, lengthBeats: args.lengthBeats, noteCount: args.notes.length } };
+    }
+    if (method === "get_midi_clip_notes_extended") return { stateVersion: 61, trackId: args.trackId,
+      clipId: args.clipId, lengthBeats: 2, notes: requestedNotes.map((note, index) => ({
+        ...note, noteId: index + 1, start: note.start + (index === 4 ? 2e-16 : 0)
+      })) };
+    throw new Error(`unexpected ${method}`);
+  } };
+  const service = new ToolService({ bridge, catalog: { search: () => [], get: () => undefined, products: () => [] } });
+  const args = { ...base, degrees: [1], chordBeats: 2, expectedStateVersion: 60,
+    trackId: "track-0", clipId: "track-0:clip-0", name: "Triplet arp",
+    articulation: { mode: "arpeggio_down", stepBeats: 1 / 3, gate: 0.75 } };
+  const dry = await service.call("create_scale_chord_progression_clip", args);
+  const live = await service.call("create_scale_chord_progression_clip", {
+    ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash
+  });
+  assert.equal(live.verification.matchesRequestedNotes, true);
+  assert.equal(live.verification.harmonicReadbackSupported, false);
 });
 
 test("progression creation rejects occupied destinations and mismatched native notes", async () => {
