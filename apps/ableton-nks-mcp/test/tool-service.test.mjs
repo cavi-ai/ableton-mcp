@@ -469,6 +469,7 @@ test("MCP resources return live and catalog-backed content", async () => {
   assert.equal((await service.readResource("nks://catalog/presets/serum-2%3Aa")).preset.name, "Deep");
   assert.equal((await service.readResource("ableton://live/status")).stateVersion, 4);
   assert.equal((await service.readResource("ableton://set/tracks")).tracks[0].name, "Synth");
+  assert.equal((await service.readResource("ableton://set/musical-context")).pianoRoll.foldToScale.directControlAvailable, false);
   assert.equal((await service.readResource("ableton://track/track-0/devices")).devices[0].name, "Serum 2");
   const artwork = await service.readResource("nks://catalog/artwork/art%3Abass");
   assert.equal(artwork.artwork.category, "bass");
@@ -853,6 +854,15 @@ test("musical context inspection exposes timing harmony groove and clip loop sta
   const song = await service.call("get_song_musical_context");
   assert.equal(song.key.rootName, "C");
   assert.deepEqual(song.key.scaleIntervals, [0, 2, 4, 5, 7, 9, 11]);
+  assert.deepEqual(song.key.noteNames, ["C", "D", "E", "F", "G", "A", "B"]);
+  assert.equal(song.pianoRoll.scaleMode.effect, "highlight-scale-notes");
+  assert.deepEqual(song.pianoRoll.foldToScale, {
+    scope: "selected-midi-clip-editor",
+    directControlAvailable: false,
+    effect: "hide-non-scale-note-lanes",
+    preservesOffScaleNotes: true,
+    limitation: "Live's control-surface API does not expose the piano-roll Fold to Scale UI state."
+  });
   assert.equal(song.quantization.clipTrigger.name, "1_bar");
   assert.equal(song.groove.pool[0].id, "groove-0");
   const clip = await service.call("get_clip_timing", { trackId: "track-0", clipId: "track-0:clip-0" });
@@ -917,6 +927,9 @@ test("song musical context mutation validates and signs exact producer changes",
   assert.deepEqual(dry.plan.changes.quantization, { clipTrigger: 7, midiRecording: 0 });
   assert.deepEqual(dry.plan.changes.timeSignature, args.timeSignature);
   assert.equal(calls.at(-1).method, "get_song_musical_context");
+  await assert.rejects(() => service.call("set_song_musical_context", {
+    expectedStateVersion: 4, key: { scaleName: "Made Up" }
+  }), /unknown Live scale/);
 });
 
 test("groove edits sign complete pool state and validate native percentage units", async () => {
