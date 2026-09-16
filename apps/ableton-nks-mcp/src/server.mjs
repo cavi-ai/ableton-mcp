@@ -145,6 +145,7 @@ const toolNames = [
   "set_beat_repeat_grid",
   "set_beat_repeat_interval",
   "create_midi_clip",
+  "create_scale_chord_progression_clip",
   "set_clip_parameter_envelope",
   "set_midi_note_properties",
   "correct_midi_clip_to_scale",
