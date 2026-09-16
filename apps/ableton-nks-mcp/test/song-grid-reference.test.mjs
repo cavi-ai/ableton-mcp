@@ -92,6 +92,8 @@ test("the grid reference points agents to existing straight and triplet quantiza
   assert.equal(reference.toolReferences.transientGridInspection, "propose_audio_transient_warp");
   assert.equal(reference.toolReferences.actualTempoChange, "set_tempo");
   assert.equal(reference.toolReferences.clipLoopAndSignature, "get_clip_timing");
+  assert.deepEqual(reference.toolReferences.clipGridEnvelope, { planner: "plan_grid_envelope_pattern",
+    destination: "set_clip_parameter_envelope" });
 });
 
 test("the reference rejects an invalid native tempo rather than emitting infinite step durations", async () => {
@@ -101,4 +103,51 @@ test("the reference rejects an invalid native tempo rather than emitting infinit
 test("the reference rejects an invalid native time signature rather than fabricating beat anchors", async () => {
   await assert.rejects(() => gridService({ numerator: 4, denominator: 0 }).call("get_song_grid_reference", {}),
     /invalid Live time signature/);
+});
+
+test("a straight 16th repeat pattern emits exact on and off steps for one 4/4 bar", async () => {
+  const reply = await createRouter(gridService())({ id: 2, method: "tools/call", params: {
+    name: "plan_grid_envelope_pattern", arguments: {
+      grid: "straight16", bars: 1, activeSteps: [5, 13], onValue: 1, offValue: 0
+    }
+  } });
+  assert.equal(reply.error, undefined);
+  const result = reply.result.structuredContent;
+  assert.equal(result.stateVersion, 7);
+  assert.equal(result.points.length, 16);
+  assert.deepEqual(result.points.slice(3, 6), [
+    { time: 0.75, duration: 0.25, value: 0 },
+    { time: 1, duration: 0.25, value: 1 },
+    { time: 1.25, duration: 0.25, value: 0 }
+  ]);
+  assert.deepEqual(result.points[12], { time: 3, duration: 0.25, value: 1 });
+  assert.deepEqual(result.points[15], { time: 3.75, duration: 0.25, value: 0 });
+});
+
+test("a triplet repeat pattern stays aligned across two bars and rejects nonintegral bar grids", async () => {
+  const result = await gridService().call("plan_grid_envelope_pattern", {
+    grid: "eighthTriplet", bars: 2, activeSteps: [4, 10], onValue: 1, offValue: 0
+  });
+  assert.equal(result.points.length, 24);
+  assert.deepEqual(result.points[3], { time: 1, duration: 1 / 3, value: 1 });
+  assert.deepEqual(result.points[15], { time: 5, duration: 1 / 3, value: 1 });
+  await assert.rejects(() => gridService({ numerator: 3, denominator: 8 }).call("plan_grid_envelope_pattern", {
+    grid: "eighthTriplet", bars: 2, activeSteps: [1], onValue: 1, offValue: 0
+  }), /bar boundary/);
+});
+
+test("pattern planning rejects out-of-bar steps instead of placing them in another bar", async () => {
+  await assert.rejects(() => gridService().call("plan_grid_envelope_pattern", {
+    grid: "straight16", bars: 1, activeSteps: [17], onValue: 1, offValue: 0
+  }), /activeSteps/);
+});
+
+test("pattern planning bounds output size and rejects beat offsets that cannot represent grid steps", async () => {
+  await assert.rejects(() => gridService({ numerator: 99 }).call("plan_grid_envelope_pattern", {
+    grid: "straight16", bars: 16, activeSteps: [1], onValue: 1, offValue: 0
+  }), /too many envelope steps/);
+  await assert.rejects(() => gridService().call("plan_grid_envelope_pattern", {
+    grid: "straight16", bars: 1, activeSteps: [1], onValue: 1, offValue: 0,
+    startBeat: Number.MAX_SAFE_INTEGER
+  }), /startBeat/);
 });

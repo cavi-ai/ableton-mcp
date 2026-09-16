@@ -51,7 +51,36 @@ export function buildSongGridReference(timeSignature, tempoBpm) {
       straight16: "1_16", eighthTriplet: "1_8_triplet", sixteenthTriplet: "1_16_triplet" },
     grooveChoices: "get_song_musical_context", grooveEdit: "set_groove",
     transientGridInspection: "propose_audio_transient_warp", actualTempoChange: "set_tempo",
-    clipLoopAndSignature: "get_clip_timing"
+    clipLoopAndSignature: "get_clip_timing",
+    clipGridEnvelope: { planner: "plan_grid_envelope_pattern", destination: "set_clip_parameter_envelope" }
   };
   return { timeSignature, tempoBpm, barLengthBeats, grids, conventions, tempoInterpretation, toolReferences };
+}
+
+export function planGridEnvelopePattern(reference, { grid, bars, activeSteps, onValue, offValue, startBeat = 0 }) {
+  const selected = reference.grids?.[grid];
+  if (!selected) throw new Error("unknown grid; use a grid from get_song_grid_reference");
+  if (!selected.barBoundaryOnGrid || !Number.isInteger(selected.stepsPerBar)) {
+    throw new Error("grid cannot land on every bar boundary in this time signature");
+  }
+  if (!Number.isInteger(bars) || bars < 1 || bars > 16) throw new Error("bars must be an integer from 1 to 16");
+  if (bars * selected.stepsPerBar > 512) throw new Error("too many envelope steps; plan fewer bars");
+  if (!Array.isArray(activeSteps) || activeSteps.length === 0 || activeSteps.some(step =>
+    !Number.isInteger(step) || step < 1 || step > selected.stepsPerBar) ||
+    new Set(activeSteps).size !== activeSteps.length) throw new Error("activeSteps must be unique step numbers within one bar");
+  if (![onValue, offValue, startBeat].every(value => typeof value === "number" && Number.isFinite(value)) ||
+    startBeat < 0 || onValue === offValue) throw new Error("pattern values and startBeat must be finite, nonnegative startBeat, and distinct on/off values");
+  const stepBeats = 1 / selected.stepsPerQuarter;
+  if (startBeat + stepBeats === startBeat ||
+    startBeat + bars * reference.barLengthBeats > Number.MAX_SAFE_INTEGER) {
+    throw new Error("startBeat cannot safely represent every grid step");
+  }
+  const active = new Set(activeSteps);
+  const points = Array.from({ length: bars * selected.stepsPerBar }, (_, index) => ({
+    time: startBeat + index * stepBeats,
+    duration: stepBeats,
+    value: active.has(index % selected.stepsPerBar + 1) ? onValue : offValue
+  }));
+  return { stateVersion: reference.stateVersion, grid, bars, startBeat, points,
+    destinationTool: "set_clip_parameter_envelope", nativeParameterValidation: "destination_tool" };
 }

@@ -41,6 +41,7 @@ const toolNames = [
   "redo",
   "get_song_musical_context",
   "get_song_grid_reference",
+  "plan_grid_envelope_pattern",
   "get_clip_groove_context",
   "inspect_clip_groove_postconditions",
   "set_song_musical_context",
