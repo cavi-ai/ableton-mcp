@@ -935,13 +935,28 @@ export class ToolService {
         targetDisplayValue: targetDisplayValue(parameter, value)
       };
     });
+    const recordingCandidate = changes.find(change =>
+      (change.originalName || change.name)?.trim().toLowerCase() === "state" &&
+      ["Record", "Overdub"].includes(change.targetDisplayValue));
+    let contentMutationRisk;
+    if (recordingCandidate) {
+      const identity = beforeDevice ? { stateVersion: observed.stateVersion, device: beforeDevice }
+        : await this.#observeDevice(args);
+      assertExpectedState({ expectedStateVersion: args.expectedStateVersion, trackId: args.trackId }, identity);
+      if (identity.device.className === "Looper") {
+        contentMutationRisk = { kind: "recorded_loop_content",
+          targetState: recordingCandidate.targetDisplayValue,
+          parameterRollbackRestoresContent: false };
+      }
+    }
     const plan = {
       method: "set_device_parameters",
       trackId: args.trackId,
       deviceId: args.deviceId,
       expectedStateVersion: args.expectedStateVersion,
       ...(beforeDevice ? { beforeDevice, beforeParameters: observed.parameters } : {}),
-      changes
+      changes,
+      ...(contentMutationRisk ? { contentMutationRisk } : {})
     };
     if (args.dryRun !== false) {
       return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
@@ -953,7 +968,9 @@ export class ToolService {
       requested: plan,
       observed: result,
       timestamp: new Date().toISOString(),
-      rollback: "Recall the prior macro snapshot or restore the previous parameter values."
+      rollback: contentMutationRisk
+        ? "No automatic rollback for recorded loop content; changing the State parameter back does not restore captured audio."
+        : "Recall the prior macro snapshot or restore the previous parameter values."
     };
   }
 
