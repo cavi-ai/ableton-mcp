@@ -445,6 +445,8 @@ def _midi_note_record(note):
 
 
 def _new_midi_note(spec):
+    spec = {"velocityDeviation": 0, "releaseVelocity": 0, "probability": 1.0,
+            "mute": False, **spec}
     if Live is None:
         return spec
     return Live.Clip.MidiNoteSpecification(
@@ -1904,6 +1906,48 @@ def dispatch_request(song, request, state_version, application=None):
         if method == "transform_midi_notes":
             result["addedNoteIds"] = added_note_ids
         return result
+    if method == "replace_midi_notes":
+        if params.get("expectedStateVersion") != state_version:
+            raise ValueError("MIDI clip state version changed")
+        _, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
+        if not slot.has_clip:
+            raise ValueError("clip slot is empty")
+        clip = slot.clip
+        if hasattr(clip, "is_midi_clip") and not clip.is_midi_clip:
+            raise ValueError("clip is not a MIDI clip")
+        current = {
+            "stateVersion": state_version, "trackId": params["trackId"], "clipId": params["clipId"],
+            "lengthBeats": float(clip.length),
+            "notes": [_midi_note_record(note) for note in clip.get_all_notes_extended()],
+        }
+        if params.get("before") != current:
+            raise ValueError("MIDI clip changed since observation")
+        remove_note_ids = [int(note_id) for note_id in params.get("removeNoteIds", [])]
+        new_notes = params.get("newNotes", [])
+        if len(current["notes"]) > 4096 or len(remove_note_ids) > 4096 or len(new_notes) > 4096 or \
+                len(current["notes"]) - len(remove_note_ids) + len(new_notes) > 4096:
+            raise ValueError("replace_midi_notes supports at most 4096 existing, removed, added, or final notes")
+        if len(remove_note_ids) != len(set(remove_note_ids)):
+            raise ValueError("removeNoteIds must be unique")
+        existing_ids = {int(note.note_id) for note in clip.get_notes_by_id(remove_note_ids)}
+        if existing_ids != set(remove_note_ids):
+            raise ValueError("one or more note IDs no longer exist")
+        new_note_specs = tuple(_new_midi_note(note) for note in new_notes)
+        with _undo_step(song):
+            added_note_ids = list(clip.add_new_notes(new_note_specs)) if new_note_specs else []
+            try:
+                if remove_note_ids:
+                    clip.remove_notes_by_id(tuple(remove_note_ids))
+            except Exception:
+                if added_note_ids:
+                    clip.remove_notes_by_id(tuple(added_note_ids))
+                raise
+        return {
+            "stateVersion": state_version + 1, "trackId": params["trackId"],
+            "clipId": params["clipId"], "lengthBeats": float(clip.length),
+            "removedNoteIds": remove_note_ids, "addedNoteIds": added_note_ids,
+            "notes": [_midi_note_record(note) for note in clip.get_all_notes_extended()],
+        }
     if method in ("get_clip_parameter_envelope", "set_clip_parameter_envelope"):
         _, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
         if not slot.has_clip:

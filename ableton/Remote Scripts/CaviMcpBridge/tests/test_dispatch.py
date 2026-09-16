@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from bridge import SocketBridge, dispatch_request, _device_type, _persisted_device_chain, _track_topology_signature
+from bridge import SocketBridge, dispatch_request, _device_type, _new_midi_note, _persisted_device_chain, _track_topology_signature
 
 
 class Parameter:
@@ -175,6 +175,10 @@ class Clip:
             note.duration = spec["duration"]
             self.extended_notes.append(note)
         return added_ids
+
+    def remove_notes_by_id(self, note_ids):
+        removed = set(note_ids)
+        self.extended_notes = [note for note in self.extended_notes if note.note_id not in removed]
 
     def automation_envelope(self, parameter):
         return self.envelopes.get(id(parameter))
@@ -2746,6 +2750,72 @@ class DispatchTest(unittest.TestCase):
         }}, 4)
         self.assertEqual(duplicate_only["addedNoteIds"], [101])
         self.assertEqual([note["noteId"] for note in duplicate_only["notes"]], [7, 100, 101])
+
+    def test_replace_midi_notes_removes_exact_ids_and_adds_replacements(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        first = MidiNote(7)
+        preserved = MidiNote(8)
+        preserved.pitch = 42
+        clip.extended_notes = [first, preserved]
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": {
+            "trackId": "track-0", "clipId": "track-0:clip-0"
+        }}, 3)
+        result = dispatch_request(song, {"method": "replace_midi_notes", "params": {
+            "trackId": "track-0", "clipId": "track-0:clip-0", "removeNoteIds": [7],
+            "expectedStateVersion": 3, "before": before,
+            "newNotes": [{"pitch": 36, "start": 1.0, "duration": 0.125,
+                          "velocity": 110, "mute": False}]
+        }}, 3)
+        self.assertEqual(result["removedNoteIds"], [7])
+        self.assertEqual(result["addedNoteIds"], [100])
+        self.assertEqual([note["noteId"] for note in result["notes"]], [8, 100])
+        self.assertEqual(result["stateVersion"], 4)
+
+    def test_replace_midi_notes_rejects_stale_state_snapshot_and_unsafe_counts(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        clip.extended_notes = [MidiNote(7)]
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": {
+            "trackId": "track-0", "clipId": "track-0:clip-0"
+        }}, 3)
+        base = {"trackId": "track-0", "clipId": "track-0:clip-0", "removeNoteIds": [7],
+                "newNotes": [], "expectedStateVersion": 3, "before": before}
+        with self.assertRaisesRegex(ValueError, "state version changed"):
+            dispatch_request(song, {"method": "replace_midi_notes", "params": base}, 4)
+        clip.extended_notes[0].velocity = 12
+        with self.assertRaisesRegex(ValueError, "changed since observation"):
+            dispatch_request(song, {"method": "replace_midi_notes", "params": base}, 3)
+        current = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": {
+            "trackId": "track-0", "clipId": "track-0:clip-0"
+        }}, 3)
+        with self.assertRaisesRegex(ValueError, "at most 4096"):
+            dispatch_request(song, {"method": "replace_midi_notes", "params": {
+                **base, "before": current, "removeNoteIds": list(range(4097))
+            }}, 3)
+
+    def test_replace_midi_notes_does_not_remove_old_notes_when_add_fails(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        clip.extended_notes = [MidiNote(7)]
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": {
+            "trackId": "track-0", "clipId": "track-0:clip-0"
+        }}, 3)
+        clip.add_new_notes = lambda notes: (_ for _ in ()).throw(ValueError("native add failed"))
+        with self.assertRaisesRegex(ValueError, "native add failed"):
+            dispatch_request(song, {"method": "replace_midi_notes", "params": {
+                "trackId": "track-0", "clipId": "track-0:clip-0", "removeNoteIds": [7],
+                "newNotes": [{"pitch": 36, "start": 1, "duration": .25, "velocity": 100}],
+                "expectedStateVersion": 3, "before": before
+            }}, 3)
+        self.assertEqual([note.note_id for note in clip.extended_notes], [7])
+
+    def test_new_midi_note_defaults_extended_expression_fields(self):
+        note = _new_midi_note({"pitch": 36, "start": 1.0, "duration": 0.125,
+                              "velocity": 110, "mute": False})
+        self.assertEqual(note["velocityDeviation"], 0)
+        self.assertEqual(note["releaseVelocity"], 0)
+        self.assertEqual(note["probability"], 1.0)
 
     def test_clip_parameter_envelope_can_be_sampled_and_replaced(self):
         song = Song()
