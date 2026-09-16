@@ -2883,6 +2883,61 @@ class DispatchTest(unittest.TestCase):
         self.assertTrue(changed["repeatParameterMatchesTarget"])
         self.assertEqual(toggle.value, 1.0)
 
+    def test_beat_repeat_grid_maps_native_displays_and_rechecks_before_setting(self):
+        song = Song()
+        repeat = Device()
+        repeat.name = "Beat Repeat"
+        repeat.class_name = "BeatRepeat"
+        class Grid(Parameter):
+            def __init__(self):
+                super().__init__()
+                self.name = self.original_name = "Grid"
+                self.min = 0.0
+                self.max = 2.0
+                self.value = 1.0
+
+            def str_for_value(self, value):
+                return {0: "1/4", 1: "1/8", 2: "1/16"}[int(value)]
+
+        grid = Grid()
+        toggle = QuantizedParameter()
+        toggle.name = toggle.original_name = "Repeat"
+        toggle.value_items = ("Off", "On")
+        toggle.max = 1.0
+        repeat.parameters = [grid, toggle]
+        song.tracks[0].devices[0] = repeat
+        target = {"trackId": "track-0", "deviceId": "track-0:device-0"}
+        before = dispatch_request(song, {"method": "get_beat_repeat_performance_context", "params": target}, 3)
+        self.assertEqual(before["gridChoices"], [
+            {"value": 0, "displayValue": "1/4"},
+            {"value": 1, "displayValue": "1/8"},
+            {"value": 2, "displayValue": "1/16"},
+        ])
+        song.tracks[0].current_input_routing = "No Input"
+        with self.assertRaisesRegex(ValueError, "Beat Repeat performance context changed"):
+            dispatch_request(song, {"method": "set_beat_repeat_grid", "params": {
+                **target, "expectedStateVersion": 3, "before": before,
+                "gridValue": 2, "gridDisplayValue": "1/16"
+            }}, 3)
+        self.assertEqual(grid.value, 1.0)
+        song.tracks[0].current_input_routing = "All Ins"
+        changed = dispatch_request(song, {"method": "set_beat_repeat_grid", "params": {
+            **target, "expectedStateVersion": 3, "before": before,
+            "gridValue": 2, "gridDisplayValue": "1/16"
+        }}, 3)
+        self.assertEqual(changed["stateVersion"], 4)
+        self.assertTrue(changed["gridParameterMatchesTarget"])
+        self.assertEqual(grid.value, 2.0)
+
+        grid.str_for_value = lambda value: "1/16" if int(value) in (1, 2) else "1/4"
+        ambiguous = dispatch_request(song, {"method": "get_beat_repeat_performance_context", "params": target}, 4)
+        with self.assertRaisesRegex(ValueError, "exact native Beat Repeat grid choice"):
+            dispatch_request(song, {"method": "set_beat_repeat_grid", "params": {
+                **target, "expectedStateVersion": 4, "before": ambiguous,
+                "gridValue": 1, "gridDisplayValue": "1/16"
+            }}, 4)
+        self.assertEqual(grid.value, 2.0)
+
 
 if __name__ == "__main__":
     unittest.main()
