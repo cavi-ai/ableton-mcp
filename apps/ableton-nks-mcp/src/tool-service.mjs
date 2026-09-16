@@ -9,6 +9,7 @@ import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { CatalogService } from "./catalog-service.mjs";
 import { getFactoryDeviceProfile, groupDeviceParameters, listFactoryDeviceProfiles } from "./factory-device-knowledge.mjs";
 import { getProducerChainBlueprint, listProducerChainBlueprints, verifyProducerChain } from "./producer-chain-knowledge.mjs";
+import { getPluginIntegrationProfile } from "./plugin-integrations.mjs";
 
 function requireExpectedState(args) {
   if (!Number.isInteger(args.expectedStateVersion)) {
@@ -432,6 +433,54 @@ export class ToolService {
       return this.bridge.request(name, normalizeBrowserPage(args));
     }
     if (name === "search_browser_items") return this.bridge.request(name, normalizeBrowserSearch(args));
+    if (name === "get_plugin_integration_context") {
+      const identity = await this.#observeDevice(args);
+      const { device } = identity;
+      const profile = getPluginIntegrationProfile(device);
+      if (!profile) throw new Error("loaded device is not a supported third-party plug-in integration");
+      const observed = await this.bridge.request("list_device_parameters", args);
+      if (observed.stateVersion !== identity.stateVersion)
+        throw new Error("plugin integration context changed between reads");
+      const browser = await this.bridge.request("search_browser_items", {
+        root: "plugins", path: [], query: profile.browserQuery, maxDepth: 6, limit: 50
+      });
+      if (browser.stateVersion !== identity.stateVersion)
+        throw new Error("plugin integration context changed between reads");
+      const aliases = new Set(profile.aliases.map(alias => alias.toLowerCase()));
+      const installedVariants = (browser.results || [])
+        .filter(item => item.loadable && aliases.has((item.name || "").toLowerCase()))
+        .map(item => ({ format: item.path?.[0] || "unknown",
+          vendor: item.path?.length > 2 ? item.path[1] : null,
+          name: item.name, path: item.path, uri: item.uri }))
+        .sort((left, right) => left.format.localeCompare(right.format));
+      const configuredControls = observed.parameters.filter(parameter =>
+        (parameter.originalName || parameter.name || "").trim().toLowerCase() !== "device on");
+      const writableControls = configuredControls.filter(parameter => parameter.enabled !== false);
+      const catalogProduct = this.catalog.products().find(product => product.productSlug === profile.productSlug);
+      return {
+        stateVersion: observed.stateVersion, trackId: args.trackId, device, profile,
+        installedVariants,
+        recommendedVariant: installedVariants.find(variant => variant.format === profile.preferredFormat) || null,
+        parameterExposure: {
+          total: observed.parameters.length,
+          configuredControlIds: configuredControls.map(parameter => parameter.id),
+          writableControlIds: writableControls.map(parameter => parameter.id),
+          configureInLiveRequired: configuredControls.length === 0,
+          hiddenPluginStateReadable: false
+        },
+        nksCatalog: { configured: Boolean(catalogProduct), productSlug: profile.productSlug,
+          presetCount: catalogProduct?.count || 0 },
+        capabilities: {
+          parameterRead: true, parameterWrite: writableControls.length > 0,
+          hiddenStateRead: false, nativePresetRecall: false,
+          nksCatalogSearch: Boolean(catalogProduct)
+        },
+        limitations: [
+          "Live exposes only parameters configured for this plug-in; hidden plug-in state is not readable.",
+          "Installed browser variants do not prove cross-format preset compatibility or native preset recall."
+        ]
+      };
+    }
     if (name === "get_factory_device_context") {
       const identity = await this.#observeDevice(args);
       const { device } = identity;
