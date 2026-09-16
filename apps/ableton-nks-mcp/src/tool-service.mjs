@@ -2044,8 +2044,13 @@ export class ToolService {
       stateVersion: beforeReference.stateVersion };
     const edit = planDrumPatternEdit(clipReference, before, args);
     const afterReference = await this.call("get_song_grid_reference", {});
+    const afterClipTiming = await this.bridge.request("get_clip_timing", {
+      trackId: args.trackId, clipId: args.clipId
+    });
     if (JSON.stringify(beforeReference) !== JSON.stringify(afterReference))
       throw new Error("song grid context changed during drum edit planning; retry");
+    if (JSON.stringify(clipTiming) !== JSON.stringify(afterClipTiming))
+      throw new Error("clip timing changed during drum edit planning; retry");
     return { stateVersion: before.stateVersion, gridReference: beforeReference, clipTiming, before, edit };
   }
 

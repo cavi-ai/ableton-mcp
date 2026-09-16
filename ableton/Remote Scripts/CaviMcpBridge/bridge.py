@@ -1915,6 +1915,18 @@ def dispatch_request(song, request, state_version, application=None):
         clip = slot.clip
         if hasattr(clip, "is_midi_clip") and not clip.is_midi_clip:
             raise ValueError("clip is not a MIDI clip")
+        if params.get("clipTiming") != _clip_timing(song, params["trackId"], params["clipId"], state_version):
+            raise ValueError("MIDI clip timing changed since observation")
+        grid_reference = params.get("gridReference", {})
+        current_song_grid = {
+            "tempoBpm": float(song.tempo),
+            "timeSignature": {"numerator": int(song.signature_numerator),
+                              "denominator": int(song.signature_denominator)},
+        }
+        planned_song_grid = {"tempoBpm": grid_reference.get("tempoBpm"),
+                             "timeSignature": grid_reference.get("timeSignature")}
+        if planned_song_grid != current_song_grid:
+            raise ValueError("song grid changed since observation")
         current = {
             "stateVersion": state_version, "trackId": params["trackId"], "clipId": params["clipId"],
             "lengthBeats": float(clip.length),

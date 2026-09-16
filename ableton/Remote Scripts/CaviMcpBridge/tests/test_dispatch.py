@@ -2761,9 +2761,13 @@ class DispatchTest(unittest.TestCase):
         before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": {
             "trackId": "track-0", "clipId": "track-0:clip-0"
         }}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": {
+            "trackId": "track-0", "clipId": "track-0:clip-0"
+        }}, 3)
         result = dispatch_request(song, {"method": "replace_midi_notes", "params": {
             "trackId": "track-0", "clipId": "track-0:clip-0", "removeNoteIds": [7],
-            "expectedStateVersion": 3, "before": before,
+            "expectedStateVersion": 3, "before": before, "clipTiming": timing,
+            "gridReference": {"tempoBpm": 120, "timeSignature": {"numerator": 4, "denominator": 4}},
             "newNotes": [{"pitch": 36, "start": 1.0, "duration": 0.125,
                           "velocity": 110, "mute": False}]
         }}, 3)
@@ -2779,8 +2783,12 @@ class DispatchTest(unittest.TestCase):
         before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": {
             "trackId": "track-0", "clipId": "track-0:clip-0"
         }}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": {
+            "trackId": "track-0", "clipId": "track-0:clip-0"
+        }}, 3)
         base = {"trackId": "track-0", "clipId": "track-0:clip-0", "removeNoteIds": [7],
-                "newNotes": [], "expectedStateVersion": 3, "before": before}
+                "newNotes": [], "expectedStateVersion": 3, "before": before, "clipTiming": timing,
+                "gridReference": {"tempoBpm": 120, "timeSignature": {"numerator": 4, "denominator": 4}}}
         with self.assertRaisesRegex(ValueError, "state version changed"):
             dispatch_request(song, {"method": "replace_midi_notes", "params": base}, 4)
         clip.extended_notes[0].velocity = 12
@@ -2793,6 +2801,17 @@ class DispatchTest(unittest.TestCase):
             dispatch_request(song, {"method": "replace_midi_notes", "params": {
                 **base, "before": current, "removeNoteIds": list(range(4097))
             }}, 3)
+        clip.signature_numerator = 3
+        with self.assertRaisesRegex(ValueError, "clip timing changed"):
+            dispatch_request(song, {"method": "replace_midi_notes", "params": {
+                **base, "before": current
+            }}, 3)
+        clip.signature_numerator = 4
+        song.tempo = 121
+        with self.assertRaisesRegex(ValueError, "song grid changed"):
+            dispatch_request(song, {"method": "replace_midi_notes", "params": {
+                **base, "before": current
+            }}, 3)
 
     def test_replace_midi_notes_does_not_remove_old_notes_when_add_fails(self):
         song = Song()
@@ -2801,12 +2820,16 @@ class DispatchTest(unittest.TestCase):
         before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": {
             "trackId": "track-0", "clipId": "track-0:clip-0"
         }}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": {
+            "trackId": "track-0", "clipId": "track-0:clip-0"
+        }}, 3)
         clip.add_new_notes = lambda notes: (_ for _ in ()).throw(ValueError("native add failed"))
         with self.assertRaisesRegex(ValueError, "native add failed"):
             dispatch_request(song, {"method": "replace_midi_notes", "params": {
                 "trackId": "track-0", "clipId": "track-0:clip-0", "removeNoteIds": [7],
                 "newNotes": [{"pitch": 36, "start": 1, "duration": .25, "velocity": 100}],
-                "expectedStateVersion": 3, "before": before
+                "expectedStateVersion": 3, "before": before, "clipTiming": timing,
+                "gridReference": {"tempoBpm": 120, "timeSignature": {"numerator": 4, "denominator": 4}}
             }}, 3)
         self.assertEqual([note.note_id for note in clip.extended_notes], [7])
 
