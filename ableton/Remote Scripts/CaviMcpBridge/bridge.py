@@ -1739,8 +1739,6 @@ def dispatch_request(song, request, state_version, application=None):
         if not slot.has_clip:
             raise ValueError("clip slot is empty")
         clip = slot.clip
-        if hasattr(clip, "is_midi_clip") and not clip.is_midi_clip:
-            raise ValueError("clip is not a MIDI clip")
         _, _, device = _device(song, params["trackId"], params["deviceId"])
         parameter_index = int(params["parameterId"].removeprefix("parameter-"))
         parameter = device.parameters[parameter_index]

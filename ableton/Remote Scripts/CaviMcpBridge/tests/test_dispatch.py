@@ -2772,6 +2772,26 @@ class DispatchTest(unittest.TestCase):
             {"time": 2.0, "value": 0.8},
         ])
 
+    def test_audio_clip_parameter_envelope_can_be_sampled_and_replaced(self):
+        song = Song()
+        clip = AudioClip()
+        clip.is_midi_clip = False
+        song.tracks[0].clip_slots[0].clip = clip
+        params = {"trackId": "track-0", "clipId": "track-0:clip-0",
+                  "deviceId": "track-0:device-0", "parameterId": "parameter-0"}
+        missing = dispatch_request(song, {"method": "get_clip_parameter_envelope",
+                                          "params": {**params, "sampleTimes": [0.0]}}, 3)
+        self.assertFalse(missing["exists"])
+        written = dispatch_request(song, {"method": "set_clip_parameter_envelope",
+                                          "params": {**params, "points": [
+                                              {"time": 0.0, "duration": 0.25, "value": 0.2},
+                                              {"time": 0.5, "duration": 0.25, "value": 0.8}]}}, 3)
+        self.assertEqual(written["samples"], [
+            {"time": 0.0, "value": 0.2}, {"time": 0.5, "value": 0.8}])
+        sampled = dispatch_request(song, {"method": "get_clip_parameter_envelope",
+                                          "params": {**params, "sampleTimes": [0.0, 0.5]}}, 4)
+        self.assertEqual(sampled["samples"], written["samples"])
+
 
 if __name__ == "__main__":
     unittest.main()
