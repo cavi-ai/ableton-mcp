@@ -11,7 +11,7 @@ import { getFactoryDeviceProfile, groupDeviceParameters, listFactoryDeviceProfil
 import { getProducerChainBlueprint, listProducerChainBlueprints, verifyProducerChain } from "./producer-chain-knowledge.mjs";
 import { getPluginIntegrationProfile } from "./plugin-integrations.mjs";
 import { enrichSongScaleContext, getLiveScaleReference, listLiveScaleReferences } from "./live-scale-reference.mjs";
-import { analyzeMidiNotesAgainstScale } from "./midi-scale-analysis.mjs";
+import { analyzeMidiNotesAgainstScale, planMidiScaleCorrections } from "./midi-scale-analysis.mjs";
 
 function requireExpectedState(args) {
   if (!Number.isInteger(args.expectedStateVersion)) {
@@ -771,6 +771,7 @@ export class ToolService {
     if (name === "create_audio_clip") return this.#createAudioClip(args);
     if (name === "set_clip_parameter_envelope") return this.#setClipParameterEnvelope(args);
     if (name === "set_midi_note_properties") return this.#setMidiNoteProperties(args);
+    if (name === "correct_midi_clip_to_scale") return this.#correctMidiClipToScale(args);
     if (name === "transform_midi_notes") return this.#transformMidiNotes(args);
     if (name === "set_track_mixer") return this.#setTrackMixer(args);
     if (name === "set_track_routing") return this.#setTrackRouting(args);
@@ -1927,6 +1928,45 @@ export class ToolService {
     this.#consumeConfirmation(plan, args);
     const result = await this.bridge.request("set_midi_note_properties", plan);
     return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
+  }
+
+  async #correctMidiClipToScale(args) {
+    requireExpectedState(args);
+    const before = await this.bridge.request("get_song_musical_context", {});
+    if (before.stateVersion !== args.expectedStateVersion)
+      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${before.stateVersion}`);
+    const clip = await this.bridge.request("get_midi_clip_notes_extended", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    const after = await this.bridge.request("get_song_musical_context", {});
+    if (before.stateVersion !== clip.stateVersion || clip.stateVersion !== after.stateVersion ||
+        JSON.stringify(before) !== JSON.stringify(after) || clip.trackId !== args.trackId || clip.clipId !== args.clipId)
+      throw new Error("song or clip changed during scale correction; retry");
+
+    const analysis = analyzeMidiNotesAgainstScale(clip.notes, before.key);
+    const changes = planMidiScaleCorrections(analysis, args.noteIds, args.direction, args.tieBreak);
+    const plan = {
+      method: "set_midi_note_properties",
+      operation: "correct_midi_clip_to_scale",
+      trackId: args.trackId,
+      clipId: args.clipId,
+      expectedStateVersion: args.expectedStateVersion,
+      scale: { ...analysis.scale, scaleName: analysis.scale.name },
+      direction: args.direction,
+      tieBreak: args.tieBreak ?? null,
+      changes
+    };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    this.#consumeConfirmation(plan, args);
+    const observed = await this.bridge.request("set_midi_note_properties", plan);
+    if (observed.stateVersion !== args.expectedStateVersion + 1)
+      throw new Error("scale correction readback has an unexpected state version");
+    const observedNotes = new Map(observed.notes.map(note => [note.noteId, note]));
+    for (const change of changes) {
+      if (observedNotes.get(change.noteId)?.pitch !== change.pitch)
+        throw new Error(`scale correction readback mismatch for noteId ${change.noteId}`);
+    }
+    return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString() };
   }
 
   async #transformMidiNotes(args) {

@@ -68,3 +68,45 @@ export function analyzeMidiNotesAgainstScale(notes, key) {
     }
   };
 }
+
+export function planMidiScaleCorrections(analysis, noteIds, direction, tieBreak) {
+  if (!["nearest", "up", "down"].includes(direction))
+    throw new Error("direction must be nearest, up, or down");
+  if (tieBreak !== undefined && !["up", "down"].includes(tieBreak))
+    throw new Error("tieBreak must be up or down");
+  if (noteIds !== undefined && (!Array.isArray(noteIds) || noteIds.length === 0))
+    throw new Error("noteIds must be a non-empty array when provided");
+
+  const notes = new Map(analysis.notes.map(note => [note.noteId, note]));
+  const selectedIds = noteIds ?? analysis.summary.chromaticNoteIds;
+  if (new Set(selectedIds).size !== selectedIds.length) throw new Error("noteIds must be unique");
+  if (selectedIds.length === 0) throw new Error("no off-scale notes require correction");
+
+  return selectedIds.map(noteId => {
+    if (!Number.isInteger(noteId)) throw new Error("noteIds must contain integers");
+    const note = notes.get(noteId);
+    if (!note) throw new Error(`unknown noteId ${noteId}`);
+    if (note.inScale) throw new Error(`noteId ${noteId} is already in scale`);
+
+    let candidate;
+    if (direction === "up") candidate = note.corrections.upper;
+    else if (direction === "down") candidate = note.corrections.lower;
+    else {
+      const nearest = note.corrections.nearest;
+      if (nearest.length > 1 && tieBreak === undefined)
+        throw new Error(`noteId ${noteId} has an equal nearest correction; tieBreak is required`);
+      candidate = nearest.length === 1
+        ? nearest[0]
+        : nearest.find(item => Math.sign(item.semitones) === (tieBreak === "up" ? 1 : -1));
+    }
+    if (!candidate) throw new Error(`noteId ${noteId} has no ${direction} correction within the MIDI range`);
+    return {
+      noteId,
+      previous: { pitch: note.pitch, noteName: note.noteName },
+      pitch: candidate.pitch,
+      noteName: candidate.noteName,
+      degree: candidate.degree,
+      semitones: candidate.semitones
+    };
+  });
+}
