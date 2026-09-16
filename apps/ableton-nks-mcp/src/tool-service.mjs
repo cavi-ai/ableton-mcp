@@ -15,6 +15,7 @@ import { analyzeMidiNotesAgainstScale, planMidiScaleCorrections } from "./midi-s
 import { analyzeMidiChordEvents } from "./midi-chord-analysis.mjs";
 import { matchMidiNoteReadback, planScaleChordProgression } from "./scale-chord-progression.mjs";
 import { planScaleBassline } from "./scale-bassline.mjs";
+import { planDrumPattern } from "./drum-pattern.mjs";
 
 function requireExpectedState(args) {
   if (!Number.isInteger(args.expectedStateVersion)) {
@@ -339,6 +340,11 @@ export class ToolService {
     if (name === "plan_grid_envelope_pattern") {
       const reference = await this.call("get_song_grid_reference", {});
       return planGridEnvelopePattern(reference, args);
+    }
+    if (name === "plan_drum_pattern") {
+      const reference = await this.call("get_song_grid_reference", {});
+      return { stateVersion: reference.stateVersion, gridReference: reference,
+        plan: planDrumPattern(reference, args) };
     }
     if (name === "get_clip_groove_context") return this.bridge.request("get_clip_groove_context", args);
     if (name === "inspect_clip_groove_postconditions") {
@@ -799,6 +805,7 @@ export class ToolService {
     if (name === "create_midi_clip") return this.#createMidiClip(args);
     if (name === "create_scale_chord_progression_clip") return this.#createScaleChordProgressionClip(args);
     if (name === "create_scale_bassline_clip") return this.#createScaleBasslineClip(args);
+    if (name === "create_drum_pattern_clip") return this.#createDrumPatternClip(args);
     if (name === "create_audio_clip") return this.#createAudioClip(args);
     if (name === "set_clip_parameter_envelope") return this.#setClipParameterEnvelope(args);
     if (name === "set_midi_note_properties") return this.#setMidiNoteProperties(args);
@@ -1977,6 +1984,45 @@ export class ToolService {
       velocity: note.velocity, mute: note.mute });
     if (!matchMidiNoteReadback(plan.notes.map(project), notes.notes.map(project)))
       throw new Error("bassline clip note readback mismatch");
+    return { dryRun: false, requested: plan, observed,
+      verification: { matchesRequestedNotes: true, notes }, timestamp: new Date().toISOString() };
+  }
+
+  async #createDrumPatternClip(args) {
+    requireExpectedState(args);
+    const beforeReference = await this.call("get_song_grid_reference", {});
+    if (beforeReference.stateVersion !== args.expectedStateVersion)
+      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${beforeReference.stateVersion}`);
+    const pattern = planDrumPattern(beforeReference, args);
+    const clips = await this.bridge.request("list_clips", { trackId: args.trackId });
+    assertExpectedState(args, clips);
+    const slot = clips.clips.find(clip => clip.id === args.clipId);
+    if (!slot) throw new Error(`unknown clip slot ${args.clipId}`);
+    if (slot.hasClip) throw new Error(`clip slot ${args.clipId} already contains a clip`);
+    const afterReference = await this.call("get_song_grid_reference", {});
+    if (JSON.stringify(beforeReference) !== JSON.stringify(afterReference))
+      throw new Error("song grid context changed during drum pattern creation; retry");
+    const plan = { method: "create_midi_clip", operation: "create_drum_pattern_clip",
+      trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
+      name: args.name, lengthBeats: pattern.lengthBeats, notes: pattern.notes,
+      pattern, gridReference: beforeReference, before: slot };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    this.#consumeConfirmation(plan, args);
+    const observed = await this.bridge.request("create_midi_clip", plan);
+    if (observed.stateVersion !== args.expectedStateVersion + 1 || observed.trackId !== args.trackId ||
+        observed.clip?.id !== args.clipId || !observed.clip?.hasClip)
+      throw new Error("drum pattern clip creation readback mismatch");
+    const notes = await this.bridge.request("get_midi_clip_notes_extended", { trackId: args.trackId, clipId: args.clipId });
+    const finalReference = await this.call("get_song_grid_reference", {});
+    const withoutState = ({ stateVersion, ...value }) => value;
+    if (notes.stateVersion !== observed.stateVersion || finalReference.stateVersion !== observed.stateVersion ||
+        notes.trackId !== args.trackId || notes.clipId !== args.clipId ||
+        JSON.stringify(withoutState(finalReference)) !== JSON.stringify(withoutState(beforeReference)))
+      throw new Error("drum pattern clip verification context mismatch");
+    const project = note => ({ pitch: note.pitch, start: note.start, duration: note.duration,
+      velocity: note.velocity, mute: note.mute });
+    if (!matchMidiNoteReadback(plan.notes.map(project), notes.notes.map(project)))
+      throw new Error("drum pattern clip note readback mismatch");
     return { dryRun: false, requested: plan, observed,
       verification: { matchesRequestedNotes: true, notes }, timestamp: new Date().toISOString() };
   }
