@@ -311,6 +311,7 @@ export class ToolService {
     if (name === "get_live_state") return this.bridge.request("get_live_state", {});
     if (name === "get_transport_context") return this.bridge.request("get_transport_context", {});
     if (name === "get_looper_performance_context") return this.bridge.request("get_looper_performance_context", args);
+    if (name === "get_beat_repeat_performance_context") return this.bridge.request("get_beat_repeat_performance_context", args);
     if (name === "get_history_state") return this.bridge.request("get_history_state", {});
     if (name === "get_song_musical_context") return this.bridge.request("get_song_musical_context", {});
     if (name === "get_song_grid_reference") {
@@ -671,6 +672,7 @@ export class ToolService {
     if (kompleteMethod) return this.#kompleteMutation(kompleteMethod, args);
     if (name === "set_device_parameters") return this.#setDeviceParameters(args);
     if (name === "set_looper_state") return this.#setLooperState(args);
+    if (name === "set_beat_repeat_enabled") return this.#setBeatRepeatEnabled(args);
     if (name === "set_device_active" || name === "delete_device" || name === "move_device") return this.#deviceLifecycle(name, args);
     if (name === "set_song_musical_context") return this.#setSongMusicalContext(args);
     if (name === "set_groove") return this.#setGroove(args);
@@ -1001,6 +1003,25 @@ export class ToolService {
     return { ...result, rollback: contentMutationRisk
       ? "No automatic rollback for recorded loop content; changing State back does not restore captured audio."
       : "Changing State back changes playback only; it does not recover recorded loop content." };
+  }
+
+  async #setBeatRepeatEnabled(args) {
+    requireExpectedState(args);
+    const before = await this.bridge.request("get_beat_repeat_performance_context", {
+      trackId: args.trackId, deviceId: args.deviceId
+    });
+    assertExpectedState(args, before);
+    const repeat = before.controls?.Repeat;
+    const target = args.enabled ? "On" : "Off";
+    if (before.device?.className !== "BeatRepeat" || typeof args.enabled !== "boolean" ||
+        !repeat?.enabled || !repeat.quantized || !Array.isArray(repeat.valueItems) ||
+        repeat.valueItems.filter(label => label === target).length !== 1) {
+      throw new Error("native Beat Repeat control is unavailable or ambiguous");
+    }
+    if (repeat.displayValue === target) throw new Error("native Beat Repeat control is already selected");
+    const plan = { method: "set_beat_repeat_enabled", trackId: args.trackId, deviceId: args.deviceId,
+      expectedStateVersion: args.expectedStateVersion, enabled: args.enabled, before };
+    return this.#confirmedMutation(plan, args);
   }
 
   async #observeDevice(args) {
