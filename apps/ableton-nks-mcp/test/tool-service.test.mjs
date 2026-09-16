@@ -1806,6 +1806,23 @@ test("parameter planning rejects disabled controls without issuing confirmation"
   assert.equal(issued, false);
 });
 
+test("parameter dry-run uses Live's native label for a quantized triplet grid", async () => {
+  const service = new ToolService({ bridge: { async request(method) {
+    assert.equal(method, "list_device_parameters");
+    return { stateVersion: 4, trackId: "track-0", deviceId: "track-0:device-0", nameAmbiguities: [], parameters: [
+      { id: "parameter-4", name: "Grid", originalName: "Grid", min: 7, max: 9,
+        value: 7, displayValue: "1/16", enabled: true, quantized: true, valueItems: [],
+        nativeChoiceLabels: [{ value: 7, displayValue: "1/16" },
+          { value: 8, displayValue: "1/12" }, { value: 9, displayValue: "1/24" }] }
+    ] };
+  } } });
+  const dry = await service.call("set_device_parameters", {
+    trackId: "track-0", deviceId: "track-0:device-0", expectedStateVersion: 4,
+    changes: [{ id: "parameter-4", value: 8 }]
+  });
+  assert.equal(dry.plan.changes[0].targetDisplayValue, "1/12");
+});
+
 test("parameter mutation defaults to dry-run, clamps, confirms once, and returns observed state", async () => {
   const { service, calls } = fixture();
   const args = { trackId: "t1", deviceId: "d1", expectedStateVersion: 4, changes: [{ id: "cutoff", value: 2 }] };

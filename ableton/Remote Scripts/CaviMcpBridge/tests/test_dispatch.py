@@ -2300,6 +2300,45 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(result["parameters"][0]["valueItems"], [])
         self.assertEqual(result["parameters"][0]["value"], 0.4)
 
+    def test_quantized_grid_without_value_items_exposes_native_choice_labels(self):
+        class GridParameter(QuantizedParameter):
+            def __init__(self):
+                super().__init__()
+                self.name = self.original_name = "Grid"
+                self.value_items = ()
+                self.value = 0.0
+
+            def str_for_value(self, value):
+                return {0: "1/16", 1: "1/12", 2: "1/32"}[int(value)]
+
+        song = Song()
+        song.tracks[0].devices[0].parameters = [GridParameter()]
+        result = dispatch_request(song, {"method": "list_device_parameters", "params": {
+            "trackId": "track-0", "deviceId": "track-0:device-0"}}, 3)
+        self.assertEqual(result["parameters"][0]["valueItems"], [])
+        self.assertEqual(result["parameters"][0]["nativeChoiceLabels"], [
+            {"value": 0, "displayValue": "1/16"},
+            {"value": 1, "displayValue": "1/12"},
+            {"value": 2, "displayValue": "1/32"}])
+
+    def test_parameter_write_does_not_enumerate_unrequested_choice_labels(self):
+        class GridParameter(QuantizedParameter):
+            def __init__(self):
+                super().__init__()
+                self.name = self.original_name = "Grid"
+                self.value_items = ()
+
+            def str_for_value(self, value):
+                return {0: "1/16", 1: "1/12", 2: "1/32"}[int(value)]
+
+        song = Song()
+        song.tracks[0].devices[0].parameters = [GridParameter()]
+        result = dispatch_request(song, {"method": "set_device_parameters", "params": {
+            "trackId": "track-0", "deviceId": "track-0:device-0",
+            "changes": [{"id": "parameter-0", "value": 2}]}}, 3)
+        self.assertEqual(result["observedChanges"][0]["displayValue"], "1/32")
+        self.assertNotIn("nativeChoiceLabels", result["observedChanges"][0])
+
     def test_group_api_discovery_requires_callable_native_methods(self):
         song = Song()
         song.group_tracks = lambda: None
