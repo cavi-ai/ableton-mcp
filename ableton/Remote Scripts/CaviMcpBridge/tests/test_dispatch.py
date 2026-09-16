@@ -2849,6 +2849,40 @@ class DispatchTest(unittest.TestCase):
         self.assertNotIn("targetReached", changed)
         self.assertEqual(looper.parameters[0].value, 1)
 
+    def test_beat_repeat_context_and_guarded_toggle_recheck_transport(self):
+        song = Song()
+        repeat = Device()
+        repeat.name = "Beat Repeat"
+        repeat.class_name = "BeatRepeat"
+        repeat.class_display_name = "Beat Repeat"
+        grid = Parameter()
+        grid.name = grid.original_name = "Grid"
+        grid.value = 7.0
+        toggle = QuantizedParameter()
+        toggle.name = toggle.original_name = "Repeat"
+        toggle.value_items = ("Off", "On")
+        toggle.max = 1.0
+        toggle.value = 0.0
+        repeat.parameters = [grid, toggle]
+        song.tracks[0].devices[0] = repeat
+        target = {"trackId": "track-0", "deviceId": "track-0:device-0"}
+        before = dispatch_request(song, {"method": "get_beat_repeat_performance_context", "params": target}, 3)
+        self.assertEqual(before["controls"]["Repeat"]["valueItems"], ["Off", "On"])
+        self.assertEqual(before["controls"]["Grid"]["value"], 7.0)
+        song.is_playing = True
+        with self.assertRaisesRegex(ValueError, "Beat Repeat performance context changed"):
+            dispatch_request(song, {"method": "set_beat_repeat_enabled", "params": {
+                **target, "expectedStateVersion": 3, "before": before, "enabled": True
+            }}, 3)
+        self.assertEqual(toggle.value, 0.0)
+        song.is_playing = False
+        changed = dispatch_request(song, {"method": "set_beat_repeat_enabled", "params": {
+            **target, "expectedStateVersion": 3, "before": before, "enabled": True
+        }}, 3)
+        self.assertEqual(changed["stateVersion"], 4)
+        self.assertTrue(changed["repeatParameterMatchesTarget"])
+        self.assertEqual(toggle.value, 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

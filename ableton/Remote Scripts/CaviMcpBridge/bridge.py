@@ -262,6 +262,27 @@ def _looper_performance_context(song, track_id, device_id, state_version):
     }
 
 
+def _beat_repeat_performance_context(song, track_id, device_id, state_version):
+    _, _, device = _device(song, track_id, device_id)
+    if device.class_name != "BeatRepeat":
+        raise ValueError("device is not a native Beat Repeat")
+    parameters = [_parameter_record(parameter, index) for index, parameter in enumerate(device.parameters)]
+    controls = {}
+    for name in ("Repeat", "Grid", "Interval", "Block Triplets", "Mix Type"):
+        matches = [parameter for parameter in parameters if parameter["originalName"] == name]
+        if len(matches) == 1:
+            controls[name] = matches[0]
+        elif name == "Repeat":
+            raise ValueError("native Beat Repeat Repeat control is unavailable or ambiguous")
+    return {
+        "stateVersion": state_version, "trackId": track_id, "deviceId": device_id,
+        "device": _device_record(device, device_id), "parameters": parameters,
+        "controls": controls, "routing": _track_routing(song, track_id, state_version),
+        "transport": _transport_context(song, state_version),
+        "globalLaunchQuantization": _enum_record(song.clip_trigger_quantization, CLIP_QUANTIZATION_NAMES),
+    }
+
+
 def _clip_timing(song, track_id, clip_id, state_version):
     _, _, slot = _clip_slot(song, track_id, clip_id)
     if not slot.has_clip:
@@ -722,6 +743,30 @@ def dispatch_request(song, request, state_version, application=None):
         return _transport_context(song, state_version)
     if method == "get_looper_performance_context":
         return _looper_performance_context(song, params["trackId"], params["deviceId"], state_version)
+    if method == "get_beat_repeat_performance_context":
+        return _beat_repeat_performance_context(song, params["trackId"], params["deviceId"], state_version)
+    if method == "set_beat_repeat_enabled":
+        if params.get("expectedStateVersion") != state_version:
+            raise ValueError("Beat Repeat state version changed")
+        before = _beat_repeat_performance_context(song, params["trackId"], params["deviceId"], state_version)
+        if params.get("before") != before:
+            raise ValueError("Beat Repeat performance context changed")
+        enabled = params.get("enabled")
+        if type(enabled) is not bool:
+            raise ValueError("Beat Repeat enabled must be boolean")
+        repeat = before["controls"]["Repeat"]
+        target = "On" if enabled else "Off"
+        if not repeat["enabled"] or not repeat["quantized"] or repeat["valueItems"].count(target) != 1:
+            raise ValueError("native Beat Repeat Repeat control is unavailable")
+        target_value = repeat["min"] + repeat["valueItems"].index(target)
+        if target_value > repeat["max"] or target_value == repeat["value"]:
+            raise ValueError("native Beat Repeat Repeat control is unavailable or already selected")
+        _, _, device = _device(song, params["trackId"], params["deviceId"])
+        device.parameters[int(repeat["id"].removeprefix("parameter-"))].value = target_value
+        observed = _beat_repeat_performance_context(song, params["trackId"], params["deviceId"], state_version + 1)
+        observed["enabled"] = enabled
+        observed["repeatParameterMatchesTarget"] = observed["controls"]["Repeat"]["displayValue"] == target
+        return observed
     if method == "set_looper_state":
         if params.get("expectedStateVersion") != state_version:
             raise ValueError("Looper state version changed")
