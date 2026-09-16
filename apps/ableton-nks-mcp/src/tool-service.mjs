@@ -14,6 +14,7 @@ import { enrichSongScaleContext, getLiveScaleReference, listLiveScaleReferences 
 import { analyzeMidiNotesAgainstScale, planMidiScaleCorrections } from "./midi-scale-analysis.mjs";
 import { analyzeMidiChordEvents } from "./midi-chord-analysis.mjs";
 import { matchMidiNoteReadback, planScaleChordProgression } from "./scale-chord-progression.mjs";
+import { planScaleBassline } from "./scale-bassline.mjs";
 
 function requireExpectedState(args) {
   if (!Number.isInteger(args.expectedStateVersion)) {
@@ -381,6 +382,14 @@ export class ToolService {
       const after = await this.bridge.request("get_song_musical_context", {});
       if (JSON.stringify(before) !== JSON.stringify(after))
         throw new Error("musical context changed during chord progression planning; retry");
+      return { stateVersion: before.stateVersion, musicalContext: before, plan };
+    }
+    if (name === "plan_scale_bassline") {
+      const before = await this.bridge.request("get_song_musical_context", {});
+      const plan = planScaleBassline(before.key, args);
+      const after = await this.bridge.request("get_song_musical_context", {});
+      if (JSON.stringify(before) !== JSON.stringify(after))
+        throw new Error("musical context changed during bassline planning; retry");
       return { stateVersion: before.stateVersion, musicalContext: before, plan };
     }
     if (name === "get_track_mixer") return this.bridge.request("get_track_mixer", args);
@@ -789,6 +798,7 @@ export class ToolService {
     if (name === "duplicate_clip_loop") return this.#duplicateClipLoop(args);
     if (name === "create_midi_clip") return this.#createMidiClip(args);
     if (name === "create_scale_chord_progression_clip") return this.#createScaleChordProgressionClip(args);
+    if (name === "create_scale_bassline_clip") return this.#createScaleBasslineClip(args);
     if (name === "create_audio_clip") return this.#createAudioClip(args);
     if (name === "set_clip_parameter_envelope") return this.#setClipParameterEnvelope(args);
     if (name === "set_midi_note_properties") return this.#setMidiNoteProperties(args);
@@ -1931,6 +1941,44 @@ export class ToolService {
       throw new Error("progression clip chord readback mismatch");
     return { dryRun: false, requested: plan, observed,
       verification: { matchesRequestedNotes: true, harmonicReadbackSupported, notes, analysis }, timestamp: new Date().toISOString() };
+  }
+
+  async #createScaleBasslineClip(args) {
+    requireExpectedState(args);
+    const beforeContext = await this.bridge.request("get_song_musical_context", {});
+    if (beforeContext.stateVersion !== args.expectedStateVersion)
+      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${beforeContext.stateVersion}`);
+    const bassline = planScaleBassline(beforeContext.key, args);
+    const clips = await this.bridge.request("list_clips", { trackId: args.trackId });
+    assertExpectedState(args, clips);
+    const slot = clips.clips.find(clip => clip.id === args.clipId);
+    if (!slot) throw new Error(`unknown clip slot ${args.clipId}`);
+    if (slot.hasClip) throw new Error(`clip slot ${args.clipId} already contains a clip`);
+    const afterContext = await this.bridge.request("get_song_musical_context", {});
+    if (JSON.stringify(beforeContext) !== JSON.stringify(afterContext))
+      throw new Error("musical context changed during bassline creation; retry");
+    const plan = { method: "create_midi_clip", operation: "create_scale_bassline_clip",
+      trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
+      name: args.name, lengthBeats: bassline.lengthBeats, notes: bassline.notes,
+      bassline, musicalContext: beforeContext, before: slot };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    this.#consumeConfirmation(plan, args);
+    const observed = await this.bridge.request("create_midi_clip", plan);
+    if (observed.stateVersion !== args.expectedStateVersion + 1 || observed.trackId !== args.trackId ||
+        observed.clip?.id !== args.clipId || !observed.clip?.hasClip)
+      throw new Error("bassline clip creation readback mismatch");
+    const notes = await this.bridge.request("get_midi_clip_notes_extended", { trackId: args.trackId, clipId: args.clipId });
+    const finalContext = await this.bridge.request("get_song_musical_context", {});
+    if (notes.stateVersion !== observed.stateVersion || finalContext.stateVersion !== observed.stateVersion ||
+        notes.trackId !== args.trackId || notes.clipId !== args.clipId ||
+        JSON.stringify(finalContext.key) !== JSON.stringify(beforeContext.key))
+      throw new Error("bassline clip verification context mismatch");
+    const project = note => ({ pitch: note.pitch, start: note.start, duration: note.duration,
+      velocity: note.velocity, mute: note.mute });
+    if (!matchMidiNoteReadback(plan.notes.map(project), notes.notes.map(project)))
+      throw new Error("bassline clip note readback mismatch");
+    return { dryRun: false, requested: plan, observed,
+      verification: { matchesRequestedNotes: true, notes }, timestamp: new Date().toISOString() };
   }
 
   async #createAudioClip(args) {
