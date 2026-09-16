@@ -12,6 +12,7 @@ import { getProducerChainBlueprint, listProducerChainBlueprints, verifyProducerC
 import { getPluginIntegrationProfile } from "./plugin-integrations.mjs";
 import { enrichSongScaleContext, getLiveScaleReference, listLiveScaleReferences } from "./live-scale-reference.mjs";
 import { analyzeMidiNotesAgainstScale, planMidiScaleCorrections } from "./midi-scale-analysis.mjs";
+import { analyzeMidiChordEvents } from "./midi-chord-analysis.mjs";
 
 function requireExpectedState(args) {
   if (!Number.isInteger(args.expectedStateVersion)) {
@@ -362,6 +363,16 @@ export class ToolService {
         throw new Error("song or clip changed during scale analysis; retry");
       return { stateVersion: clip.stateVersion, trackId: clip.trackId, clipId: clip.clipId,
         lengthBeats: clip.lengthBeats, analysis: analyzeMidiNotesAgainstScale(clip.notes, before.key) };
+    }
+    if (name === "analyze_midi_clip_chords") {
+      const before = await this.bridge.request("get_song_musical_context", {});
+      const clip = await this.bridge.request("get_midi_clip_notes_extended", args);
+      const after = await this.bridge.request("get_song_musical_context", {});
+      if (before.stateVersion !== clip.stateVersion || clip.stateVersion !== after.stateVersion ||
+          JSON.stringify(before) !== JSON.stringify(after) || clip.trackId !== args.trackId || clip.clipId !== args.clipId)
+        throw new Error("song or clip changed during chord analysis; retry");
+      return { stateVersion: clip.stateVersion, trackId: clip.trackId, clipId: clip.clipId,
+        lengthBeats: clip.lengthBeats, analysis: analyzeMidiChordEvents(clip.notes, before.key) };
     }
     if (name === "get_track_mixer") return this.bridge.request("get_track_mixer", args);
     if (name === "get_track_routing") return this.bridge.request("get_track_routing", args);
