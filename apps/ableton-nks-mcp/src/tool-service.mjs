@@ -10,6 +10,7 @@ import { CatalogService } from "./catalog-service.mjs";
 import { getFactoryDeviceProfile, groupDeviceParameters, listFactoryDeviceProfiles } from "./factory-device-knowledge.mjs";
 import { getProducerChainBlueprint, listProducerChainBlueprints, verifyProducerChain } from "./producer-chain-knowledge.mjs";
 import { getPluginIntegrationProfile } from "./plugin-integrations.mjs";
+import { enrichSongScaleContext, getLiveScaleReference, listLiveScaleReferences } from "./live-scale-reference.mjs";
 
 function requireExpectedState(args) {
   if (!Number.isInteger(args.expectedStateVersion)) {
@@ -314,7 +315,13 @@ export class ToolService {
     if (name === "get_looper_performance_context") return this.bridge.request("get_looper_performance_context", args);
     if (name === "get_beat_repeat_performance_context") return this.bridge.request("get_beat_repeat_performance_context", args);
     if (name === "get_history_state") return this.bridge.request("get_history_state", {});
-    if (name === "get_song_musical_context") return this.bridge.request("get_song_musical_context", {});
+    if (name === "get_song_musical_context") {
+      return enrichSongScaleContext(await this.bridge.request("get_song_musical_context", {}));
+    }
+    if (name === "get_live_scale_reference") {
+      return { scale: getLiveScaleReference(args.scaleName, args.rootNote) };
+    }
+    if (name === "list_live_scales") return { scales: listLiveScaleReferences() };
     if (name === "get_song_grid_reference") {
       const live = await this.bridge.request("get_live_state", {});
       const context = await this.bridge.request("get_song_musical_context", {});
@@ -917,7 +924,9 @@ export class ToolService {
     if (uri === "ableton://live/status") return this.bridge.request("get_live_state", {});
     if (uri === "ableton://live/transport") return this.bridge.request("get_transport_context", {});
     if (uri === "ableton://set/history") return this.bridge.request("get_history_state", {});
-    if (uri === "ableton://set/musical-context") return this.bridge.request("get_song_musical_context", {});
+    if (uri === "ableton://set/musical-context") {
+      return enrichSongScaleContext(await this.bridge.request("get_song_musical_context", {}));
+    }
     if (uri === "ableton://set/mixer") return this.bridge.request("get_set_mixer", {});
     if (uri === "ableton://set/tracks") return this.bridge.request("list_tracks", {});
     if (uri === "ableton://set/scenes") return this.bridge.request("list_scenes", {});
@@ -1199,6 +1208,7 @@ export class ToolService {
       }
       if (args.key.scaleName !== undefined) {
         if (typeof args.key.scaleName !== "string" || !args.key.scaleName.trim()) throw new Error("key.scaleName must be a non-empty string");
+        getLiveScaleReference(args.key.scaleName, args.key.rootNote ?? observed.key.rootNote);
         key.scaleName = args.key.scaleName;
       }
       if (args.key.scaleMode !== undefined) {
