@@ -55,6 +55,28 @@ function chordMetadata(pitches, key, rootPitchClass) {
   return candidates.find(candidate => candidate.rootPitchClass === rootPitchClass) ?? null;
 }
 
+export function matchMidiNoteReadback(expectedNotes, observedNotes, tolerance = 1e-9) {
+  if (!Array.isArray(expectedNotes) || !Array.isArray(observedNotes) || expectedNotes.length !== observedNotes.length)
+    return false;
+  const candidates = expectedNotes.map(expected => observedNotes.flatMap((actual, index) =>
+    expected.pitch === actual.pitch &&
+      expected.velocity === actual.velocity && expected.mute === actual.mute &&
+      Math.abs(expected.start - actual.start) <= tolerance &&
+      Math.abs(expected.duration - actual.duration) <= tolerance ? [index] : []));
+  if (candidates.some(indices => indices.length === 0)) return false;
+  const matchedExpected = Array(observedNotes.length).fill(-1);
+  const assign = (expectedIndex, visited) => candidates[expectedIndex].some(observedIndex => {
+    if (visited.has(observedIndex)) return false;
+    visited.add(observedIndex);
+    if (matchedExpected[observedIndex] !== -1 && !assign(matchedExpected[observedIndex], visited)) return false;
+    matchedExpected[observedIndex] = expectedIndex;
+    return true;
+  });
+  return candidates.map((indices, index) => ({ index, choices: indices.length }))
+    .toSorted((a, b) => a.choices - b.choices)
+    .every(({ index }) => assign(index, new Set()));
+}
+
 function normalizeArticulation(articulation, chordBeats) {
   if (articulation === undefined) return { mode: "block", stepBeats: chordBeats, gate: 1, stepsPerChord: 1 };
   if (!articulation || typeof articulation !== "object" || Array.isArray(articulation))
@@ -111,6 +133,9 @@ export function planScaleChordProgression(key, options) {
   if (!["closest", "root_position"].includes(options.voiceLeading))
     throw new Error("voiceLeading must be closest or root_position");
   const articulation = normalizeArticulation(options.articulation, options.chordBeats);
+  const notesPerStep = articulation.mode === "pulse" || articulation.mode === "block" ? options.notesPerChord : 1;
+  const noteCount = options.degrees.length * articulation.stepsPerChord * notesPerStep;
+  if (noteCount > 4096) throw new Error("articulation may generate at most 4096 MIDI notes");
 
   let previous = null;
   const chords = options.degrees.map((degree, chordIndex) => {

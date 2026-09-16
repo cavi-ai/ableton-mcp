@@ -13,7 +13,7 @@ import { getPluginIntegrationProfile } from "./plugin-integrations.mjs";
 import { enrichSongScaleContext, getLiveScaleReference, listLiveScaleReferences } from "./live-scale-reference.mjs";
 import { analyzeMidiNotesAgainstScale, planMidiScaleCorrections } from "./midi-scale-analysis.mjs";
 import { analyzeMidiChordEvents } from "./midi-chord-analysis.mjs";
-import { planScaleChordProgression } from "./scale-chord-progression.mjs";
+import { matchMidiNoteReadback, planScaleChordProgression } from "./scale-chord-progression.mjs";
 
 function requireExpectedState(args) {
   if (!Number.isInteger(args.expectedStateVersion)) {
@@ -1921,15 +1921,7 @@ export class ToolService {
       throw new Error("progression clip verification context mismatch");
     const project = note => ({ pitch: note.pitch, start: note.start, duration: note.duration,
       velocity: note.velocity, mute: note.mute });
-    const order = (a, b) => a.start - b.start || a.pitch - b.pitch || a.duration - b.duration;
-    const requestedNotes = plan.notes.map(project).sort(order);
-    const observedNotes = notes.notes.map(project).sort(order);
-    const sameNotes = requestedNotes.length === observedNotes.length && requestedNotes.every((expected, index) => {
-      const actual = observedNotes[index];
-      return expected.pitch === actual.pitch && expected.velocity === actual.velocity && expected.mute === actual.mute &&
-        Math.abs(expected.start - actual.start) <= 1e-9 && Math.abs(expected.duration - actual.duration) <= 1e-9;
-    });
-    if (!sameNotes)
+    if (!matchMidiNoteReadback(plan.notes.map(project), notes.notes.map(project)))
       throw new Error("progression clip note readback mismatch");
     const analysis = analyzeMidiChordEvents(notes.notes, finalContext.key);
     const roots = analysis.events.map(event => event.candidates[0]?.rootPitchClass ?? null);
