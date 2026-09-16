@@ -13,6 +13,7 @@ import { getPluginIntegrationProfile } from "./plugin-integrations.mjs";
 import { enrichSongScaleContext, getLiveScaleReference, listLiveScaleReferences } from "./live-scale-reference.mjs";
 import { analyzeMidiNotesAgainstScale, planMidiScaleCorrections } from "./midi-scale-analysis.mjs";
 import { analyzeMidiChordEvents } from "./midi-chord-analysis.mjs";
+import { planScaleChordProgression } from "./scale-chord-progression.mjs";
 
 function requireExpectedState(args) {
   if (!Number.isInteger(args.expectedStateVersion)) {
@@ -373,6 +374,14 @@ export class ToolService {
         throw new Error("song or clip changed during chord analysis; retry");
       return { stateVersion: clip.stateVersion, trackId: clip.trackId, clipId: clip.clipId,
         lengthBeats: clip.lengthBeats, analysis: analyzeMidiChordEvents(clip.notes, before.key) };
+    }
+    if (name === "plan_scale_chord_progression") {
+      const before = await this.bridge.request("get_song_musical_context", {});
+      const plan = planScaleChordProgression(before.key, args);
+      const after = await this.bridge.request("get_song_musical_context", {});
+      if (JSON.stringify(before) !== JSON.stringify(after))
+        throw new Error("musical context changed during chord progression planning; retry");
+      return { stateVersion: before.stateVersion, musicalContext: before, plan };
     }
     if (name === "get_track_mixer") return this.bridge.request("get_track_mixer", args);
     if (name === "get_track_routing") return this.bridge.request("get_track_routing", args);
