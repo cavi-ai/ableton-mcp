@@ -5,9 +5,11 @@ import { ToolService } from "../src/tool-service.mjs";
 import { getPluginIntegrationProfile } from "../src/plugin-integrations.mjs";
 
 test("supported synth aliases resolve to stable product integration profiles", () => {
-  assert.deepEqual(getPluginIntegrationProfile({ name: "Serum 2", className: "PluginDevice" }), {
+  const serum = getPluginIntegrationProfile({ name: "Serum 2", className: "PluginDevice" });
+  assert.deepEqual({ ...serum, presetNavigation: undefined }, {
     id: "serum-2", productSlug: "serum-2", displayName: "Serum 2", vendor: "Xfer Records",
-    aliases: ["Serum", "Serum 2"], browserQuery: "Serum 2", preferredFormat: "VST3"
+    aliases: ["Serum", "Serum 2"], browserQuery: "Serum 2", preferredFormat: "VST3",
+    presetNavigation: undefined
   });
   assert.equal(getPluginIntegrationProfile({ name: "Omnisphere", className: "PluginDevice" }).productSlug, "omnisphere");
   assert.equal(getPluginIntegrationProfile({ name: "VPS Avenger", className: "PluginDevice" }).productSlug, "vps-avenger");
@@ -59,6 +61,19 @@ test("plugin integration context joins installed variants, Live exposure, and NK
   assert.equal(result.capabilities.parameterWrite, true);
   assert.equal(result.capabilities.hiddenStateRead, false);
   assert.equal(result.capabilities.nativePresetRecall, false);
+  assert.deepEqual(result.presetNavigation, {
+    entryPoint: "Click the preset name in Serum 2's top bar to open the preset browser.",
+    browseBy: ["bank", "category", "subcategory", "author"],
+    search: "Use the preset browser search field; clear it before changing browse filters.",
+    load: "Select a preset row in the browser to load it, then close the browser or return to the synth page.",
+    previousNext: "Use the previous/next arrows beside the preset name for adjacent presets in the active browser result set.",
+    verify: "Read the preset name shown in Serum 2's top bar after loading.",
+    automation: {
+      surface: "opaque-plugin-window",
+      directControlAvailable: false,
+      reason: "Live does not expose Serum 2's internal preset browser or loaded preset name through the control-surface API."
+    }
+  });
 });
 
 test("plugin integration context reports installed but unconfigured Omnisphere without overstating control", async () => {
@@ -81,7 +96,16 @@ test("plugin integration context reports installed but unconfigured Omnisphere w
   assert.equal(result.parameterExposure.configureInLiveRequired, true);
   assert.equal(result.capabilities.parameterWrite, false);
   assert.deepEqual(result.nksCatalog, { configured: false, productSlug: "omnisphere", presetCount: 0 });
+  assert.deepEqual(result.presetNavigation.browseBy, ["directory", "category", "type", "genre", "author"]);
+  assert.match(result.presetNavigation.load, /double-click/i);
   assert.match(result.limitations[0], /hidden plug-in state/i);
+});
+
+test("Avenger profile describes its expansion-aware preset navigation without claiming native recall", () => {
+  const profile = getPluginIntegrationProfile({ name: "VPS Avenger", className: "PluginDevice" });
+  assert.deepEqual(profile.presetNavigation.browseBy, ["expansion", "category", "tag", "author"]);
+  assert.match(profile.presetNavigation.entryPoint, /preset name/i);
+  assert.equal(profile.presetNavigation.automation.directControlAvailable, false);
 });
 
 test("plugin integration context is exposed as a read-only MCP tool", async () => {

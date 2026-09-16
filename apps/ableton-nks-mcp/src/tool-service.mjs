@@ -459,6 +459,7 @@ export class ToolService {
       const catalogProduct = this.catalog.products().find(product => product.productSlug === profile.productSlug);
       return {
         stateVersion: observed.stateVersion, trackId: args.trackId, device, profile,
+        presetNavigation: profile.presetNavigation,
         installedVariants,
         recommendedVariant: installedVariants.find(variant => variant.format === profile.preferredFormat) || null,
         parameterExposure: {
