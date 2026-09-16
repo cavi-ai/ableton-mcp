@@ -1836,6 +1836,34 @@ test("parameter mutation defaults to dry-run, clamps, confirms once, and returns
   await assert.rejects(() => service.call("set_device_parameters", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash }), /unknown/);
 });
 
+test("Looper Record and Overdub plans disclose recorded-content risk and do not promise parameter rollback", async () => {
+  for (const [value, label] of [[1, "Record"], [3, "Overdub"]]) {
+    const service = new ToolService({ bridge: { async request(method, params) {
+      if (method === "list_device_parameters") return {
+        stateVersion: 4, trackId: params.trackId, deviceId: params.deviceId,
+        parameters: [{ id: "parameter-1", name: "State", originalName: "State",
+          value: 2, displayValue: "Play", min: 0, max: 3, enabled: true,
+          quantized: true, valueItems: ["Stop", "Record", "Play", "Overdub"] }]
+      };
+      if (method === "list_devices") return { stateVersion: 4, trackId: params.trackId,
+        devices: [{ id: "track-0:device-0", className: "Looper", name: "Looper" }] };
+      if (method === "set_device_parameters") return { stateVersion: 5, trackId: params.trackId,
+        deviceId: params.deviceId, observedChanges: params.changes };
+      throw new Error(`unexpected native method ${method}`);
+    } } });
+    const args = { trackId: "track-0", deviceId: "track-0:device-0",
+      expectedStateVersion: 4, changes: [{ id: "parameter-1", value }] };
+    const dry = await service.call("set_device_parameters", args);
+    assert.deepEqual(dry.plan.contentMutationRisk, {
+      kind: "recorded_loop_content", targetState: label, parameterRollbackRestoresContent: false
+    });
+    const live = await service.call("set_device_parameters", { ...args, dryRun: false,
+      confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+    assert.match(live.rollback, /recorded loop content/);
+    assert.doesNotMatch(live.rollback, /restore the previous parameter values/);
+  }
+});
+
 test("parameter mutation plan carries signed before-and-after review context", async () => {
   const { service } = fixture();
   const dry = await service.call("set_device_parameters", {
