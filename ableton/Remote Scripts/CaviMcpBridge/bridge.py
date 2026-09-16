@@ -340,8 +340,8 @@ def _arrangement_clips(song, track_id, state_version):
                       for index, clip in enumerate(track.arrangement_clips)]}
 
 
-def _parameter_record(parameter, index):
-    return {
+def _parameter_record(parameter, index, include_native_choice_labels=False):
+    record = {
         "id": f"parameter-{index}",
         "name": parameter.name,
         "originalName": parameter.original_name,
@@ -353,6 +353,18 @@ def _parameter_record(parameter, index):
         "quantized": parameter.is_quantized,
         "valueItems": list(parameter.value_items) if parameter.is_quantized else [],
     }
+    low, high = parameter.min, parameter.max
+    if (include_native_choice_labels and parameter.is_quantized and not record["valueItems"] and
+            math.isfinite(low) and math.isfinite(high) and
+            float(low).is_integer() and float(high).is_integer() and
+            0 <= high - low <= 31):
+        try:
+            record["nativeChoiceLabels"] = [
+                {"value": value, "displayValue": parameter.str_for_value(value)}
+                for value in range(int(low), int(high) + 1)]
+        except Exception:
+            pass
+    return record
 
 
 def _midi_note_record(note):
@@ -1968,7 +1980,8 @@ def dispatch_request(song, request, state_version, application=None):
         }
     if method == "list_device_parameters":
         _, _, device = _device(song, params["trackId"], params["deviceId"])
-        parameters = [_parameter_record(parameter, i) for i, parameter in enumerate(device.parameters)]
+        parameters = [_parameter_record(parameter, i, include_native_choice_labels=True)
+                      for i, parameter in enumerate(device.parameters)]
         names = {}
         for parameter in parameters:
             names.setdefault(parameter["name"], []).append(parameter["id"])

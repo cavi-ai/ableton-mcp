@@ -62,7 +62,10 @@ function optionalBoolean(value, field) {
 }
 
 function targetDisplayValue(parameter, value) {
-  if (!parameter.quantized || !Array.isArray(parameter.valueItems)) return null;
+  if (!parameter.quantized) return null;
+  const native = parameter.nativeChoiceLabels?.find(choice => choice.value === value);
+  if (native) return native.displayValue;
+  if (!Array.isArray(parameter.valueItems)) return null;
   const index = Math.round(value - parameter.min);
   if (Math.abs(parameter.min + index - value) > Number.EPSILON) return null;
   return parameter.valueItems[index] ?? null;
