@@ -286,10 +286,24 @@ def _beat_repeat_performance_context(song, track_id, device_id, state_version):
                         for value in range(int(low), int(high) + 1)]
     except Exception as error:
         raise ValueError("native Beat Repeat Grid display mapping failed") from error
+    interval_choices = []
+    interval = controls.get("Interval")
+    if interval is not None:
+        low, high = interval["min"], interval["max"]
+        if (not interval["enabled"] or not math.isfinite(low) or not math.isfinite(high) or
+                not float(low).is_integer() or not float(high).is_integer() or
+                low < 0 or high < low or high - low > 31):
+            raise ValueError("native Beat Repeat Interval cannot be enumerated safely")
+        interval_parameter = device.parameters[int(interval["id"].removeprefix("parameter-"))]
+        try:
+            interval_choices = [{"value": value, "displayValue": interval_parameter.str_for_value(value)}
+                                for value in range(int(low), int(high) + 1)]
+        except Exception as error:
+            raise ValueError("native Beat Repeat Interval display mapping failed") from error
     return {
         "stateVersion": state_version, "trackId": track_id, "deviceId": device_id,
         "device": _device_record(device, device_id), "parameters": parameters,
-        "controls": controls, "gridChoices": grid_choices,
+        "controls": controls, "gridChoices": grid_choices, "intervalChoices": interval_choices,
         "routing": _track_routing(song, track_id, state_version),
         "transport": _transport_context(song, state_version),
         "globalLaunchQuantization": _enum_record(song.clip_trigger_quantization, CLIP_QUANTIZATION_NAMES),
@@ -783,6 +797,32 @@ def dispatch_request(song, request, state_version, application=None):
             observed["controls"]["Grid"]["value"] == grid_value and
             observed["controls"]["Grid"]["displayValue"] == grid_display)
         observed["gridDisplayValue"] = grid_display
+        return observed
+    if method == "set_beat_repeat_interval":
+        if params.get("expectedStateVersion") != state_version:
+            raise ValueError("Beat Repeat state version changed")
+        before = _beat_repeat_performance_context(song, params["trackId"], params["deviceId"], state_version)
+        if params.get("before") != before:
+            raise ValueError("Beat Repeat performance context changed")
+        interval_value = params.get("intervalValue")
+        interval_display = params.get("intervalDisplayValue")
+        matches = [choice for choice in before["intervalChoices"]
+                   if choice["value"] == interval_value and choice["displayValue"] == interval_display]
+        label_matches = [choice for choice in before["intervalChoices"]
+                         if choice["displayValue"] == interval_display]
+        if (type(interval_value) is not int or type(interval_display) is not str or
+                len(matches) != 1 or len(label_matches) != 1):
+            raise ValueError("exact native Beat Repeat interval choice is unavailable")
+        interval = before["controls"].get("Interval")
+        if interval is None or interval_value == interval["value"]:
+            raise ValueError("native Beat Repeat Interval is unavailable or already selected")
+        _, _, device = _device(song, params["trackId"], params["deviceId"])
+        device.parameters[int(interval["id"].removeprefix("parameter-"))].value = interval_value
+        observed = _beat_repeat_performance_context(song, params["trackId"], params["deviceId"], state_version + 1)
+        observed["intervalParameterMatchesTarget"] = (
+            observed["controls"]["Interval"]["value"] == interval_value and
+            observed["controls"]["Interval"]["displayValue"] == interval_display)
+        observed["intervalDisplayValue"] = interval_display
         return observed
     if method == "set_beat_repeat_enabled":
         if params.get("expectedStateVersion") != state_version:
