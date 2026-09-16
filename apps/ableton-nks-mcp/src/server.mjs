@@ -137,6 +137,7 @@ const toolNames = [
   "set_looper_state",
   "set_beat_repeat_enabled",
   "set_beat_repeat_grid",
+  "set_beat_repeat_interval",
   "create_midi_clip",
   "set_clip_parameter_envelope",
   "set_midi_note_properties",

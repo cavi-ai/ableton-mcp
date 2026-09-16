@@ -2938,6 +2938,62 @@ class DispatchTest(unittest.TestCase):
             }}, 4)
         self.assertEqual(grid.value, 2.0)
 
+    def test_beat_repeat_interval_uses_native_display_and_rechecks_context(self):
+        song = Song()
+        repeat = Device()
+        repeat.name = "Beat Repeat"
+        repeat.class_name = "BeatRepeat"
+
+        class Timing(Parameter):
+            def __init__(self, name, labels, value):
+                super().__init__()
+                self.name = self.original_name = name
+                self.min = 0.0
+                self.max = float(len(labels) - 1)
+                self.value = float(value)
+                self.labels = labels
+
+            def str_for_value(self, value):
+                return self.labels[int(value)]
+
+        grid = Timing("Grid", ["1/8", "1/16"], 1)
+        interval = Timing("Interval", ["1/4", "1/2", "1 Bar"], 2)
+        toggle = QuantizedParameter()
+        toggle.name = toggle.original_name = "Repeat"
+        toggle.value_items = ("Off", "On")
+        toggle.max = 1.0
+        repeat.parameters = [grid, interval, toggle]
+        song.tracks[0].devices[0] = repeat
+        target = {"trackId": "track-0", "deviceId": "track-0:device-0"}
+        before = dispatch_request(song, {"method": "get_beat_repeat_performance_context", "params": target}, 3)
+        self.assertEqual(before["intervalChoices"], [
+            {"value": 0, "displayValue": "1/4"},
+            {"value": 1, "displayValue": "1/2"},
+            {"value": 2, "displayValue": "1 Bar"},
+        ])
+        song.is_playing = True
+        with self.assertRaisesRegex(ValueError, "Beat Repeat performance context changed"):
+            dispatch_request(song, {"method": "set_beat_repeat_interval", "params": {
+                **target, "expectedStateVersion": 3, "before": before,
+                "intervalValue": 1, "intervalDisplayValue": "1/2"
+            }}, 3)
+        self.assertEqual(interval.value, 2.0)
+        song.is_playing = False
+        changed = dispatch_request(song, {"method": "set_beat_repeat_interval", "params": {
+            **target, "expectedStateVersion": 3, "before": before,
+            "intervalValue": 1, "intervalDisplayValue": "1/2"
+        }}, 3)
+        self.assertEqual(changed["controls"]["Interval"]["displayValue"], "1/2")
+        self.assertTrue(changed["intervalParameterMatchesTarget"])
+        interval.labels = ["1/4", "1/2", "1/2"]
+        ambiguous = dispatch_request(song, {"method": "get_beat_repeat_performance_context", "params": target}, 4)
+        with self.assertRaisesRegex(ValueError, "exact native Beat Repeat interval choice"):
+            dispatch_request(song, {"method": "set_beat_repeat_interval", "params": {
+                **target, "expectedStateVersion": 4, "before": ambiguous,
+                "intervalValue": 2, "intervalDisplayValue": "1/2"
+            }}, 4)
+        self.assertEqual(interval.value, 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()
