@@ -11,6 +11,7 @@ import { getFactoryDeviceProfile, groupDeviceParameters, listFactoryDeviceProfil
 import { getProducerChainBlueprint, listProducerChainBlueprints, verifyProducerChain } from "./producer-chain-knowledge.mjs";
 import { getPluginIntegrationProfile } from "./plugin-integrations.mjs";
 import { enrichSongScaleContext, getLiveScaleReference, listLiveScaleReferences } from "./live-scale-reference.mjs";
+import { analyzeMidiNotesAgainstScale } from "./midi-scale-analysis.mjs";
 
 function requireExpectedState(args) {
   if (!Number.isInteger(args.expectedStateVersion)) {
@@ -352,6 +353,16 @@ export class ToolService {
     if (["delete_arrangement_clip", "move_arrangement_clip", "duplicate_arrangement_clip"].includes(name)) return this.#mutateArrangementClip(name, args);
     if (name === "get_midi_clip_notes") return this.bridge.request("get_midi_clip_notes", args);
     if (name === "get_midi_clip_notes_extended") return this.bridge.request("get_midi_clip_notes_extended", args);
+    if (name === "analyze_midi_clip_scale") {
+      const before = await this.bridge.request("get_song_musical_context", {});
+      const clip = await this.bridge.request("get_midi_clip_notes_extended", args);
+      const after = await this.bridge.request("get_song_musical_context", {});
+      if (before.stateVersion !== clip.stateVersion || clip.stateVersion !== after.stateVersion ||
+          JSON.stringify(before) !== JSON.stringify(after) || clip.trackId !== args.trackId || clip.clipId !== args.clipId)
+        throw new Error("song or clip changed during scale analysis; retry");
+      return { stateVersion: clip.stateVersion, trackId: clip.trackId, clipId: clip.clipId,
+        lengthBeats: clip.lengthBeats, analysis: analyzeMidiNotesAgainstScale(clip.notes, before.key) };
+    }
     if (name === "get_track_mixer") return this.bridge.request("get_track_mixer", args);
     if (name === "get_track_routing") return this.bridge.request("get_track_routing", args);
     if (name === "get_set_mixer") return this.bridge.request("get_set_mixer", {});

@@ -60,6 +60,7 @@ const toolNames = [
   "list_clips",
   "get_midi_clip_notes",
   "get_midi_clip_notes_extended",
+  "analyze_midi_clip_scale",
   "get_clip_timing",
   "set_clip_timing",
   "create_track",
