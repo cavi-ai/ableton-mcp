@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { planScaleChordProgression } from "../src/scale-chord-progression.mjs";
+import { matchMidiNoteReadback, planScaleChordProgression } from "../src/scale-chord-progression.mjs";
 import { ToolService } from "../src/tool-service.mjs";
 
 const cMajor = { rootNote: 0, rootName: "C", scaleName: "Major", scaleMode: true,
@@ -68,6 +68,31 @@ test("articulation rejects drifting grids and invalid gates", () => {
   assert.throws(() => planScaleChordProgression(cMajor, {
     ...base, articulation: { mode: "pulse", stepBeats: 0.5, gate: 0 }
   }), /gate/);
+  assert.throws(() => planScaleChordProgression(cMajor, {
+    ...base, degrees: Array(64).fill(1), notesPerChord: 4, chordBeats: 4,
+    articulation: { mode: "pulse", stepBeats: 1 / 32, gate: 1 }
+  }), /4096 MIDI notes/);
+});
+
+test("native readback matching is order-independent within tight beat tolerance", () => {
+  const expected = [
+    { pitch: 60, start: 1, duration: 0.5, velocity: 96, mute: false },
+    { pitch: 64, start: 1, duration: 0.5, velocity: 96, mute: false }
+  ];
+  const reordered = [
+    { pitch: 64, start: 1 - 5e-10, duration: 0.5, velocity: 96, mute: false },
+    { pitch: 60, start: 1 + 5e-10, duration: 0.5, velocity: 96, mute: false }
+  ];
+  assert.equal(matchMidiNoteReadback(expected, reordered), true);
+  assert.equal(matchMidiNoteReadback(expected, [reordered[0], { ...reordered[1], start: 1 + 2e-9 }]), false);
+  const repeated = [
+    { pitch: 60, start: 0, duration: 0.25, velocity: 96, mute: false },
+    { pitch: 60, start: 1.5e-9, duration: 0.25, velocity: 96, mute: false }
+  ];
+  assert.equal(matchMidiNoteReadback(repeated, [
+    { ...repeated[0], start: 1e-9 },
+    { ...repeated[0], start: 0 }
+  ]), true);
 });
 
 test("non-heptatonic Live scales use degree labels without fake Roman numerals", () => {
