@@ -110,6 +110,11 @@ const midiGatePatternProperties = {
   gridBeats: number("Reference grid step in beats, including fractional triplet values.", { exclusiveMinimum: 0, maximum: 128 }),
   gateRatios: { ...array(number("Repeating note duration ratio relative to gridBeats.", { exclusiveMinimum: 0, maximum: 1 }), "Explicit repeating gate ratios by ordered onset."), minItems: 1, maxItems: 128 },
 };
+const midiProbabilityPatternProperties = {
+  trackId: ids.trackId, clipId: ids.clipId,
+  noteIds: { ...array({ type: "integer", minimum: 0 }, "Unique stable note IDs at complete selected onsets."), minItems: 1, maxItems: 4096 },
+  probabilities: { ...array(number("Repeating playback probability by ordered onset.", { minimum: 0, maximum: 1 }), "Explicit repeating probabilities from 0 to 1."), minItems: 1, maxItems: 128 },
+};
 const melodyEvent = object({
   step: { type: "integer", minimum: 0, maximum: 4095, description: "Unique zero-based grid step within the motif." },
   degree: { type: "integer", minimum: 1, maximum: 9, description: "One-based Live scale degree." },
@@ -228,6 +233,8 @@ export const toolContracts = {
   apply_midi_velocity_curve: { description: "Plan or apply a guarded MIDI velocity curve while preserving timing, pitch, duration, probability, and expression metadata.", inputSchema: guarded(midiVelocityCurveProperties, ["trackId", "clipId", "noteIds", "curve"]) },
   plan_midi_gate_pattern: { description: "Plan explicit repeating gate ratios across complete ordered MIDI onsets on a straight or triplet beat grid.", inputSchema: object(midiGatePatternProperties, ["trackId", "clipId", "noteIds", "gridBeats", "gateRatios"]) },
   apply_midi_gate_pattern: { description: "Plan or apply guarded MIDI gate durations while preserving onset, pitch, velocity, probability, and expression metadata.", inputSchema: guarded(midiGatePatternProperties, ["trackId", "clipId", "noteIds", "gridBeats", "gateRatios"]) },
+  plan_midi_probability_pattern: { description: "Plan explicit repeating playback probabilities across complete ordered MIDI onsets.", inputSchema: object(midiProbabilityPatternProperties, ["trackId", "clipId", "noteIds", "probabilities"]) },
+  apply_midi_probability_pattern: { description: "Plan or apply guarded MIDI playback probabilities while preserving pitch, timing, velocity, mute, and expression metadata.", inputSchema: guarded(midiProbabilityPatternProperties, ["trackId", "clipId", "noteIds", "probabilities"]) },
   get_clip_timing: { description: "Read clip loop, signature, launch quantization, and groove assignment.", inputSchema: clip },
   get_clip_groove_context: { description: "Read one native callback snapshot of exact clip/track names, MIDI note IDs and expression metadata or audio state, clip timing, complete Groove Pool and global musical context. Supports before/after validation of UI-only extraction and baking; does not execute them.", inputSchema: clip },
   inspect_clip_groove_postconditions: { description: "Read current native context and inspect extraction or baking postconditions against a supplied pre-action get_clip_groove_context snapshot. Does not execute the UI action, prove provenance, or validate audible equivalence. Extraction expects one appended groove and unchanged source/timing; baking expects removed assignment and unchanged unrelated timing/shared context.", inputSchema: object({ ...clip.properties, operation: { type: "string", enum: ["bake", "extract"] }, before: { type: "object", description: "Complete pre-action native clip groove context snapshot; supplied data is not authenticated history." } }, ["trackId", "clipId", "operation", "before"]) },

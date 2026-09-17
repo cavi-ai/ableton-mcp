@@ -1118,6 +1118,46 @@ def _validate_midi_gate_pattern_payload(clip, params):
     return final
 
 
+def _validate_midi_probability_pattern_payload(clip, params):
+    probability_plan = params.get("probabilityPattern")
+    if not isinstance(probability_plan, dict) or set(probability_plan) != {"noteIds", "probabilities", "changes"} or \
+            params.get("changes") != probability_plan.get("changes") or params.get("newNotes") != []:
+        raise ValueError("MIDI probability pattern payload does not match its signed plan")
+    note_ids = probability_plan.get("noteIds")
+    probabilities = probability_plan.get("probabilities")
+    if not isinstance(note_ids, list) or not note_ids or len(note_ids) > 4096 or \
+            any(type(note_id) is not int or note_id < 0 for note_id in note_ids) or \
+            len(note_ids) != len(set(note_ids)) or \
+            not isinstance(probabilities, list) or not probabilities or len(probabilities) > 128 or \
+            any(not isinstance(probability, (int, float)) or not math.isfinite(probability) or
+                not 0 <= probability <= 1 for probability in probabilities):
+        raise ValueError("MIDI probability pattern options or note IDs are invalid")
+    current = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
+    by_id = {note["noteId"]: note for note in current}
+    if len(by_id) != len(current) or any(note_id not in by_id for note_id in note_ids):
+        raise ValueError("one or more MIDI probability pattern note IDs no longer exist")
+    selected_starts = {by_id[note_id]["start"] for note_id in note_ids}
+    selected_ids = set(note_ids)
+    if any(note["start"] in selected_starts and note["noteId"] not in selected_ids for note in current):
+        raise ValueError("MIDI probability patterns require every note at each selected complete onset")
+    probability_by_start = {start: probabilities[index % len(probabilities)]
+                            for index, start in enumerate(sorted(selected_starts))}
+    expected = []
+    for note_id in note_ids:
+        previous = by_id[note_id]
+        probability = probability_by_start[previous["start"]]
+        if abs(probability - previous["probability"]) > 2e-7:
+            expected.append({"noteId": note_id, "previous": previous, "probability": probability})
+    if not expected:
+        raise ValueError("MIDI probability pattern would not change any selected notes")
+    if params.get("changes") != expected:
+        raise ValueError("MIDI probability pattern changes do not match the signed plan")
+    final = {note["noteId"]: dict(note) for note in current}
+    for change in expected:
+        final[change["noteId"]]["probability"] = change["probability"]
+    return final
+
+
 def _validate_scale_melody_payload(song, params, state_version, fingerprint):
     if params.get("expectedStateVersion") != state_version:
         raise ValueError("melody state version changed")
@@ -2309,7 +2349,8 @@ def dispatch_request(song, request, state_version, application=None):
             guarded_humanization = method == "transform_midi_notes" and params.get("operation") == "apply_midi_humanization"
             guarded_velocity = method == "transform_midi_notes" and params.get("operation") == "apply_midi_velocity_curve"
             guarded_gate = method == "transform_midi_notes" and params.get("operation") == "apply_midi_gate_pattern"
-            guarded_transform = guarded_variation or guarded_humanization or guarded_velocity or guarded_gate
+            guarded_probability = method == "transform_midi_notes" and params.get("operation") == "apply_midi_probability_pattern"
+            guarded_transform = guarded_variation or guarded_humanization or guarded_velocity or guarded_gate or guarded_probability
             if guarded_transform:
                 if params.get("expectedStateVersion") != state_version:
                     raise ValueError("MIDI clip state version changed")
@@ -2341,6 +2382,7 @@ def dispatch_request(song, request, state_version, application=None):
             expected_humanized = _validate_midi_humanization_payload(clip, params) if guarded_humanization else None
             expected_velocity = _validate_midi_velocity_curve_payload(clip, params) if guarded_velocity else None
             expected_gate = _validate_midi_gate_pattern_payload(clip, params) if guarded_gate else None
+            expected_probability = _validate_midi_probability_pattern_payload(clip, params) if guarded_probability else None
             notes = clip.get_notes_by_id(note_ids) if note_ids else []
             by_id = {int(note.note_id): note for note in notes}
             if len(by_id) != len(set(note_ids)):
@@ -2357,6 +2399,38 @@ def dispatch_request(song, request, state_version, application=None):
                                          if source in change}))
             added_note_ids = []
             new_note_specs = tuple(_new_midi_note(note) for note in params.get("newNotes", []))
+            if guarded_probability:
+                with _undo_step(song):
+                    try:
+                        for change in params["changes"]:
+                            by_id[int(change["noteId"])].probability = change["probability"]
+                        if notes:
+                            clip.apply_note_modifications(notes)
+                        readback = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
+                        observed = {note["noteId"]: note for note in readback}
+                        if set(observed) != set(expected_probability) or any(
+                                any(observed[note_id][field] != expected[field]
+                                    for field in ("pitch", "velocity", "velocityDeviation",
+                                                  "releaseVelocity", "mute")) or
+                                abs(observed[note_id]["start"] - expected["start"]) > 2e-7 or
+                                abs(observed[note_id]["duration"] - expected["duration"]) > 2e-7 or
+                                abs(observed[note_id]["probability"] - expected["probability"]) > 2e-7
+                                for note_id, expected in expected_probability.items()):
+                            raise ValueError("native MIDI probability readback does not match the signed plan")
+                        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                                "clipId": params["clipId"], "lengthBeats": float(clip.length),
+                                "notes": readback, "addedNoteIds": []}
+                    except Exception as mutation_error:
+                        for note, values in originals:
+                            for target, value in values.items():
+                                setattr(note, target, value)
+                        try:
+                            if originals:
+                                clip.apply_note_modifications(notes)
+                        except Exception as rollback_error:
+                            raise RuntimeError("MIDI probability pattern failed and rollback was incomplete (%s); original error: %s" %
+                                               (rollback_error, mutation_error))
+                        raise mutation_error
             if guarded_gate:
                 with _undo_step(song):
                     try:
