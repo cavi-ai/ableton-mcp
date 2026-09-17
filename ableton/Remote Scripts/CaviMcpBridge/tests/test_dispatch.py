@@ -2848,6 +2848,48 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual([note["velocity"] for note in result["notes"]], [100, 100])
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
+    def test_guarded_strum_pattern_rederives_timing_and_preserves_complete_note_state(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        high, low, middle = MidiNote(7), MidiNote(8), MidiNote(9)
+        high.pitch = 67
+        low.pitch = 60
+        middle.pitch = 64
+        for note in (high, low, middle):
+            note.duration = 1.0
+            note.velocity = 91
+            note.velocity_deviation = -3
+            note.release_velocity = 62
+            note.probability = 0.75
+        clip.extended_notes = [high, low, middle]
+        target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+        by_id = {note["noteId"]: note for note in before["notes"]}
+        changes = [
+            {"noteId": 8, "previous": by_id[8], "start": 0.0, "duration": 1.0},
+            {"noteId": 9, "previous": by_id[9], "start": 0.06, "duration": 0.94},
+            {"noteId": 7, "previous": by_id[7], "start": 0.12, "duration": 0.88},
+        ]
+        params = {**target, "expectedStateVersion": 3, "before": before, "clipTiming": timing,
+                  "gridReference": {"tempoBpm": 120.0,
+                                    "timeSignature": {"numerator": 4, "denominator": 4},
+                                    "setFingerprint": dispatch_request(song, {"method": "get_live_state"}, 3)["setFingerprint"]},
+                  "operation": "apply_midi_strum_pattern",
+                  "strumPattern": {"noteIds": [7, 8, 9], "direction": "up",
+                                   "spreadBeats": 0.12, "changes": changes},
+                  "changes": changes, "newNotes": []}
+        tampered = {**params, "changes": [{**changes[0], "start": 0.01}, *changes[1:]]}
+        with self.assertRaisesRegex(ValueError, "signed plan"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": tampered}, 3)
+        result = dispatch_request(song, {"method": "transform_midi_notes", "params": params}, 3)
+        observed = {note["noteId"]: note for note in result["notes"]}
+        self.assertEqual([(observed[note_id]["start"], observed[note_id]["duration"])
+                          for note_id in (8, 9, 7)], [(0.0, 1.0), (0.06, 0.94), (0.12, 0.88)])
+        self.assertEqual([observed[note_id]["probability"] for note_id in (8, 9, 7)], [0.75] * 3)
+        self.assertEqual([observed[note_id]["velocityDeviation"] for note_id in (8, 9, 7)], [-3] * 3)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
     def test_guarded_probability_pattern_applies_probability_and_preserves_complete_note_state(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip
