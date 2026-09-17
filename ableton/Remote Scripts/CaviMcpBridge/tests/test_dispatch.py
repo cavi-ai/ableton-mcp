@@ -2824,6 +2824,94 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(clip.extended_notes[0].velocity, 100)
         self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
 
+    def test_guarded_drum_variation_rolls_back_when_complete_readback_fails(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        clip.extended_notes = [MidiNote(7)]
+        target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+        fingerprint = dispatch_request(song, {"method": "get_live_state"}, 3)["setFingerprint"]
+        params = {**target, "expectedStateVersion": 3, "before": before, "clipTiming": timing,
+                  "gridReference": {"tempoBpm": 120, "timeSignature": {"numerator": 4, "denominator": 4},
+                                    "setFingerprint": fingerprint},
+                  "operation": "apply_drum_variation", "changes": [{"noteId": 7, "velocity": 90}],
+                  "newNotes": [], "variation": {
+                      "range": {"startBeat": 0, "endBeat": 4}, "laneNotes": [60],
+                      "grid": "straight16", "startBar": 0, "bars": 1, "seed": 132,
+                      "stepBeats": .25, "timingAmount": 0, "velocityAmount": 32,
+                      "preserveAccentsAbove": 101, "changedBefore": [before["notes"][0]],
+                      "preservedNotes": [], "changes": [{"noteId": 7, "velocity": 90}],
+                      "newNotes": [], "fill": None}}
+        original_read = clip.get_all_notes_extended
+        reads = 0
+        def fail_after_write():
+            nonlocal reads
+            reads += 1
+            if reads >= 3:
+                raise ValueError("native readback failed")
+            return original_read()
+        clip.get_all_notes_extended = fail_after_write
+        with self.assertRaisesRegex(ValueError, "native readback failed"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": params}, 3)
+        self.assertEqual(clip.extended_notes[0].velocity, 100)
+        self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
+
+    def test_guarded_drum_variation_never_uses_global_undo_for_failed_mutation(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        clip.extended_notes = [MidiNote(7)]
+        target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+        fingerprint = dispatch_request(song, {"method": "get_live_state"}, 3)["setFingerprint"]
+        fill_note = {"pitch": 38, "start": 3, "duration": .125, "velocity": 100,
+                     "velocityDeviation": 0, "releaseVelocity": 0, "probability": 1, "mute": False}
+        variation = {"range": {"startBeat": 0, "endBeat": 4}, "laneNotes": [60],
+                     "grid": "straight16", "startBar": 0, "bars": 1, "seed": 132,
+                     "stepBeats": .25, "timingAmount": 0, "velocityAmount": 32,
+                     "preserveAccentsAbove": 101, "changedBefore": [before["notes"][0]],
+                     "preservedNotes": [], "changes": [{"noteId": 7, "velocity": 90}],
+                     "newNotes": [fill_note], "fill": {"note": 38, "grid": "straight16",
+                     "activeSteps": [13], "velocity": 100, "gate": .5}}
+        undo_calls = []
+        song.undo = lambda: undo_calls.append(True)
+        clip.add_new_notes = lambda specs: (_ for _ in ()).throw(ValueError("native add rejected"))
+        with self.assertRaisesRegex(ValueError, "native add rejected"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": {
+                **target, "expectedStateVersion": 3, "before": before, "clipTiming": timing,
+                "gridReference": {"tempoBpm": 120, "timeSignature": {"numerator": 4, "denominator": 4},
+                                  "setFingerprint": fingerprint},
+                "operation": "apply_drum_variation", "changes": variation["changes"],
+                "newNotes": [fill_note], "variation": variation
+            }}, 3)
+        self.assertEqual(undo_calls, [])
+        self.assertEqual(clip.extended_notes[0].velocity, 100)
+
+    def test_guarded_drum_variation_rejects_start_bar_beyond_planner_limit(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        clip.length = 20000
+        clip.loop_end = 20000
+        clip.end_marker = 20000
+        clip.extended_notes = [MidiNote(7)]
+        target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+        fingerprint = dispatch_request(song, {"method": "get_live_state"}, 3)["setFingerprint"]
+        variation = {"range": {"startBeat": 16384, "endBeat": 16388}, "laneNotes": [60],
+                     "grid": "straight16", "startBar": 4096, "bars": 1, "seed": 0,
+                     "stepBeats": .25, "timingAmount": 0, "velocityAmount": 0,
+                     "preserveAccentsAbove": 110, "changedBefore": [],
+                     "preservedNotes": before["notes"], "changes": [], "newNotes": [], "fill": None}
+        with self.assertRaisesRegex(ValueError, "deterministic options"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": {
+                **target, "expectedStateVersion": 3, "before": before, "clipTiming": timing,
+                "gridReference": {"tempoBpm": 120, "timeSignature": {"numerator": 4, "denominator": 4},
+                                  "setFingerprint": fingerprint},
+                "operation": "apply_drum_variation", "changes": [], "newNotes": [], "variation": variation
+            }}, 3)
+
     def test_guarded_drum_variation_rejects_bypassed_semantics_and_fingerprint(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip
@@ -2841,6 +2929,8 @@ class DispatchTest(unittest.TestCase):
                 "gridReference": {"tempoBpm": 120, "timeSignature": {"numerator": 4, "denominator": 4},
                                   "setFingerprint": fingerprint},
                 "operation": "apply_drum_variation", "changes": [], "newNotes": [], "variation": variation}
+        with self.assertRaisesRegex(ValueError, "would not change"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": base}, 3)
         with self.assertRaisesRegex(ValueError, "fingerprint"):
             dispatch_request(song, {"method": "transform_midi_notes", "params": {
                 **base, "gridReference": {**base["gridReference"], "setFingerprint": "wrong"}
@@ -2865,6 +2955,31 @@ class DispatchTest(unittest.TestCase):
                 **base, "changes": [{"noteId": 7, "pitch": 61}],
                 "variation": {**variation, "changes": [{"noteId": 7, "pitch": 61}],
                               "changedBefore": before["notes"], "preservedNotes": []}
+            }}, 3)
+        clip.extended_notes[0].start_time = -0.1
+        clip.extended_notes[0].duration = .2
+        crossing_before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        crossing = {**variation, "changedBefore": [], "preservedNotes": crossing_before["notes"]}
+        with self.assertRaisesRegex(ValueError, "crosses"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": {
+                **base, "before": crossing_before, "variation": crossing
+            }}, 3)
+        clip.extended_notes[0].start_time = 0
+        clip.extended_notes[0].duration = .5
+        song.signature_numerator = 3
+        song.signature_denominator = 8
+        clip.signature_numerator = 3
+        clip.signature_denominator = 8
+        triplet_timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+        triplet_before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        misaligned = {**variation, "grid": "eighthTriplet", "stepBeats": 1 / 3,
+                      "range": {"startBeat": 0, "endBeat": 1.5}, "preservedNotes": triplet_before["notes"]}
+        with self.assertRaisesRegex(ValueError, "bar-aligned"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": {
+                **base, "before": triplet_before, "clipTiming": triplet_timing,
+                "gridReference": {**base["gridReference"],
+                                  "timeSignature": {"numerator": 3, "denominator": 8}},
+                "variation": misaligned
             }}, 3)
 
     def test_replace_midi_notes_removes_exact_ids_and_adds_replacements(self):

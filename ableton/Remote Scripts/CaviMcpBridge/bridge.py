@@ -794,7 +794,8 @@ def _validate_drum_variation_payload(clip, params):
     grid = variation.get("grid")
     start_bar, bars, seed = variation.get("startBar"), variation.get("bars"), variation.get("seed")
     timing_amount, velocity_amount = variation.get("timingAmount"), variation.get("velocityAmount")
-    if grid not in grid_steps or type(start_bar) is not int or start_bar < 0 or type(bars) is not int or bars < 1 or bars > 16 or \
+    if grid not in grid_steps or type(start_bar) is not int or start_bar < 0 or start_bar > 4095 or \
+            type(bars) is not int or bars < 1 or bars > 16 or \
             type(seed) is not int or seed < 0 or seed > 0xffffffff or \
             not isinstance(timing_amount, (int, float)) or not math.isfinite(timing_amount) or timing_amount < 0 or timing_amount > .49 or \
             type(velocity_amount) is not int or velocity_amount < 0 or velocity_amount > 32:
@@ -802,6 +803,8 @@ def _validate_drum_variation_payload(clip, params):
     signature = params["clipTiming"]["timeSignature"]
     bar_length = signature["numerator"] * 4 / signature["denominator"]
     step_beats = 1 / grid_steps[grid]
+    if not float(bar_length * grid_steps[grid]).is_integer():
+        raise ValueError("drum variation grid must be bar-aligned for the current time signature")
     if start_beat != start_bar * bar_length or end_beat != start_beat + bars * bar_length or \
             variation.get("stepBeats") != step_beats:
         raise ValueError("drum variation range or grid does not match its deterministic options")
@@ -819,6 +822,10 @@ def _validate_drum_variation_payload(clip, params):
     random_values = _drum_random(seed)
     expected_changes = []
     expected_changed_before = []
+    for note in before_notes:
+        if note["pitch"] in lane_notes and ((note["start"] < start_beat < note["start"] + note["duration"]) or
+                                             (note["start"] < end_beat < note["start"] + note["duration"])):
+            raise ValueError("target-lane note crosses the variation boundary")
     expected_preserved = [note for note in before_notes if note["pitch"] not in lane_notes or
                           not (start_beat <= note["start"] < end_beat)]
     selected = [note for note in before_notes if note["pitch"] in lane_notes and
@@ -890,6 +897,8 @@ def _validate_drum_variation_payload(clip, params):
                               for step in sorted(active_steps)]
     if params.get("newNotes", []) != expected_new_notes:
         raise ValueError("drum variation fill notes do not match its deterministic plan")
+    if not params["changes"] and not expected_new_notes:
+        raise ValueError("drum variation would not change any notes")
     for note in params.get("newNotes", []):
         required = {"pitch", "start", "duration", "velocity", "velocityDeviation",
                     "releaseVelocity", "probability", "mute"}
@@ -2069,8 +2078,8 @@ def dispatch_request(song, request, state_version, application=None):
             new_note_specs = tuple(_new_midi_note(note) for note in params.get("newNotes", []))
             if guarded_variation:
                 existing_ids = {int(note.note_id) for note in clip.get_all_notes_extended()}
-                try:
-                    with _undo_step(song):
+                with _undo_step(song):
+                    try:
                         for change in params["changes"]:
                             note = by_id[int(change["noteId"])]
                             for source, target in fields.items():
@@ -2079,31 +2088,37 @@ def dispatch_request(song, request, state_version, application=None):
                         added_note_ids = list(clip.add_new_notes(new_note_specs)) if new_note_specs else []
                         if notes:
                             clip.apply_note_modifications(notes)
-                except Exception as mutation_error:
-                    rollback_errors = []
-                    try:
-                        song.undo()
-                    except Exception as error:
-                        rollback_errors.append("undo failed: %s" % error)
-                    try:
-                        current_ids = {int(note.note_id) for note in clip.get_all_notes_extended()}
-                        unexpected_ids = tuple(sorted(current_ids - existing_ids))
-                        if unexpected_ids:
-                            clip.remove_notes_by_id(unexpected_ids)
-                    except Exception as error:
-                        rollback_errors.append("added-note cleanup failed: %s" % error)
-                    for note, values in originals:
-                        for target, value in values.items():
-                            setattr(note, target, value)
-                    try:
-                        if originals:
-                            clip.apply_note_modifications([note for note, _ in originals])
-                    except Exception as error:
-                        rollback_errors.append("existing-note restore failed: %s" % error)
-                    if rollback_errors:
-                        raise RuntimeError("drum variation failed and rollback was incomplete (%s); original error: %s" %
-                                           ("; ".join(rollback_errors), mutation_error))
-                    raise mutation_error
+                        readback = list(clip.get_all_notes_extended())
+                        result = {
+                            "stateVersion": state_version + 1, "trackId": params["trackId"],
+                            "clipId": params["clipId"], "lengthBeats": float(clip.length),
+                            "notes": [_midi_note_record(note) for note in readback],
+                            "addedNoteIds": added_note_ids,
+                        }
+                    except Exception as mutation_error:
+                        rollback_errors = []
+                        try:
+                            cleanup_ids = tuple(added_note_ids)
+                            if new_note_specs and not cleanup_ids:
+                                current_ids = {int(note.note_id) for note in clip.get_all_notes_extended()}
+                                cleanup_ids = tuple(sorted(current_ids - existing_ids))
+                            if cleanup_ids:
+                                clip.remove_notes_by_id(cleanup_ids)
+                        except Exception as error:
+                            rollback_errors.append("added-note cleanup failed: %s" % error)
+                        for note, values in originals:
+                            for target, value in values.items():
+                                setattr(note, target, value)
+                        try:
+                            if originals:
+                                clip.apply_note_modifications([note for note, _ in originals])
+                        except Exception as error:
+                            rollback_errors.append("existing-note restore failed: %s" % error)
+                        if rollback_errors:
+                            raise RuntimeError("drum variation failed and rollback was incomplete (%s); original error: %s" %
+                                               ("; ".join(rollback_errors), mutation_error))
+                        raise mutation_error
+                return result
             else:
                 for change in params["changes"]:
                     note = by_id[int(change["noteId"])]
