@@ -1058,6 +1058,66 @@ def _validate_midi_velocity_curve_payload(clip, params):
     return final
 
 
+def _validate_midi_gate_pattern_payload(clip, params):
+    gate_plan = params.get("gatePattern")
+    if not isinstance(gate_plan, dict) or set(gate_plan) != {"noteIds", "gridBeats", "gateRatios", "changes"} or \
+            params.get("changes") != gate_plan.get("changes") or params.get("newNotes") != []:
+        raise ValueError("MIDI gate pattern payload does not match its signed plan")
+    note_ids = gate_plan.get("noteIds")
+    grid = gate_plan.get("gridBeats")
+    ratios = gate_plan.get("gateRatios")
+    if not isinstance(note_ids, list) or not note_ids or len(note_ids) > 4096 or \
+            any(type(note_id) is not int or note_id < 0 for note_id in note_ids) or \
+            len(note_ids) != len(set(note_ids)) or \
+            not isinstance(grid, (int, float)) or not math.isfinite(grid) or not 0 < grid <= 128 or \
+            not isinstance(ratios, list) or not ratios or len(ratios) > 128 or \
+            any(not isinstance(ratio, (int, float)) or not math.isfinite(ratio) or not 0 < ratio <= 1
+                for ratio in ratios):
+        raise ValueError("MIDI gate pattern options or note IDs are invalid")
+    current = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
+    by_id = {note["noteId"]: note for note in current}
+    if len(by_id) != len(current) or any(note_id not in by_id for note_id in note_ids):
+        raise ValueError("one or more MIDI gate pattern note IDs no longer exist")
+    selected_starts = {by_id[note_id]["start"] for note_id in note_ids}
+    selected_ids = set(note_ids)
+    if any(note["start"] in selected_starts and note["noteId"] not in selected_ids for note in current):
+        raise ValueError("MIDI gate patterns require every note at each selected complete onset")
+    duration_by_start = {start: grid * ratios[index % len(ratios)]
+                         for index, start in enumerate(sorted(selected_starts))}
+    expected = []
+    for note_id in note_ids:
+        previous = by_id[note_id]
+        duration = duration_by_start[previous["start"]]
+        if abs(duration - previous["duration"]) > 2e-7:
+            expected.append({"noteId": note_id, "previous": previous, "duration": duration})
+    if not expected:
+        raise ValueError("MIDI gate pattern would not change any selected notes")
+    if params.get("changes") != expected:
+        raise ValueError("MIDI gate pattern changes do not match the signed plan")
+    final = {note["noteId"]: dict(note) for note in current}
+    for change in expected:
+        target = final[change["noteId"]]
+        if target["start"] + change["duration"] > float(clip.length) + 2e-7:
+            raise ValueError("MIDI gate pattern would extend a selected note beyond the clip")
+        target["duration"] = change["duration"]
+    changed_ids = {change["noteId"] for change in expected}
+    final_notes = list(final.values())
+    for left_index, left in enumerate(final_notes):
+        for right in final_notes[left_index + 1:]:
+            if left["noteId"] not in changed_ids and right["noteId"] not in changed_ids:
+                continue
+            before_left, before_right = by_id[left["noteId"]], by_id[right["noteId"]]
+            before_overlap = before_left["pitch"] == before_right["pitch"] and \
+                before_left["start"] < before_right["start"] + before_right["duration"] and \
+                before_right["start"] < before_left["start"] + before_left["duration"]
+            after_overlap = left["pitch"] == right["pitch"] and \
+                left["start"] < right["start"] + right["duration"] and \
+                right["start"] < left["start"] + left["duration"]
+            if after_overlap and not before_overlap:
+                raise ValueError("MIDI gate pattern would create a same-pitch note collision")
+    return final
+
+
 def _validate_scale_melody_payload(song, params, state_version, fingerprint):
     if params.get("expectedStateVersion") != state_version:
         raise ValueError("melody state version changed")
@@ -2248,7 +2308,8 @@ def dispatch_request(song, request, state_version, application=None):
             guarded_variation = method == "transform_midi_notes" and params.get("operation") == "apply_drum_variation"
             guarded_humanization = method == "transform_midi_notes" and params.get("operation") == "apply_midi_humanization"
             guarded_velocity = method == "transform_midi_notes" and params.get("operation") == "apply_midi_velocity_curve"
-            guarded_transform = guarded_variation or guarded_humanization or guarded_velocity
+            guarded_gate = method == "transform_midi_notes" and params.get("operation") == "apply_midi_gate_pattern"
+            guarded_transform = guarded_variation or guarded_humanization or guarded_velocity or guarded_gate
             if guarded_transform:
                 if params.get("expectedStateVersion") != state_version:
                     raise ValueError("MIDI clip state version changed")
@@ -2279,6 +2340,7 @@ def dispatch_request(song, request, state_version, application=None):
                 _validate_drum_variation_payload(clip, params)
             expected_humanized = _validate_midi_humanization_payload(clip, params) if guarded_humanization else None
             expected_velocity = _validate_midi_velocity_curve_payload(clip, params) if guarded_velocity else None
+            expected_gate = _validate_midi_gate_pattern_payload(clip, params) if guarded_gate else None
             notes = clip.get_notes_by_id(note_ids) if note_ids else []
             by_id = {int(note.note_id): note for note in notes}
             if len(by_id) != len(set(note_ids)):
@@ -2295,6 +2357,37 @@ def dispatch_request(song, request, state_version, application=None):
                                          if source in change}))
             added_note_ids = []
             new_note_specs = tuple(_new_midi_note(note) for note in params.get("newNotes", []))
+            if guarded_gate:
+                with _undo_step(song):
+                    try:
+                        for change in params["changes"]:
+                            by_id[int(change["noteId"])].duration = change["duration"]
+                        if notes:
+                            clip.apply_note_modifications(notes)
+                        readback = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
+                        observed = {note["noteId"]: note for note in readback}
+                        if set(observed) != set(expected_gate) or any(
+                                any(observed[note_id][field] != expected[field]
+                                    for field in ("pitch", "velocity", "velocityDeviation",
+                                                  "releaseVelocity", "probability", "mute")) or
+                                abs(observed[note_id]["start"] - expected["start"]) > 2e-7 or
+                                abs(observed[note_id]["duration"] - expected["duration"]) > 2e-7
+                                for note_id, expected in expected_gate.items()):
+                            raise ValueError("native MIDI gate readback does not match the signed plan")
+                        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                                "clipId": params["clipId"], "lengthBeats": float(clip.length),
+                                "notes": readback, "addedNoteIds": []}
+                    except Exception as mutation_error:
+                        for note, values in originals:
+                            for target, value in values.items():
+                                setattr(note, target, value)
+                        try:
+                            if originals:
+                                clip.apply_note_modifications(notes)
+                        except Exception as rollback_error:
+                            raise RuntimeError("MIDI gate pattern failed and rollback was incomplete (%s); original error: %s" %
+                                               (rollback_error, mutation_error))
+                        raise mutation_error
             if guarded_velocity:
                 with _undo_step(song):
                     try:
