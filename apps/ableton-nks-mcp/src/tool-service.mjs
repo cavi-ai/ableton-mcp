@@ -20,6 +20,7 @@ import { matchMidiHumanizationReadback, planMidiHumanization } from "./midi-huma
 import { matchMidiVelocityCurveReadback, planMidiVelocityCurve } from "./midi-velocity-curve.mjs";
 import { matchMidiGatePatternReadback, planMidiGatePattern } from "./midi-gate-pattern.mjs";
 import { matchMidiProbabilityPatternReadback, planMidiProbabilityPattern } from "./midi-probability-pattern.mjs";
+import { matchMidiRatchetReadback, planMidiRatchetPattern } from "./midi-ratchet-pattern.mjs";
 import { matchDrumPatternEditReadback, planDrumPattern, planDrumPatternEdit } from "./drum-pattern.mjs";
 import { matchDrumVariationReadback, planDrumVariation } from "./drum-variation.mjs";
 
@@ -425,6 +426,7 @@ export class ToolService {
     if (name === "plan_midi_velocity_curve") return this.#planMidiVelocityCurve(args);
     if (name === "plan_midi_gate_pattern") return this.#planMidiGatePattern(args);
     if (name === "plan_midi_probability_pattern") return this.#planMidiProbabilityPattern(args);
+    if (name === "plan_midi_ratchet_pattern") return this.#planMidiRatchetPattern(args);
     if (name === "get_track_mixer") return this.bridge.request("get_track_mixer", args);
     if (name === "get_track_routing") return this.bridge.request("get_track_routing", args);
     if (name === "get_set_mixer") return this.bridge.request("get_set_mixer", {});
@@ -840,6 +842,7 @@ export class ToolService {
     if (name === "apply_midi_velocity_curve") return this.#applyMidiVelocityCurve(args);
     if (name === "apply_midi_gate_pattern") return this.#applyMidiGatePattern(args);
     if (name === "apply_midi_probability_pattern") return this.#applyMidiProbabilityPattern(args);
+    if (name === "apply_midi_ratchet_pattern") return this.#applyMidiRatchetPattern(args);
     if (name === "create_audio_clip") return this.#createAudioClip(args);
     if (name === "set_clip_parameter_envelope") return this.#setClipParameterEnvelope(args);
     if (name === "set_midi_note_properties") return this.#setMidiNoteProperties(args);
@@ -2502,6 +2505,49 @@ export class ToolService {
       throw new Error("MIDI probability pattern native readback mismatch");
     return { dryRun: false, requested: plan, observed,
       verification: { matchesRequestedChanges: true }, timestamp: new Date().toISOString() };
+  }
+
+  async #planMidiRatchetPattern(args) {
+    const before = await this.bridge.request("get_midi_clip_notes_extended", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    const clipTiming = await this.bridge.request("get_clip_timing", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    const gridReference = await this.call("get_song_grid_reference", {});
+    const after = await this.bridge.request("get_midi_clip_notes_extended", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    if (before.stateVersion !== clipTiming.stateVersion || before.stateVersion !== gridReference.stateVersion ||
+        JSON.stringify(before) !== JSON.stringify(after) || before.trackId !== args.trackId ||
+        before.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
+      throw new Error("clip, timing, or song context changed during MIDI ratchet planning; retry");
+    const plan = planMidiRatchetPattern(before, args);
+    return { stateVersion: before.stateVersion, trackId: before.trackId, clipId: before.clipId,
+      context: { before, clipTiming, gridReference }, plan };
+  }
+
+  async #applyMidiRatchetPattern(args) {
+    requireExpectedState(args);
+    const planned = await this.#planMidiRatchetPattern(args);
+    if (planned.stateVersion !== args.expectedStateVersion)
+      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${planned.stateVersion}`);
+    const plan = {
+      method: "replace_midi_notes", operation: "apply_midi_ratchet_pattern",
+      trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
+      before: planned.context.before, clipTiming: planned.context.clipTiming,
+      gridReference: planned.context.gridReference, ratchet: planned.plan,
+      removeNoteIds: planned.plan.removeNoteIds, newNotes: planned.plan.newNotes
+    };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    this.#consumeConfirmation(plan, args);
+    const observed = await this.bridge.request("replace_midi_notes", plan);
+    if (!Number.isInteger(observed.stateVersion) || observed.stateVersion <= args.expectedStateVersion ||
+        observed.trackId !== args.trackId || observed.clipId !== args.clipId ||
+        !matchMidiRatchetReadback(planned.plan, observed, observed.notes))
+      throw new Error("MIDI ratchet native readback mismatch");
+    return { dryRun: false, requested: plan, observed,
+      verification: { matchesExpectedNotes: true }, timestamp: new Date().toISOString() };
   }
 
   async #setTrackMixer(args) {
