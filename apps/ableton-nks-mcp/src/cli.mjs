@@ -47,6 +47,7 @@ export async function runCli(argv, dependencies = {}) {
     const destination = join(destinationRoot, "CaviMcpBridge");
     const source = join(sourceRoot, "ableton", "Remote Scripts", "CaviMcpBridge");
     await fs.mkdir(destinationRoot, { recursive: true });
+    await fs.rm(join(destination, "__pycache__"), { recursive: true, force: true });
     await fs.cp(source, destination, { recursive: true,
       filter: (path) => !relative(source, path).split(sep).some(part => part === "tests" || part === "__pycache__" || part.endsWith(".pyc")) });
     const result = { installed: true, destination, next: "Enable CaviMcpBridge as a Control Surface in Ableton Live preferences." };

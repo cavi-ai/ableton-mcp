@@ -15,6 +15,7 @@ import { analyzeMidiNotesAgainstScale, planMidiScaleCorrections } from "./midi-s
 import { analyzeMidiChordEvents } from "./midi-chord-analysis.mjs";
 import { matchMidiNoteReadback, planScaleChordProgression } from "./scale-chord-progression.mjs";
 import { planScaleBassline } from "./scale-bassline.mjs";
+import { planScaleMelody } from "./scale-melody.mjs";
 import { matchDrumPatternEditReadback, planDrumPattern, planDrumPatternEdit } from "./drum-pattern.mjs";
 import { matchDrumVariationReadback, planDrumVariation } from "./drum-variation.mjs";
 
@@ -401,6 +402,20 @@ export class ToolService {
       if (JSON.stringify(before) !== JSON.stringify(after))
         throw new Error("musical context changed during bassline planning; retry");
       return { stateVersion: before.stateVersion, musicalContext: before, plan };
+    }
+    if (name === "plan_scale_melody") {
+      const beforeContext = await this.bridge.request("get_song_musical_context", {});
+      const beforeGrid = await this.call("get_song_grid_reference", {});
+      if (beforeContext.stateVersion !== beforeGrid.stateVersion)
+        throw new Error("musical and grid context changed during melody planning; retry");
+      const plan = planScaleMelody(beforeContext.key, beforeGrid, args);
+      const afterContext = await this.bridge.request("get_song_musical_context", {});
+      const afterGrid = await this.call("get_song_grid_reference", {});
+      if (JSON.stringify(beforeContext) !== JSON.stringify(afterContext) ||
+          JSON.stringify(beforeGrid) !== JSON.stringify(afterGrid))
+        throw new Error("musical or grid context changed during melody planning; retry");
+      return { stateVersion: beforeContext.stateVersion, musicalContext: beforeContext,
+        gridReference: beforeGrid, plan };
     }
     if (name === "get_track_mixer") return this.bridge.request("get_track_mixer", args);
     if (name === "get_track_routing") return this.bridge.request("get_track_routing", args);
@@ -809,6 +824,7 @@ export class ToolService {
     if (name === "create_midi_clip") return this.#createMidiClip(args);
     if (name === "create_scale_chord_progression_clip") return this.#createScaleChordProgressionClip(args);
     if (name === "create_scale_bassline_clip") return this.#createScaleBasslineClip(args);
+    if (name === "create_scale_melody_clip") return this.#createScaleMelodyClip(args);
     if (name === "create_drum_pattern_clip") return this.#createDrumPatternClip(args);
     if (name === "edit_drum_pattern_clip") return this.#editDrumPatternClip(args);
     if (name === "apply_drum_variation") return this.#applyDrumVariation(args);
@@ -1992,6 +2008,42 @@ export class ToolService {
       throw new Error("bassline clip note readback mismatch");
     return { dryRun: false, requested: plan, observed,
       verification: { matchesRequestedNotes: true, notes }, timestamp: new Date().toISOString() };
+  }
+
+  async #createScaleMelodyClip(args) {
+    requireExpectedState(args);
+    const beforeContext = await this.bridge.request("get_song_musical_context", {});
+    const beforeGrid = await this.call("get_song_grid_reference", {});
+    if (beforeContext.stateVersion !== args.expectedStateVersion || beforeGrid.stateVersion !== args.expectedStateVersion)
+      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${beforeContext.stateVersion}`);
+    const melody = planScaleMelody(beforeContext.key, beforeGrid, args);
+    const clips = await this.bridge.request("list_clips", { trackId: args.trackId });
+    assertExpectedState(args, clips);
+    const slot = clips.clips.find(clip => clip.id === args.clipId);
+    if (!slot) throw new Error(`unknown clip slot ${args.clipId}`);
+    if (slot.hasClip) throw new Error(`clip slot ${args.clipId} already contains a clip`);
+    const afterContext = await this.bridge.request("get_song_musical_context", {});
+    const afterGrid = await this.call("get_song_grid_reference", {});
+    if (JSON.stringify(beforeContext) !== JSON.stringify(afterContext) ||
+        JSON.stringify(beforeGrid) !== JSON.stringify(afterGrid))
+      throw new Error("musical or grid context changed during melody creation; retry");
+    const plan = { method: "create_midi_clip", operation: "create_scale_melody_clip",
+      trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
+      name: args.name, lengthBeats: melody.lengthBeats, notes: melody.notes,
+      melody, musicalContext: beforeContext, gridReference: beforeGrid, before: slot };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    this.#consumeConfirmation(plan, args);
+    const observed = await this.bridge.request("create_midi_clip", plan);
+    if (!Number.isInteger(observed.stateVersion) || observed.stateVersion <= args.expectedStateVersion ||
+        observed.trackId !== args.trackId ||
+        observed.clip?.id !== args.clipId || !observed.clip?.hasClip || !Array.isArray(observed.notes))
+      throw new Error("melody clip creation readback mismatch");
+    const project = note => ({ pitch: note.pitch, start: note.start, duration: note.duration,
+      velocity: note.velocity, mute: note.mute });
+    if (!matchMidiNoteReadback(plan.notes.map(project), observed.notes.map(project), 2e-7))
+      throw new Error("melody clip note readback mismatch");
+    return { dryRun: false, requested: plan, observed,
+      verification: { matchesRequestedNotes: true, notes: observed }, timestamp: new Date().toISOString() };
   }
 
   async #createDrumPatternClip(args) {

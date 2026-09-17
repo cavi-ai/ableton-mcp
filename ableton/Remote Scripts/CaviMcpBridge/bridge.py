@@ -761,8 +761,10 @@ def _device_tree(device, device_id):
 
 
 def _set_fingerprint(song):
-    identity = (id(song), getattr(song, "file_path", ""), len(song.tracks),
-                tuple(getattr(track, "name", "") for track in song.tracks), float(song.tempo))
+    identity = (getattr(song, "file_path", ""), len(song.tracks),
+                tuple(getattr(track, "name", "") for track in song.tracks),
+                tuple(getattr(scene, "name", "") for scene in song.scenes),
+                float(song.tempo))
     return hashlib.sha256(repr(identity).encode()).hexdigest()[:16]
 
 
@@ -918,6 +920,88 @@ def _validate_drum_variation_payload(clip, params):
                     left["start"] < right["start"] + right["duration"] and \
                     right["start"] < left["start"] + left["duration"]:
                 raise ValueError("drum variation would create a same-lane note collision")
+
+
+def _basic_midi_note_records(clip):
+    return [{"pitch": int(note[0]), "start": float(note[1]), "duration": float(note[2]),
+             "velocity": int(note[3]), "mute": bool(note[4])}
+            for note in clip.get_notes(0.0, 0, float(clip.length), 128)]
+
+
+def _validate_scale_melody_payload(song, params, state_version, fingerprint):
+    if params.get("expectedStateVersion") != state_version:
+        raise ValueError("melody state version changed")
+    if params.get("musicalContext") != _song_musical_context(song, state_version):
+        raise ValueError("melody musical context changed since observation")
+    grid_reference = params.get("gridReference", {})
+    current_grid = {"tempoBpm": float(song.tempo), "timeSignature": {
+        "numerator": int(song.signature_numerator), "denominator": int(song.signature_denominator)}}
+    if {"tempoBpm": grid_reference.get("tempoBpm"),
+            "timeSignature": grid_reference.get("timeSignature")} != current_grid or \
+            grid_reference.get("setFingerprint") != fingerprint:
+        raise ValueError("melody song grid changed since observation")
+    melody = params.get("melody")
+    if not isinstance(melody, dict) or params.get("notes") != melody.get("notes") or \
+            params.get("lengthBeats") != melody.get("lengthBeats"):
+        raise ValueError("melody payload does not match its signed plan")
+    steps = {"straight16": 4, "eighthTriplet": 3, "sixteenthTriplet": 6}
+    grid = melody.get("grid")
+    motif_bars, repeats = melody.get("motifBars"), melody.get("repeats")
+    gate, velocity = melody.get("gate"), melody.get("velocity")
+    base_pitch, min_pitch, max_pitch = melody.get("basePitch"), melody.get("minPitch"), melody.get("maxPitch")
+    if grid not in steps or type(motif_bars) is not int or not 1 <= motif_bars <= 16 or \
+            type(repeats) is not int or not 1 <= repeats <= 16 or \
+            not isinstance(gate, (int, float)) or not math.isfinite(gate) or not 0 < gate <= 1 or \
+            type(velocity) is not int or not 1 <= velocity <= 127 or \
+            any(type(value) is not int or not 0 <= value <= 127 for value in (base_pitch, min_pitch, max_pitch)) or \
+            min_pitch > max_pitch or not min_pitch <= base_pitch <= max_pitch or base_pitch % 12 != int(song.root_note):
+        raise ValueError("melody deterministic options are invalid")
+    bar_length = int(song.signature_numerator) * 4 / int(song.signature_denominator)
+    steps_per_bar = bar_length * steps[grid]
+    if not float(steps_per_bar).is_integer():
+        raise ValueError("melody grid must land on every bar boundary")
+    steps_per_motif = int(steps_per_bar) * motif_bars
+    step_beats = 1 / steps[grid]
+    motif_length = bar_length * motif_bars
+    if melody.get("stepsPerMotif") != steps_per_motif or melody.get("stepBeats") != step_beats or \
+            melody.get("motifLengthBeats") != motif_length or melody.get("lengthBeats") != motif_length * repeats:
+        raise ValueError("melody timing does not match its deterministic grid")
+    key = params["musicalContext"]["key"]
+    intervals = key["scaleIntervals"]
+    scale = melody.get("scale", {})
+    if scale.get("rootNote") != key["rootNote"] or scale.get("intervals") != intervals:
+        raise ValueError("melody scale does not match the observed Live key")
+    motif = melody.get("motif")
+    if not isinstance(motif, list) or not motif or len(motif) * repeats > 4096:
+        raise ValueError("melody motif is empty or exceeds 4096 MIDI notes")
+    expected_motif = []
+    seen = set()
+    for event in motif:
+        step, degree = event.get("step"), event.get("degree")
+        octave, event_velocity = event.get("octaveOffset"), event.get("velocity")
+        if type(step) is not int or not 0 <= step < steps_per_motif or step in seen or \
+                type(degree) is not int or not 1 <= degree <= 9 or \
+                type(octave) is not int or not -4 <= octave <= 4 or \
+                type(event_velocity) is not int or not 1 <= event_velocity <= 127:
+            raise ValueError("melody event is invalid")
+        seen.add(step)
+        degree_index = degree - 1
+        scale_index = degree_index % len(intervals)
+        pitch = base_pitch + intervals[scale_index] + 12 * (degree_index // len(intervals) + octave)
+        if pitch < min_pitch or pitch > max_pitch:
+            raise ValueError("melody event pitch is outside the requested range")
+        expected_motif.append({"step": step, "degree": degree, "octaveOffset": octave,
+                               "velocity": event_velocity, "pitch": pitch, "pitchClass": pitch % 12,
+                               "noteName": scale["noteNames"][scale_index]})
+    expected_motif.sort(key=lambda event: event["step"])
+    if motif != expected_motif:
+        raise ValueError("melody motif does not match its deterministic scale plan")
+    duration = step_beats * gate
+    expected_notes = [{"pitch": event["pitch"], "start": repeat * motif_length + event["step"] * step_beats,
+                       "duration": duration, "velocity": event["velocity"], "mute": False}
+                      for repeat in range(repeats) for event in expected_motif]
+    if params["notes"] != expected_notes:
+        raise ValueError("melody notes do not match its deterministic motif")
 
 
 def dispatch_request(song, request, state_version, application=None):
@@ -2472,28 +2556,65 @@ def dispatch_request(song, request, state_version, application=None):
             observed.append(_parameter_record(parameter, index))
         return {"stateVersion": state_version + 1, "trackId": params["trackId"], "deviceId": params["deviceId"], "observedChanges": observed}
     if method == "create_midi_clip":
-        track, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
+        track, slot_index, slot = _clip_slot(song, params["trackId"], params["clipId"])
         if not getattr(track, "has_midi_input", True):
             raise ValueError("track cannot host MIDI clips")
         if slot.has_clip:
             raise ValueError("clip slot already contains a clip")
-        slot.create_clip(float(params["lengthBeats"]))
-        clip = slot.clip
         notes = tuple((
             int(note["pitch"]), float(note["start"]), float(note["duration"]),
             int(note["velocity"]), bool(note.get("mute", False))
         ) for note in params["notes"])
+        guarded_melody = params.get("operation") == "create_scale_melody_clip"
+        if guarded_melody:
+            current_slot = _clip_list(song, params["trackId"], state_version)["clips"][slot_index]
+            if params.get("before") != current_slot:
+                raise ValueError("melody destination slot changed since observation")
+            _validate_scale_melody_payload(song, params, state_version, fingerprint)
+            with _undo_step(song):
+                try:
+                    slot.create_clip(float(params["lengthBeats"]))
+                    clip = slot.clip
+                    clip.set_notes(notes)
+                    if "name" in params:
+                        clip.name = params["name"]
+                    readback = _basic_midi_note_records(clip)
+                    expected = params["notes"]
+                    if len(readback) != len(expected):
+                        raise ValueError("native melody note readback count %d does not match signed count %d" %
+                                         (len(readback), len(expected)))
+                    note_key = lambda note: (note["pitch"], note["start"], note["duration"],
+                                             note["velocity"], note["mute"])
+                    for index, (left, right) in enumerate(zip(
+                            sorted(readback, key=note_key), sorted(expected, key=note_key))):
+                        if left["pitch"] != right["pitch"] or left["velocity"] != right["velocity"] or \
+                                left["mute"] != right["mute"] or abs(left["start"] - right["start"]) > 2e-7 or \
+                                abs(left["duration"] - right["duration"]) > 2e-7:
+                            raise ValueError("native melody note readback mismatch at index %d: expected %r, observed %r" %
+                                             (index, right, left))
+                    return {
+                        "stateVersion": state_version + 1, "trackId": params["trackId"],
+                        "clip": {"id": params["clipId"], "name": clip.name, "hasClip": True,
+                                 "lengthBeats": float(clip.length), "noteCount": len(notes),
+                                 "isPlaying": bool(clip.is_playing)},
+                        "notes": readback,
+                    }
+                except Exception as mutation_error:
+                    try:
+                        if slot.has_clip:
+                            slot.delete_clip()
+                    except Exception as rollback_error:
+                        raise RuntimeError("melody creation failed and rollback was incomplete (%s); original error: %s" %
+                                           (rollback_error, mutation_error))
+                    raise mutation_error
+        slot.create_clip(float(params["lengthBeats"]))
+        clip = slot.clip
         clip.set_notes(notes)
         if "name" in params:
             clip.name = params["name"]
-        return {
-            "stateVersion": state_version + 1,
-            "trackId": params["trackId"],
-            "clip": {
-                "id": params["clipId"], "name": clip.name, "hasClip": True,
-                "lengthBeats": clip.length, "noteCount": len(notes), "isPlaying": clip.is_playing,
-            },
-        }
+        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                "clip": {"id": params["clipId"], "name": clip.name, "hasClip": True,
+                         "lengthBeats": clip.length, "noteCount": len(notes), "isPlaying": clip.is_playing}}
     if method == "create_audio_clip":
         track, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
         if not track.has_audio_input or track.is_frozen:
@@ -2567,9 +2688,12 @@ def dispatch_request(song, request, state_version, application=None):
 
 
 def _track_topology_signature(song):
-    return tuple((track, bool(getattr(track, "is_foldable", False)),
-                  getattr(track, "group_track", None) if bool(getattr(track, "is_grouped", False)) else None)
-                 for track in song.tracks)
+    return (
+        tuple((track, bool(getattr(track, "is_foldable", False)),
+               getattr(track, "group_track", None) if bool(getattr(track, "is_grouped", False)) else None)
+              for track in song.tracks),
+        tuple(song.scenes),
+    )
 
 
 class SocketBridge:
@@ -2646,7 +2770,12 @@ class SocketBridge:
                 response = {"id": request.get("id"), "result": result}
             except Exception as error:
                 response = {"id": request.get("id"), "error": {"message": str(error) or error.__class__.__name__}}
-            client.sendall(encode_message(response))
+            try:
+                client.sendall(encode_message(response))
+            except OSError:
+                # A timed-out client may close while Live is busy. Keep the
+                # main-thread drain task alive for later requests.
+                pass
 
     def _defer_cue_mutation(self, client, request):
         song = self.control_surface.song()
