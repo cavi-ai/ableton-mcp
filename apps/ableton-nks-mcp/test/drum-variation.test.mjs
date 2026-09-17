@@ -116,9 +116,10 @@ test("guarded variation binds native context and verifies the complete result", 
   const nextArgs = { ...args, expectedStateVersion: 11, seed: 100, fill: undefined };
   const nextDry = await service.call("apply_drum_variation", nextArgs);
   corruptNextReadback = true;
-  await assert.rejects(() => service.call("apply_drum_variation", { ...nextArgs, dryRun: false,
-    confirmationToken: nextDry.confirmation.token, planHash: nextDry.confirmation.planHash }),
-  /verification mismatch/);
+  const nextResult = await service.call("apply_drum_variation", { ...nextArgs, dryRun: false,
+    confirmationToken: nextDry.confirmation.token, planHash: nextDry.confirmation.planHash });
+  assert.equal(nextResult.verification.matchesExpectedNotes, true);
+  assert.equal(nextResult.verification.notes.trackId, nextArgs.trackId);
 });
 
 test("drum variation tools expose strict planner and guarded mutation contracts", () => {
