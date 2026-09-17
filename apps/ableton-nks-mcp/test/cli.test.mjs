@@ -59,7 +59,8 @@ test("install copies the packaged Remote Script without deleting unrelated files
   const writes = [];
   const fs = {
     async cp(from, to, options) { writes.push({ from, to, options }); },
-    async mkdir(path, options) { writes.push({ mkdir: path, options }); }
+    async mkdir(path, options) { writes.push({ mkdir: path, options }); },
+    async rm(path, options) { writes.push({ rm: path, options }); }
   };
   const output = [];
   const result = await runCli(["install", "--destination", destination], {
@@ -72,9 +73,11 @@ test("install copies the packaged Remote Script without deleting unrelated files
   assert.equal(result.installed, true);
   assert.equal(result.destination, join(destination, "CaviMcpBridge"));
   assert.deepEqual(writes[0], { mkdir: destination, options: { recursive: true } });
-  assert.equal(writes[1].from, join(source, "ableton", "Remote Scripts", "CaviMcpBridge"));
-  assert.equal(writes[1].options.recursive, true);
-  assert.equal("force" in writes[1].options, false);
+  assert.deepEqual(writes[1], { rm: join(destination, "CaviMcpBridge", "__pycache__"),
+    options: { recursive: true, force: true } });
+  assert.equal(writes[2].from, join(source, "ableton", "Remote Scripts", "CaviMcpBridge"));
+  assert.equal(writes[2].options.recursive, true);
+  assert.equal("force" in writes[2].options, false);
 });
 
 test("install excludes packaged tests and Python caches while copying runtime bridge files", async () => {

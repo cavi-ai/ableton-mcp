@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from bridge import SocketBridge, dispatch_request, _device_type, _new_midi_note, _persisted_device_chain, _track_topology_signature
+from bridge import SocketBridge, dispatch_request, _device_type, _new_midi_note, _persisted_device_chain, _set_fingerprint, _track_topology_signature
 
 
 class Parameter:
@@ -629,6 +629,62 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(client.messages[-1]["result"]["stateVersion"], first_version + 1)
         self.assertEqual(client.messages[-1]["result"]["tracks"][1]["groupTrackId"], "track-0")
 
+    def test_socket_bridge_survives_a_client_disconnect_before_response(self):
+        song = Song()
+
+        class Surface:
+            def song(self):
+                return song
+
+            def application(self):
+                return None
+
+        class DisconnectedClient:
+            def sendall(self, _payload):
+                raise OSError(9, "Bad file descriptor")
+
+        class Client:
+            def __init__(self):
+                self.messages = []
+
+            def sendall(self, payload):
+                self.messages.append(json.loads(payload))
+
+        bridge = SocketBridge(Surface(), "/unused")
+        client = Client()
+        bridge.requests.put((DisconnectedClient(), {"id": 1, "method": "get_live_state"}))
+        bridge.requests.put((client, {"id": 2, "method": "get_live_state"}))
+        bridge.drain()
+        self.assertTrue(bridge.requests.empty())
+        self.assertEqual(client.messages[0]["id"], 2)
+
+    def test_socket_bridge_advances_state_version_after_external_scene_change(self):
+        song = Song()
+
+        class Surface:
+            def song(self):
+                return song
+
+            def application(self):
+                return None
+
+        class Client:
+            def __init__(self):
+                self.messages = []
+
+            def sendall(self, payload):
+                self.messages.append(json.loads(payload))
+
+        client = Client()
+        bridge = SocketBridge(Surface(), "/unused")
+        bridge.requests.put((client, {"id": 1, "method": "list_scenes"}))
+        bridge.drain()
+        first_version = client.messages[-1]["result"]["stateVersion"]
+        song.create_scene(0)
+        bridge.requests.put((client, {"id": 2, "method": "list_scenes"}))
+        bridge.drain()
+        self.assertEqual(client.messages[-1]["result"]["stateVersion"], first_version + 1)
+
     def test_topology_signature_ignores_fresh_live_object_wrappers(self):
         class TrackProxy:
             def __init__(self, token, parent=None):
@@ -646,6 +702,7 @@ class DispatchTest(unittest.TestCase):
 
         class ProxiedSong:
             parent = "bus"
+            scenes = ()
 
             @property
             def tracks(self):
@@ -656,6 +713,15 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(_track_topology_signature(song), before)
         song.parent = None
         self.assertNotEqual(_track_topology_signature(song), before)
+
+    def test_set_fingerprint_ignores_fresh_song_wrappers(self):
+        base = Song()
+
+        class SongProxy:
+            def __getattr__(self, name):
+                return getattr(base, name)
+
+        self.assertEqual(_set_fingerprint(SongProxy()), _set_fingerprint(SongProxy()))
 
     def test_arrangement_cue_point_lifecycle_and_jump(self):
         song = Song()
@@ -3006,6 +3072,85 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(result["addedNoteIds"], [100])
         self.assertEqual([note["noteId"] for note in result["notes"]], [8, 100])
         self.assertEqual(result["stateVersion"], 4)
+
+    def test_scale_melody_creation_binds_context_and_returns_complete_notes_atomically(self):
+        song = Song()
+        target = {"trackId": "track-1", "clipId": "track-1:clip-0"}
+        before_context = dispatch_request(song, {"method": "get_song_musical_context"}, 1)
+        before_slot = dispatch_request(song, {"method": "list_clips", "params": {
+            "trackId": "track-1"
+        }}, 1)["clips"][0]
+        fingerprint = dispatch_request(song, {"method": "get_live_state"}, 1)["setFingerprint"]
+        notes = [
+            {"pitch": 60, "start": 0, "duration": .2, "velocity": 96, "mute": False},
+            {"pitch": 64, "start": .5, "duration": .2, "velocity": 110, "mute": False},
+        ]
+        melody = {"grid": "straight16", "motifBars": 1, "repeats": 1,
+                  "gate": .8, "velocity": 96, "basePitch": 60, "minPitch": 48, "maxPitch": 84,
+                  "stepsPerMotif": 16, "stepBeats": .25, "motifLengthBeats": 4,
+                  "motif": [
+                      {"step": 0, "degree": 1, "octaveOffset": 0, "velocity": 96,
+                       "pitch": 60, "pitchClass": 0, "noteName": "C"},
+                      {"step": 2, "degree": 3, "octaveOffset": 0, "velocity": 110,
+                       "pitch": 64, "pitchClass": 4, "noteName": "E"},
+                  ], "notes": notes, "lengthBeats": 4,
+                  "scale": {"name": "Major", "rootNote": 0, "rootName": "C",
+                            "intervals": [0, 2, 4, 5, 7, 9, 11],
+                            "pitchClasses": [0, 2, 4, 5, 7, 9, 11],
+                            "noteNames": ["C", "D", "E", "F", "G", "A", "B"],
+                            "degrees": [1, 2, 3, 4, 5, 6, 7], "family": "major"}}
+        params = {**target, "expectedStateVersion": 1, "operation": "create_scale_melody_clip",
+                  "name": "Lead Motif", "lengthBeats": 4, "notes": notes, "melody": melody,
+                  "musicalContext": before_context,
+                  "gridReference": {"stateVersion": 1, "setFingerprint": fingerprint,
+                                    "tempoBpm": 120, "timeSignature": {"numerator": 4, "denominator": 4},
+                                    "barLengthBeats": 4,
+                                    "grids": {"straight16": {"stepsPerQuarter": 4, "stepsPerBar": 16,
+                                                               "barBoundaryOnGrid": True}}},
+                  "before": before_slot}
+        target_slot = song.tracks[1].clip_slots[0]
+        create_clip = target_slot.create_clip
+        def create_with_native_note_order(length):
+            create_clip(length)
+            target_slot.clip.get_notes = lambda *args: tuple(reversed(target_slot.clip.notes))
+        target_slot.create_clip = create_with_native_note_order
+        result = dispatch_request(song, {"method": "create_midi_clip", "params": params}, 1)
+        self.assertEqual(result["stateVersion"], 2)
+        self.assertCountEqual(result["notes"], notes)
+        self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
+
+        scene_changed_song = Song()
+        scene_changed_params = {**params,
+                                "musicalContext": dispatch_request(scene_changed_song, {
+                                    "method": "get_song_musical_context"}, 1),
+                                "gridReference": {**params["gridReference"], "setFingerprint":
+                                    dispatch_request(scene_changed_song, {
+                                        "method": "get_live_state"}, 1)["setFingerprint"]}}
+        scene_changed_song.create_scene(0)
+        with self.assertRaisesRegex(ValueError, "song grid changed"):
+            dispatch_request(scene_changed_song, {
+                "method": "create_midi_clip", "params": scene_changed_params}, 1)
+
+        stale_song = Song()
+        stale_song.root_note = 2
+        with self.assertRaisesRegex(ValueError, "musical context changed"):
+            dispatch_request(stale_song, {"method": "create_midi_clip", "params": params}, 1)
+
+        failing_song = Song()
+        failing_slot = failing_song.tracks[1].clip_slots[0]
+        original_create = failing_slot.create_clip
+        def create_with_failed_readback(length):
+            original_create(length)
+            failing_slot.clip.get_notes = lambda *args: (_ for _ in ()).throw(ValueError("native melody readback failed"))
+        failing_slot.create_clip = create_with_failed_readback
+        failing_params = {**params,
+                          "musicalContext": dispatch_request(failing_song, {"method": "get_song_musical_context"}, 1),
+                          "gridReference": {**params["gridReference"], "setFingerprint":
+                              dispatch_request(failing_song, {"method": "get_live_state"}, 1)["setFingerprint"]}}
+        with self.assertRaisesRegex(ValueError, "native melody readback failed"):
+            dispatch_request(failing_song, {"method": "create_midi_clip", "params": failing_params}, 1)
+        self.assertFalse(failing_slot.has_clip)
+        self.assertEqual(failing_song.undo_boundaries[-2:], ["begin", "end"])
 
     def test_replace_midi_notes_rejects_stale_state_snapshot_and_unsafe_counts(self):
         song = Song()
