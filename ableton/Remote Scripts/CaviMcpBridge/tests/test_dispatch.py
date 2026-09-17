@@ -2818,6 +2818,31 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(duplicate_only["addedNoteIds"], [101])
         self.assertEqual([note["noteId"] for note in duplicate_only["notes"]], [7, 100, 101])
 
+    def test_guarded_gate_pattern_applies_duration_and_preserves_complete_note_state(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        first, second = MidiNote(7), MidiNote(8)
+        second.pitch = 64
+        second.start_time = 1.0
+        clip.extended_notes = [first, second]
+        target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+        changes = [{"noteId": 7, "previous": before["notes"][0], "duration": 0.75},
+                   {"noteId": 8, "previous": before["notes"][1], "duration": 0.75}]
+        params = {**target, "expectedStateVersion": 3, "before": before, "clipTiming": timing,
+                  "gridReference": {"tempoBpm": 120.0,
+                                    "timeSignature": {"numerator": 4, "denominator": 4},
+                                    "setFingerprint": dispatch_request(song, {"method": "get_live_state"}, 3)["setFingerprint"]},
+                  "operation": "apply_midi_gate_pattern",
+                  "gatePattern": {"noteIds": [7, 8], "gridBeats": 1.0,
+                                  "gateRatios": [0.75], "changes": changes},
+                  "changes": changes, "newNotes": []}
+        result = dispatch_request(song, {"method": "transform_midi_notes", "params": params}, 3)
+        self.assertEqual([note["duration"] for note in result["notes"]], [0.75, 0.75])
+        self.assertEqual([note["velocity"] for note in result["notes"]], [100, 100])
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
     def test_guarded_drum_variation_transform_rejects_stale_native_context(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip
