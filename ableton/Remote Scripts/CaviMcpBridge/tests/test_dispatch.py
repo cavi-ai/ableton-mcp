@@ -162,7 +162,8 @@ class Clip:
     def apply_note_modifications(self, notes):
         if not notes:
             raise AssertionError("Live rejects an empty apply_note_modifications call")
-        self.extended_notes = list(notes)
+        replacements = {note.note_id: note for note in notes}
+        self.extended_notes = [replacements.get(note.note_id, note) for note in self.extended_notes]
 
     def add_new_notes(self, notes):
         self.added_notes = list(notes)
@@ -3112,6 +3113,78 @@ class DispatchTest(unittest.TestCase):
             dispatch_request(failing_song, {"method": "transform_midi_notes", "params": failing}, 3)
         self.assertEqual(failing_clip.extended_notes[0].start_time, .01)
         self.assertEqual(failing_clip.extended_notes[0].velocity, 100)
+        self.assertEqual(failing_song.undo_boundaries[-2:], ["begin", "end"])
+
+    def test_guarded_midi_velocity_curve_recomputes_plan_and_rolls_back_atomically(self):
+        def fixture():
+            song = Song()
+            clip = song.tracks[0].clip_slots[0].clip
+            notes = []
+            for note_id, pitch, start, velocity in (
+                    (1, 60, 0, 70), (2, 64, 0, 80), (3, 67, 1, 90), (4, 72, 2, 100)):
+                current = MidiNote(note_id)
+                current.pitch = pitch
+                current.start_time = start
+                current.duration = .5
+                current.velocity = velocity
+                notes.append(current)
+            clip.extended_notes = notes
+            target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+            before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+            timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+            changes = [
+                {"noteId": 1, "previous": before["notes"][0], "velocity": 60},
+                {"noteId": 2, "previous": before["notes"][1], "velocity": 60},
+                {"noteId": 4, "previous": before["notes"][3], "velocity": 120},
+            ]
+            curve = {"noteIds": [1, 2, 3, 4],
+                     "curve": {"type": "crescendo", "startVelocity": 60, "endVelocity": 120},
+                     "changes": changes}
+            params = {**target, "expectedStateVersion": 3, "before": before,
+                      "clipTiming": timing,
+                      "gridReference": {"stateVersion": 3, "tempoBpm": 120,
+                                        "timeSignature": {"numerator": 4, "denominator": 4},
+                                        "setFingerprint": dispatch_request(song, {
+                                            "method": "get_live_state"}, 3)["setFingerprint"]},
+                      "operation": "apply_midi_velocity_curve", "changes": changes,
+                      "newNotes": [], "velocityCurve": curve}
+            return song, clip, params
+
+        song, _, params = fixture()
+        result = dispatch_request(song, {"method": "transform_midi_notes", "params": params}, 3)
+        self.assertEqual([note["velocity"] for note in result["notes"]], [60, 60, 90, 120])
+        self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
+
+        tampered_song, _, tampered = fixture()
+        with self.assertRaisesRegex(ValueError, "signed plan"):
+            dispatch_request(tampered_song, {"method": "transform_midi_notes", "params": {
+                **tampered, "changes": [{**tampered["changes"][0], "velocity": 61},
+                                         *tampered["changes"][1:]]
+            }}, 3)
+
+        partial_song, _, partial = fixture()
+        partial_changes = [partial["changes"][0], partial["changes"][2]]
+        with self.assertRaisesRegex(ValueError, "complete onset"):
+            dispatch_request(partial_song, {"method": "transform_midi_notes", "params": {
+                **partial, "changes": partial_changes,
+                "velocityCurve": {**partial["velocityCurve"], "noteIds": [1, 3, 4],
+                                  "changes": partial_changes}
+            }}, 3)
+
+        failing_song, failing_clip, failing = fixture()
+        apply_calls = 0
+        def fail_once(notes):
+            nonlocal apply_calls
+            apply_calls += 1
+            if apply_calls == 1:
+                raise ValueError("native velocity failed")
+            replacements = {note.note_id: note for note in notes}
+            failing_clip.extended_notes = [replacements.get(note.note_id, note)
+                                           for note in failing_clip.extended_notes]
+        failing_clip.apply_note_modifications = fail_once
+        with self.assertRaisesRegex(ValueError, "native velocity failed"):
+            dispatch_request(failing_song, {"method": "transform_midi_notes", "params": failing}, 3)
+        self.assertEqual([note.velocity for note in failing_clip.extended_notes], [70, 80, 90, 100])
         self.assertEqual(failing_song.undo_boundaries[-2:], ["begin", "end"])
 
     def test_replace_midi_notes_removes_exact_ids_and_adds_replacements(self):

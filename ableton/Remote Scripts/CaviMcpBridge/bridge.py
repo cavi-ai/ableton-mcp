@@ -992,6 +992,72 @@ def _validate_midi_humanization_payload(clip, params):
     return final
 
 
+def _validate_midi_velocity_curve_payload(clip, params):
+    velocity_plan = params.get("velocityCurve")
+    if not isinstance(velocity_plan, dict) or set(velocity_plan) != {"noteIds", "curve", "changes"} or \
+            params.get("changes") != velocity_plan.get("changes") or params.get("newNotes") != []:
+        raise ValueError("MIDI velocity curve payload does not match its signed plan")
+    note_ids = velocity_plan.get("noteIds")
+    curve = velocity_plan.get("curve")
+    if not isinstance(note_ids, list) or not note_ids or len(note_ids) > 4096 or \
+            any(type(note_id) is not int or note_id < 0 for note_id in note_ids) or \
+            len(note_ids) != len(set(note_ids)) or not isinstance(curve, dict):
+        raise ValueError("MIDI velocity curve options or note IDs are invalid")
+    curve_type = curve.get("type")
+    if curve_type == "fixed":
+        if set(curve) != {"type", "velocity"} or type(curve["velocity"]) is not int or not 1 <= curve["velocity"] <= 127:
+            raise ValueError("MIDI fixed velocity curve is invalid")
+    elif curve_type == "accent":
+        velocities = curve.get("velocities")
+        if set(curve) != {"type", "velocities"} or not isinstance(velocities, list) or \
+                not velocities or len(velocities) > 128 or \
+                any(type(value) is not int or not 1 <= value <= 127 for value in velocities):
+            raise ValueError("MIDI accent velocity curve is invalid")
+    elif curve_type in ("crescendo", "decrescendo"):
+        if set(curve) != {"type", "startVelocity", "endVelocity"} or \
+                any(type(curve.get(field)) is not int or not 1 <= curve[field] <= 127
+                    for field in ("startVelocity", "endVelocity")) or \
+                (curve_type == "crescendo" and curve["endVelocity"] <= curve["startVelocity"]) or \
+                (curve_type == "decrescendo" and curve["endVelocity"] >= curve["startVelocity"]):
+            raise ValueError("MIDI linear velocity curve is invalid")
+    else:
+        raise ValueError("MIDI velocity curve type is invalid")
+    current = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
+    by_id = {note["noteId"]: note for note in current}
+    if len(by_id) != len(current) or any(note_id not in by_id for note_id in note_ids):
+        raise ValueError("one or more MIDI velocity curve note IDs no longer exist")
+    selected_starts = {by_id[note_id]["start"] for note_id in note_ids}
+    selected_ids = set(note_ids)
+    if any(note["start"] in selected_starts and note["noteId"] not in selected_ids for note in current):
+        raise ValueError("MIDI velocity curves require every note at each selected complete onset")
+    onsets = sorted(selected_starts)
+    velocity_by_start = {}
+    for index, start in enumerate(onsets):
+        if curve_type == "fixed":
+            target = curve["velocity"]
+        elif curve_type == "accent":
+            target = curve["velocities"][index % len(curve["velocities"])]
+        else:
+            progress = 0 if len(onsets) == 1 else index / (len(onsets) - 1)
+            target = math.floor(curve["startVelocity"] +
+                                (curve["endVelocity"] - curve["startVelocity"]) * progress + .5)
+        velocity_by_start[start] = target
+    expected = []
+    for note_id in note_ids:
+        previous = by_id[note_id]
+        target = velocity_by_start[previous["start"]]
+        if target != previous["velocity"]:
+            expected.append({"noteId": note_id, "previous": previous, "velocity": target})
+    if not expected:
+        raise ValueError("MIDI velocity curve would not change any selected notes")
+    if params.get("changes") != expected:
+        raise ValueError("MIDI velocity curve changes do not match the signed plan")
+    final = {note["noteId"]: dict(note) for note in current}
+    for change in expected:
+        final[change["noteId"]]["velocity"] = change["velocity"]
+    return final
+
+
 def _validate_scale_melody_payload(song, params, state_version, fingerprint):
     if params.get("expectedStateVersion") != state_version:
         raise ValueError("melody state version changed")
@@ -2181,7 +2247,8 @@ def dispatch_request(song, request, state_version, application=None):
         if method in ("set_midi_note_properties", "transform_midi_notes"):
             guarded_variation = method == "transform_midi_notes" and params.get("operation") == "apply_drum_variation"
             guarded_humanization = method == "transform_midi_notes" and params.get("operation") == "apply_midi_humanization"
-            guarded_transform = guarded_variation or guarded_humanization
+            guarded_velocity = method == "transform_midi_notes" and params.get("operation") == "apply_midi_velocity_curve"
+            guarded_transform = guarded_variation or guarded_humanization or guarded_velocity
             if guarded_transform:
                 if params.get("expectedStateVersion") != state_version:
                     raise ValueError("MIDI clip state version changed")
@@ -2211,6 +2278,7 @@ def dispatch_request(song, request, state_version, application=None):
             if guarded_variation:
                 _validate_drum_variation_payload(clip, params)
             expected_humanized = _validate_midi_humanization_payload(clip, params) if guarded_humanization else None
+            expected_velocity = _validate_midi_velocity_curve_payload(clip, params) if guarded_velocity else None
             notes = clip.get_notes_by_id(note_ids) if note_ids else []
             by_id = {int(note.note_id): note for note in notes}
             if len(by_id) != len(set(note_ids)):
@@ -2227,6 +2295,36 @@ def dispatch_request(song, request, state_version, application=None):
                                          if source in change}))
             added_note_ids = []
             new_note_specs = tuple(_new_midi_note(note) for note in params.get("newNotes", []))
+            if guarded_velocity:
+                with _undo_step(song):
+                    try:
+                        for change in params["changes"]:
+                            by_id[int(change["noteId"])].velocity = change["velocity"]
+                        if notes:
+                            clip.apply_note_modifications(notes)
+                        readback = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
+                        observed = {note["noteId"]: note for note in readback}
+                        if set(observed) != set(expected_velocity) or any(
+                                any(observed[note_id][field] != expected[field]
+                                    for field in ("pitch", "duration", "velocity", "velocityDeviation",
+                                                  "releaseVelocity", "probability", "mute")) or
+                                abs(observed[note_id]["start"] - expected["start"]) > 2e-7
+                                for note_id, expected in expected_velocity.items()):
+                            raise ValueError("native MIDI velocity readback does not match the signed plan")
+                        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                                "clipId": params["clipId"], "lengthBeats": float(clip.length),
+                                "notes": readback, "addedNoteIds": []}
+                    except Exception as mutation_error:
+                        for note, values in originals:
+                            for target, value in values.items():
+                                setattr(note, target, value)
+                        try:
+                            if originals:
+                                clip.apply_note_modifications(notes)
+                        except Exception as rollback_error:
+                            raise RuntimeError("MIDI velocity curve failed and rollback was incomplete (%s); original error: %s" %
+                                               (rollback_error, mutation_error))
+                        raise mutation_error
             if guarded_humanization:
                 with _undo_step(song):
                     try:
