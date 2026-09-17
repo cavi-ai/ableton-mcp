@@ -94,6 +94,16 @@ const midiHumanizationProperties = {
   maxTimingOffsetBeats: number("Maximum absolute timing movement in beats; must not exceed half gridBeats.", { minimum: 0, maximum: 64 }),
   maxVelocityOffset: { type: "integer", minimum: 0, maximum: 126, description: "Maximum absolute velocity movement." },
 };
+const midiVelocityCurveProperties = {
+  trackId: ids.trackId, clipId: ids.clipId,
+  noteIds: { ...array({ type: "integer", minimum: 0 }, "Unique stable note IDs at complete selected onsets."), minItems: 1, maxItems: 4096 },
+  curve: { oneOf: [
+    object({ type: { const: "crescendo" }, startVelocity: { type: "integer", minimum: 1, maximum: 127 }, endVelocity: { type: "integer", minimum: 1, maximum: 127 } }, ["type", "startVelocity", "endVelocity"]),
+    object({ type: { const: "decrescendo" }, startVelocity: { type: "integer", minimum: 1, maximum: 127 }, endVelocity: { type: "integer", minimum: 1, maximum: 127 } }, ["type", "startVelocity", "endVelocity"]),
+    object({ type: { const: "fixed" }, velocity: { type: "integer", minimum: 1, maximum: 127 } }, ["type", "velocity"]),
+    object({ type: { const: "accent" }, velocities: { ...array({ type: "integer", minimum: 1, maximum: 127 }, "Repeating target velocities by ordered onset."), minItems: 1, maxItems: 128 } }, ["type", "velocities"]),
+  ], description: "Exact crescendo, decrescendo, fixed, or repeating accent target." },
+};
 const melodyEvent = object({
   step: { type: "integer", minimum: 0, maximum: 4095, description: "Unique zero-based grid step within the motif." },
   degree: { type: "integer", minimum: 1, maximum: 9, description: "One-based Live scale degree." },
@@ -208,6 +218,8 @@ export const toolContracts = {
   apply_drum_variation: { description: "Plan or apply a guarded deterministic drum variation with exact native context and complete note readback.", inputSchema: guarded(drumVariationProperties, ["trackId", "clipId", "grid", "startBar", "bars", "laneNotes", "seed", "timingAmount", "velocityAmount", "preserveAccentsAbove"]) },
   plan_midi_humanization: { description: "Plan deterministic bounded timing and velocity humanization for exact MIDI note IDs. Preserves expression metadata and rejects new same-pitch collisions.", inputSchema: object(midiHumanizationProperties, ["trackId", "clipId", "noteIds", "seed", "gridBeats", "maxTimingOffsetBeats", "maxVelocityOffset"]) },
   humanize_midi_notes: { description: "Plan or apply guarded deterministic MIDI timing and velocity humanization with exact clip, grid, and complete native note readback.", inputSchema: guarded(midiHumanizationProperties, ["trackId", "clipId", "noteIds", "seed", "gridBeats", "maxTimingOffsetBeats", "maxVelocityOffset"]) },
+  plan_midi_velocity_curve: { description: "Plan exact crescendo, decrescendo, fixed, or repeating accent velocities across complete ordered MIDI onsets.", inputSchema: object(midiVelocityCurveProperties, ["trackId", "clipId", "noteIds", "curve"]) },
+  apply_midi_velocity_curve: { description: "Plan or apply a guarded MIDI velocity curve while preserving timing, pitch, duration, probability, and expression metadata.", inputSchema: guarded(midiVelocityCurveProperties, ["trackId", "clipId", "noteIds", "curve"]) },
   get_clip_timing: { description: "Read clip loop, signature, launch quantization, and groove assignment.", inputSchema: clip },
   get_clip_groove_context: { description: "Read one native callback snapshot of exact clip/track names, MIDI note IDs and expression metadata or audio state, clip timing, complete Groove Pool and global musical context. Supports before/after validation of UI-only extraction and baking; does not execute them.", inputSchema: clip },
   inspect_clip_groove_postconditions: { description: "Read current native context and inspect extraction or baking postconditions against a supplied pre-action get_clip_groove_context snapshot. Does not execute the UI action, prove provenance, or validate audible equivalence. Extraction expects one appended groove and unchanged source/timing; baking expects removed assignment and unchanged unrelated timing/shared context.", inputSchema: object({ ...clip.properties, operation: { type: "string", enum: ["bake", "extract"] }, before: { type: "object", description: "Complete pre-action native clip groove context snapshot; supplied data is not authenticated history." } }, ["trackId", "clipId", "operation", "before"]) },
