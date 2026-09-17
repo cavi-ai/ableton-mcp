@@ -2751,6 +2751,122 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(duplicate_only["addedNoteIds"], [101])
         self.assertEqual([note["noteId"] for note in duplicate_only["notes"]], [7, 100, 101])
 
+    def test_guarded_drum_variation_transform_rejects_stale_native_context(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        clip.extended_notes = [MidiNote(7)]
+        target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+        params = {**target, "expectedStateVersion": 3, "before": before, "clipTiming": timing,
+                  "gridReference": {"tempoBpm": 120,
+                                    "timeSignature": {"numerator": 4, "denominator": 4}},
+                  "operation": "apply_drum_variation",
+                  "changes": [{"noteId": 7, "velocity": 90}], "newNotes": []}
+        song.tempo = 121
+        with self.assertRaisesRegex(ValueError, "song grid changed"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": params}, 3)
+        song.tempo = 120
+        clip.signature_numerator = 3
+        with self.assertRaisesRegex(ValueError, "clip timing changed"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": params}, 3)
+
+    def test_guarded_drum_variation_bounds_payload_and_rolls_back_added_notes(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        clip.extended_notes = [MidiNote(7)]
+        target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+        base = {**target, "expectedStateVersion": 3, "before": before, "clipTiming": timing,
+                "gridReference": {"tempoBpm": 120,
+                                  "timeSignature": {"numerator": 4, "denominator": 4},
+                                  "setFingerprint": dispatch_request(song, {"method": "get_live_state"}, 3)["setFingerprint"]},
+                "operation": "apply_drum_variation",
+                "variation": {"range": {"startBeat": 0, "endBeat": 4}, "laneNotes": [60],
+                              "grid": "straight16", "startBar": 0, "bars": 1, "seed": 132,
+                              "stepBeats": .25, "timingAmount": 0, "velocityAmount": 32,
+                              "preserveAccentsAbove": 101, "changedBefore": [before["notes"][0]],
+                              "preservedNotes": [], "changes": [{"noteId": 7, "velocity": 90}],
+                              "newNotes": [], "fill": None}}
+        with self.assertRaisesRegex(ValueError, "at most 4096"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": {
+                **base, "changes": [], "newNotes": [{}] * 4097
+            }}, 3)
+        original_apply = clip.apply_note_modifications
+        clip.apply_note_modifications = lambda notes: (_ for _ in ()).throw(ValueError("native apply failed"))
+        with self.assertRaisesRegex(RuntimeError, "rollback was incomplete.*native apply failed"):
+            added = {"pitch": 38, "start": 3, "duration": .125, "velocity": 100,
+                     "velocityDeviation": 0, "releaseVelocity": 0, "probability": 1, "mute": False}
+            dispatch_request(song, {"method": "transform_midi_notes", "params": {
+                **base, "changes": [{"noteId": 7, "velocity": 90}],
+                "newNotes": [added],
+                "variation": {**base["variation"], "newNotes": [added],
+                              "fill": {"note": 38, "grid": "straight16", "activeSteps": [13],
+                                       "velocity": 100, "gate": .5}}
+            }}, 3)
+        clip.apply_note_modifications = original_apply
+        self.assertEqual([note.note_id for note in clip.extended_notes], [7])
+        self.assertEqual(clip.extended_notes[0].velocity, 100)
+        original_add = clip.add_new_notes
+        def partial_add(specs):
+            original_add(specs[:1])
+            raise ValueError("native add failed after partial write")
+        clip.add_new_notes = partial_add
+        with self.assertRaisesRegex(ValueError, "native add failed after partial write"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": {
+                **base, "changes": [{"noteId": 7, "velocity": 90}], "newNotes": [added],
+                "variation": {**base["variation"], "newNotes": [added],
+                              "fill": {"note": 38, "grid": "straight16", "activeSteps": [13],
+                                       "velocity": 100, "gate": .5}}
+            }}, 3)
+        self.assertEqual([note.note_id for note in clip.extended_notes], [7])
+        self.assertEqual(clip.extended_notes[0].velocity, 100)
+        self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
+
+    def test_guarded_drum_variation_rejects_bypassed_semantics_and_fingerprint(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        clip.extended_notes = [MidiNote(7)]
+        target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+        fingerprint = dispatch_request(song, {"method": "get_live_state"}, 3)["setFingerprint"]
+        variation = {"range": {"startBeat": 0, "endBeat": 4}, "laneNotes": [60],
+                     "grid": "straight16", "startBar": 0, "bars": 1, "seed": 0,
+                     "stepBeats": .25, "timingAmount": 0, "velocityAmount": 0,
+                     "preserveAccentsAbove": 110, "changedBefore": [],
+                     "preservedNotes": before["notes"], "changes": [], "newNotes": [], "fill": None}
+        base = {**target, "expectedStateVersion": 3, "before": before, "clipTiming": timing,
+                "gridReference": {"tempoBpm": 120, "timeSignature": {"numerator": 4, "denominator": 4},
+                                  "setFingerprint": fingerprint},
+                "operation": "apply_drum_variation", "changes": [], "newNotes": [], "variation": variation}
+        with self.assertRaisesRegex(ValueError, "fingerprint"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": {
+                **base, "gridReference": {**base["gridReference"], "setFingerprint": "wrong"}
+            }}, 3)
+        collision = {"pitch": 60, "start": 0, "duration": 0.25, "velocity": 90,
+                     "velocityDeviation": 0, "releaseVelocity": 0, "probability": 1, "mute": False}
+        with self.assertRaisesRegex(ValueError, "collision"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": {
+                **base, "newNotes": [collision],
+                "variation": {**variation, "newNotes": [collision],
+                              "fill": {"note": 60, "grid": "straight16", "activeSteps": [1],
+                                       "velocity": 90, "gate": 1}}
+            }}, 3)
+        with self.assertRaisesRegex(ValueError, "deterministic plan"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": {
+                **base, "changes": [{"noteId": 7, "start": 5}],
+                "variation": {**variation, "changes": [{"noteId": 7, "start": 5}],
+                              "changedBefore": before["notes"], "preservedNotes": []}
+            }}, 3)
+        with self.assertRaisesRegex(ValueError, "deterministic plan"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": {
+                **base, "changes": [{"noteId": 7, "pitch": 61}],
+                "variation": {**variation, "changes": [{"noteId": 7, "pitch": 61}],
+                              "changedBefore": before["notes"], "preservedNotes": []}
+            }}, 3)
+
     def test_replace_midi_notes_removes_exact_ids_and_adds_replacements(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip

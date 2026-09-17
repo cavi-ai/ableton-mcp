@@ -16,6 +16,7 @@ import { analyzeMidiChordEvents } from "./midi-chord-analysis.mjs";
 import { matchMidiNoteReadback, planScaleChordProgression } from "./scale-chord-progression.mjs";
 import { planScaleBassline } from "./scale-bassline.mjs";
 import { matchDrumPatternEditReadback, planDrumPattern, planDrumPatternEdit } from "./drum-pattern.mjs";
+import { matchDrumVariationReadback, planDrumVariation } from "./drum-variation.mjs";
 
 function requireExpectedState(args) {
   if (!Number.isInteger(args.expectedStateVersion)) {
@@ -335,7 +336,8 @@ export class ToolService {
       if (live.stateVersion !== context.stateVersion || JSON.stringify(context) !== JSON.stringify(afterContext) ||
         live.stateVersion !== afterLive.stateVersion || live.setFingerprint !== afterLive.setFingerprint ||
         live.tempo !== afterLive.tempo) throw new Error("song grid context changed; retry");
-      return { stateVersion: live.stateVersion, ...buildSongGridReference(context.timeSignature, live.tempo) };
+      return { stateVersion: live.stateVersion, setFingerprint: live.setFingerprint,
+        ...buildSongGridReference(context.timeSignature, live.tempo) };
     }
     if (name === "plan_grid_envelope_pattern") {
       const reference = await this.call("get_song_grid_reference", {});
@@ -347,6 +349,7 @@ export class ToolService {
         plan: planDrumPattern(reference, args) };
     }
     if (name === "plan_drum_pattern_edit") return this.#planDrumPatternEdit(args);
+    if (name === "plan_drum_variation") return this.#planDrumVariation(args);
     if (name === "get_clip_groove_context") return this.bridge.request("get_clip_groove_context", args);
     if (name === "inspect_clip_groove_postconditions") {
       if (args.before?.trackId !== args.trackId || args.before?.clipId !== args.clipId) throw new Error("before snapshot does not match target");
@@ -808,6 +811,7 @@ export class ToolService {
     if (name === "create_scale_bassline_clip") return this.#createScaleBasslineClip(args);
     if (name === "create_drum_pattern_clip") return this.#createDrumPatternClip(args);
     if (name === "edit_drum_pattern_clip") return this.#editDrumPatternClip(args);
+    if (name === "apply_drum_variation") return this.#applyDrumVariation(args);
     if (name === "create_audio_clip") return this.#createAudioClip(args);
     if (name === "set_clip_parameter_envelope") return this.#setClipParameterEnvelope(args);
     if (name === "set_midi_note_properties") return this.#setMidiNoteProperties(args);
@@ -2084,6 +2088,65 @@ export class ToolService {
       throw new Error("drum edit verification context mismatch");
     if (!matchDrumPatternEditReadback(planned.edit, observed, notes.notes))
       throw new Error("drum edit note readback mismatch");
+    return { dryRun: false, requested: plan, observed,
+      verification: { matchesExpectedNotes: true, notes }, timestamp: new Date().toISOString() };
+  }
+
+  async #planDrumVariation(args) {
+    const gridReference = await this.call("get_song_grid_reference", {});
+    const clipTiming = await this.bridge.request("get_clip_timing", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    const before = await this.bridge.request("get_midi_clip_notes_extended", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    if (clipTiming.stateVersion !== gridReference.stateVersion || before.stateVersion !== gridReference.stateVersion ||
+        clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId ||
+        before.trackId !== args.trackId || before.clipId !== args.clipId)
+      throw new Error("drum variation target changed during inspection; retry");
+    const clipReference = { ...buildSongGridReference(clipTiming.timeSignature, gridReference.tempoBpm),
+      stateVersion: gridReference.stateVersion };
+    const variation = planDrumVariation(clipReference, before, args);
+    const afterGrid = await this.call("get_song_grid_reference", {});
+    const afterTiming = await this.bridge.request("get_clip_timing", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    if (JSON.stringify(gridReference) !== JSON.stringify(afterGrid) ||
+        JSON.stringify(clipTiming) !== JSON.stringify(afterTiming))
+      throw new Error("drum variation context changed during planning; retry");
+    return { stateVersion: before.stateVersion, gridReference, clipTiming, before, variation };
+  }
+
+  async #applyDrumVariation(args) {
+    requireExpectedState(args);
+    const planned = await this.#planDrumVariation(args);
+    if (planned.stateVersion !== args.expectedStateVersion)
+      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${planned.stateVersion}`);
+    const plan = { method: "transform_midi_notes", operation: "apply_drum_variation",
+      trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
+      changes: planned.variation.changes, newNotes: planned.variation.newNotes,
+      variation: planned.variation, gridReference: planned.gridReference,
+      clipTiming: planned.clipTiming, before: planned.before };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    this.#consumeConfirmation(plan, args);
+    const observed = await this.bridge.request("transform_midi_notes", plan);
+    if (observed.stateVersion !== args.expectedStateVersion + 1 || observed.trackId !== args.trackId ||
+        observed.clipId !== args.clipId) throw new Error("drum variation readback mismatch");
+    const notes = await this.bridge.request("get_midi_clip_notes_extended", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    const finalGrid = await this.call("get_song_grid_reference", {});
+    const finalTiming = await this.bridge.request("get_clip_timing", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    const withoutState = ({ stateVersion, ...value }) => value;
+    if (notes.stateVersion !== observed.stateVersion || notes.trackId !== args.trackId || notes.clipId !== args.clipId ||
+        finalGrid.stateVersion !== observed.stateVersion ||
+        finalTiming.stateVersion !== observed.stateVersion ||
+        JSON.stringify(withoutState(finalGrid)) !== JSON.stringify(withoutState(planned.gridReference)) ||
+        JSON.stringify(withoutState(finalTiming)) !== JSON.stringify(withoutState(planned.clipTiming)) ||
+        !matchDrumVariationReadback(planned.variation, observed, notes.notes))
+      throw new Error("drum variation verification mismatch");
     return { dryRun: false, requested: plan, observed,
       verification: { matchesExpectedNotes: true, notes }, timestamp: new Date().toISOString() };
   }

@@ -760,10 +760,161 @@ def _device_tree(device, device_id):
     return record
 
 
+def _set_fingerprint(song):
+    identity = (id(song), getattr(song, "file_path", ""), len(song.tracks),
+                tuple(getattr(track, "name", "") for track in song.tracks), float(song.tempo))
+    return hashlib.sha256(repr(identity).encode()).hexdigest()[:16]
+
+
+def _drum_random(seed):
+    state = seed & 0xffffffff
+    while True:
+        state = (state + 0x6D2B79F5) & 0xffffffff
+        value = ((state ^ (state >> 15)) * (1 | state)) & 0xffffffff
+        value = (value + (((value ^ (value >> 7)) * (61 | value)) & 0xffffffff)) ^ value
+        yield ((value ^ (value >> 14)) & 0xffffffff) / 4294967296.0
+
+
+def _validate_drum_variation_payload(clip, params):
+    variation = params.get("variation")
+    if not isinstance(variation, dict) or params.get("changes") != variation.get("changes") or \
+            params.get("newNotes", []) != variation.get("newNotes"):
+        raise ValueError("drum variation payload does not match its signed plan")
+    note_range = variation.get("range", {})
+    start_beat, end_beat = note_range.get("startBeat"), note_range.get("endBeat")
+    if not all(isinstance(value, (int, float)) and math.isfinite(value) for value in (start_beat, end_beat)) or \
+            start_beat < 0 or end_beat <= start_beat or end_beat > float(clip.length):
+        raise ValueError("drum variation range is invalid")
+    lane_notes = variation.get("laneNotes")
+    threshold = variation.get("preserveAccentsAbove")
+    if not isinstance(lane_notes, list) or not lane_notes or any(type(pitch) is not int or pitch < 0 or pitch > 127 for pitch in lane_notes) or \
+            len(lane_notes) != len(set(lane_notes)) or type(threshold) is not int or threshold < 1 or threshold > 127:
+        raise ValueError("drum variation lanes or accent threshold are invalid")
+    grid_steps = {"straight16": 4, "eighthTriplet": 3, "sixteenthTriplet": 6}
+    grid = variation.get("grid")
+    start_bar, bars, seed = variation.get("startBar"), variation.get("bars"), variation.get("seed")
+    timing_amount, velocity_amount = variation.get("timingAmount"), variation.get("velocityAmount")
+    if grid not in grid_steps or type(start_bar) is not int or start_bar < 0 or type(bars) is not int or bars < 1 or bars > 16 or \
+            type(seed) is not int or seed < 0 or seed > 0xffffffff or \
+            not isinstance(timing_amount, (int, float)) or not math.isfinite(timing_amount) or timing_amount < 0 or timing_amount > .49 or \
+            type(velocity_amount) is not int or velocity_amount < 0 or velocity_amount > 32:
+        raise ValueError("drum variation deterministic options are invalid")
+    signature = params["clipTiming"]["timeSignature"]
+    bar_length = signature["numerator"] * 4 / signature["denominator"]
+    step_beats = 1 / grid_steps[grid]
+    if start_beat != start_bar * bar_length or end_beat != start_beat + bars * bar_length or \
+            variation.get("stepBeats") != step_beats:
+        raise ValueError("drum variation range or grid does not match its deterministic options")
+    before_notes = params["before"]["notes"]
+    before_by_id = {note["noteId"]: note for note in before_notes}
+    changed_before = variation.get("changedBefore")
+    preserved = variation.get("preservedNotes")
+    if not isinstance(changed_before, list) or not isinstance(preserved, list) or \
+            sorted(changed_before + preserved, key=lambda note: note["noteId"]) != sorted(before_notes, key=lambda note: note["noteId"]):
+        raise ValueError("drum variation note partition does not match the observed clip")
+    changed_ids = set()
+    final_notes = [dict(note) for note in before_notes]
+    final_by_id = {note["noteId"]: note for note in final_notes}
+    allowed = {"noteId", "start", "velocity"}
+    random_values = _drum_random(seed)
+    expected_changes = []
+    expected_changed_before = []
+    expected_preserved = [note for note in before_notes if note["pitch"] not in lane_notes or
+                          not (start_beat <= note["start"] < end_beat)]
+    selected = [note for note in before_notes if note["pitch"] in lane_notes and
+                start_beat <= note["start"] < end_beat]
+    for note in selected:
+        if note["start"] + note["duration"] > end_beat:
+            raise ValueError("target-lane note crosses the variation boundary")
+        expected = {"noteId": note["noteId"]}
+        if timing_amount > 0:
+            magnitude = (next(random_values) * 2 - 1) * step_beats * timing_amount
+            moved = note["start"] + magnitude
+            if moved < start_beat:
+                moved = note["start"] + abs(magnitude)
+            if moved + note["duration"] > end_beat:
+                moved = note["start"] - abs(magnitude)
+            moved = max(start_beat, min(end_beat - note["duration"], moved))
+            if moved != note["start"]:
+                expected["start"] = moved
+        if velocity_amount > 0 and note["velocity"] < threshold:
+            delta = math.floor((next(random_values) * 2 - 1) * velocity_amount + .5)
+            velocity = max(1, min(127, note["velocity"] + delta))
+            if velocity != note["velocity"]:
+                expected["velocity"] = velocity
+        if len(expected) > 1:
+            expected_changes.append(expected)
+            expected_changed_before.append(note)
+        else:
+            expected_preserved.append(note)
+    if params["changes"] != expected_changes or changed_before != expected_changed_before or \
+            sorted(preserved, key=lambda note: note["noteId"]) != sorted(expected_preserved, key=lambda note: note["noteId"]):
+        raise ValueError("drum variation changes do not match its deterministic plan")
+    for change in params["changes"]:
+        if set(change) - allowed:
+            raise ValueError("drum variation contains unsupported change fields")
+        note_id = change.get("noteId")
+        before = before_by_id.get(note_id)
+        if before is None or before not in changed_before or before["pitch"] not in lane_notes or note_id in changed_ids:
+            raise ValueError("drum variation change target is invalid")
+        changed_ids.add(note_id)
+        if "velocity" in change and before["velocity"] >= threshold:
+            raise ValueError("drum variation cannot alter a protected accent")
+        if "velocity" in change and (type(change["velocity"]) is not int or change["velocity"] < 1 or change["velocity"] > 127):
+            raise ValueError("drum variation velocity is outside its supported range")
+        start = change.get("start", before["start"])
+        if not isinstance(start, (int, float)) or not math.isfinite(start) or start < start_beat or start + before["duration"] > end_beat:
+            raise ValueError("drum variation start is outside its selected range")
+        final_by_id[note_id].update(change)
+    if changed_ids != {note["noteId"] for note in changed_before}:
+        raise ValueError("drum variation changed-note partition is incomplete")
+    final_bar_start = end_beat - signature["numerator"] * 4 / signature["denominator"]
+    fill = variation.get("fill")
+    expected_new_notes = []
+    if fill is not None:
+        fill_grid = fill.get("grid") if isinstance(fill, dict) else None
+        fill_steps = grid_steps.get(fill_grid)
+        active_steps = fill.get("activeSteps") if isinstance(fill, dict) else None
+        fill_note, fill_velocity, gate = fill.get("note"), fill.get("velocity"), fill.get("gate")
+        steps_per_bar = bar_length * fill_steps if fill_steps else None
+        if fill_steps is None or not float(steps_per_bar).is_integer() or type(fill_note) is not int or not 0 <= fill_note <= 127 or \
+                type(fill_velocity) is not int or not 1 <= fill_velocity <= 127 or \
+                not isinstance(gate, (int, float)) or not math.isfinite(gate) or not 0 < gate <= 1 or \
+                not isinstance(active_steps, list) or not active_steps or len(active_steps) != len(set(active_steps)) or \
+                any(type(step) is not int or step < 1 or step > steps_per_bar for step in active_steps):
+            raise ValueError("drum variation fill options are invalid")
+        fill_step_beats = 1 / fill_steps
+        expected_new_notes = [{"pitch": fill_note, "start": final_bar_start + (step - 1) * fill_step_beats,
+                               "duration": fill_step_beats * gate, "velocity": fill_velocity,
+                               "velocityDeviation": 0, "releaseVelocity": 0, "probability": 1, "mute": False}
+                              for step in sorted(active_steps)]
+    if params.get("newNotes", []) != expected_new_notes:
+        raise ValueError("drum variation fill notes do not match its deterministic plan")
+    for note in params.get("newNotes", []):
+        required = {"pitch", "start", "duration", "velocity", "velocityDeviation",
+                    "releaseVelocity", "probability", "mute"}
+        if set(note) != required or not isinstance(fill, dict) or note["pitch"] != fill.get("note"):
+            raise ValueError("drum variation fill contains unsupported fields")
+        if not all(isinstance(note[field], (int, float)) and math.isfinite(note[field])
+                   for field in ("start", "duration")) or note["duration"] <= 0 or \
+                note["start"] < final_bar_start or note["start"] + note["duration"] > end_beat:
+            raise ValueError("drum variation fill is outside the final selected bar")
+        final_notes.append(dict(note))
+    for left_index, left in enumerate(final_notes):
+        for right_index in range(left_index + 1, len(final_notes)):
+            right = final_notes[right_index]
+            involves_change = left.get("noteId") in changed_ids or right.get("noteId") in changed_ids or \
+                "noteId" not in left or "noteId" not in right
+            if involves_change and left["pitch"] == right["pitch"] and \
+                    left["start"] < right["start"] + right["duration"] and \
+                    right["start"] < left["start"] + left["duration"]:
+                raise ValueError("drum variation would create a same-lane note collision")
+
+
 def dispatch_request(song, request, state_version, application=None):
     method = request["method"]
     params = request.get("params", {})
-    fingerprint = hashlib.sha256(f"{len(song.tracks)}:{song.tempo}".encode()).hexdigest()[:16]
+    fingerprint = _set_fingerprint(song)
     if method == "get_live_state":
         return {"stateVersion": state_version, "setFingerprint": fingerprint, "tempo": song.tempo, "isPlaying": song.is_playing, "bridgeVersion": BRIDGE_VERSION, "capabilities": list(CAPABILITIES),
                 "nativeApiSupport": {"groupTracks": callable(getattr(song, "group_tracks", None)),
@@ -1871,7 +2022,35 @@ def dispatch_request(song, request, state_version, application=None):
         if hasattr(clip, "is_midi_clip") and not clip.is_midi_clip:
             raise ValueError("clip is not a MIDI clip")
         if method in ("set_midi_note_properties", "transform_midi_notes"):
+            guarded_variation = method == "transform_midi_notes" and params.get("operation") == "apply_drum_variation"
+            if guarded_variation:
+                if params.get("expectedStateVersion") != state_version:
+                    raise ValueError("MIDI clip state version changed")
+                if params.get("clipTiming") != _clip_timing(song, params["trackId"], params["clipId"], state_version):
+                    raise ValueError("MIDI clip timing changed since observation")
+                grid_reference = params.get("gridReference", {})
+                current_grid = {"tempoBpm": float(song.tempo), "timeSignature": {
+                    "numerator": int(song.signature_numerator), "denominator": int(song.signature_denominator)}}
+                planned_grid = {"tempoBpm": grid_reference.get("tempoBpm"),
+                                "timeSignature": grid_reference.get("timeSignature")}
+                if planned_grid != current_grid:
+                    raise ValueError("song grid changed since observation")
+                if grid_reference.get("setFingerprint") != fingerprint:
+                    raise ValueError("Live set fingerprint changed since observation")
+                current = {"stateVersion": state_version, "trackId": params["trackId"],
+                           "clipId": params["clipId"], "lengthBeats": float(clip.length),
+                           "notes": [_midi_note_record(note) for note in clip.get_all_notes_extended()]}
+                if params.get("before") != current:
+                    raise ValueError("MIDI clip changed since observation")
             note_ids = [int(change["noteId"]) for change in params["changes"]]
+            if guarded_variation and (len(current["notes"]) > 4096 or len(note_ids) > 4096 or
+                                      len(params.get("newNotes", [])) > 4096 or
+                                      len(current["notes"]) + len(params.get("newNotes", [])) > 4096):
+                raise ValueError("drum variation supports at most 4096 existing, changed, added, or final notes")
+            if guarded_variation and len(note_ids) != len(set(note_ids)):
+                raise ValueError("drum variation note IDs must be unique")
+            if guarded_variation:
+                _validate_drum_variation_payload(clip, params)
             notes = clip.get_notes_by_id(note_ids) if note_ids else []
             by_id = {int(note.note_id): note for note in notes}
             if len(by_id) != len(set(note_ids)):
@@ -1881,18 +2060,60 @@ def dispatch_request(song, request, state_version, application=None):
                 "velocityDeviation": "velocity_deviation", "releaseVelocity": "release_velocity",
                 "probability": "probability", "mute": "mute",
             }
+            originals = []
             for change in params["changes"]:
                 note = by_id[int(change["noteId"])]
-                for source, target in fields.items():
-                    if source in change:
-                        setattr(note, target, change[source])
-            if notes:
-                clip.apply_note_modifications(notes)
+                originals.append((note, {target: getattr(note, target) for source, target in fields.items()
+                                         if source in change}))
             added_note_ids = []
-            if method == "transform_midi_notes" and params.get("newNotes"):
-                added_note_ids = list(clip.add_new_notes(tuple(
-                    _new_midi_note(note) for note in params["newNotes"]
-                )))
+            new_note_specs = tuple(_new_midi_note(note) for note in params.get("newNotes", []))
+            if guarded_variation:
+                existing_ids = {int(note.note_id) for note in clip.get_all_notes_extended()}
+                try:
+                    with _undo_step(song):
+                        for change in params["changes"]:
+                            note = by_id[int(change["noteId"])]
+                            for source, target in fields.items():
+                                if source in change:
+                                    setattr(note, target, change[source])
+                        added_note_ids = list(clip.add_new_notes(new_note_specs)) if new_note_specs else []
+                        if notes:
+                            clip.apply_note_modifications(notes)
+                except Exception as mutation_error:
+                    rollback_errors = []
+                    try:
+                        song.undo()
+                    except Exception as error:
+                        rollback_errors.append("undo failed: %s" % error)
+                    try:
+                        current_ids = {int(note.note_id) for note in clip.get_all_notes_extended()}
+                        unexpected_ids = tuple(sorted(current_ids - existing_ids))
+                        if unexpected_ids:
+                            clip.remove_notes_by_id(unexpected_ids)
+                    except Exception as error:
+                        rollback_errors.append("added-note cleanup failed: %s" % error)
+                    for note, values in originals:
+                        for target, value in values.items():
+                            setattr(note, target, value)
+                    try:
+                        if originals:
+                            clip.apply_note_modifications([note for note, _ in originals])
+                    except Exception as error:
+                        rollback_errors.append("existing-note restore failed: %s" % error)
+                    if rollback_errors:
+                        raise RuntimeError("drum variation failed and rollback was incomplete (%s); original error: %s" %
+                                           ("; ".join(rollback_errors), mutation_error))
+                    raise mutation_error
+            else:
+                for change in params["changes"]:
+                    note = by_id[int(change["noteId"])]
+                    for source, target in fields.items():
+                        if source in change:
+                            setattr(note, target, change[source])
+                if notes:
+                    clip.apply_note_modifications(notes)
+                if method == "transform_midi_notes" and new_note_specs:
+                    added_note_ids = list(clip.add_new_notes(new_note_specs))
             notes = (list(clip.get_all_notes_extended()) if method == "transform_midi_notes"
                      else list(clip.get_notes_by_id(note_ids)))
         else:

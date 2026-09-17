@@ -69,6 +69,23 @@ const drumPatternProperties = {
   startBeat: number("Absolute clip beat offset; defaults to zero.", { minimum: 0 }),
   lanes: { ...array(drumLane, "Explicit drum lanes and their per-bar steps."), minItems: 1, maxItems: 128 }
 };
+const drumVariationProperties = {
+  trackId: ids.trackId, clipId: ids.clipId,
+  grid: drumPatternProperties.grid,
+  startBar: { type: "integer", minimum: 0, maximum: 4095 },
+  bars: drumPatternProperties.bars,
+  laneNotes: { ...array({ type: "integer", minimum: 0, maximum: 127 }, "Unique drum pitches to humanize."), minItems: 1, maxItems: 128 },
+  seed: { type: "integer", minimum: 0, maximum: 4294967295, description: "Deterministic variation seed." },
+  timingAmount: number("Maximum timing movement as a fraction of the selected grid step.", { minimum: 0, maximum: 0.49 }),
+  velocityAmount: { type: "integer", minimum: 0, maximum: 32, description: "Maximum velocity movement." },
+  preserveAccentsAbove: { type: "integer", minimum: 1, maximum: 127, description: "Required threshold; do not alter velocity at or above it." },
+  fill: object({ note: { type: "integer", minimum: 0, maximum: 127 },
+    grid: drumPatternProperties.grid,
+    activeSteps: { ...array({ type: "integer", minimum: 1, maximum: 4096 }, "Unique fill steps in the final selected bar."), minItems: 1, maxItems: 4096 },
+    velocity: { type: "integer", minimum: 1, maximum: 127 },
+    gate: number("Fill duration as a fraction of its grid step.", { exclusiveMinimum: 0, maximum: 1 })
+  }, ["note", "grid", "activeSteps", "velocity", "gate"])
+};
 const trackStateSnapshot = object({
   format: { const: "cavi-track-state-v1" },
   track: object({ name: string("Captured track name."), type: { type: "string", enum: ["midi", "audio", "group", "unknown"] }, isGroup: boolean("Captured Group Track state.") }, ["name", "type", "isGroup"]),
@@ -160,6 +177,8 @@ export const toolContracts = {
   create_drum_pattern_clip: { description: "Plan or create one exact multi-lane drum pattern in an empty Session clip. Binds current meter, tempo, grid, lanes, destination, and state; native execution verifies every generated note.", inputSchema: guarded({ trackId: ids.trackId, clipId: ids.clipId, name: string("New drum clip name."), ...drumPatternProperties }, ["trackId", "clipId", "name", "grid", "bars", "lanes"]) },
   plan_drum_pattern_edit: { description: "Plan replacement of explicitly selected drum lanes and bars in an existing MIDI clip while preserving unrelated notes. Empty activeSteps clears that lane in the range.", inputSchema: object({ trackId: ids.trackId, clipId: ids.clipId, grid: drumPatternProperties.grid, startBar: { type: "integer", minimum: 0, maximum: 4095 }, bars: drumPatternProperties.bars, lanes: { ...array(drumEditLane, "Drum lanes to replace inside the selected bars."), minItems: 1, maxItems: 128 } }, ["trackId", "clipId", "grid", "startBar", "bars", "lanes"]) },
   edit_drum_pattern_clip: { description: "Plan or apply guarded replacement of selected drum lanes and bars in an existing MIDI clip. Preserves unrelated notes and verifies the complete native note set.", inputSchema: guarded({ trackId: ids.trackId, clipId: ids.clipId, grid: drumPatternProperties.grid, startBar: { type: "integer", minimum: 0, maximum: 4095 }, bars: drumPatternProperties.bars, lanes: { ...array(drumEditLane, "Drum lanes to replace inside the selected bars."), minItems: 1, maxItems: 128 } }, ["trackId", "clipId", "grid", "startBar", "bars", "lanes"]) },
+  plan_drum_variation: { description: "Plan deterministic bounded timing and velocity humanization plus an optional explicit final-bar fill. Preserves unrelated notes and rejects collisions.", inputSchema: object(drumVariationProperties, ["trackId", "clipId", "grid", "startBar", "bars", "laneNotes", "seed", "timingAmount", "velocityAmount", "preserveAccentsAbove"]) },
+  apply_drum_variation: { description: "Plan or apply a guarded deterministic drum variation with exact native context and complete note readback.", inputSchema: guarded(drumVariationProperties, ["trackId", "clipId", "grid", "startBar", "bars", "laneNotes", "seed", "timingAmount", "velocityAmount", "preserveAccentsAbove"]) },
   get_clip_timing: { description: "Read clip loop, signature, launch quantization, and groove assignment.", inputSchema: clip },
   get_clip_groove_context: { description: "Read one native callback snapshot of exact clip/track names, MIDI note IDs and expression metadata or audio state, clip timing, complete Groove Pool and global musical context. Supports before/after validation of UI-only extraction and baking; does not execute them.", inputSchema: clip },
   inspect_clip_groove_postconditions: { description: "Read current native context and inspect extraction or baking postconditions against a supplied pre-action get_clip_groove_context snapshot. Does not execute the UI action, prove provenance, or validate audible equivalence. Extraction expects one appended groove and unchanged source/timing; baking expects removed assignment and unchanged unrelated timing/shared context.", inputSchema: object({ ...clip.properties, operation: { type: "string", enum: ["bake", "extract"] }, before: { type: "object", description: "Complete pre-action native clip groove context snapshot; supplied data is not authenticated history." } }, ["trackId", "clipId", "operation", "before"]) },
