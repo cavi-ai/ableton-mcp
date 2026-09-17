@@ -1158,6 +1158,63 @@ def _validate_midi_probability_pattern_payload(clip, params):
     return final
 
 
+def _validate_midi_ratchet_pattern_payload(clip, params):
+    ratchet = params.get("ratchet")
+    required = {"noteIds", "spanBeats", "repeatCounts", "gate", "removeNoteIds", "newNotes", "preservedNotes"}
+    if not isinstance(ratchet, dict) or set(ratchet) != required or \
+            params.get("removeNoteIds") != ratchet.get("removeNoteIds") or \
+            params.get("newNotes") != ratchet.get("newNotes"):
+        raise ValueError("MIDI ratchet payload does not match its signed plan")
+    note_ids = ratchet.get("noteIds")
+    span = ratchet.get("spanBeats")
+    counts = ratchet.get("repeatCounts")
+    gate = ratchet.get("gate")
+    if not isinstance(note_ids, list) or not note_ids or len(note_ids) > 4096 or \
+            any(type(note_id) is not int or note_id < 0 for note_id in note_ids) or \
+            len(note_ids) != len(set(note_ids)) or ratchet.get("removeNoteIds") != note_ids or \
+            type(span) not in (int, float) or not math.isfinite(span) or not 0 < span <= 128 or \
+            not isinstance(counts, list) or not counts or len(counts) > 128 or \
+            any(type(count) is not int or not 1 <= count <= 64 for count in counts) or \
+            type(gate) not in (int, float) or not math.isfinite(gate) or not 0 < gate <= 1:
+        raise ValueError("MIDI ratchet options or note IDs are invalid")
+    current = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
+    by_id = {note["noteId"]: note for note in current}
+    if len(by_id) != len(current) or any(note_id not in by_id for note_id in note_ids):
+        raise ValueError("one or more MIDI ratchet note IDs no longer exist")
+    selected_ids = set(note_ids)
+    selected_starts = {by_id[note_id]["start"] for note_id in note_ids}
+    if any(note["start"] in selected_starts and note["noteId"] not in selected_ids for note in current):
+        raise ValueError("MIDI ratchets require every note at each selected complete onset")
+    preserved = [note for note in current if note["noteId"] not in selected_ids]
+    if ratchet.get("preservedNotes") != preserved:
+        raise ValueError("MIDI ratchet preserved notes do not match the signed plan")
+    count_by_start = {start: counts[index % len(counts)]
+                      for index, start in enumerate(sorted(selected_starts))}
+    expected = []
+    for note_id in note_ids:
+        source = by_id[note_id]
+        count = count_by_start[source["start"]]
+        step = span / count
+        for repeat in range(count):
+            expected.append({"sourceNoteId": note_id, "pitch": source["pitch"],
+                             "start": source["start"] + step * repeat,
+                             "duration": step * gate, "velocity": source["velocity"],
+                             "velocityDeviation": source["velocityDeviation"],
+                             "releaseVelocity": source["releaseVelocity"],
+                             "probability": source["probability"], "mute": source["mute"]})
+    supplied = ratchet.get("newNotes")
+    if not isinstance(supplied, list) or len(supplied) != len(expected):
+        raise ValueError("MIDI ratchet new notes do not match the signed plan")
+    exact = ("sourceNoteId", "pitch", "velocity", "velocityDeviation",
+             "releaseVelocity", "probability", "mute")
+    if any(any(actual.get(field) != wanted[field] for field in exact) or
+           abs(actual.get("start", math.inf) - wanted["start"]) > 2e-7 or
+           abs(actual.get("duration", math.inf) - wanted["duration"]) > 2e-7
+           for actual, wanted in zip(supplied, expected)):
+        raise ValueError("MIDI ratchet new notes do not match the signed plan")
+    return preserved, expected
+
+
 def _validate_scale_melody_payload(song, params, state_version, fingerprint):
     if params.get("expectedStateVersion") != state_version:
         raise ValueError("melody state version changed")
@@ -2618,6 +2675,10 @@ def dispatch_request(song, request, state_version, application=None):
         }
         if params.get("before") != current:
             raise ValueError("MIDI clip changed since observation")
+        guarded_ratchet = params.get("operation") == "apply_midi_ratchet_pattern"
+        if guarded_ratchet and grid_reference.get("setFingerprint") != fingerprint:
+            raise ValueError("Live set fingerprint changed since observation")
+        expected_ratchet = _validate_midi_ratchet_pattern_payload(clip, params) if guarded_ratchet else None
         remove_note_ids = [int(note_id) for note_id in params.get("removeNoteIds", [])]
         new_notes = params.get("newNotes", [])
         if len(current["notes"]) > 4096 or len(remove_note_ids) > 4096 or len(new_notes) > 4096 or \
@@ -2629,6 +2690,48 @@ def dispatch_request(song, request, state_version, application=None):
         if existing_ids != set(remove_note_ids):
             raise ValueError("one or more note IDs no longer exist")
         new_note_specs = tuple(_new_midi_note(note) for note in new_notes)
+        if guarded_ratchet:
+            selected_ids = set(remove_note_ids)
+            original_specs = tuple(_new_midi_note(note) for note in current["notes"] if note["noteId"] in selected_ids)
+            added_note_ids = []
+            with _undo_step(song):
+                try:
+                    clip.remove_notes_by_id(tuple(remove_note_ids))
+                    added_note_ids = list(clip.add_new_notes(new_note_specs))
+                    readback = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
+                    by_readback_id = {note["noteId"]: note for note in readback}
+                    exact = ("pitch", "velocity", "velocityDeviation", "releaseVelocity", "probability", "mute")
+                    preserved_match = len(by_readback_id) == len(readback) and all(
+                        expected["noteId"] in by_readback_id and
+                        all(by_readback_id[expected["noteId"]][field] == expected[field] for field in exact) and
+                        abs(by_readback_id[expected["noteId"]]["start"] - expected["start"]) <= 2e-7 and
+                        abs(by_readback_id[expected["noteId"]]["duration"] - expected["duration"]) <= 2e-7
+                        for expected in expected_ratchet[0])
+                    added = [by_readback_id.get(note_id) for note_id in added_note_ids]
+                    additions_match = len(added_note_ids) == len(expected_ratchet[1]) and \
+                        len(set(added_note_ids)) == len(added_note_ids) and not any(note is None for note in added) and all(
+                            all(actual[field] == expected[field] for field in exact) and
+                            abs(actual["start"] - expected["start"]) <= 2e-7 and
+                            abs(actual["duration"] - expected["duration"]) <= 2e-7
+                            for actual, expected in zip(added, expected_ratchet[1]))
+                    if not preserved_match or not additions_match or \
+                            len(readback) != len(expected_ratchet[0]) + len(expected_ratchet[1]):
+                        raise ValueError("native MIDI ratchet readback does not match the signed plan")
+                except Exception as mutation_error:
+                    try:
+                        if added_note_ids:
+                            clip.remove_notes_by_id(tuple(added_note_ids))
+                        clip.add_new_notes(original_specs)
+                    except Exception as rollback_error:
+                        raise RuntimeError("MIDI ratchet failed and rollback was incomplete (%s); original error: %s" %
+                                           (rollback_error, mutation_error))
+                    raise mutation_error
+            return {
+                "stateVersion": state_version + 1, "trackId": params["trackId"],
+                "clipId": params["clipId"], "lengthBeats": float(clip.length),
+                "removedNoteIds": remove_note_ids, "addedNoteIds": added_note_ids,
+                "notes": readback,
+            }
         with _undo_step(song):
             added_note_ids = list(clip.add_new_notes(new_note_specs)) if new_note_specs else []
             try:

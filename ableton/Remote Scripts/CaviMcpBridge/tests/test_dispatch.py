@@ -174,6 +174,11 @@ class Clip:
             note.pitch = spec["pitch"]
             note.start_time = spec["start"]
             note.duration = spec["duration"]
+            note.velocity = spec["velocity"]
+            note.velocity_deviation = spec["velocityDeviation"]
+            note.release_velocity = spec["releaseVelocity"]
+            note.probability = spec["probability"]
+            note.mute = spec["mute"]
             self.extended_notes.append(note)
         return added_ids
 
@@ -3261,6 +3266,56 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(result["addedNoteIds"], [100])
         self.assertEqual([note["noteId"] for note in result["notes"]], [8, 100])
         self.assertEqual(result["stateVersion"], 4)
+
+    def test_guarded_ratchet_replaces_exact_notes_and_preserves_extended_properties(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        source = MidiNote(7)
+        source.velocity = 91
+        source.velocity_deviation = -3
+        source.release_velocity = 62
+        source.probability = 0.75
+        clip.extended_notes = [source]
+        target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+        new_notes = [
+            {"sourceNoteId": 7, "pitch": 60, "start": 0.0, "duration": 0.2,
+             "velocity": 91, "velocityDeviation": -3, "releaseVelocity": 62,
+             "probability": 0.75, "mute": False},
+            {"sourceNoteId": 7, "pitch": 60, "start": 0.25, "duration": 0.2,
+             "velocity": 91, "velocityDeviation": -3, "releaseVelocity": 62,
+             "probability": 0.75, "mute": False},
+        ]
+        ratchet = {"noteIds": [7], "spanBeats": 0.5, "repeatCounts": [2], "gate": 0.8,
+                   "removeNoteIds": [7], "newNotes": new_notes, "preservedNotes": []}
+        params = {**target, "expectedStateVersion": 3, "before": before, "clipTiming": timing,
+                  "gridReference": {"tempoBpm": 120.0,
+                                    "timeSignature": {"numerator": 4, "denominator": 4},
+                                    "setFingerprint": dispatch_request(song, {"method": "get_live_state"}, 3)["setFingerprint"]},
+                  "operation": "apply_midi_ratchet_pattern", "ratchet": ratchet,
+                  "removeNoteIds": [7], "newNotes": new_notes}
+        tampered = {**params, "newNotes": [{**new_notes[0], "probability": 1}, new_notes[1]]}
+        with self.assertRaisesRegex(ValueError, "signed plan"):
+            dispatch_request(song, {"method": "replace_midi_notes", "params": tampered}, 3)
+        events = []
+        native_remove = clip.remove_notes_by_id
+        native_add = clip.add_new_notes
+        def tracked_remove(note_ids):
+            events.append("remove")
+            native_remove(note_ids)
+        def tracked_add(notes):
+            events.append("add")
+            return native_add(notes)
+        clip.remove_notes_by_id = tracked_remove
+        clip.add_new_notes = tracked_add
+        result = dispatch_request(song, {"method": "replace_midi_notes", "params": params}, 3)
+        self.assertEqual(events[:2], ["remove", "add"])
+        self.assertEqual(result["removedNoteIds"], [7])
+        self.assertEqual(result["addedNoteIds"], [100, 101])
+        self.assertEqual([note["probability"] for note in result["notes"]], [0.75, 0.75])
+        self.assertEqual([note["velocityDeviation"] for note in result["notes"]], [-3, -3])
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
     def test_scale_melody_creation_binds_context_and_returns_complete_notes_atomically(self):
         song = Song()
