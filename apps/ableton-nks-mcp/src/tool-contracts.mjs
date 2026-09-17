@@ -122,6 +122,12 @@ const midiRatchetPatternProperties = {
   repeatCounts: { ...array({ type: "integer", minimum: 1, maximum: 64 }, "Repeating ratchet count by ordered onset; 3 creates an exact triplet inside spanBeats."), minItems: 1, maxItems: 128 },
   gate: number("Each repeated note's duration as a fraction of its subdivision.", { exclusiveMinimum: 0, maximum: 1 }),
 };
+const midiStrumPatternProperties = {
+  trackId: ids.trackId, clipId: ids.clipId,
+  noteIds: { ...array({ type: "integer", minimum: 0 }, "Unique stable note IDs at complete chord onsets."), minItems: 1, maxItems: 4096 },
+  direction: { type: "string", enum: ["up", "down", "alternating"], description: "Pitch order for each chord; alternating starts upward and reverses on each following onset." },
+  spreadBeats: number("Total beat distance from the first to last attack in each chord.", { exclusiveMinimum: 0, maximum: 4 }),
+};
 const melodyEvent = object({
   step: { type: "integer", minimum: 0, maximum: 4095, description: "Unique zero-based grid step within the motif." },
   degree: { type: "integer", minimum: 1, maximum: 9, description: "One-based Live scale degree." },
@@ -244,6 +250,8 @@ export const toolContracts = {
   apply_midi_probability_pattern: { description: "Plan or apply guarded MIDI playback probabilities while preserving pitch, timing, velocity, mute, and expression metadata.", inputSchema: guarded(midiProbabilityPatternProperties, ["trackId", "clipId", "noteIds", "probabilities"]) },
   plan_midi_ratchet_pattern: { description: "Plan explicit straight or triplet MIDI repeats across complete ordered onsets.", inputSchema: object(midiRatchetPatternProperties, ["trackId", "clipId", "noteIds", "spanBeats", "repeatCounts", "gate"]) },
   apply_midi_ratchet_pattern: { description: "Plan or apply guarded MIDI ratchets while preserving velocity, probability, mute, release velocity, and velocity deviation.", inputSchema: guarded(midiRatchetPatternProperties, ["trackId", "clipId", "noteIds", "spanBeats", "repeatCounts", "gate"]) },
+  plan_midi_strum_pattern: { description: "Plan deterministic up, down, or alternating chord attacks while preserving every selected note end.", inputSchema: object(midiStrumPatternProperties, ["trackId", "clipId", "noteIds", "direction", "spreadBeats"]) },
+  apply_midi_strum_pattern: { description: "Plan or apply guarded chord strumming while preserving pitch, velocity, probability, mute, release velocity, and velocity deviation.", inputSchema: guarded(midiStrumPatternProperties, ["trackId", "clipId", "noteIds", "direction", "spreadBeats"]) },
   get_clip_timing: { description: "Read clip loop, signature, launch quantization, and groove assignment.", inputSchema: clip },
   get_clip_groove_context: { description: "Read one native callback snapshot of exact clip/track names, MIDI note IDs and expression metadata or audio state, clip timing, complete Groove Pool and global musical context. Supports before/after validation of UI-only extraction and baking; does not execute them.", inputSchema: clip },
   inspect_clip_groove_postconditions: { description: "Read current native context and inspect extraction or baking postconditions against a supplied pre-action get_clip_groove_context snapshot. Does not execute the UI action, prove provenance, or validate audible equivalence. Extraction expects one appended groove and unchanged source/timing; baking expects removed assignment and unchanged unrelated timing/shared context.", inputSchema: object({ ...clip.properties, operation: { type: "string", enum: ["bake", "extract"] }, before: { type: "object", description: "Complete pre-action native clip groove context snapshot; supplied data is not authenticated history." } }, ["trackId", "clipId", "operation", "before"]) },
