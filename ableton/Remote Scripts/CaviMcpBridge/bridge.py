@@ -928,6 +928,70 @@ def _basic_midi_note_records(clip):
             for note in clip.get_notes(0.0, 0, float(clip.length), 128)]
 
 
+def _validate_midi_humanization_payload(clip, params):
+    humanization = params.get("humanization")
+    if not isinstance(humanization, dict) or params.get("changes") != humanization.get("changes") or \
+            params.get("newNotes") != []:
+        raise ValueError("MIDI humanization payload does not match its signed plan")
+    options = humanization.get("options")
+    note_ids = humanization.get("noteIds")
+    if not isinstance(options, dict) or set(options) != {"seed", "gridBeats", "maxTimingOffsetBeats", "maxVelocityOffset"} or \
+            not isinstance(note_ids, list) or not note_ids or len(note_ids) > 4096 or \
+            any(type(note_id) is not int or note_id < 0 for note_id in note_ids) or \
+            len(note_ids) != len(set(note_ids)):
+        raise ValueError("MIDI humanization options or note IDs are invalid")
+    seed, grid = options["seed"], options["gridBeats"]
+    timing, velocity_amount = options["maxTimingOffsetBeats"], options["maxVelocityOffset"]
+    if type(seed) is not int or seed < 0 or seed > 0xffffffff or \
+            not isinstance(grid, (int, float)) or not math.isfinite(grid) or grid <= 0 or grid > 128 or \
+            not isinstance(timing, (int, float)) or not math.isfinite(timing) or timing < 0 or timing > grid / 2 or \
+            type(velocity_amount) is not int or velocity_amount < 0 or velocity_amount > 126 or \
+            (timing == 0 and velocity_amount == 0):
+        raise ValueError("MIDI humanization deterministic options are invalid")
+    current = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
+    by_id = {note["noteId"]: note for note in current}
+    if any(note_id not in by_id for note_id in note_ids):
+        raise ValueError("one or more MIDI humanization note IDs no longer exist")
+    state = seed & 0xffffffff
+    def random_value():
+        nonlocal state
+        state = (1664525 * state + 1013904223) & 0xffffffff
+        return state / 4294967296.0
+    expected = []
+    for note_id in note_ids:
+        previous = by_id[note_id]
+        offset = (random_value() * 2 - 1) * timing
+        velocity_offset = math.floor(((random_value() * 2 - 1) * velocity_amount) + .5)
+        start = max(0.0, min(float(clip.length) - previous["duration"], previous["start"] + offset))
+        velocity = max(1, min(127, previous["velocity"] + velocity_offset))
+        if start != previous["start"] or velocity != previous["velocity"]:
+            expected.append({"noteId": note_id, "previous": previous, "start": start, "velocity": velocity})
+    if not expected:
+        raise ValueError("MIDI humanization would not change any selected notes")
+    if params.get("changes") != expected:
+        raise ValueError("MIDI humanization changes do not match the signed plan")
+    final = {note["noteId"]: dict(note) for note in current}
+    for change in expected:
+        final[change["noteId"]]["start"] = change["start"]
+        final[change["noteId"]]["velocity"] = change["velocity"]
+    changed_ids = {change["noteId"] for change in expected}
+    final_notes = list(final.values())
+    for left_index, left in enumerate(final_notes):
+        for right in final_notes[left_index + 1:]:
+            if left["noteId"] not in changed_ids and right["noteId"] not in changed_ids:
+                continue
+            before_left, before_right = by_id[left["noteId"]], by_id[right["noteId"]]
+            before_overlap = before_left["pitch"] == before_right["pitch"] and \
+                before_left["start"] < before_right["start"] + before_right["duration"] and \
+                before_right["start"] < before_left["start"] + before_left["duration"]
+            after_overlap = left["pitch"] == right["pitch"] and \
+                left["start"] < right["start"] + right["duration"] and \
+                right["start"] < left["start"] + left["duration"]
+            if after_overlap and not before_overlap:
+                raise ValueError("MIDI humanization would create a same-pitch note collision")
+    return final
+
+
 def _validate_scale_melody_payload(song, params, state_version, fingerprint):
     if params.get("expectedStateVersion") != state_version:
         raise ValueError("melody state version changed")
@@ -2116,7 +2180,9 @@ def dispatch_request(song, request, state_version, application=None):
             raise ValueError("clip is not a MIDI clip")
         if method in ("set_midi_note_properties", "transform_midi_notes"):
             guarded_variation = method == "transform_midi_notes" and params.get("operation") == "apply_drum_variation"
-            if guarded_variation:
+            guarded_humanization = method == "transform_midi_notes" and params.get("operation") == "apply_midi_humanization"
+            guarded_transform = guarded_variation or guarded_humanization
+            if guarded_transform:
                 if params.get("expectedStateVersion") != state_version:
                     raise ValueError("MIDI clip state version changed")
                 if params.get("clipTiming") != _clip_timing(song, params["trackId"], params["clipId"], state_version):
@@ -2136,14 +2202,15 @@ def dispatch_request(song, request, state_version, application=None):
                 if params.get("before") != current:
                     raise ValueError("MIDI clip changed since observation")
             note_ids = [int(change["noteId"]) for change in params["changes"]]
-            if guarded_variation and (len(current["notes"]) > 4096 or len(note_ids) > 4096 or
+            if guarded_transform and (len(current["notes"]) > 4096 or len(note_ids) > 4096 or
                                       len(params.get("newNotes", [])) > 4096 or
                                       len(current["notes"]) + len(params.get("newNotes", [])) > 4096):
                 raise ValueError("drum variation supports at most 4096 existing, changed, added, or final notes")
-            if guarded_variation and len(note_ids) != len(set(note_ids)):
-                raise ValueError("drum variation note IDs must be unique")
+            if guarded_transform and len(note_ids) != len(set(note_ids)):
+                raise ValueError("guarded MIDI transform note IDs must be unique")
             if guarded_variation:
                 _validate_drum_variation_payload(clip, params)
+            expected_humanized = _validate_midi_humanization_payload(clip, params) if guarded_humanization else None
             notes = clip.get_notes_by_id(note_ids) if note_ids else []
             by_id = {int(note.note_id): note for note in notes}
             if len(by_id) != len(set(note_ids)):
@@ -2160,6 +2227,38 @@ def dispatch_request(song, request, state_version, application=None):
                                          if source in change}))
             added_note_ids = []
             new_note_specs = tuple(_new_midi_note(note) for note in params.get("newNotes", []))
+            if guarded_humanization:
+                with _undo_step(song):
+                    try:
+                        for change in params["changes"]:
+                            note = by_id[int(change["noteId"])]
+                            note.start_time = change["start"]
+                            note.velocity = change["velocity"]
+                        if notes:
+                            clip.apply_note_modifications(notes)
+                        readback = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
+                        observed = {note["noteId"]: note for note in readback}
+                        if set(observed) != set(expected_humanized) or any(
+                                any(observed[note_id][field] != expected[field]
+                                    for field in ("pitch", "duration", "velocity", "velocityDeviation",
+                                                  "releaseVelocity", "probability", "mute")) or
+                                abs(observed[note_id]["start"] - expected["start"]) > 2e-7
+                                for note_id, expected in expected_humanized.items()):
+                            raise ValueError("native MIDI humanization readback does not match the signed plan")
+                        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                                "clipId": params["clipId"], "lengthBeats": float(clip.length),
+                                "notes": readback, "addedNoteIds": []}
+                    except Exception as mutation_error:
+                        for note, values in originals:
+                            for target, value in values.items():
+                                setattr(note, target, value)
+                        try:
+                            if originals:
+                                clip.apply_note_modifications([note for note, _ in originals])
+                        except Exception as rollback_error:
+                            raise RuntimeError("MIDI humanization failed and rollback was incomplete (%s); original error: %s" %
+                                               (rollback_error, mutation_error))
+                        raise mutation_error
             if guarded_variation:
                 existing_ids = {int(note.note_id) for note in clip.get_all_notes_extended()}
                 with _undo_step(song):

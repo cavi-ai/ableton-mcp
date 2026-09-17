@@ -16,6 +16,7 @@ import { analyzeMidiChordEvents } from "./midi-chord-analysis.mjs";
 import { matchMidiNoteReadback, planScaleChordProgression } from "./scale-chord-progression.mjs";
 import { planScaleBassline } from "./scale-bassline.mjs";
 import { planScaleMelody } from "./scale-melody.mjs";
+import { matchMidiHumanizationReadback, planMidiHumanization } from "./midi-humanization.mjs";
 import { matchDrumPatternEditReadback, planDrumPattern, planDrumPatternEdit } from "./drum-pattern.mjs";
 import { matchDrumVariationReadback, planDrumVariation } from "./drum-variation.mjs";
 
@@ -417,6 +418,7 @@ export class ToolService {
       return { stateVersion: beforeContext.stateVersion, musicalContext: beforeContext,
         gridReference: beforeGrid, plan };
     }
+    if (name === "plan_midi_humanization") return this.#planMidiHumanization(args);
     if (name === "get_track_mixer") return this.bridge.request("get_track_mixer", args);
     if (name === "get_track_routing") return this.bridge.request("get_track_routing", args);
     if (name === "get_set_mixer") return this.bridge.request("get_set_mixer", {});
@@ -828,6 +830,7 @@ export class ToolService {
     if (name === "create_drum_pattern_clip") return this.#createDrumPatternClip(args);
     if (name === "edit_drum_pattern_clip") return this.#editDrumPatternClip(args);
     if (name === "apply_drum_variation") return this.#applyDrumVariation(args);
+    if (name === "humanize_midi_notes") return this.#humanizeMidiNotes(args);
     if (name === "create_audio_clip") return this.#createAudioClip(args);
     if (name === "set_clip_parameter_envelope") return this.#setClipParameterEnvelope(args);
     if (name === "set_midi_note_properties") return this.#setMidiNoteProperties(args);
@@ -2318,6 +2321,49 @@ export class ToolService {
     this.#consumeConfirmation(plan, args);
     const result = await this.bridge.request("transform_midi_notes", plan);
     return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
+  }
+
+  async #planMidiHumanization(args) {
+    const before = await this.bridge.request("get_midi_clip_notes_extended", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    const clipTiming = await this.bridge.request("get_clip_timing", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    const gridReference = await this.call("get_song_grid_reference", {});
+    const after = await this.bridge.request("get_midi_clip_notes_extended", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    if (before.stateVersion !== clipTiming.stateVersion || before.stateVersion !== gridReference.stateVersion ||
+        JSON.stringify(before) !== JSON.stringify(after) || before.trackId !== args.trackId ||
+        before.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
+      throw new Error("clip, timing, or song grid changed during MIDI humanization planning; retry");
+    const plan = planMidiHumanization(before, args);
+    return { stateVersion: before.stateVersion, trackId: before.trackId, clipId: before.clipId,
+      context: { before, clipTiming, gridReference }, plan };
+  }
+
+  async #humanizeMidiNotes(args) {
+    requireExpectedState(args);
+    const planned = await this.#planMidiHumanization(args);
+    if (planned.stateVersion !== args.expectedStateVersion)
+      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${planned.stateVersion}`);
+    const plan = {
+      method: "transform_midi_notes", operation: "apply_midi_humanization",
+      trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
+      before: planned.context.before, clipTiming: planned.context.clipTiming,
+      gridReference: planned.context.gridReference, humanization: planned.plan,
+      changes: planned.plan.changes, newNotes: []
+    };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    this.#consumeConfirmation(plan, args);
+    const observed = await this.bridge.request("transform_midi_notes", plan);
+    if (!Number.isInteger(observed.stateVersion) || observed.stateVersion <= args.expectedStateVersion ||
+        observed.trackId !== args.trackId || observed.clipId !== args.clipId ||
+        !matchMidiHumanizationReadback(plan.before.notes, plan.changes, observed.notes))
+      throw new Error("MIDI humanization native readback mismatch");
+    return { dryRun: false, requested: plan, observed,
+      verification: { matchesRequestedChanges: true }, timestamp: new Date().toISOString() };
   }
 
   async #setTrackMixer(args) {

@@ -86,6 +86,14 @@ const drumVariationProperties = {
     gate: number("Fill duration as a fraction of its grid step.", { exclusiveMinimum: 0, maximum: 1 })
   }, ["note", "grid", "activeSteps", "velocity", "gate"])
 };
+const midiHumanizationProperties = {
+  trackId: ids.trackId, clipId: ids.clipId,
+  noteIds: { ...array({ type: "integer", minimum: 0 }, "Unique stable note IDs to humanize."), minItems: 1, maxItems: 4096 },
+  seed: { type: "integer", minimum: 0, maximum: 4294967295, description: "Deterministic humanization seed." },
+  gridBeats: number("Reference grid step in beats, including fractional triplet values.", { exclusiveMinimum: 0, maximum: 128 }),
+  maxTimingOffsetBeats: number("Maximum absolute timing movement in beats; must not exceed half gridBeats.", { minimum: 0, maximum: 64 }),
+  maxVelocityOffset: { type: "integer", minimum: 0, maximum: 126, description: "Maximum absolute velocity movement." },
+};
 const melodyEvent = object({
   step: { type: "integer", minimum: 0, maximum: 4095, description: "Unique zero-based grid step within the motif." },
   degree: { type: "integer", minimum: 1, maximum: 9, description: "One-based Live scale degree." },
@@ -198,6 +206,8 @@ export const toolContracts = {
   edit_drum_pattern_clip: { description: "Plan or apply guarded replacement of selected drum lanes and bars in an existing MIDI clip. Preserves unrelated notes and verifies the complete native note set.", inputSchema: guarded({ trackId: ids.trackId, clipId: ids.clipId, grid: drumPatternProperties.grid, startBar: { type: "integer", minimum: 0, maximum: 4095 }, bars: drumPatternProperties.bars, lanes: { ...array(drumEditLane, "Drum lanes to replace inside the selected bars."), minItems: 1, maxItems: 128 } }, ["trackId", "clipId", "grid", "startBar", "bars", "lanes"]) },
   plan_drum_variation: { description: "Plan deterministic bounded timing and velocity humanization plus an optional explicit final-bar fill. Preserves unrelated notes and rejects collisions.", inputSchema: object(drumVariationProperties, ["trackId", "clipId", "grid", "startBar", "bars", "laneNotes", "seed", "timingAmount", "velocityAmount", "preserveAccentsAbove"]) },
   apply_drum_variation: { description: "Plan or apply a guarded deterministic drum variation with exact native context and complete note readback.", inputSchema: guarded(drumVariationProperties, ["trackId", "clipId", "grid", "startBar", "bars", "laneNotes", "seed", "timingAmount", "velocityAmount", "preserveAccentsAbove"]) },
+  plan_midi_humanization: { description: "Plan deterministic bounded timing and velocity humanization for exact MIDI note IDs. Preserves expression metadata and rejects new same-pitch collisions.", inputSchema: object(midiHumanizationProperties, ["trackId", "clipId", "noteIds", "seed", "gridBeats", "maxTimingOffsetBeats", "maxVelocityOffset"]) },
+  humanize_midi_notes: { description: "Plan or apply guarded deterministic MIDI timing and velocity humanization with exact clip, grid, and complete native note readback.", inputSchema: guarded(midiHumanizationProperties, ["trackId", "clipId", "noteIds", "seed", "gridBeats", "maxTimingOffsetBeats", "maxVelocityOffset"]) },
   get_clip_timing: { description: "Read clip loop, signature, launch quantization, and groove assignment.", inputSchema: clip },
   get_clip_groove_context: { description: "Read one native callback snapshot of exact clip/track names, MIDI note IDs and expression metadata or audio state, clip timing, complete Groove Pool and global musical context. Supports before/after validation of UI-only extraction and baking; does not execute them.", inputSchema: clip },
   inspect_clip_groove_postconditions: { description: "Read current native context and inspect extraction or baking postconditions against a supplied pre-action get_clip_groove_context snapshot. Does not execute the UI action, prove provenance, or validate audible equivalence. Extraction expects one appended groove and unchanged source/timing; baking expects removed assignment and unchanged unrelated timing/shared context.", inputSchema: object({ ...clip.properties, operation: { type: "string", enum: ["bake", "extract"] }, before: { type: "object", description: "Complete pre-action native clip groove context snapshot; supplied data is not authenticated history." } }, ["trackId", "clipId", "operation", "before"]) },

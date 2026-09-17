@@ -3048,6 +3048,72 @@ class DispatchTest(unittest.TestCase):
                 "variation": misaligned
             }}, 3)
 
+    def test_guarded_midi_humanization_binds_plan_and_rolls_back_atomically(self):
+        def fixture():
+            song = Song()
+            clip = song.tracks[0].clip_slots[0].clip
+            first = MidiNote(7)
+            first.start_time = .01
+            first.duration = .5
+            second = MidiNote(8)
+            second.pitch = 64
+            second.start_time = 2
+            second.duration = .5
+            second.velocity = 90
+            clip.extended_notes = [first, second]
+            target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+            before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+            timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+            options = {"seed": 7, "gridBeats": .25, "maxTimingOffsetBeats": .05,
+                       "maxVelocityOffset": 10}
+            changes = [
+                {"noteId": 7, "previous": before["notes"][0], "start": 0, "velocity": 108},
+                {"noteId": 8, "previous": before["notes"][1],
+                 "start": 2.0112491666339336, "velocity": 99},
+            ]
+            params = {**target, "expectedStateVersion": 3, "before": before,
+                      "clipTiming": timing,
+                      "gridReference": {"stateVersion": 3, "tempoBpm": 120,
+                                        "timeSignature": {"numerator": 4, "denominator": 4},
+                                        "setFingerprint": dispatch_request(song, {
+                                            "method": "get_live_state"}, 3)["setFingerprint"]},
+                      "operation": "apply_midi_humanization", "changes": changes,
+                      "newNotes": [], "humanization": {"options": options,
+                          "noteIds": [7, 8], "changes": changes}}
+            return song, clip, params
+
+        song, clip, params = fixture()
+        result = dispatch_request(song, {"method": "transform_midi_notes", "params": params}, 3)
+        self.assertEqual(result["stateVersion"], 4)
+        self.assertEqual(result["notes"][0]["start"], 0)
+        self.assertEqual(result["notes"][1]["velocity"], 99)
+        self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
+
+        stale_song, _, stale = fixture()
+        with self.assertRaisesRegex(ValueError, "fingerprint"):
+            dispatch_request(stale_song, {"method": "transform_midi_notes", "params": {
+                **stale, "gridReference": {**stale["gridReference"], "setFingerprint": "wrong"}
+            }}, 3)
+        with self.assertRaisesRegex(ValueError, "signed plan"):
+            dispatch_request(stale_song, {"method": "transform_midi_notes", "params": {
+                **stale, "changes": [{**stale["changes"][0], "velocity": 107}, stale["changes"][1]]
+            }}, 3)
+
+        failing_song, failing_clip, failing = fixture()
+        apply_calls = 0
+        def fail_once(notes):
+            nonlocal apply_calls
+            apply_calls += 1
+            if apply_calls == 1:
+                raise ValueError("native humanize failed")
+            failing_clip.extended_notes = list(notes)
+        failing_clip.apply_note_modifications = fail_once
+        with self.assertRaisesRegex(ValueError, "native humanize failed"):
+            dispatch_request(failing_song, {"method": "transform_midi_notes", "params": failing}, 3)
+        self.assertEqual(failing_clip.extended_notes[0].start_time, .01)
+        self.assertEqual(failing_clip.extended_notes[0].velocity, 100)
+        self.assertEqual(failing_song.undo_boundaries[-2:], ["begin", "end"])
+
     def test_replace_midi_notes_removes_exact_ids_and_adds_replacements(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip
