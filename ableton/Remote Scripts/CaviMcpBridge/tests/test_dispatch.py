@@ -3751,13 +3751,14 @@ class DispatchTest(unittest.TestCase):
                       "releaseVelocity": 62, "probability": 0.75, "mute": False}]
         quality = {"noteIds": [7, 8, 9, 10, 11, 12, 13], "rootDegrees": [2, 5],
                    "chordSize": "triad", "chordSizes": ["triad", "triad"],
+                   "inversions": [0, 0],
                    "mode": "preserve_register",
                    "scale": {"rootNote": 0, "scaleName": "Major",
                              "scaleIntervals": [0, 2, 4, 5, 7, 9, 11]},
                    "onsets": [
-                       {"start": 0.0, "rootDegree": 2, "chordSize": "triad", "targetRootPitch": 62,
+                       {"start": 0.0, "rootDegree": 2, "chordSize": "triad", "inversion": 0, "targetRootPitch": 62,
                         "sourceNoteIds": [7, 8], "targetPitches": [62, 65, 69]},
-                       {"start": 2.0, "rootDegree": 5, "chordSize": "triad", "targetRootPitch": 67,
+                       {"start": 2.0, "rootDegree": 5, "chordSize": "triad", "inversion": 0, "targetRootPitch": 67,
                         "sourceNoteIds": [9, 10, 11, 12, 13], "targetPitches": [67, 71, 74]},
                    ], "changes": changes, "removeNoteIds": [12, 13],
                    "newNotes": new_notes, "beforeNotes": before["notes"]}
@@ -3798,28 +3799,29 @@ class DispatchTest(unittest.TestCase):
         timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
         musical = dispatch_request(song, {"method": "get_song_musical_context", "params": {}}, 3)
         changes = [
-            {"noteId": 7, "previous": before["notes"][0], "pitch": 60, "chordToneIndex": 0},
-            {"noteId": 8, "previous": before["notes"][1], "pitch": 65, "chordToneIndex": 1},
-            {"noteId": 9, "previous": before["notes"][2], "pitch": 67, "chordToneIndex": 0},
-            {"noteId": 10, "previous": before["notes"][3], "pitch": 71, "chordToneIndex": 1},
+            {"noteId": 7, "previous": before["notes"][0], "pitch": 65, "chordToneIndex": 0},
+            {"noteId": 8, "previous": before["notes"][1], "pitch": 67, "chordToneIndex": 1},
+            {"noteId": 9, "previous": before["notes"][2], "pitch": 77, "chordToneIndex": 0},
+            {"noteId": 10, "previous": before["notes"][3], "pitch": 79, "chordToneIndex": 1},
         ]
         new_notes = [
             {"sourceNoteId": source_id, "chordToneIndex": index, "pitch": pitch, "start": start,
              "duration": 1.0, "velocity": 91, "velocityDeviation": -3,
              "releaseVelocity": 62, "probability": 0.75, "mute": False}
             for source_id, index, pitch, start in (
-                (8, 2, 67, 0.0), (10, 2, 74, 2.0), (10, 3, 77, 2.0), (10, 4, 85, 2.0)
+                (8, 2, 72, 0.0), (10, 2, 83, 2.0), (10, 3, 85, 2.0), (10, 4, 86, 2.0)
             )
         ]
         quality = {"noteIds": [7, 8, 9, 10], "rootDegrees": [1, 5], "chordSize": None,
                    "chordSizes": ["sus4", "dominant7_sharp11"],
+                   "inversions": [1, 3],
                    "mode": "preserve_register", "scale": {"rootNote": 0, "scaleName": "Major",
                    "scaleIntervals": [0, 2, 4, 5, 7, 9, 11]}, "onsets": [
-                       {"start": 0.0, "rootDegree": 1, "targetRootPitch": 60,
-                        "chordSize": "sus4", "sourceNoteIds": [7, 8], "targetPitches": [60, 65, 67]},
+                       {"start": 0.0, "rootDegree": 1, "targetRootPitch": 60, "inversion": 1,
+                        "chordSize": "sus4", "sourceNoteIds": [7, 8], "targetPitches": [65, 67, 72]},
                        {"start": 2.0, "rootDegree": 5, "targetRootPitch": 67,
-                        "chordSize": "dominant7_sharp11", "sourceNoteIds": [9, 10],
-                        "targetPitches": [67, 71, 74, 77, 85]}],
+                        "chordSize": "dominant7_sharp11", "inversion": 3, "sourceNoteIds": [9, 10],
+                        "targetPitches": [77, 79, 83, 85, 86]}],
                    "changes": changes, "removeNoteIds": [], "newNotes": new_notes,
                    "beforeNotes": before["notes"]}
         params = {**target, "expectedStateVersion": 3, "before": before,
@@ -3830,7 +3832,7 @@ class DispatchTest(unittest.TestCase):
                   "operation": "apply_midi_diatonic_chord_quality", "midiDiatonicChordQuality": quality,
                   "changes": changes, "removeNoteIds": [], "newNotes": new_notes}
         result = dispatch_request(song, {"method": "replace_midi_notes", "params": params}, 3)
-        self.assertEqual([note["pitch"] for note in result["notes"]], [60, 65, 67, 71, 67, 74, 77, 85])
+        self.assertEqual([note["pitch"] for note in result["notes"]], [65, 67, 77, 79, 72, 83, 85, 86])
         self.assertEqual(result["addedNoteIds"], [100, 101, 102, 103])
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
