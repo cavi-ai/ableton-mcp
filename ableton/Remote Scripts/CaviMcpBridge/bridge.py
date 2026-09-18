@@ -1215,6 +1215,65 @@ def _validate_midi_ratchet_pattern_payload(clip, params):
     return preserved, expected
 
 
+def _validate_midi_chord_doubling_payload(clip, params):
+    doubling = params.get("chordDoubling")
+    required = {"noteIds", "mode", "newNotes", "preservedNotes"}
+    if not isinstance(doubling, dict) or set(doubling) != required or \
+            params.get("removeNoteIds") != [] or params.get("newNotes") != doubling.get("newNotes"):
+        raise ValueError("MIDI chord-doubling payload does not match its signed plan")
+    note_ids, mode = doubling.get("noteIds"), doubling.get("mode")
+    if not isinstance(note_ids, list) or not note_ids or len(note_ids) > 4096 or \
+            any(type(note_id) is not int or note_id < 0 for note_id in note_ids) or \
+            len(note_ids) != len(set(note_ids)) or \
+            mode not in ("bass_octave_down", "top_octave_up", "outer_octaves"):
+        raise ValueError("MIDI chord-doubling options or note IDs are invalid")
+    current = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
+    by_id = {note["noteId"]: note for note in current}
+    if len(by_id) != len(current) or any(note_id not in by_id for note_id in note_ids):
+        raise ValueError("one or more MIDI chord-doubling note IDs no longer exist")
+    if doubling.get("preservedNotes") != current:
+        raise ValueError("MIDI chord-doubling preserved notes do not match the signed plan")
+    selected, starts = set(note_ids), {by_id[note_id]["start"] for note_id in note_ids}
+    if any(note["start"] in starts and note["noteId"] not in selected for note in current):
+        raise ValueError("MIDI chord doubling requires every note at each selected complete onset")
+    expected = []
+    for start in sorted(starts):
+        chord = sorted((by_id[note_id] for note_id in note_ids if by_id[note_id]["start"] == start),
+                       key=lambda note: (note["pitch"], note["noteId"]))
+        if len(chord) < 2:
+            raise ValueError("each doubled MIDI chord onset must contain at least two notes")
+        sources = ([(chord[0], -12)] if mode == "bass_octave_down" else
+                   [(chord[-1], 12)] if mode == "top_octave_up" else
+                   [(chord[0], -12), (chord[-1], 12)])
+        for source, offset in sources:
+            pitch = source["pitch"] + offset
+            if not 0 <= pitch <= 127:
+                raise ValueError("MIDI chord doubling would exceed the pitch range")
+            generated = {"sourceNoteId": source["noteId"], "pitch": pitch,
+                         "start": source["start"], "duration": source["duration"],
+                         "velocity": source["velocity"], "velocityDeviation": source["velocityDeviation"],
+                         "releaseVelocity": source["releaseVelocity"], "probability": source["probability"],
+                         "mute": source["mute"]}
+            if any(note["pitch"] == pitch and
+                   note["start"] < generated["start"] + generated["duration"] - 2e-7 and
+                   generated["start"] < note["start"] + note["duration"] - 2e-7
+                   for note in current + expected):
+                raise ValueError("MIDI chord doubling would create a same-pitch collision")
+            expected.append(generated)
+    if len(current) + len(expected) > 4096:
+        raise ValueError("MIDI chord doubling supports at most 4096 final notes")
+    supplied = doubling.get("newNotes")
+    exact = ("sourceNoteId", "pitch", "velocity", "velocityDeviation",
+             "releaseVelocity", "probability", "mute")
+    if not isinstance(supplied, list) or len(supplied) != len(expected) or any(
+            any(actual.get(field) != wanted[field] for field in exact) or
+            abs(actual.get("start", math.inf) - wanted["start"]) > 2e-7 or
+            abs(actual.get("duration", math.inf) - wanted["duration"]) > 2e-7
+            for actual, wanted in zip(supplied, expected)):
+        raise ValueError("MIDI chord-doubling new notes do not match the signed plan")
+    return current, expected
+
+
 def _validate_midi_strum_pattern_payload(clip, params):
     strum = params.get("strumPattern")
     if not isinstance(strum, dict) or set(strum) != {"noteIds", "direction", "spreadBeats", "changes"} or \
@@ -2995,9 +3054,11 @@ def dispatch_request(song, request, state_version, application=None):
         if params.get("before") != current:
             raise ValueError("MIDI clip changed since observation")
         guarded_ratchet = params.get("operation") == "apply_midi_ratchet_pattern"
-        if guarded_ratchet and grid_reference.get("setFingerprint") != fingerprint:
+        guarded_doubling = params.get("operation") == "apply_midi_chord_doubling"
+        if (guarded_ratchet or guarded_doubling) and grid_reference.get("setFingerprint") != fingerprint:
             raise ValueError("Live set fingerprint changed since observation")
         expected_ratchet = _validate_midi_ratchet_pattern_payload(clip, params) if guarded_ratchet else None
+        expected_doubling = _validate_midi_chord_doubling_payload(clip, params) if guarded_doubling else None
         remove_note_ids = [int(note_id) for note_id in params.get("removeNoteIds", [])]
         new_notes = params.get("newNotes", [])
         if len(current["notes"]) > 4096 or len(remove_note_ids) > 4096 or len(new_notes) > 4096 or \
@@ -3051,6 +3112,41 @@ def dispatch_request(song, request, state_version, application=None):
                 "removedNoteIds": remove_note_ids, "addedNoteIds": added_note_ids,
                 "notes": readback,
             }
+        if guarded_doubling:
+            added_note_ids = []
+            with _undo_step(song):
+                try:
+                    added_note_ids = list(clip.add_new_notes(new_note_specs))
+                    readback = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
+                    by_readback_id = {note["noteId"]: note for note in readback}
+                    exact = ("pitch", "velocity", "velocityDeviation", "releaseVelocity", "probability", "mute")
+                    preserved_match = len(by_readback_id) == len(readback) and all(
+                        expected["noteId"] in by_readback_id and
+                        all(by_readback_id[expected["noteId"]][field] == expected[field] for field in exact) and
+                        abs(by_readback_id[expected["noteId"]]["start"] - expected["start"]) <= 2e-7 and
+                        abs(by_readback_id[expected["noteId"]]["duration"] - expected["duration"]) <= 2e-7
+                        for expected in expected_doubling[0])
+                    added = [by_readback_id.get(note_id) for note_id in added_note_ids]
+                    additions_match = len(added_note_ids) == len(expected_doubling[1]) and \
+                        len(set(added_note_ids)) == len(added_note_ids) and not any(note is None for note in added) and all(
+                            all(actual[field] == expected[field] for field in exact) and
+                            abs(actual["start"] - expected["start"]) <= 2e-7 and
+                            abs(actual["duration"] - expected["duration"]) <= 2e-7
+                            for actual, expected in zip(added, expected_doubling[1]))
+                    if not preserved_match or not additions_match or \
+                            len(readback) != len(expected_doubling[0]) + len(expected_doubling[1]):
+                        raise ValueError("native MIDI chord-doubling readback does not match the signed plan")
+                except Exception as mutation_error:
+                    try:
+                        if added_note_ids:
+                            clip.remove_notes_by_id(tuple(added_note_ids))
+                    except Exception as rollback_error:
+                        raise RuntimeError("MIDI chord doubling failed and rollback was incomplete (%s); original error: %s" %
+                                           (rollback_error, mutation_error))
+                    raise mutation_error
+            return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                    "clipId": params["clipId"], "lengthBeats": float(clip.length),
+                    "removedNoteIds": [], "addedNoteIds": added_note_ids, "notes": readback}
         with _undo_step(song):
             added_note_ids = list(clip.add_new_notes(new_note_specs)) if new_note_specs else []
             try:
