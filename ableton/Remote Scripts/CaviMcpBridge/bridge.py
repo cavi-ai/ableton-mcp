@@ -1382,6 +1382,85 @@ def _validate_midi_drop_voicing_payload(clip, params):
     return final
 
 
+def _validate_midi_chord_voice_leading_payload(clip, params):
+    leading = params.get("chordVoiceLeading")
+    required = {"noteIds", "mode", "minPitch", "maxPitch", "totalMovementSemitones", "changes"}
+    if not isinstance(leading, dict) or set(leading) != required or \
+            params.get("changes") != leading.get("changes") or params.get("newNotes") != []:
+        raise ValueError("MIDI chord voice-leading payload does not match its signed plan")
+    note_ids, mode = leading.get("noteIds"), leading.get("mode")
+    min_pitch, max_pitch = leading.get("minPitch"), leading.get("maxPitch")
+    if not isinstance(note_ids, list) or not note_ids or len(note_ids) > 4096 or \
+            any(type(note_id) is not int or note_id < 0 for note_id in note_ids) or \
+            len(note_ids) != len(set(note_ids)) or mode not in ("all_voices", "preserve_bass") or \
+            type(min_pitch) is not int or type(max_pitch) is not int or \
+            not 0 <= min_pitch <= max_pitch <= 127:
+        raise ValueError("MIDI chord voice-leading options or note IDs are invalid")
+    current = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
+    by_id = {note["noteId"]: note for note in current}
+    if len(by_id) != len(current) or any(note_id not in by_id for note_id in note_ids):
+        raise ValueError("one or more MIDI chord voice-leading note IDs no longer exist")
+    selected, starts = set(note_ids), {by_id[note_id]["start"] for note_id in note_ids}
+    if any(note["start"] in starts and note["noteId"] not in selected for note in current):
+        raise ValueError("MIDI chord voice leading requires every note at each selected complete onset")
+    chords = [sorted((by_id[note_id] for note_id in note_ids if by_id[note_id]["start"] == start),
+                     key=lambda note: (note["pitch"], note["noteId"])) for start in sorted(starts)]
+    if len(chords) < 2 or len(chords[0]) < 2 or any(len(chord) != len(chords[0]) for chord in chords):
+        raise ValueError("MIDI chord voice leading requires equal chord voice counts")
+    if any(not min_pitch <= note["pitch"] <= max_pitch for note in chords[0]):
+        raise ValueError("anchored MIDI chord does not fit the requested pitch range")
+
+    expected = [{"noteId": note["noteId"], "previous": note, "pitch": note["pitch"]}
+                for note in chords[0]]
+    previous_pitches = [note["pitch"] for note in chords[0]]
+    total_movement = 0
+    for chord in chords[1:]:
+        states = [(0, 0, [])]
+        for index, note in enumerate(chord):
+            pitch_class = note["pitch"] % 12
+            candidates = ([note["pitch"]] if mode == "preserve_bass" and index == 0 else
+                          [pitch for pitch in range(pitch_class, 128, 12) if min_pitch <= pitch <= max_pitch])
+            next_states = []
+            for candidate in candidates:
+                proposals = [(movement + abs(candidate - previous_pitches[index]),
+                              displacement + abs(candidate - note["pitch"]), pitches + [candidate])
+                             for movement, displacement, pitches in states
+                             if not pitches or candidate > pitches[-1]]
+                if proposals:
+                    next_states.append(min(proposals, key=lambda state: (state[0], state[1], state[2])))
+            states = next_states
+        if not states:
+            raise ValueError("MIDI chord voice leading cannot preserve voice order in range")
+        movement, _, pitches = min(states, key=lambda state: (state[0], state[1], state[2]))
+        total_movement += movement
+        expected.extend({"noteId": note["noteId"], "previous": note, "pitch": pitch}
+                        for note, pitch in zip(chord, pitches))
+        previous_pitches = pitches
+    if leading.get("totalMovementSemitones") != total_movement:
+        raise ValueError("MIDI chord voice-leading movement does not match the signed plan")
+    supplied = params.get("changes")
+    if not isinstance(supplied, list) or len(supplied) != len(expected) or any(
+            actual.get("noteId") != wanted["noteId"] or actual.get("previous") != wanted["previous"] or
+            actual.get("pitch") != wanted["pitch"] for actual, wanted in zip(supplied, expected)):
+        raise ValueError("MIDI chord voice-leading changes do not match the signed plan")
+    final = {note["noteId"]: dict(note) for note in current}
+    for change in expected:
+        final[change["noteId"]]["pitch"] = change["pitch"]
+    for left in range(len(current)):
+        for right in range(left + 1, len(current)):
+            before_left, before_right = current[left], current[right]
+            after_left, after_right = final[before_left["noteId"]], final[before_right["noteId"]]
+            before_overlap = before_left["pitch"] == before_right["pitch"] and \
+                before_left["start"] < before_right["start"] + before_right["duration"] - 2e-7 and \
+                before_right["start"] < before_left["start"] + before_left["duration"] - 2e-7
+            after_overlap = after_left["pitch"] == after_right["pitch"] and \
+                after_left["start"] < after_right["start"] + after_right["duration"] - 2e-7 and \
+                after_right["start"] < after_left["start"] + after_left["duration"] - 2e-7
+            if after_overlap and not before_overlap:
+                raise ValueError("MIDI chord voice leading would create a same-pitch collision")
+    return final
+
+
 def _validate_scale_melody_payload(song, params, state_version, fingerprint):
     if params.get("expectedStateVersion") != state_version:
         raise ValueError("melody state version changed")
@@ -2577,7 +2656,8 @@ def dispatch_request(song, request, state_version, application=None):
             guarded_strum = method == "transform_midi_notes" and params.get("operation") == "apply_midi_strum_pattern"
             guarded_inversion = method == "transform_midi_notes" and params.get("operation") == "apply_midi_chord_inversion"
             guarded_drop = method == "transform_midi_notes" and params.get("operation") == "apply_midi_drop_voicing"
-            guarded_transform = guarded_variation or guarded_humanization or guarded_velocity or guarded_gate or guarded_probability or guarded_strum or guarded_inversion or guarded_drop
+            guarded_leading = method == "transform_midi_notes" and params.get("operation") == "apply_midi_chord_voice_leading"
+            guarded_transform = guarded_variation or guarded_humanization or guarded_velocity or guarded_gate or guarded_probability or guarded_strum or guarded_inversion or guarded_drop or guarded_leading
             if guarded_transform:
                 if params.get("expectedStateVersion") != state_version:
                     raise ValueError("MIDI clip state version changed")
@@ -2613,6 +2693,7 @@ def dispatch_request(song, request, state_version, application=None):
             expected_strum = _validate_midi_strum_pattern_payload(clip, params) if guarded_strum else None
             expected_inversion = _validate_midi_chord_inversion_payload(clip, params) if guarded_inversion else None
             expected_drop = _validate_midi_drop_voicing_payload(clip, params) if guarded_drop else None
+            expected_leading = _validate_midi_chord_voice_leading_payload(clip, params) if guarded_leading else None
             notes = clip.get_notes_by_id(note_ids) if note_ids else []
             by_id = {int(note.note_id): note for note in notes}
             if len(by_id) != len(set(note_ids)):
@@ -2629,8 +2710,8 @@ def dispatch_request(song, request, state_version, application=None):
                                          if source in change}))
             added_note_ids = []
             new_note_specs = tuple(_new_midi_note(note) for note in params.get("newNotes", []))
-            if guarded_inversion or guarded_drop:
-                expected_pitch_state = expected_inversion if guarded_inversion else expected_drop
+            if guarded_inversion or guarded_drop or guarded_leading:
+                expected_pitch_state = expected_inversion if guarded_inversion else expected_drop if guarded_drop else expected_leading
                 with _undo_step(song):
                     try:
                         for change in params["changes"]:
