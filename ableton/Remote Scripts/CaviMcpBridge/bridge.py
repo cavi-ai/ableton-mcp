@@ -1274,6 +1274,104 @@ def _validate_midi_chord_doubling_payload(clip, params):
     return current, expected
 
 
+def _midi_arpeggiation_random_key(pitch, seed):
+    value = (pitch ^ seed) & 0xffffffff
+    value = ((value ^ (value >> 16)) * 0x45d9f3b) & 0xffffffff
+    value = ((value ^ (value >> 16)) * 0x45d9f3b) & 0xffffffff
+    return (value ^ (value >> 16)) & 0xffffffff
+
+
+def _validate_midi_chord_arpeggiation_payload(clip, params):
+    arpeggiation = params.get("chordArpeggiation")
+    required = {"noteIds", "mode", "stepBeats", "gate", "seed", "changes", "newNotes"}
+    if not isinstance(arpeggiation, dict) or set(arpeggiation) != required or \
+            params.get("changes") != arpeggiation.get("changes") or \
+            params.get("newNotes") != arpeggiation.get("newNotes"):
+        raise ValueError("MIDI chord-arpeggiation payload does not match its signed plan")
+    note_ids = arpeggiation.get("noteIds")
+    mode = arpeggiation.get("mode")
+    step = arpeggiation.get("stepBeats")
+    gate = arpeggiation.get("gate")
+    seed = arpeggiation.get("seed")
+    if not isinstance(note_ids, list) or not note_ids or len(note_ids) > 4096 or \
+            any(type(note_id) is not int or note_id < 0 for note_id in note_ids) or \
+            len(note_ids) != len(set(note_ids)) or \
+            mode not in ("up", "down", "up_down", "random") or \
+            type(step) not in (int, float) or not math.isfinite(step) or step <= 0 or \
+            type(gate) not in (int, float) or not math.isfinite(gate) or not 0 < gate <= 1 or \
+            type(seed) is not int or not 0 <= seed <= 2147483647:
+        raise ValueError("MIDI chord-arpeggiation options or note IDs are invalid")
+    current = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
+    by_id = {note["noteId"]: note for note in current}
+    if len(by_id) != len(current) or any(note_id not in by_id for note_id in note_ids):
+        raise ValueError("one or more MIDI chord-arpeggiation note IDs no longer exist")
+    selected_ids = set(note_ids)
+    starts = {by_id[note_id]["start"] for note_id in note_ids}
+    if any(note["start"] in starts and note["noteId"] not in selected_ids for note in current):
+        raise ValueError("MIDI chord arpeggiation requires every note at each selected complete onset")
+    preserved = [note for note in current if note["noteId"] not in selected_ids]
+    onset_counts = {}
+    for note in current:
+        onset_counts[note["start"]] = onset_counts.get(note["start"], 0) + 1
+    chord_onsets = sorted(start for start, count in onset_counts.items() if count >= 2)
+    expected_changes = []
+    expected_new = []
+    for start in sorted(starts):
+        chord = sorted((by_id[note_id] for note_id in note_ids if by_id[note_id]["start"] == start),
+                       key=lambda note: (note["pitch"], note["noteId"]))
+        if len(chord) < 2:
+            raise ValueError("each arpeggiated MIDI chord onset must contain at least two notes")
+        if mode == "down":
+            ordered = list(reversed(chord))
+        elif mode == "up_down":
+            ordered = chord + list(reversed(chord[1:-1]))
+        elif mode == "random":
+            ordered = sorted(chord, key=lambda note: (_midi_arpeggiation_random_key(note["pitch"], seed),
+                                                      note["pitch"]))
+        else:
+            ordered = chord
+        next_onset = next((onset for onset in chord_onsets if onset > start + 2e-7), float(clip.length))
+        duration = step * gate
+        generated_notes = []
+        for index, source in enumerate(ordered):
+            generated = {"sourceNoteId": source["noteId"], "pitch": source["pitch"],
+                         "start": start + index * step, "duration": duration,
+                         "velocity": source["velocity"], "velocityDeviation": source["velocityDeviation"],
+                         "releaseVelocity": source["releaseVelocity"], "probability": source["probability"],
+                         "mute": source["mute"]}
+            if generated["start"] + generated["duration"] > next_onset + 2e-7:
+                raise ValueError("MIDI chord arpeggiation would cross a chord or clip boundary")
+            if any(note["pitch"] == generated["pitch"] and
+                   note["start"] < generated["start"] + generated["duration"] - 2e-7 and
+                   generated["start"] < note["start"] + note["duration"] - 2e-7
+                   for note in preserved + generated_notes):
+                raise ValueError("MIDI chord arpeggiation would create a same-pitch collision")
+            generated_notes.append(generated)
+            if index < len(chord):
+                expected_changes.append({"noteId": source["noteId"], "previous": source,
+                                         "start": generated["start"], "duration": generated["duration"]})
+            else:
+                expected_new.append(generated)
+    if len(current) + len(expected_new) > 4096:
+        raise ValueError("MIDI chord arpeggiation supports at most 4096 final notes")
+    if arpeggiation.get("changes") != expected_changes:
+        raise ValueError("MIDI chord-arpeggiation changes do not match the signed plan")
+    supplied = arpeggiation.get("newNotes")
+    exact = ("sourceNoteId", "pitch", "velocity", "velocityDeviation",
+             "releaseVelocity", "probability", "mute")
+    if not isinstance(supplied, list) or len(supplied) != len(expected_new) or any(
+            any(actual.get(field) != wanted[field] for field in exact) or
+            abs(actual.get("start", math.inf) - wanted["start"]) > 2e-7 or
+            abs(actual.get("duration", math.inf) - wanted["duration"]) > 2e-7
+            for actual, wanted in zip(supplied, expected_new)):
+        raise ValueError("MIDI chord-arpeggiation new notes do not match the signed plan")
+    expected_final = {note["noteId"]: dict(note) for note in current}
+    for change in expected_changes:
+        expected_final[change["noteId"]]["start"] = change["start"]
+        expected_final[change["noteId"]]["duration"] = change["duration"]
+    return expected_final, expected_new
+
+
 def _validate_midi_strum_pattern_payload(clip, params):
     strum = params.get("strumPattern")
     if not isinstance(strum, dict) or set(strum) != {"noteIds", "direction", "spreadBeats", "changes"} or \
@@ -2716,7 +2814,8 @@ def dispatch_request(song, request, state_version, application=None):
             guarded_inversion = method == "transform_midi_notes" and params.get("operation") == "apply_midi_chord_inversion"
             guarded_drop = method == "transform_midi_notes" and params.get("operation") == "apply_midi_drop_voicing"
             guarded_leading = method == "transform_midi_notes" and params.get("operation") == "apply_midi_chord_voice_leading"
-            guarded_transform = guarded_variation or guarded_humanization or guarded_velocity or guarded_gate or guarded_probability or guarded_strum or guarded_inversion or guarded_drop or guarded_leading
+            guarded_arpeggiation = method == "transform_midi_notes" and params.get("operation") == "apply_midi_chord_arpeggiation"
+            guarded_transform = guarded_variation or guarded_humanization or guarded_velocity or guarded_gate or guarded_probability or guarded_strum or guarded_inversion or guarded_drop or guarded_leading or guarded_arpeggiation
             if guarded_transform:
                 if params.get("expectedStateVersion") != state_version:
                     raise ValueError("MIDI clip state version changed")
@@ -2753,6 +2852,7 @@ def dispatch_request(song, request, state_version, application=None):
             expected_inversion = _validate_midi_chord_inversion_payload(clip, params) if guarded_inversion else None
             expected_drop = _validate_midi_drop_voicing_payload(clip, params) if guarded_drop else None
             expected_leading = _validate_midi_chord_voice_leading_payload(clip, params) if guarded_leading else None
+            expected_arpeggiation = _validate_midi_chord_arpeggiation_payload(clip, params) if guarded_arpeggiation else None
             notes = clip.get_notes_by_id(note_ids) if note_ids else []
             by_id = {int(note.note_id): note for note in notes}
             if len(by_id) != len(set(note_ids)):
@@ -2769,6 +2869,62 @@ def dispatch_request(song, request, state_version, application=None):
                                          if source in change}))
             added_note_ids = []
             new_note_specs = tuple(_new_midi_note(note) for note in params.get("newNotes", []))
+            if guarded_arpeggiation:
+                existing_ids = {int(note.note_id) for note in clip.get_all_notes_extended()}
+                with _undo_step(song):
+                    try:
+                        for change in params["changes"]:
+                            note = by_id[int(change["noteId"])]
+                            note.start_time = change["start"]
+                            note.duration = change["duration"]
+                        if notes:
+                            clip.apply_note_modifications(notes)
+                        added_note_ids = list(clip.add_new_notes(new_note_specs)) if new_note_specs else []
+                        readback = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
+                        observed = {note["noteId"]: note for note in readback}
+                        exact = ("pitch", "velocity", "velocityDeviation", "releaseVelocity", "probability", "mute")
+                        existing_match = set(expected_arpeggiation[0]) == existing_ids and all(
+                            note_id in observed and
+                            all(observed[note_id][field] == expected[field] for field in exact) and
+                            abs(observed[note_id]["start"] - expected["start"]) <= 2e-7 and
+                            abs(observed[note_id]["duration"] - expected["duration"]) <= 2e-7
+                            for note_id, expected in expected_arpeggiation[0].items())
+                        added = [observed.get(note_id) for note_id in added_note_ids]
+                        additions_match = len(added_note_ids) == len(expected_arpeggiation[1]) and \
+                            len(set(added_note_ids)) == len(added_note_ids) and not any(note is None for note in added) and all(
+                                all(actual[field] == expected[field] for field in exact) and
+                                abs(actual["start"] - expected["start"]) <= 2e-7 and
+                                abs(actual["duration"] - expected["duration"]) <= 2e-7
+                                for actual, expected in zip(added, expected_arpeggiation[1]))
+                        if not existing_match or not additions_match or \
+                                len(readback) != len(expected_arpeggiation[0]) + len(expected_arpeggiation[1]):
+                            raise ValueError("native MIDI chord arpeggiation readback does not match the signed plan")
+                        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                                "clipId": params["clipId"], "lengthBeats": float(clip.length),
+                                "notes": readback, "addedNoteIds": added_note_ids}
+                    except Exception as mutation_error:
+                        rollback_errors = []
+                        try:
+                            cleanup_ids = tuple(added_note_ids)
+                            if new_note_specs and not cleanup_ids:
+                                current_ids = {int(note.note_id) for note in clip.get_all_notes_extended()}
+                                cleanup_ids = tuple(sorted(current_ids - existing_ids))
+                            if cleanup_ids:
+                                clip.remove_notes_by_id(cleanup_ids)
+                        except Exception as error:
+                            rollback_errors.append("added-note cleanup failed: %s" % error)
+                        for note, values in originals:
+                            for target, value in values.items():
+                                setattr(note, target, value)
+                        try:
+                            if originals:
+                                clip.apply_note_modifications([note for note, _ in originals])
+                        except Exception as error:
+                            rollback_errors.append("existing-note restore failed: %s" % error)
+                        if rollback_errors:
+                            raise RuntimeError("MIDI chord arpeggiation failed and rollback was incomplete (%s); original error: %s" %
+                                               ("; ".join(rollback_errors), mutation_error))
+                        raise mutation_error
             if guarded_inversion or guarded_drop or guarded_leading:
                 expected_pitch_state = expected_inversion if guarded_inversion else expected_drop if guarded_drop else expected_leading
                 with _undo_step(song):
