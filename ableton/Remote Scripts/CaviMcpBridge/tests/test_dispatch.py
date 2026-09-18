@@ -3552,6 +3552,42 @@ class DispatchTest(unittest.TestCase):
                          [0.0, 0.25, 0.5, 0.75, 1.0, 1.25])
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
+    def test_guarded_midi_transposition_rederives_pitch_changes_and_rejects_tampering(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        notes = [MidiNote(note_id) for note_id in (7, 8, 9, 10)]
+        for note, pitch in zip(notes, (60, 64, 67, 72)):
+            note.pitch = pitch
+            note.velocity = 91
+            note.velocity_deviation = -3
+            note.release_velocity = 62
+            note.probability = 0.75
+        notes[3].start_time = 2.0
+        clip.extended_notes = notes
+        target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+        changes = [{"noteId": note_id, "previous": before["notes"][index], "pitch": pitch}
+                   for index, (note_id, pitch) in enumerate(((7, 67), (8, 71), (9, 74)))]
+        transposition = {"noteIds": [7, 8, 9], "semitones": 7, "changes": changes}
+        params = {**target, "expectedStateVersion": 3, "before": before, "clipTiming": timing,
+                  "gridReference": {"tempoBpm": 120.0,
+                                    "timeSignature": {"numerator": 4, "denominator": 4},
+                                    "setFingerprint": dispatch_request(song, {"method": "get_live_state"}, 3)["setFingerprint"]},
+                  "operation": "apply_midi_transposition", "midiTransposition": transposition,
+                  "changes": changes, "newNotes": []}
+        tampered = copy.deepcopy(params)
+        tampered["changes"][1]["pitch"] = 70
+        tampered["midiTransposition"]["changes"][1]["pitch"] = 70
+        with self.assertRaisesRegex(ValueError, "transposition changes"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": tampered}, 3)
+        result = dispatch_request(song, {"method": "transform_midi_notes", "params": params}, 3)
+        self.assertEqual(result["addedNoteIds"], [])
+        changed = {note["noteId"]: note for note in result["notes"]}
+        self.assertEqual([changed[note_id]["pitch"] for note_id in (7, 8, 9, 10)], [67, 71, 74, 72])
+        self.assertEqual([changed[note_id]["probability"] for note_id in (7, 8, 9)], [0.75, 0.75, 0.75])
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
     def test_scale_melody_creation_binds_context_and_returns_complete_notes_atomically(self):
         song = Song()
         target = {"trackId": "track-1", "clipId": "track-1:clip-0"}
