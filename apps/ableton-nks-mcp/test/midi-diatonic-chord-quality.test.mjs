@@ -50,6 +50,24 @@ test("chord quality exposes exact suspended, added-tone, and altered-dominant vo
   }
 });
 
+test("chord quality applies one explicit recipe per ordered onset", () => {
+  const progression = { lengthBeats: 4, notes: [note(1, 60), note(2, 64), note(3, 67),
+    note(4, 62, 1), note(5, 65, 1), note(6, 69, 1),
+    note(7, 67, 2), note(8, 71, 2), note(9, 74, 2)] };
+  const plan = planMidiDiatonicChordQuality(progression, major, {
+    noteIds: progression.notes.map(current => current.noteId), rootDegrees: [1, 2, 5],
+    chordSizes: ["sus4", "add9", "dominant7_b9"], mode: "preserve_register",
+  });
+  assert.deepEqual(plan.chordSizes, ["sus4", "add9", "dominant7_b9"]);
+  assert.deepEqual(plan.onsets.map(current => current.chordSize), ["sus4", "add9", "dominant7_b9"]);
+  assert.deepEqual(plan.onsets.map(current => current.targetPitches),
+    [[60, 65, 67], [62, 66, 69, 76], [67, 71, 74, 77, 80]]);
+  assert.throws(() => planMidiDiatonicChordQuality(progression, major, {
+    noteIds: progression.notes.map(current => current.noteId), rootDegrees: [1, 2, 5],
+    chordSizes: ["sus4", "add9"], mode: "preserve_register",
+  }), /one chord recipe per onset/);
+});
+
 test("diatonic chord quality preserves expression and rejects incomplete or colliding output", () => {
   const plan = planMidiDiatonicChordQuality(clip, major,
     { noteIds: ids, rootDegrees: [2, 5], chordSize: "triad", mode: "preserve_register" });
@@ -130,4 +148,11 @@ test("diatonic-chord-quality tools expose strict contracts", () => {
     chordSize: "dominant7_sharp11" }).chordSize, "dominant7_sharp11");
   assert.throws(() => validateToolArguments("plan_midi_diatonic_chord_quality", { ...args, chordSize: "major11" }),
     /invalid tool arguments/);
+  const { chordSize: _chordSize, ...sequenceArgs } = args;
+  assert.deepEqual(validateToolArguments("plan_midi_diatonic_chord_quality", {
+    ...sequenceArgs, chordSizes: ["sus4", "dominant7_b9"],
+  }).chordSizes, ["sus4", "dominant7_b9"]);
+  assert.throws(() => validateToolArguments("plan_midi_diatonic_chord_quality", {
+    ...args, chordSizes: ["sus4", "dominant7_b9"],
+  }), /invalid tool arguments/);
 });

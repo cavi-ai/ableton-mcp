@@ -3750,13 +3750,14 @@ class DispatchTest(unittest.TestCase):
                       "duration": 1.0, "velocity": 91, "velocityDeviation": -3,
                       "releaseVelocity": 62, "probability": 0.75, "mute": False}]
         quality = {"noteIds": [7, 8, 9, 10, 11, 12, 13], "rootDegrees": [2, 5],
-                   "chordSize": "triad", "mode": "preserve_register",
+                   "chordSize": "triad", "chordSizes": ["triad", "triad"],
+                   "mode": "preserve_register",
                    "scale": {"rootNote": 0, "scaleName": "Major",
                              "scaleIntervals": [0, 2, 4, 5, 7, 9, 11]},
                    "onsets": [
-                       {"start": 0.0, "rootDegree": 2, "targetRootPitch": 62,
+                       {"start": 0.0, "rootDegree": 2, "chordSize": "triad", "targetRootPitch": 62,
                         "sourceNoteIds": [7, 8], "targetPitches": [62, 65, 69]},
-                       {"start": 2.0, "rootDegree": 5, "targetRootPitch": 67,
+                       {"start": 2.0, "rootDegree": 5, "chordSize": "triad", "targetRootPitch": 67,
                         "sourceNoteIds": [9, 10, 11, 12, 13], "targetPitches": [67, 71, 74]},
                    ], "changes": changes, "removeNoteIds": [12, 13],
                    "newNotes": new_notes, "beforeNotes": before["notes"]}
@@ -3783,9 +3784,10 @@ class DispatchTest(unittest.TestCase):
     def test_guarded_chord_quality_rederives_explicit_altered_dominant_voicing(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip
-        notes = [MidiNote(7), MidiNote(8)]
-        for note, pitch in zip(notes, (60, 64)):
+        notes = [MidiNote(7), MidiNote(8), MidiNote(9), MidiNote(10)]
+        for index, (note, pitch) in enumerate(zip(notes, (60, 64, 72, 76))):
             note.pitch = pitch
+            note.start_time = 0.0 if index < 2 else 2.0
             note.velocity = 91
             note.velocity_deviation = -3
             note.release_velocity = 62
@@ -3797,19 +3799,27 @@ class DispatchTest(unittest.TestCase):
         musical = dispatch_request(song, {"method": "get_song_musical_context", "params": {}}, 3)
         changes = [
             {"noteId": 7, "previous": before["notes"][0], "pitch": 60, "chordToneIndex": 0},
-            {"noteId": 8, "previous": before["notes"][1], "pitch": 64, "chordToneIndex": 1},
+            {"noteId": 8, "previous": before["notes"][1], "pitch": 65, "chordToneIndex": 1},
+            {"noteId": 9, "previous": before["notes"][2], "pitch": 67, "chordToneIndex": 0},
+            {"noteId": 10, "previous": before["notes"][3], "pitch": 71, "chordToneIndex": 1},
         ]
         new_notes = [
-            {"sourceNoteId": 8, "chordToneIndex": index, "pitch": pitch, "start": 0.0,
+            {"sourceNoteId": source_id, "chordToneIndex": index, "pitch": pitch, "start": start,
              "duration": 1.0, "velocity": 91, "velocityDeviation": -3,
              "releaseVelocity": 62, "probability": 0.75, "mute": False}
-            for index, pitch in ((2, 67), (3, 70), (4, 78))
+            for source_id, index, pitch, start in (
+                (8, 2, 67, 0.0), (10, 2, 74, 2.0), (10, 3, 77, 2.0), (10, 4, 85, 2.0)
+            )
         ]
-        quality = {"noteIds": [7, 8], "rootDegrees": [1], "chordSize": "dominant7_sharp11",
+        quality = {"noteIds": [7, 8, 9, 10], "rootDegrees": [1, 5], "chordSize": None,
+                   "chordSizes": ["sus4", "dominant7_sharp11"],
                    "mode": "preserve_register", "scale": {"rootNote": 0, "scaleName": "Major",
                    "scaleIntervals": [0, 2, 4, 5, 7, 9, 11]}, "onsets": [
                        {"start": 0.0, "rootDegree": 1, "targetRootPitch": 60,
-                        "sourceNoteIds": [7, 8], "targetPitches": [60, 64, 67, 70, 78]}],
+                        "chordSize": "sus4", "sourceNoteIds": [7, 8], "targetPitches": [60, 65, 67]},
+                       {"start": 2.0, "rootDegree": 5, "targetRootPitch": 67,
+                        "chordSize": "dominant7_sharp11", "sourceNoteIds": [9, 10],
+                        "targetPitches": [67, 71, 74, 77, 85]}],
                    "changes": changes, "removeNoteIds": [], "newNotes": new_notes,
                    "beforeNotes": before["notes"]}
         params = {**target, "expectedStateVersion": 3, "before": before,
@@ -3820,8 +3830,8 @@ class DispatchTest(unittest.TestCase):
                   "operation": "apply_midi_diatonic_chord_quality", "midiDiatonicChordQuality": quality,
                   "changes": changes, "removeNoteIds": [], "newNotes": new_notes}
         result = dispatch_request(song, {"method": "replace_midi_notes", "params": params}, 3)
-        self.assertEqual([note["pitch"] for note in result["notes"]], [60, 64, 67, 70, 78])
-        self.assertEqual(result["addedNoteIds"], [100, 101, 102])
+        self.assertEqual([note["pitch"] for note in result["notes"]], [60, 65, 67, 71, 67, 74, 77, 85])
+        self.assertEqual(result["addedNoteIds"], [100, 101, 102, 103])
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
     def test_scale_melody_creation_binds_context_and_returns_complete_notes_atomically(self):
