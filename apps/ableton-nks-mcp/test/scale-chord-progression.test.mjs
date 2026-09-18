@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { matchMidiNoteReadback, planScaleChordProgression } from "../src/scale-chord-progression.mjs";
 import { ToolService } from "../src/tool-service.mjs";
+import { validateToolArguments } from "../src/tool-validation.mjs";
 
 const cMajor = { rootNote: 0, rootName: "C", scaleName: "Major", scaleMode: true,
   scaleIntervals: [0, 2, 4, 5, 7, 9, 11] };
@@ -25,6 +26,64 @@ test("scale progression emits literal voice-led MIDI notes and harmonic metadata
     { pitch: 67, start: 0, duration: 2, velocity: 96, mute: false }
   ]);
   assert.equal(result.lengthBeats, 8);
+});
+
+test("scale progression creates secondary dominants and parallel-minor borrowed chords", () => {
+  const result = planScaleChordProgression(cMajor, {
+    ...base,
+    degrees: [2, 4, 5],
+    chordRecipes: ["dominant7", "triad", "triad"],
+    harmonicFunctions: ["secondary_dominant", "borrowed_parallel_minor", "diatonic"],
+    minPitch: 48,
+    maxPitch: 84,
+    voiceLeading: "root_position"
+  });
+  assert.deepEqual(result.chords.map(chord => ({
+    degree: chord.degree,
+    recipe: chord.recipe,
+    harmonicFunction: chord.harmonicFunction,
+    pitches: chord.pitches,
+    rootPitchClass: chord.rootPitchClass
+  })), [
+    { degree: 2, recipe: "dominant7", harmonicFunction: "secondary_dominant",
+      pitches: [57, 61, 64, 67], rootPitchClass: 9 },
+    { degree: 4, recipe: "triad", harmonicFunction: "borrowed_parallel_minor",
+      pitches: [53, 56, 60], rootPitchClass: 5 },
+    { degree: 5, recipe: "triad", harmonicFunction: "diatonic",
+      pitches: [55, 59, 62], rootPitchClass: 7 }
+  ]);
+  assert.equal(result.notes.length, 10);
+  assert.deepEqual({ startBeats: result.startBeats, chordBeats: result.chordBeats,
+    velocity: result.velocity, minPitch: result.minPitch, maxPitch: result.maxPitch },
+  { startBeats: 0, chordBeats: 2, velocity: 96, minPitch: 48, maxPitch: 84 });
+});
+
+test("functional progression rejects incompatible recipe and function sequences", () => {
+  assert.throws(() => planScaleChordProgression(cMajor, {
+    ...base,
+    degrees: [2],
+    chordRecipes: ["triad"],
+    harmonicFunctions: ["secondary_dominant"]
+  }), /secondary dominant requires a dominant recipe/);
+  assert.throws(() => planScaleChordProgression(cMajor, {
+    ...base,
+    degrees: [4, 5],
+    chordRecipes: ["triad"],
+    harmonicFunctions: ["borrowed_parallel_minor", "diatonic"]
+  }), /one chord recipe per degree/);
+});
+
+test("functional progression tool contracts accept only supported recipes and functions", () => {
+  const functional = { ...base, degrees: [2], chordRecipes: ["dominant7"],
+    harmonicFunctions: ["secondary_dominant"] };
+  assert.deepEqual(validateToolArguments("plan_scale_chord_progression", functional).chordRecipes, ["dominant7"]);
+  assert.equal(validateToolArguments("create_scale_chord_progression_clip", {
+    ...functional, trackId: "track-0", clipId: "track-0:clip-0", name: "V of ii",
+    expectedStateVersion: 7
+  }).harmonicFunctions[0], "secondary_dominant");
+  assert.throws(() => validateToolArguments("plan_scale_chord_progression", {
+    ...functional, harmonicFunctions: ["chromatic_mediant"]
+  }), /invalid tool arguments/);
 });
 
 test("root-position mode never substitutes an inversion", () => {

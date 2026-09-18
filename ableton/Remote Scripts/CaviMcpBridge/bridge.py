@@ -2036,6 +2036,125 @@ def _validate_midi_chord_voice_leading_payload(clip, params):
     return final
 
 
+def _validate_functional_progression_payload(song, params, state_version):
+    if params.get("expectedStateVersion") != state_version or \
+            params.get("musicalContext") != _song_musical_context(song, state_version):
+        raise ValueError("functional progression context changed since observation")
+    progression = params.get("progression")
+    if not isinstance(progression, dict) or params.get("notes") != progression.get("notes") or \
+            params.get("lengthBeats") != progression.get("lengthBeats"):
+        raise ValueError("functional progression payload does not match its signed plan")
+    degrees = [chord.get("degree") for chord in progression.get("chords", [])]
+    recipes = progression.get("chordRecipes")
+    functions = progression.get("harmonicFunctions")
+    chords = progression.get("chords")
+    scale_voices = {"triad": 3, "seventh": 4, "ninth": 5}
+    chromatic = {
+        "dominant7": [0, 4, 7, 10], "dominant9": [0, 4, 7, 10, 14],
+        "dominant7_b9": [0, 4, 7, 10, 13], "dominant7_sharp9": [0, 4, 7, 10, 15],
+        "dominant7_sharp11": [0, 4, 7, 10, 18], "dominant7_b13": [0, 4, 7, 10, 20],
+        "dominant13": [0, 4, 7, 10, 14, 21],
+    }
+    if not isinstance(chords, list) or not chords or len(chords) > 64 or \
+            not isinstance(recipes, list) or len(recipes) != len(chords) or \
+            not isinstance(functions, list) or len(functions) != len(chords) or \
+            any(recipe not in scale_voices and recipe not in chromatic for recipe in recipes) or \
+            any(function not in ("diatonic", "secondary_dominant", "borrowed_parallel_minor")
+                for function in functions):
+        raise ValueError("functional progression chord options are invalid")
+    key = params["musicalContext"]["key"]
+    root, intervals = key["rootNote"], key["scaleIntervals"]
+    scale = progression.get("scale", {})
+    if scale.get("rootNote") != root or scale.get("intervals") != intervals or \
+            progression.get("scaleSize") != len(intervals) or \
+            any(type(degree) is not int or not 1 <= degree <= len(intervals) for degree in degrees):
+        raise ValueError("functional progression scale does not match Live's current scale")
+    start_beats, chord_beats = progression.get("startBeats"), progression.get("chordBeats")
+    velocity, min_pitch, max_pitch = progression.get("velocity"), progression.get("minPitch"), progression.get("maxPitch")
+    voice_leading = progression.get("voiceLeading")
+    if not isinstance(start_beats, (int, float)) or not math.isfinite(start_beats) or start_beats < 0 or \
+            not isinstance(chord_beats, (int, float)) or not math.isfinite(chord_beats) or chord_beats <= 0 or \
+            type(velocity) is not int or not 1 <= velocity <= 127 or \
+            any(type(value) is not int or not 0 <= value <= 127 for value in (min_pitch, max_pitch)) or \
+            min_pitch > max_pitch or voice_leading not in ("closest", "root_position"):
+        raise ValueError("functional progression deterministic options are invalid")
+
+    def movement(previous, pitches):
+        if previous is None:
+            return 0
+        shared = min(len(previous), len(pitches))
+        return sum(abs(pitches[index] - previous[index]) for index in range(shared)) + \
+            abs(len(previous) - len(pitches)) * 12
+
+    expected_chords, previous = [], None
+    parallel_minor = [0, 2, 3, 5, 7, 8, 10]
+    for index, (degree, recipe, function, supplied) in enumerate(zip(degrees, recipes, functions, chords)):
+        if function == "secondary_dominant" and not recipe.startswith("dominant"):
+            raise ValueError("functional progression secondary dominant requires a dominant recipe")
+        if function == "borrowed_parallel_minor" and recipe not in scale_voices:
+            raise ValueError("functional progression borrowed harmony requires a scale-stacked recipe")
+        function_intervals = parallel_minor if function == "borrowed_parallel_minor" else intervals
+        target_class = (root + function_intervals[degree - 1]) % 12
+        root_class = (target_class + 7) % 12 if function == "secondary_dominant" else target_class
+        if recipe in chromatic:
+            offsets = chromatic[recipe]
+        else:
+            root_interval = function_intervals[degree - 1]
+            offsets = []
+            for voice in range(scale_voices[recipe]):
+                scale_index = degree - 1 + voice * 2
+                octave, degree_index = divmod(scale_index, len(function_intervals))
+                offsets.append(function_intervals[degree_index] + octave * 12 - root_interval)
+        candidates = []
+        for chord_root in range(root_class, 128, 12):
+            root_pitches = [chord_root + offset for offset in offsets]
+            for inversion in range(len(offsets)):
+                if voice_leading == "root_position" and inversion:
+                    break
+                pitches = root_pitches[inversion:] + [pitch + 12 for pitch in root_pitches[:inversion]]
+                if pitches[0] >= min_pitch and pitches[-1] <= max_pitch:
+                    candidates.append({"pitches": pitches, "inversion": inversion})
+        if not candidates:
+            raise ValueError("functional progression chord cannot fit within the signed MIDI range")
+        center = (min_pitch + max_pitch) / 2
+        selected = min(candidates, key=lambda candidate: (
+            movement(previous, candidate["pitches"]),
+            0 if previous is not None else candidate["inversion"],
+            abs(sum(candidate["pitches"]) / len(candidate["pitches"]) - center),
+            candidate["inversion"], candidate["pitches"][0]))
+        critical = {"index": index, "degree": degree, "recipe": recipe, "harmonicFunction": function,
+                    "rootPitchClass": root_class, "pitches": selected["pitches"]}
+        if any(supplied.get(field) != value for field, value in critical.items()):
+            raise ValueError("functional progression chords do not match the signed options")
+        expected_chords.append(selected["pitches"])
+        previous = selected["pitches"]
+    articulation = progression.get("articulation", {})
+    mode, step_beats, gate, steps_per_chord = (articulation.get(field) for field in
+                                               ("mode", "stepBeats", "gate", "stepsPerChord"))
+    if mode not in ("block", "pulse", "arpeggio_up", "arpeggio_down") or \
+            not isinstance(step_beats, (int, float)) or step_beats <= 0 or \
+            not isinstance(gate, (int, float)) or not 0 < gate <= 1 or \
+            type(steps_per_chord) is not int or steps_per_chord < 1 or \
+            abs(steps_per_chord * step_beats - chord_beats) > 1e-9:
+        raise ValueError("functional progression articulation is invalid")
+    expected_notes = []
+    for chord_index, pitches in enumerate(expected_chords):
+        chord_start = start_beats + chord_index * chord_beats
+        if mode == "block":
+            expected_notes.extend({"pitch": pitch, "start": chord_start, "duration": chord_beats,
+                                   "velocity": velocity, "mute": False} for pitch in pitches)
+            continue
+        ordered = list(reversed(pitches)) if mode == "arpeggio_down" else pitches
+        for step in range(steps_per_chord):
+            event_pitches = ordered if mode == "pulse" else [ordered[step % len(ordered)]]
+            expected_notes.extend({"pitch": pitch, "start": chord_start + step * step_beats,
+                                   "duration": step_beats * gate, "velocity": velocity, "mute": False}
+                                  for pitch in event_pitches)
+    if params.get("notes") != expected_notes or progression.get("notes") != expected_notes or \
+            progression.get("lengthBeats") != start_beats + len(chords) * chord_beats or len(expected_notes) > 4096:
+        raise ValueError("functional progression notes do not match the signed harmony")
+
+
 def _validate_scale_melody_payload(song, params, state_version, fingerprint):
     if params.get("expectedStateVersion") != state_version:
         raise ValueError("melody state version changed")
@@ -4126,6 +4245,44 @@ def dispatch_request(song, request, state_version, application=None):
             int(note["velocity"]), bool(note.get("mute", False))
         ) for note in params["notes"])
         guarded_melody = params.get("operation") == "create_scale_melody_clip"
+        guarded_progression = params.get("operation") == "create_scale_chord_progression_clip"
+        if guarded_progression:
+            current_slot = _clip_list(song, params["trackId"], state_version)["clips"][slot_index]
+            if params.get("before") != current_slot:
+                raise ValueError("functional progression destination slot changed since observation")
+            _validate_functional_progression_payload(song, params, state_version)
+            with _undo_step(song):
+                try:
+                    slot.create_clip(float(params["lengthBeats"]))
+                    clip = slot.clip
+                    clip.set_notes(notes)
+                    if "name" in params:
+                        clip.name = params["name"]
+                    readback = _basic_midi_note_records(clip)
+                    expected = params["notes"]
+                    note_key = lambda note: (note["pitch"], note["start"], note["duration"],
+                                             note["velocity"], note["mute"])
+                    if len(readback) != len(expected) or any(
+                            left["pitch"] != right["pitch"] or left["velocity"] != right["velocity"] or
+                            left["mute"] != right["mute"] or abs(left["start"] - right["start"]) > 2e-7 or
+                            abs(left["duration"] - right["duration"]) > 2e-7
+                            for left, right in zip(sorted(readback, key=note_key), sorted(expected, key=note_key))):
+                        raise ValueError("native functional progression note readback mismatch")
+                    return {
+                        "stateVersion": state_version + 1, "trackId": params["trackId"],
+                        "clip": {"id": params["clipId"], "name": clip.name, "hasClip": True,
+                                 "lengthBeats": float(clip.length), "noteCount": len(notes),
+                                 "isPlaying": bool(clip.is_playing)},
+                        "notes": readback,
+                    }
+                except Exception as mutation_error:
+                    try:
+                        if slot.has_clip:
+                            slot.delete_clip()
+                    except Exception as rollback_error:
+                        raise RuntimeError("functional progression creation failed and rollback was incomplete (%s); original error: %s" %
+                                           (rollback_error, mutation_error))
+                    raise mutation_error
         if guarded_melody:
             current_slot = _clip_list(song, params["trackId"], state_version)["clips"][slot_index]
             if params.get("before") != current_slot:

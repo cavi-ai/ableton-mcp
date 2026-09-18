@@ -3929,6 +3929,56 @@ class DispatchTest(unittest.TestCase):
         self.assertFalse(failing_slot.has_clip)
         self.assertEqual(failing_song.undo_boundaries[-2:], ["begin", "end"])
 
+    def test_functional_progression_creation_rederives_signed_harmony_before_writing(self):
+        song = Song()
+        target = {"trackId": "track-1", "clipId": "track-1:clip-0"}
+        before_context = dispatch_request(song, {"method": "get_song_musical_context"}, 1)
+        before_slot = dispatch_request(song, {"method": "list_clips", "params": {
+            "trackId": "track-1"
+        }}, 1)["clips"][0]
+        notes = [
+            {"pitch": pitch, "start": start, "duration": 1, "velocity": 96, "mute": False}
+            for start, pitches in enumerate(([57, 61, 64, 67], [53, 56, 60], [55, 59, 62]))
+            for pitch in pitches
+        ]
+        progression = {
+            "scale": {"name": "Major", "rootNote": 0, "rootName": "C",
+                      "intervals": [0, 2, 4, 5, 7, 9, 11],
+                      "pitchClasses": [0, 2, 4, 5, 7, 9, 11],
+                      "noteNames": ["C", "D", "E", "F", "G", "A", "B"],
+                      "degrees": [1, 2, 3, 4, 5, 6, 7], "family": "major"},
+            "scaleSize": 7, "voiceLeading": "root_position", "notesPerChord": 3,
+            "startBeats": 0, "chordBeats": 1, "velocity": 96, "minPitch": 48, "maxPitch": 84,
+            "chordRecipes": ["dominant7", "triad", "triad"],
+            "harmonicFunctions": ["secondary_dominant", "borrowed_parallel_minor", "diatonic"],
+            "articulation": {"mode": "block", "stepBeats": 1, "gate": 1, "stepsPerChord": 1},
+            "chords": [
+                {"index": 0, "degree": 2, "recipe": "dominant7", "harmonicFunction": "secondary_dominant",
+                 "rootPitchClass": 9, "pitches": [57, 61, 64, 67]},
+                {"index": 1, "degree": 4, "recipe": "triad", "harmonicFunction": "borrowed_parallel_minor",
+                 "rootPitchClass": 5, "pitches": [53, 56, 60]},
+                {"index": 2, "degree": 5, "recipe": "triad", "harmonicFunction": "diatonic",
+                 "rootPitchClass": 7, "pitches": [55, 59, 62]},
+            ],
+            "notes": notes, "lengthBeats": 3, "totalMovementSemitones": 0,
+        }
+        params = {**target, "expectedStateVersion": 1,
+                  "operation": "create_scale_chord_progression_clip", "name": "A7 Fm G",
+                  "lengthBeats": 3, "notes": notes, "progression": progression,
+                  "musicalContext": before_context, "before": before_slot}
+        result = dispatch_request(song, {"method": "create_midi_clip", "params": params}, 1)
+        self.assertEqual(result["clip"]["noteCount"], 10)
+        self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
+
+        tampered_song = Song()
+        tampered = {**params, "notes": [{**notes[0], "pitch": 58}, *notes[1:]],
+                    "musicalContext": dispatch_request(tampered_song, {"method": "get_song_musical_context"}, 1),
+                    "before": dispatch_request(tampered_song, {"method": "list_clips", "params": {
+                        "trackId": "track-1"}}, 1)["clips"][0]}
+        with self.assertRaisesRegex(ValueError, "functional progression"):
+            dispatch_request(tampered_song, {"method": "create_midi_clip", "params": tampered}, 1)
+        self.assertFalse(tampered_song.tracks[1].clip_slots[0].has_clip)
+
     def test_replace_midi_notes_rejects_stale_state_snapshot_and_unsafe_counts(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip
