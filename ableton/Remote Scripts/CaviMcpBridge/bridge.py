@@ -1412,6 +1412,69 @@ def _validate_midi_transposition_payload(clip, params):
     return expected_final
 
 
+def _validate_midi_diatonic_transposition_payload(clip, params):
+    transposition = params.get("midiDiatonicTransposition")
+    required = {"noteIds", "scaleSteps", "scale", "changes"}
+    if not isinstance(transposition, dict) or set(transposition) != required or \
+            params.get("changes") != transposition.get("changes") or params.get("newNotes") != []:
+        raise ValueError("MIDI diatonic-transposition payload does not match its signed plan")
+    note_ids = transposition.get("noteIds")
+    scale_steps = transposition.get("scaleSteps")
+    scale = transposition.get("scale")
+    if not isinstance(note_ids, list) or not note_ids or len(note_ids) > 4096 or \
+            any(type(note_id) is not int or note_id < 0 for note_id in note_ids) or \
+            len(note_ids) != len(set(note_ids)) or type(scale_steps) is not int or \
+            scale_steps == 0 or not -127 <= scale_steps <= 127 or not isinstance(scale, dict) or \
+            set(scale) != {"rootNote", "scaleName", "scaleIntervals"}:
+        raise ValueError("MIDI diatonic-transposition options are invalid")
+    musical = params.get("musicalContext", {}).get("key", {})
+    expected_scale = {"rootNote": musical.get("rootNote"), "scaleName": musical.get("scaleName"),
+                      "scaleIntervals": musical.get("scaleIntervals")}
+    if scale != expected_scale:
+        raise ValueError("MIDI diatonic-transposition scale does not match Live's current scale")
+    root = scale.get("rootNote")
+    intervals = scale.get("scaleIntervals")
+    if type(root) is not int or not 0 <= root <= 11 or not isinstance(intervals, list) or not intervals or \
+            any(type(interval) is not int or not 0 <= interval <= 11 for interval in intervals) or \
+            intervals != sorted(set(intervals)) or intervals[0] != 0:
+        raise ValueError("MIDI diatonic-transposition scale is invalid")
+    current = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
+    by_id = {note["noteId"]: note for note in current}
+    if len(by_id) != len(current) or any(note_id not in by_id for note_id in note_ids):
+        raise ValueError("one or more MIDI diatonic-transposition note IDs no longer exist")
+    retained = [note for note in current if note["noteId"] not in set(note_ids)]
+    expected_changes = []
+    degree_count = len(intervals)
+    for note_id in note_ids:
+        previous = by_id[note_id]
+        delta = previous["pitch"] - root
+        octave = delta // 12
+        interval = delta % 12
+        if interval not in intervals:
+            raise ValueError("MIDI diatonic-transposition note is not in the current scale")
+        target_index = octave * degree_count + intervals.index(interval) + scale_steps
+        target_octave = target_index // degree_count
+        target_degree = target_index % degree_count
+        pitch = root + target_octave * 12 + intervals[target_degree]
+        if not 0 <= pitch <= 127:
+            raise ValueError("MIDI diatonic transposition would exceed the MIDI range")
+        candidate = dict(previous)
+        candidate["pitch"] = pitch
+        if any(note["pitch"] == pitch and
+               note["start"] < candidate["start"] + candidate["duration"] - 2e-7 and
+               candidate["start"] < note["start"] + note["duration"] - 2e-7
+               for note in retained):
+            raise ValueError("MIDI diatonic transposition would create a same-pitch collision")
+        expected_changes.append({"noteId": note_id, "previous": previous,
+                                 "pitch": pitch, "degree": target_degree + 1})
+    if transposition.get("changes") != expected_changes:
+        raise ValueError("MIDI diatonic-transposition changes do not match the signed plan")
+    expected_final = {note["noteId"]: dict(note) for note in current}
+    for change in expected_changes:
+        expected_final[change["noteId"]]["pitch"] = change["pitch"]
+    return expected_final
+
+
 def _validate_midi_strum_pattern_payload(clip, params):
     strum = params.get("strumPattern")
     if not isinstance(strum, dict) or set(strum) != {"noteIds", "direction", "spreadBeats", "changes"} or \
@@ -2856,7 +2919,8 @@ def dispatch_request(song, request, state_version, application=None):
             guarded_leading = method == "transform_midi_notes" and params.get("operation") == "apply_midi_chord_voice_leading"
             guarded_arpeggiation = method == "transform_midi_notes" and params.get("operation") == "apply_midi_chord_arpeggiation"
             guarded_transposition = method == "transform_midi_notes" and params.get("operation") == "apply_midi_transposition"
-            guarded_transform = guarded_variation or guarded_humanization or guarded_velocity or guarded_gate or guarded_probability or guarded_strum or guarded_inversion or guarded_drop or guarded_leading or guarded_arpeggiation or guarded_transposition
+            guarded_diatonic = method == "transform_midi_notes" and params.get("operation") == "apply_midi_diatonic_transposition"
+            guarded_transform = guarded_variation or guarded_humanization or guarded_velocity or guarded_gate or guarded_probability or guarded_strum or guarded_inversion or guarded_drop or guarded_leading or guarded_arpeggiation or guarded_transposition or guarded_diatonic
             if guarded_transform:
                 if params.get("expectedStateVersion") != state_version:
                     raise ValueError("MIDI clip state version changed")
@@ -2876,6 +2940,8 @@ def dispatch_request(song, request, state_version, application=None):
                            "notes": [_midi_note_record(note) for note in clip.get_all_notes_extended()]}
                 if params.get("before") != current:
                     raise ValueError("MIDI clip changed since observation")
+                if guarded_diatonic and params.get("musicalContext") != _song_musical_context(song, state_version):
+                    raise ValueError("song musical context changed since observation")
             note_ids = [int(change["noteId"]) for change in params["changes"]]
             if guarded_transform and (len(current["notes"]) > 4096 or len(note_ids) > 4096 or
                                       len(params.get("newNotes", [])) > 4096 or
@@ -2895,6 +2961,7 @@ def dispatch_request(song, request, state_version, application=None):
             expected_leading = _validate_midi_chord_voice_leading_payload(clip, params) if guarded_leading else None
             expected_arpeggiation = _validate_midi_chord_arpeggiation_payload(clip, params) if guarded_arpeggiation else None
             expected_transposition = _validate_midi_transposition_payload(clip, params) if guarded_transposition else None
+            expected_diatonic = _validate_midi_diatonic_transposition_payload(clip, params) if guarded_diatonic else None
             notes = clip.get_notes_by_id(note_ids) if note_ids else []
             by_id = {int(note.note_id): note for note in notes}
             if len(by_id) != len(set(note_ids)):
@@ -2911,7 +2978,8 @@ def dispatch_request(song, request, state_version, application=None):
                                          if source in change}))
             added_note_ids = []
             new_note_specs = tuple(_new_midi_note(note) for note in params.get("newNotes", []))
-            if guarded_transposition:
+            if guarded_transposition or guarded_diatonic:
+                expected_pitch_transform = expected_transposition if guarded_transposition else expected_diatonic
                 with _undo_step(song):
                     try:
                         for change in params["changes"]:
@@ -2920,14 +2988,14 @@ def dispatch_request(song, request, state_version, application=None):
                             clip.apply_note_modifications(notes)
                         readback = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
                         observed = {note["noteId"]: note for note in readback}
-                        if set(observed) != set(expected_transposition) or any(
+                        if set(observed) != set(expected_pitch_transform) or any(
                                 any(observed[note_id][field] != expected[field]
                                     for field in ("pitch", "velocity", "velocityDeviation",
                                                   "releaseVelocity", "probability", "mute")) or
                                 abs(observed[note_id]["start"] - expected["start"]) > 2e-7 or
                                 abs(observed[note_id]["duration"] - expected["duration"]) > 2e-7
-                                for note_id, expected in expected_transposition.items()):
-                            raise ValueError("native MIDI transposition readback does not match the signed plan")
+                                for note_id, expected in expected_pitch_transform.items()):
+                            raise ValueError("native MIDI pitch-transform readback does not match the signed plan")
                         return {"stateVersion": state_version + 1, "trackId": params["trackId"],
                                 "clipId": params["clipId"], "lengthBeats": float(clip.length),
                                 "notes": readback, "addedNoteIds": []}
@@ -2939,7 +3007,7 @@ def dispatch_request(song, request, state_version, application=None):
                             if originals:
                                 clip.apply_note_modifications([note for note, _ in originals])
                         except Exception as rollback_error:
-                            raise RuntimeError("MIDI transposition failed and rollback was incomplete (%s); original error: %s" %
+                            raise RuntimeError("MIDI pitch transform failed and rollback was incomplete (%s); original error: %s" %
                                                (rollback_error, mutation_error))
                         raise mutation_error
             if guarded_arpeggiation:
