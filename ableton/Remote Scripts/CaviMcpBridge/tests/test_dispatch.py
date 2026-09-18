@@ -3724,6 +3724,62 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual([observed[note_id]["probability"] for note_id in (7, 8, 9, 10, 11, 12)], [0.75] * 6)
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
+    def test_guarded_diatonic_chord_quality_rederives_changes_removals_and_additions(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        notes = [MidiNote(note_id) for note_id in (7, 8, 9, 10, 11, 12, 13)]
+        for index, (note, pitch) in enumerate(zip(notes, (60, 64, 72, 76, 79, 83, 86))):
+            note.pitch = pitch
+            note.start_time = 0.0 if index < 2 else 2.0
+            note.velocity = 91
+            note.velocity_deviation = -3
+            note.release_velocity = 62
+            note.probability = 0.75
+        clip.extended_notes = notes
+        target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+        musical = dispatch_request(song, {"method": "get_song_musical_context", "params": {}}, 3)
+        by_id = {note["noteId"]: note for note in before["notes"]}
+        changes = [{"noteId": note_id, "previous": by_id[note_id], "pitch": pitch,
+                    "chordToneIndex": chord_tone_index}
+                   for note_id, pitch, chord_tone_index in (
+                       (7, 62, 0), (8, 65, 1), (9, 67, 0), (10, 71, 1), (11, 74, 2)
+                   )]
+        new_notes = [{"sourceNoteId": 8, "chordToneIndex": 2, "pitch": 69, "start": 0.0,
+                      "duration": 1.0, "velocity": 91, "velocityDeviation": -3,
+                      "releaseVelocity": 62, "probability": 0.75, "mute": False}]
+        quality = {"noteIds": [7, 8, 9, 10, 11, 12, 13], "rootDegrees": [2, 5],
+                   "chordSize": "triad", "mode": "preserve_register",
+                   "scale": {"rootNote": 0, "scaleName": "Major",
+                             "scaleIntervals": [0, 2, 4, 5, 7, 9, 11]},
+                   "onsets": [
+                       {"start": 0.0, "rootDegree": 2, "targetRootPitch": 62,
+                        "sourceNoteIds": [7, 8], "targetPitches": [62, 65, 69]},
+                       {"start": 2.0, "rootDegree": 5, "targetRootPitch": 67,
+                        "sourceNoteIds": [9, 10, 11, 12, 13], "targetPitches": [67, 71, 74]},
+                   ], "changes": changes, "removeNoteIds": [12, 13],
+                   "newNotes": new_notes, "beforeNotes": before["notes"]}
+        params = {**target, "expectedStateVersion": 3, "before": before,
+                  "musicalContext": musical, "clipTiming": timing,
+                  "gridReference": {"tempoBpm": 120.0,
+                                    "timeSignature": {"numerator": 4, "denominator": 4},
+                                    "setFingerprint": dispatch_request(song, {"method": "get_live_state"}, 3)["setFingerprint"]},
+                  "operation": "apply_midi_diatonic_chord_quality", "midiDiatonicChordQuality": quality,
+                  "changes": changes, "removeNoteIds": [12, 13], "newNotes": new_notes}
+        tampered = copy.deepcopy(params)
+        tampered["newNotes"][0]["pitch"] = 70
+        tampered["midiDiatonicChordQuality"]["newNotes"][0]["pitch"] = 70
+        with self.assertRaisesRegex(ValueError, "chord-quality new notes"):
+            dispatch_request(song, {"method": "replace_midi_notes", "params": tampered}, 3)
+        result = dispatch_request(song, {"method": "replace_midi_notes", "params": params}, 3)
+        self.assertEqual(result["removedNoteIds"], [12, 13])
+        self.assertEqual(result["addedNoteIds"], [100])
+        observed = {note["noteId"]: note for note in result["notes"]}
+        self.assertEqual([observed[note_id]["pitch"] for note_id in (7, 8, 100, 9, 10, 11)],
+                         [62, 65, 69, 67, 71, 74])
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
     def test_scale_melody_creation_binds_context_and_returns_complete_notes_atomically(self):
         song = Song()
         target = {"trackId": "track-1", "clipId": "track-1:clip-0"}

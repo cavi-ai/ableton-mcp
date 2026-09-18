@@ -31,6 +31,7 @@ import { matchMidiTranspositionReadback, planMidiTransposition } from "./midi-tr
 import { matchMidiDiatonicTranspositionReadback, planMidiDiatonicTransposition } from "./midi-diatonic-transposition.mjs";
 import { matchMidiDiatonicHarmonyReadback, planMidiDiatonicHarmony } from "./midi-diatonic-harmony.mjs";
 import { matchMidiScaleChordRemappingReadback, planMidiScaleChordRemapping } from "./midi-scale-chord-remapping.mjs";
+import { matchMidiDiatonicChordQualityReadback, planMidiDiatonicChordQuality } from "./midi-diatonic-chord-quality.mjs";
 import { matchDrumPatternEditReadback, planDrumPattern, planDrumPatternEdit } from "./drum-pattern.mjs";
 import { matchDrumVariationReadback, planDrumVariation } from "./drum-variation.mjs";
 
@@ -447,6 +448,7 @@ export class ToolService {
     if (name === "plan_midi_diatonic_transposition") return this.#planMidiDiatonicTransposition(args);
     if (name === "plan_midi_diatonic_harmony") return this.#planMidiDiatonicHarmony(args);
     if (name === "plan_midi_scale_chord_remapping") return this.#planMidiScaleChordRemapping(args);
+    if (name === "plan_midi_diatonic_chord_quality") return this.#planMidiDiatonicChordQuality(args);
     if (name === "get_track_mixer") return this.bridge.request("get_track_mixer", args);
     if (name === "get_track_routing") return this.bridge.request("get_track_routing", args);
     if (name === "get_set_mixer") return this.bridge.request("get_set_mixer", {});
@@ -873,6 +875,7 @@ export class ToolService {
     if (name === "apply_midi_diatonic_transposition") return this.#applyMidiDiatonicTransposition(args);
     if (name === "apply_midi_diatonic_harmony") return this.#applyMidiDiatonicHarmony(args);
     if (name === "apply_midi_scale_chord_remapping") return this.#applyMidiScaleChordRemapping(args);
+    if (name === "apply_midi_diatonic_chord_quality") return this.#applyMidiDiatonicChordQuality(args);
     if (name === "create_audio_clip") return this.#createAudioClip(args);
     if (name === "set_clip_parameter_envelope") return this.#setClipParameterEnvelope(args);
     if (name === "set_midi_note_properties") return this.#setMidiNoteProperties(args);
@@ -2943,6 +2946,45 @@ export class ToolService {
         observed.trackId !== args.trackId || observed.clipId !== args.clipId || observed.addedNoteIds?.length !== 0 ||
         !matchMidiScaleChordRemappingReadback(planned.context.before.notes, planned.plan, observed.notes))
       throw new Error("MIDI scale-chord-remapping native readback mismatch");
+    return { dryRun: false, requested: plan, observed,
+      verification: { matchesExpectedNotes: true }, timestamp: new Date().toISOString() };
+  }
+
+  async #planMidiDiatonicChordQuality(args) {
+    const musicalContext = await this.bridge.request("get_song_musical_context", {});
+    const before = await this.bridge.request("get_midi_clip_notes_extended", { trackId: args.trackId, clipId: args.clipId });
+    const clipTiming = await this.bridge.request("get_clip_timing", { trackId: args.trackId, clipId: args.clipId });
+    const gridReference = await this.call("get_song_grid_reference", {});
+    const after = await this.bridge.request("get_midi_clip_notes_extended", { trackId: args.trackId, clipId: args.clipId });
+    const finalContext = await this.bridge.request("get_song_musical_context", {});
+    if (musicalContext.stateVersion !== before.stateVersion || before.stateVersion !== clipTiming.stateVersion ||
+        before.stateVersion !== gridReference.stateVersion || JSON.stringify(before) !== JSON.stringify(after) ||
+        JSON.stringify(musicalContext) !== JSON.stringify(finalContext) || before.trackId !== args.trackId ||
+        before.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
+      throw new Error("clip, scale, timing, or song context changed during chord-quality planning; retry");
+    return { stateVersion: before.stateVersion, trackId: before.trackId, clipId: before.clipId,
+      context: { before, musicalContext, clipTiming, gridReference },
+      plan: planMidiDiatonicChordQuality(before, musicalContext.key, args) };
+  }
+
+  async #applyMidiDiatonicChordQuality(args) {
+    requireExpectedState(args);
+    const planned = await this.#planMidiDiatonicChordQuality(args);
+    if (planned.stateVersion !== args.expectedStateVersion)
+      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${planned.stateVersion}`);
+    const plan = { method: "replace_midi_notes", operation: "apply_midi_diatonic_chord_quality",
+      trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
+      before: planned.context.before, musicalContext: planned.context.musicalContext,
+      clipTiming: planned.context.clipTiming, gridReference: planned.context.gridReference,
+      midiDiatonicChordQuality: planned.plan, changes: planned.plan.changes,
+      removeNoteIds: planned.plan.removeNoteIds, newNotes: planned.plan.newNotes };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    this.#consumeConfirmation(plan, args);
+    const observed = await this.bridge.request("replace_midi_notes", plan);
+    if (!Number.isInteger(observed.stateVersion) || observed.stateVersion <= args.expectedStateVersion ||
+        observed.trackId !== args.trackId || observed.clipId !== args.clipId ||
+        !matchMidiDiatonicChordQualityReadback(planned.plan, observed, observed.notes))
+      throw new Error("MIDI diatonic-chord-quality native readback mismatch");
     return { dryRun: false, requested: plan, observed,
       verification: { matchesExpectedNotes: true }, timestamp: new Date().toISOString() };
   }

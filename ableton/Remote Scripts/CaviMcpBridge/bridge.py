@@ -1342,6 +1342,104 @@ def _validate_midi_diatonic_harmony_payload(clip, params):
     return current, expected
 
 
+def _validate_midi_diatonic_chord_quality_payload(clip, params):
+    quality = params.get("midiDiatonicChordQuality")
+    required = {"noteIds", "rootDegrees", "chordSize", "mode", "scale", "onsets", "changes",
+                "removeNoteIds", "newNotes", "beforeNotes"}
+    if not isinstance(quality, dict) or set(quality) != required or \
+            params.get("changes") != quality.get("changes") or \
+            params.get("removeNoteIds") != quality.get("removeNoteIds") or \
+            params.get("newNotes") != quality.get("newNotes"):
+        raise ValueError("MIDI chord-quality payload does not match its signed plan")
+    note_ids, degrees = quality.get("noteIds"), quality.get("rootDegrees")
+    chord_size, mode, scale = quality.get("chordSize"), quality.get("mode"), quality.get("scale")
+    voices = {"triad": 3, "seventh": 4, "ninth": 5}
+    if not isinstance(note_ids, list) or not note_ids or len(note_ids) > 4096 or \
+            any(type(note_id) is not int or note_id < 0 for note_id in note_ids) or \
+            len(note_ids) != len(set(note_ids)) or not isinstance(degrees, list) or not degrees or \
+            any(type(degree) is not int for degree in degrees) or chord_size not in voices or \
+            mode not in ("preserve_register", "voice_leading") or not isinstance(scale, dict) or \
+            set(scale) != {"rootNote", "scaleName", "scaleIntervals"}:
+        raise ValueError("MIDI chord-quality options are invalid")
+    musical = params.get("musicalContext", {}).get("key", {})
+    expected_scale = {"rootNote": musical.get("rootNote"), "scaleName": musical.get("scaleName"),
+                      "scaleIntervals": musical.get("scaleIntervals")}
+    if scale != expected_scale:
+        raise ValueError("MIDI chord-quality scale does not match Live's current scale")
+    root, intervals = scale.get("rootNote"), scale.get("scaleIntervals")
+    if type(root) is not int or not 0 <= root <= 11 or not isinstance(intervals, list) or not intervals or \
+            any(type(interval) is not int or not 0 <= interval <= 11 for interval in intervals) or \
+            intervals != sorted(set(intervals)) or intervals[0] != 0 or \
+            any(degree < 1 or degree > len(intervals) for degree in degrees):
+        raise ValueError("MIDI chord-quality scale or root degrees are invalid")
+    current = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
+    by_id = {note["noteId"]: note for note in current}
+    if len(by_id) != len(current) or any(note_id not in by_id for note_id in note_ids):
+        raise ValueError("one or more MIDI chord-quality note IDs no longer exist")
+    if quality.get("beforeNotes") != current:
+        raise ValueError("MIDI chord-quality notes do not match the signed plan")
+    selected, starts = set(note_ids), sorted({by_id[note_id]["start"] for note_id in note_ids})
+    if any(note["start"] in starts and note["noteId"] not in selected for note in current):
+        raise ValueError("MIDI chord quality requires every note at each selected complete onset")
+    if len(degrees) != len(starts):
+        raise ValueError("MIDI chord quality requires one root degree per onset")
+    expected_changes, expected_removals, expected_new, expected_onsets = [], [], [], []
+    previous_target_root = None
+    for start, degree in zip(starts, degrees):
+        chord = sorted((by_id[note_id] for note_id in note_ids if by_id[note_id]["start"] == start),
+                       key=lambda note: (note["pitch"], note["noteId"]))
+        if len(chord) < 2:
+            raise ValueError("each rebuilt MIDI onset must contain at least two source notes")
+        pitch_class = (root + intervals[degree - 1]) % 12
+        anchor = previous_target_root if mode == "voice_leading" and previous_target_root is not None else chord[0]["pitch"]
+        target_root = min(range(pitch_class, 128, 12), key=lambda pitch: (abs(pitch - anchor), pitch))
+        root_scale_index = ((target_root - root) // 12) * len(intervals) + degree - 1
+        target_pitches = []
+        for voice in range(voices[chord_size]):
+            octave, degree_index = divmod(root_scale_index + voice * 2, len(intervals))
+            target_pitches.append(root + octave * 12 + intervals[degree_index])
+        if any(pitch < 0 or pitch > 127 for pitch in target_pitches):
+            raise ValueError("MIDI chord quality would exceed the pitch range")
+        retained_count = min(len(chord), voices[chord_size])
+        for voice in range(retained_count):
+            expected_changes.append({"noteId": chord[voice]["noteId"], "previous": chord[voice],
+                                     "pitch": target_pitches[voice], "chordToneIndex": voice})
+        expected_removals.extend(note["noteId"] for note in chord[voices[chord_size]:])
+        source = chord[retained_count - 1]
+        for voice in range(len(chord), voices[chord_size]):
+            expected_new.append({"sourceNoteId": source["noteId"], "chordToneIndex": voice,
+                                 "pitch": target_pitches[voice], "start": source["start"],
+                                 "duration": source["duration"], "velocity": source["velocity"],
+                                 "velocityDeviation": source["velocityDeviation"],
+                                 "releaseVelocity": source["releaseVelocity"],
+                                 "probability": source["probability"], "mute": source["mute"]})
+        expected_onsets.append({"start": start, "rootDegree": degree, "targetRootPitch": target_root,
+                                "sourceNoteIds": [note["noteId"] for note in chord],
+                                "targetPitches": target_pitches})
+        previous_target_root = target_root
+    if quality.get("onsets") != expected_onsets or quality.get("changes") != expected_changes:
+        raise ValueError("MIDI chord-quality changes do not match the signed plan")
+    if quality.get("removeNoteIds") != expected_removals:
+        raise ValueError("MIDI chord-quality removals do not match the signed plan")
+    if quality.get("newNotes") != expected_new:
+        raise ValueError("MIDI chord-quality new notes do not match the signed plan")
+    change_by_id, removed = {change["noteId"]: change for change in expected_changes}, set(expected_removals)
+    projected = [dict(note, pitch=change_by_id.get(note["noteId"], {}).get("pitch", note["pitch"]))
+                 for note in current if note["noteId"] not in removed] + expected_new
+    for index, left in enumerate(projected):
+        for right in projected[index + 1:]:
+            if left["pitch"] == right["pitch"] and \
+                    left["start"] < right["start"] + right["duration"] - 2e-7 and \
+                    right["start"] < left["start"] + left["duration"] - 2e-7:
+                raise ValueError("MIDI chord quality would create a same-pitch collision")
+    if len(projected) > 4096:
+        raise ValueError("MIDI chord quality supports at most 4096 final notes")
+    expected_final = {note["noteId"]: dict(note) for note in current if note["noteId"] not in removed}
+    for change in expected_changes:
+        expected_final[change["noteId"]]["pitch"] = change["pitch"]
+    return expected_final, expected_new
+
+
 def _midi_arpeggiation_random_key(pitch, seed):
     value = (pitch ^ seed) & 0xffffffff
     value = ((value ^ (value >> 16)) * 0x45d9f3b) & 0xffffffff
@@ -3500,13 +3598,15 @@ def dispatch_request(song, request, state_version, application=None):
         guarded_ratchet = params.get("operation") == "apply_midi_ratchet_pattern"
         guarded_doubling = params.get("operation") == "apply_midi_chord_doubling"
         guarded_harmony = params.get("operation") == "apply_midi_diatonic_harmony"
-        if (guarded_ratchet or guarded_doubling or guarded_harmony) and grid_reference.get("setFingerprint") != fingerprint:
+        guarded_quality = params.get("operation") == "apply_midi_diatonic_chord_quality"
+        if (guarded_ratchet or guarded_doubling or guarded_harmony or guarded_quality) and grid_reference.get("setFingerprint") != fingerprint:
             raise ValueError("Live set fingerprint changed since observation")
-        if guarded_harmony and params.get("musicalContext") != _song_musical_context(song, state_version):
+        if (guarded_harmony or guarded_quality) and params.get("musicalContext") != _song_musical_context(song, state_version):
             raise ValueError("song musical context changed since observation")
         expected_ratchet = _validate_midi_ratchet_pattern_payload(clip, params) if guarded_ratchet else None
         expected_doubling = _validate_midi_chord_doubling_payload(clip, params) if guarded_doubling else None
         expected_harmony = _validate_midi_diatonic_harmony_payload(clip, params) if guarded_harmony else None
+        expected_quality = _validate_midi_diatonic_chord_quality_payload(clip, params) if guarded_quality else None
         remove_note_ids = [int(note_id) for note_id in params.get("removeNoteIds", [])]
         new_notes = params.get("newNotes", [])
         if len(current["notes"]) > 4096 or len(remove_note_ids) > 4096 or len(new_notes) > 4096 or \
@@ -3518,6 +3618,61 @@ def dispatch_request(song, request, state_version, application=None):
         if existing_ids != set(remove_note_ids):
             raise ValueError("one or more note IDs no longer exist")
         new_note_specs = tuple(_new_midi_note(note) for note in new_notes)
+        if guarded_quality:
+            changed_ids = [change["noteId"] for change in params["changes"]]
+            changed_notes = clip.get_notes_by_id(changed_ids)
+            changed_by_id = {int(note.note_id): note for note in changed_notes}
+            if set(changed_by_id) != set(changed_ids):
+                raise ValueError("one or more MIDI chord-quality note IDs no longer exist")
+            original_pitches = {note_id: changed_by_id[note_id].pitch for note_id in changed_ids}
+            removed_set = set(remove_note_ids)
+            removed_specs = tuple(_new_midi_note(note) for note in current["notes"]
+                                  if note["noteId"] in removed_set)
+            added_note_ids = []
+            with _undo_step(song):
+                try:
+                    for change in params["changes"]:
+                        changed_by_id[change["noteId"]].pitch = change["pitch"]
+                    if changed_notes:
+                        clip.apply_note_modifications(changed_notes)
+                    if remove_note_ids:
+                        clip.remove_notes_by_id(tuple(remove_note_ids))
+                    added_note_ids = list(clip.add_new_notes(new_note_specs)) if new_note_specs else []
+                    readback = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
+                    observed = {note["noteId"]: note for note in readback}
+                    exact = ("pitch", "velocity", "velocityDeviation", "releaseVelocity", "probability", "mute")
+                    retained_match = set(expected_quality[0]).issubset(observed) and all(
+                        all(observed[note_id][field] == expected[field] for field in exact) and
+                        abs(observed[note_id]["start"] - expected["start"]) <= 2e-7 and
+                        abs(observed[note_id]["duration"] - expected["duration"]) <= 2e-7
+                        for note_id, expected in expected_quality[0].items())
+                    added = [observed.get(note_id) for note_id in added_note_ids]
+                    additions_match = len(added_note_ids) == len(expected_quality[1]) and \
+                        len(set(added_note_ids)) == len(added_note_ids) and not any(note is None for note in added) and all(
+                            all(actual[field] == expected[field] for field in exact) and
+                            abs(actual["start"] - expected["start"]) <= 2e-7 and
+                            abs(actual["duration"] - expected["duration"]) <= 2e-7
+                            for actual, expected in zip(added, expected_quality[1]))
+                    if not retained_match or not additions_match or \
+                            len(readback) != len(expected_quality[0]) + len(expected_quality[1]):
+                        raise ValueError("native MIDI chord-quality readback does not match the signed plan")
+                except Exception as mutation_error:
+                    try:
+                        if added_note_ids:
+                            clip.remove_notes_by_id(tuple(added_note_ids))
+                        for note_id, pitch in original_pitches.items():
+                            changed_by_id[note_id].pitch = pitch
+                        if changed_notes:
+                            clip.apply_note_modifications(changed_notes)
+                        if removed_specs:
+                            clip.add_new_notes(removed_specs)
+                    except Exception as rollback_error:
+                        raise RuntimeError("MIDI chord quality failed and rollback was incomplete (%s); original error: %s" %
+                                           (rollback_error, mutation_error))
+                    raise mutation_error
+            return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                    "clipId": params["clipId"], "lengthBeats": float(clip.length),
+                    "removedNoteIds": remove_note_ids, "addedNoteIds": added_note_ids, "notes": readback}
         if guarded_ratchet:
             selected_ids = set(remove_note_ids)
             original_specs = tuple(_new_midi_note(note) for note in current["notes"] if note["noteId"] in selected_ids)
