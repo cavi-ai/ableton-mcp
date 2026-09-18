@@ -139,6 +139,13 @@ const midiDropVoicingProperties = {
   noteIds: { ...array({ type: "integer", minimum: 0 }, "Unique stable note IDs at complete chord onsets."), minItems: 1, maxItems: 4096 },
   mode: { type: "string", enum: ["drop_2", "drop_3", "drop_2_and_4"], description: "Traditional upper-voice octave drop applied independently at each onset." },
 };
+const midiChordVoiceLeadingProperties = {
+  trackId: ids.trackId, clipId: ids.clipId,
+  noteIds: { ...array({ type: "integer", minimum: 0 }, "Unique stable note IDs across complete ordered chord onsets."), minItems: 1, maxItems: 4096 },
+  mode: { type: "string", enum: ["all_voices", "preserve_bass"], description: "Lead every voice by octave or keep each chord's current bass fixed." },
+  minPitch: { type: "integer", minimum: 0, maximum: 127 },
+  maxPitch: { type: "integer", minimum: 0, maximum: 127 },
+};
 const melodyEvent = object({
   step: { type: "integer", minimum: 0, maximum: 4095, description: "Unique zero-based grid step within the motif." },
   degree: { type: "integer", minimum: 1, maximum: 9, description: "One-based Live scale degree." },
@@ -267,6 +274,8 @@ export const toolContracts = {
   apply_midi_chord_inversion: { description: "Plan or apply guarded chord inversions with complete native note readback verification.", inputSchema: guarded(midiChordInversionProperties, ["trackId", "clipId", "noteIds", "direction", "steps"]) },
   plan_midi_drop_voicing: { description: "Plan deterministic drop-2, drop-3, or drop-2-and-4 voicings for complete chord onsets.", inputSchema: object(midiDropVoicingProperties, ["trackId", "clipId", "noteIds", "mode"]) },
   apply_midi_drop_voicing: { description: "Plan or apply guarded chord drop voicings with complete native note readback verification.", inputSchema: guarded(midiDropVoicingProperties, ["trackId", "clipId", "noteIds", "mode"]) },
+  plan_midi_chord_voice_leading: { description: "Plan deterministic octave-only voice leading across complete chord onsets, anchored to the first chord.", inputSchema: object(midiChordVoiceLeadingProperties, ["trackId", "clipId", "noteIds", "mode", "minPitch", "maxPitch"]) },
+  apply_midi_chord_voice_leading: { description: "Plan or apply guarded chord voice leading with complete native note readback verification.", inputSchema: guarded(midiChordVoiceLeadingProperties, ["trackId", "clipId", "noteIds", "mode", "minPitch", "maxPitch"]) },
   get_clip_timing: { description: "Read clip loop, signature, launch quantization, and groove assignment.", inputSchema: clip },
   get_clip_groove_context: { description: "Read one native callback snapshot of exact clip/track names, MIDI note IDs and expression metadata or audio state, clip timing, complete Groove Pool and global musical context. Supports before/after validation of UI-only extraction and baking; does not execute them.", inputSchema: clip },
   inspect_clip_groove_postconditions: { description: "Read current native context and inspect extraction or baking postconditions against a supplied pre-action get_clip_groove_context snapshot. Does not execute the UI action, prove provenance, or validate audible equivalence. Extraction expects one appended groove and unchanged source/timing; baking expects removed assignment and unchanged unrelated timing/shared context.", inputSchema: object({ ...clip.properties, operation: { type: "string", enum: ["bake", "extract"] }, before: { type: "object", description: "Complete pre-action native clip groove context snapshot; supplied data is not authenticated history." } }, ["trackId", "clipId", "operation", "before"]) },

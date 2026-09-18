@@ -2961,6 +2961,41 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual([observed[note_id]["probability"] for note_id in (7, 8, 9, 10)], [0.75] * 4)
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
+    def test_guarded_chord_voice_leading_rederives_pitch_and_rejects_tampering(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        notes = [MidiNote(note_id) for note_id in range(7, 15)]
+        for index, (note, pitch) in enumerate(zip(notes, (60, 64, 67, 71, 53, 57, 60, 64))):
+            note.pitch = pitch
+            note.start_time = 0.0 if index < 4 else 1.0
+            note.velocity = 91
+            note.velocity_deviation = -3
+            note.release_velocity = 62
+            note.probability = 0.75
+        clip.extended_notes = notes
+        target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+        expected = (60, 64, 67, 71, 65, 69, 72, 76)
+        changes = [{"noteId": note["noteId"], "previous": note, "pitch": pitch}
+                   for note, pitch in zip(before["notes"], expected)]
+        note_ids = list(range(7, 15))
+        params = {**target, "expectedStateVersion": 3, "before": before, "clipTiming": timing,
+                  "gridReference": {"tempoBpm": 120.0, "timeSignature": {"numerator": 4, "denominator": 4},
+                                    "setFingerprint": dispatch_request(song, {"method": "get_live_state"}, 3)["setFingerprint"]},
+                  "operation": "apply_midi_chord_voice_leading",
+                  "chordVoiceLeading": {"noteIds": note_ids, "mode": "all_voices", "minPitch": 48,
+                                         "maxPitch": 84, "totalMovementSemitones": 20, "changes": changes},
+                  "changes": changes, "newNotes": []}
+        tampered = {**params, "changes": [*changes[:4], {**changes[4], "pitch": 53}, *changes[5:]]}
+        with self.assertRaisesRegex(ValueError, "signed plan"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": tampered}, 3)
+        result = dispatch_request(song, {"method": "transform_midi_notes", "params": params}, 3)
+        observed = {note["noteId"]: note for note in result["notes"]}
+        self.assertEqual([observed[note_id]["pitch"] for note_id in note_ids], list(expected))
+        self.assertEqual([observed[note_id]["probability"] for note_id in note_ids], [0.75] * 8)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
     def test_guarded_probability_pattern_applies_probability_and_preserves_complete_note_state(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip
