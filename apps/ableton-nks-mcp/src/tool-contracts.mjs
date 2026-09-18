@@ -180,14 +180,26 @@ const midiScaleChordRemappingProperties = {
   targetDegrees: { ...array({ type: "integer", minimum: 1, maximum: 12 }, "One target Live scale degree for each ordered chord onset."), minItems: 1, maxItems: 4096 },
   mode: { type: "string", enum: ["preserve_register", "voice_leading"], description: "Anchor each chord near its source register or each later chord near the previous remapped bass." },
 };
+const chordRecipe = { type: "string", description: "Exact voicing recipe. Triad, seventh, and ninth stack thirds from Live's scale; suspended, added-tone, and dominant recipes use their named literal intervals, with tensions voiced above the chord.",
+  enum: ["triad", "seventh", "ninth", "sus2", "sus4", "add6", "add9", "dominant7", "dominant9",
+    "dominant7_b9", "dominant7_sharp9", "dominant7_sharp11", "dominant7_b13", "dominant13"] };
 const midiDiatonicChordQualityProperties = {
   trackId: ids.trackId, clipId: ids.clipId,
   noteIds: { ...array({ type: "integer", minimum: 0 }, "Unique stable note IDs at complete chord onsets."), minItems: 1, maxItems: 4096, uniqueItems: true },
   rootDegrees: { ...array({ type: "integer", minimum: 1, maximum: 12 }, "One root degree from Live's current scale for each ordered onset."), minItems: 1, maxItems: 4096 },
-  chordSize: { type: "string", description: "Exact voicing recipe. Triad, seventh, and ninth stack thirds from Live's scale; suspended, added-tone, and dominant recipes use their named literal intervals, with tensions voiced above the chord.",
-    enum: ["triad", "seventh", "ninth", "sus2", "sus4", "add6", "add9", "dominant7", "dominant9",
-      "dominant7_b9", "dominant7_sharp9", "dominant7_sharp11", "dominant7_b13", "dominant13"] },
+  chordSize: chordRecipe,
+  chordSizes: { ...array(chordRecipe, "One exact voicing recipe for each ordered onset."), minItems: 1, maxItems: 4096 },
   mode: { type: "string", enum: ["preserve_register", "voice_leading"] },
+};
+const midiDiatonicChordQualityInput = (guardedMutation = false) => {
+  const required = ["trackId", "clipId", "noteIds", "rootDegrees", "mode"];
+  const schema = guardedMutation ? guarded(midiDiatonicChordQualityProperties, required) :
+    object(midiDiatonicChordQualityProperties, required);
+  schema.oneOf = [
+    { properties: { chordSize: {}, chordSizes: false }, required: ["chordSize"] },
+    { properties: { chordSize: false, chordSizes: {} }, required: ["chordSizes"] },
+  ];
+  return schema;
 };
 const melodyEvent = object({
   step: { type: "integer", minimum: 0, maximum: 4095, description: "Unique zero-based grid step within the motif." },
@@ -331,8 +343,8 @@ export const toolContracts = {
   apply_midi_diatonic_harmony: { description: "Plan or apply guarded scale-aware harmony additions while preserving source notes and expression.", inputSchema: guarded(midiDiatonicHarmonyProperties, ["trackId", "clipId", "noteIds", "degreeOffsets"]) },
   plan_midi_scale_chord_remapping: { description: "Plan complete chord onsets onto explicit degrees of Live's current scale while preserving chord intervals and expression.", inputSchema: object(midiScaleChordRemappingProperties, ["trackId", "clipId", "noteIds", "targetDegrees", "mode"]) },
   apply_midi_scale_chord_remapping: { description: "Plan or apply guarded scale-aware chord remapping with optional bass voice leading and complete native readback.", inputSchema: guarded(midiScaleChordRemappingProperties, ["trackId", "clipId", "noteIds", "targetDegrees", "mode"]) },
-  plan_midi_diatonic_chord_quality: { description: "Plan complete selected onsets as exact scale-native or named suspended, added-tone, and altered-dominant voicings rooted on Live's current scale.", inputSchema: object(midiDiatonicChordQualityProperties, ["trackId", "clipId", "noteIds", "rootDegrees", "chordSize", "mode"]) },
-  apply_midi_diatonic_chord_quality: { description: "Plan or atomically apply guarded chord-quality rebuilding with exact tension voicing, stable retained voices, and verified additions/removals.", inputSchema: guarded(midiDiatonicChordQualityProperties, ["trackId", "clipId", "noteIds", "rootDegrees", "chordSize", "mode"]) },
+  plan_midi_diatonic_chord_quality: { description: "Plan complete selected onsets as exact scale-native or named suspended, added-tone, and altered-dominant voicings rooted on Live's current scale. Accepts one shared chordSize or one chordSizes recipe per onset.", inputSchema: midiDiatonicChordQualityInput() },
+  apply_midi_diatonic_chord_quality: { description: "Plan or atomically apply guarded chord-quality rebuilding with one shared or per-onset recipe, exact tension voicing, stable retained voices, and verified additions/removals.", inputSchema: midiDiatonicChordQualityInput(true) },
   get_clip_timing: { description: "Read clip loop, signature, launch quantization, and groove assignment.", inputSchema: clip },
   get_clip_groove_context: { description: "Read one native callback snapshot of exact clip/track names, MIDI note IDs and expression metadata or audio state, clip timing, complete Groove Pool and global musical context. Supports before/after validation of UI-only extraction and baking; does not execute them.", inputSchema: clip },
   inspect_clip_groove_postconditions: { description: "Read current native context and inspect extraction or baking postconditions against a supplied pre-action get_clip_groove_context snapshot. Does not execute the UI action, prove provenance, or validate audible equivalence. Extraction expects one appended groove and unchanged source/timing; baking expects removed assignment and unchanged unrelated timing/shared context.", inputSchema: object({ ...clip.properties, operation: { type: "string", enum: ["bake", "extract"] }, before: { type: "object", description: "Complete pre-action native clip groove context snapshot; supplied data is not authenticated history." } }, ["trackId", "clipId", "operation", "before"]) },

@@ -1344,7 +1344,7 @@ def _validate_midi_diatonic_harmony_payload(clip, params):
 
 def _validate_midi_diatonic_chord_quality_payload(clip, params):
     quality = params.get("midiDiatonicChordQuality")
-    required = {"noteIds", "rootDegrees", "chordSize", "mode", "scale", "onsets", "changes",
+    required = {"noteIds", "rootDegrees", "chordSize", "chordSizes", "mode", "scale", "onsets", "changes",
                 "removeNoteIds", "newNotes", "beforeNotes"}
     if not isinstance(quality, dict) or set(quality) != required or \
             params.get("changes") != quality.get("changes") or \
@@ -1352,7 +1352,8 @@ def _validate_midi_diatonic_chord_quality_payload(clip, params):
             params.get("newNotes") != quality.get("newNotes"):
         raise ValueError("MIDI chord-quality payload does not match its signed plan")
     note_ids, degrees = quality.get("noteIds"), quality.get("rootDegrees")
-    chord_size, mode, scale = quality.get("chordSize"), quality.get("mode"), quality.get("scale")
+    chord_size, chord_sizes = quality.get("chordSize"), quality.get("chordSizes")
+    mode, scale = quality.get("mode"), quality.get("scale")
     scale_voices = {"triad": 3, "seventh": 4, "ninth": 5}
     chromatic_intervals = {
         "sus2": (0, 2, 7), "sus4": (0, 5, 7), "add6": (0, 4, 7, 9),
@@ -1364,8 +1365,11 @@ def _validate_midi_diatonic_chord_quality_payload(clip, params):
     if not isinstance(note_ids, list) or not note_ids or len(note_ids) > 4096 or \
             any(type(note_id) is not int or note_id < 0 for note_id in note_ids) or \
             len(note_ids) != len(set(note_ids)) or not isinstance(degrees, list) or not degrees or \
-            any(type(degree) is not int for degree in degrees) or \
-            (chord_size not in scale_voices and chord_size not in chromatic_intervals) or \
+            any(type(degree) is not int for degree in degrees) or not isinstance(chord_sizes, list) or \
+            not chord_sizes or any(recipe not in scale_voices and recipe not in chromatic_intervals
+                                   for recipe in chord_sizes) or \
+            (chord_size is not None and chord_size not in scale_voices and chord_size not in chromatic_intervals) or \
+            (chord_size is not None and any(recipe != chord_size for recipe in chord_sizes)) or \
             mode not in ("preserve_register", "voice_leading") or not isinstance(scale, dict) or \
             set(scale) != {"rootNote", "scaleName", "scaleIntervals"}:
         raise ValueError("MIDI chord-quality options are invalid")
@@ -1389,11 +1393,11 @@ def _validate_midi_diatonic_chord_quality_payload(clip, params):
     selected, starts = set(note_ids), sorted({by_id[note_id]["start"] for note_id in note_ids})
     if any(note["start"] in starts and note["noteId"] not in selected for note in current):
         raise ValueError("MIDI chord quality requires every note at each selected complete onset")
-    if len(degrees) != len(starts):
-        raise ValueError("MIDI chord quality requires one root degree per onset")
+    if len(degrees) != len(starts) or len(chord_sizes) != len(starts):
+        raise ValueError("MIDI chord quality requires one root degree and chord recipe per onset")
     expected_changes, expected_removals, expected_new, expected_onsets = [], [], [], []
     previous_target_root = None
-    for start, degree in zip(starts, degrees):
+    for start, degree, onset_chord_size in zip(starts, degrees, chord_sizes):
         chord = sorted((by_id[note_id] for note_id in note_ids if by_id[note_id]["start"] == start),
                        key=lambda note: (note["pitch"], note["noteId"]))
         if len(chord) < 2:
@@ -1401,9 +1405,9 @@ def _validate_midi_diatonic_chord_quality_payload(clip, params):
         pitch_class = (root + intervals[degree - 1]) % 12
         anchor = previous_target_root if mode == "voice_leading" and previous_target_root is not None else chord[0]["pitch"]
         target_root = min(range(pitch_class, 128, 12), key=lambda pitch: (abs(pitch - anchor), pitch))
-        voice_count = scale_voices.get(chord_size, len(chromatic_intervals.get(chord_size, ())))
-        if chord_size in chromatic_intervals:
-            target_pitches = [target_root + interval for interval in chromatic_intervals[chord_size]]
+        voice_count = scale_voices.get(onset_chord_size, len(chromatic_intervals.get(onset_chord_size, ())))
+        if onset_chord_size in chromatic_intervals:
+            target_pitches = [target_root + interval for interval in chromatic_intervals[onset_chord_size]]
         else:
             root_scale_index = ((target_root - root) // 12) * len(intervals) + degree - 1
             target_pitches = []
@@ -1425,7 +1429,8 @@ def _validate_midi_diatonic_chord_quality_payload(clip, params):
                                  "velocityDeviation": source["velocityDeviation"],
                                  "releaseVelocity": source["releaseVelocity"],
                                  "probability": source["probability"], "mute": source["mute"]})
-        expected_onsets.append({"start": start, "rootDegree": degree, "targetRootPitch": target_root,
+        expected_onsets.append({"start": start, "rootDegree": degree, "chordSize": onset_chord_size,
+                                "targetRootPitch": target_root,
                                 "sourceNoteIds": [note["noteId"] for note in chord],
                                 "targetPitches": target_pitches})
         previous_target_root = target_root

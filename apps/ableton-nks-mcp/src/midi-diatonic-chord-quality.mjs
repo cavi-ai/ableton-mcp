@@ -37,8 +37,13 @@ export function planMidiDiatonicChordQuality(clip, key, options) {
   if (!Array.isArray(options.rootDegrees) || !options.rootDegrees.length ||
       options.rootDegrees.some(degree => !Number.isInteger(degree)))
     throw new Error("rootDegrees must contain integer scale degrees");
-  if (!Object.hasOwn(SCALE_VOICES, options.chordSize) && !Object.hasOwn(CHROMATIC_INTERVALS, options.chordSize))
-    throw new Error("chordSize is not a supported chord voicing");
+  const hasSingleRecipe = typeof options.chordSize === "string";
+  const hasRecipeSequence = Array.isArray(options.chordSizes);
+  if (hasSingleRecipe === hasRecipeSequence) throw new Error("provide exactly one of chordSize or chordSizes");
+  const requestedRecipes = hasRecipeSequence ? options.chordSizes : [options.chordSize];
+  if (!requestedRecipes.length || requestedRecipes.some(recipe =>
+    !Object.hasOwn(SCALE_VOICES, recipe) && !Object.hasOwn(CHROMATIC_INTERVALS, recipe)))
+    throw new Error("one or more chord recipes are not supported");
   if (!["preserve_register", "voice_leading"].includes(options.mode))
     throw new Error("mode must be preserve_register or voice_leading");
   const reference = getLiveScaleReference(key?.scaleName, key?.rootNote);
@@ -58,20 +63,24 @@ export function planMidiDiatonicChordQuality(clip, key, options) {
     throw new Error("diatonic chord quality requires every note at each selected complete onset");
   if (options.rootDegrees.length !== starts.length)
     throw new Error("diatonic chord quality requires one root degree per onset");
+  if (hasRecipeSequence && requestedRecipes.length !== starts.length)
+    throw new Error("diatonic chord quality requires one chord recipe per onset");
 
-  const voiceCount = SCALE_VOICES[options.chordSize] ?? CHROMATIC_INTERVALS[options.chordSize].length;
+  const chordSizes = hasRecipeSequence ? [...requestedRecipes] : starts.map(() => options.chordSize);
   const changes = [], removeNoteIds = [], newNotes = [], onsets = [];
   let previousTargetRoot = null;
   starts.forEach((start, onsetIndex) => {
     const chord = selected.filter(note => note.start === start)
       .sort((left, right) => left.pitch - right.pitch || left.noteId - right.noteId);
     if (chord.length < 2) throw new Error("each rebuilt onset must contain at least two source notes");
+    const chordSize = chordSizes[onsetIndex];
+    const voiceCount = SCALE_VOICES[chordSize] ?? CHROMATIC_INTERVALS[chordSize].length;
     const rootDegree = options.rootDegrees[onsetIndex];
     const rootPitchClass = (reference.rootNote + reference.intervals[rootDegree - 1]) % 12;
     const anchor = options.mode === "voice_leading" && previousTargetRoot !== null ? previousTargetRoot : chord[0].pitch;
     const targetRootPitch = nearestPitchForClass(rootPitchClass, anchor);
-    const targetPitches = Object.hasOwn(CHROMATIC_INTERVALS, options.chordSize)
-      ? CHROMATIC_INTERVALS[options.chordSize].map(interval => targetRootPitch + interval)
+    const targetPitches = Object.hasOwn(CHROMATIC_INTERVALS, chordSize)
+      ? CHROMATIC_INTERVALS[chordSize].map(interval => targetRootPitch + interval)
       : Array.from({ length: voiceCount }, (_, voice) => {
         const rootOctave = Math.floor((targetRootPitch - reference.rootNote) / 12);
         const scaleIndex = rootOctave * reference.intervals.length + rootDegree - 1 + voice * 2;
@@ -92,7 +101,8 @@ export function planMidiDiatonicChordQuality(clip, key, options) {
         velocityDeviation: source.velocityDeviation, releaseVelocity: source.releaseVelocity,
         probability: source.probability, mute: source.mute });
     }
-    onsets.push({ start, rootDegree, targetRootPitch, sourceNoteIds: chord.map(note => note.noteId), targetPitches });
+    onsets.push({ start, rootDegree, chordSize, targetRootPitch,
+      sourceNoteIds: chord.map(note => note.noteId), targetPitches });
     previousTargetRoot = targetRootPitch;
   });
   const changeById = new Map(changes.map(change => [change.noteId, change]));
@@ -105,7 +115,8 @@ export function planMidiDiatonicChordQuality(clip, key, options) {
       throw new Error("diatonic chord quality would create a same-pitch collision");
   }
   if (projected.length > MAX_NOTES) throw new Error("diatonic chord quality supports at most 4096 final notes");
-  return { noteIds: [...options.noteIds], rootDegrees: [...options.rootDegrees], chordSize: options.chordSize,
+  return { noteIds: [...options.noteIds], rootDegrees: [...options.rootDegrees],
+    chordSize: hasSingleRecipe ? options.chordSize : null, chordSizes,
     mode: options.mode, scale: { rootNote: reference.rootNote, scaleName: reference.name,
       scaleIntervals: [...reference.intervals] }, onsets, changes, removeNoteIds, newNotes, beforeNotes: clip.notes };
 }
