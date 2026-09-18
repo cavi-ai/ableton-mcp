@@ -159,6 +159,11 @@ const midiChordArpeggiationProperties = {
   gate: number("Note duration as a fraction of stepBeats.", { exclusiveMinimum: 0, maximum: 1 }),
   seed: { type: "integer", minimum: 0, maximum: 2147483647, description: "Deterministic seed used by random mode." },
 };
+const midiTranspositionProperties = {
+  trackId: ids.trackId, clipId: ids.clipId,
+  noteIds: { ...array({ type: "integer", minimum: 0 }, "Unique stable note IDs to transpose."), minItems: 1, maxItems: 4096, uniqueItems: true },
+  semitones: { type: "integer", minimum: -127, maximum: 127, not: { const: 0 }, description: "Signed non-zero chromatic transposition in semitones." },
+};
 const melodyEvent = object({
   step: { type: "integer", minimum: 0, maximum: 4095, description: "Unique zero-based grid step within the motif." },
   degree: { type: "integer", minimum: 1, maximum: 9, description: "One-based Live scale degree." },
@@ -293,6 +298,8 @@ export const toolContracts = {
   apply_midi_chord_doubling: { description: "Plan or apply guarded chord doublings while preserving existing notes and verifying every native addition.", inputSchema: guarded(midiChordDoublingProperties, ["trackId", "clipId", "noteIds", "mode"]) },
   plan_midi_chord_arpeggiation: { description: "Plan deterministic up, down, up-down, or seeded-random arpeggiation of complete chord onsets.", inputSchema: object(midiChordArpeggiationProperties, ["trackId", "clipId", "noteIds", "mode", "stepBeats", "gate", "seed"]) },
   apply_midi_chord_arpeggiation: { description: "Plan or apply guarded chord arpeggiation with stable native note IDs and complete readback verification.", inputSchema: guarded(midiChordArpeggiationProperties, ["trackId", "clipId", "noteIds", "mode", "stepBeats", "gate", "seed"]) },
+  plan_midi_transposition: { description: "Plan exact chromatic transposition of stable MIDI note IDs while preserving all non-pitch note state.", inputSchema: object(midiTranspositionProperties, ["trackId", "clipId", "noteIds", "semitones"]) },
+  apply_midi_transposition: { description: "Plan or apply guarded chromatic MIDI transposition with complete native readback verification.", inputSchema: guarded(midiTranspositionProperties, ["trackId", "clipId", "noteIds", "semitones"]) },
   get_clip_timing: { description: "Read clip loop, signature, launch quantization, and groove assignment.", inputSchema: clip },
   get_clip_groove_context: { description: "Read one native callback snapshot of exact clip/track names, MIDI note IDs and expression metadata or audio state, clip timing, complete Groove Pool and global musical context. Supports before/after validation of UI-only extraction and baking; does not execute them.", inputSchema: clip },
   inspect_clip_groove_postconditions: { description: "Read current native context and inspect extraction or baking postconditions against a supplied pre-action get_clip_groove_context snapshot. Does not execute the UI action, prove provenance, or validate audible equivalence. Extraction expects one appended groove and unchanged source/timing; baking expects removed assignment and unchanged unrelated timing/shared context.", inputSchema: object({ ...clip.properties, operation: { type: "string", enum: ["bake", "extract"] }, before: { type: "object", description: "Complete pre-action native clip groove context snapshot; supplied data is not authenticated history." } }, ["trackId", "clipId", "operation", "before"]) },
