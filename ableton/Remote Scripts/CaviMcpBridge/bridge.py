@@ -1274,6 +1274,74 @@ def _validate_midi_chord_doubling_payload(clip, params):
     return current, expected
 
 
+def _validate_midi_diatonic_harmony_payload(clip, params):
+    harmony = params.get("midiDiatonicHarmony")
+    required = {"noteIds", "degreeOffsets", "scale", "newNotes", "preservedNotes"}
+    if not isinstance(harmony, dict) or set(harmony) != required or \
+            params.get("removeNoteIds") != [] or params.get("newNotes") != harmony.get("newNotes"):
+        raise ValueError("MIDI diatonic-harmony payload does not match its signed plan")
+    note_ids, offsets, scale = harmony.get("noteIds"), harmony.get("degreeOffsets"), harmony.get("scale")
+    if not isinstance(note_ids, list) or not note_ids or len(note_ids) > 4096 or \
+            any(type(note_id) is not int or note_id < 0 for note_id in note_ids) or \
+            len(note_ids) != len(set(note_ids)) or not isinstance(offsets, list) or not offsets or \
+            len(offsets) > 16 or len(offsets) != len(set(offsets)) or \
+            any(type(offset) is not int or offset == 0 or not -127 <= offset <= 127 for offset in offsets) or \
+            not isinstance(scale, dict) or set(scale) != {"rootNote", "scaleName", "scaleIntervals"}:
+        raise ValueError("MIDI diatonic-harmony options are invalid")
+    musical = params.get("musicalContext", {}).get("key", {})
+    expected_scale = {"rootNote": musical.get("rootNote"), "scaleName": musical.get("scaleName"),
+                      "scaleIntervals": musical.get("scaleIntervals")}
+    if scale != expected_scale:
+        raise ValueError("MIDI diatonic-harmony scale does not match Live's current scale")
+    root, intervals = scale.get("rootNote"), scale.get("scaleIntervals")
+    if type(root) is not int or not 0 <= root <= 11 or not isinstance(intervals, list) or not intervals or \
+            any(type(interval) is not int or not 0 <= interval <= 11 for interval in intervals) or \
+            intervals != sorted(set(intervals)) or intervals[0] != 0:
+        raise ValueError("MIDI diatonic-harmony scale is invalid")
+    current = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
+    by_id = {note["noteId"]: note for note in current}
+    if len(by_id) != len(current) or any(note_id not in by_id for note_id in note_ids):
+        raise ValueError("one or more MIDI diatonic-harmony note IDs no longer exist")
+    if harmony.get("preservedNotes") != current:
+        raise ValueError("MIDI diatonic-harmony preserved notes do not match the signed plan")
+    expected, degree_count = [], len(intervals)
+    for note_id in note_ids:
+        source = by_id[note_id]
+        delta = source["pitch"] - root
+        octave, interval = delta // 12, delta % 12
+        if interval not in intervals:
+            raise ValueError("MIDI diatonic-harmony source note is not in the current scale")
+        degree_index = intervals.index(interval)
+        for offset in offsets:
+            target_index = octave * degree_count + degree_index + offset
+            pitch = root + (target_index // degree_count) * 12 + intervals[target_index % degree_count]
+            if not 0 <= pitch <= 127:
+                raise ValueError("MIDI diatonic harmony would exceed the pitch range")
+            generated = {"sourceNoteId": note_id, "degreeOffset": offset, "pitch": pitch,
+                         "start": source["start"], "duration": source["duration"],
+                         "velocity": source["velocity"], "velocityDeviation": source["velocityDeviation"],
+                         "releaseVelocity": source["releaseVelocity"], "probability": source["probability"],
+                         "mute": source["mute"]}
+            if any(note["pitch"] == pitch and
+                   note["start"] < generated["start"] + generated["duration"] - 2e-7 and
+                   generated["start"] < note["start"] + note["duration"] - 2e-7
+                   for note in current + expected):
+                raise ValueError("MIDI diatonic harmony would create a same-pitch collision")
+            expected.append(generated)
+    if len(current) + len(expected) > 4096:
+        raise ValueError("MIDI diatonic harmony supports at most 4096 final notes")
+    supplied = harmony.get("newNotes")
+    exact = ("sourceNoteId", "degreeOffset", "pitch", "velocity", "velocityDeviation",
+             "releaseVelocity", "probability", "mute")
+    if not isinstance(supplied, list) or len(supplied) != len(expected) or any(
+            any(actual.get(field) != wanted[field] for field in exact) or
+            abs(actual.get("start", math.inf) - wanted["start"]) > 2e-7 or
+            abs(actual.get("duration", math.inf) - wanted["duration"]) > 2e-7
+            for actual, wanted in zip(supplied, expected)):
+        raise ValueError("MIDI diatonic-harmony new notes do not match the signed plan")
+    return current, expected
+
+
 def _midi_arpeggiation_random_key(pitch, seed):
     value = (pitch ^ seed) & 0xffffffff
     value = ((value ^ (value >> 16)) * 0x45d9f3b) & 0xffffffff
@@ -3352,10 +3420,14 @@ def dispatch_request(song, request, state_version, application=None):
             raise ValueError("MIDI clip changed since observation")
         guarded_ratchet = params.get("operation") == "apply_midi_ratchet_pattern"
         guarded_doubling = params.get("operation") == "apply_midi_chord_doubling"
-        if (guarded_ratchet or guarded_doubling) and grid_reference.get("setFingerprint") != fingerprint:
+        guarded_harmony = params.get("operation") == "apply_midi_diatonic_harmony"
+        if (guarded_ratchet or guarded_doubling or guarded_harmony) and grid_reference.get("setFingerprint") != fingerprint:
             raise ValueError("Live set fingerprint changed since observation")
+        if guarded_harmony and params.get("musicalContext") != _song_musical_context(song, state_version):
+            raise ValueError("song musical context changed since observation")
         expected_ratchet = _validate_midi_ratchet_pattern_payload(clip, params) if guarded_ratchet else None
         expected_doubling = _validate_midi_chord_doubling_payload(clip, params) if guarded_doubling else None
+        expected_harmony = _validate_midi_diatonic_harmony_payload(clip, params) if guarded_harmony else None
         remove_note_ids = [int(note_id) for note_id in params.get("removeNoteIds", [])]
         new_notes = params.get("newNotes", [])
         if len(current["notes"]) > 4096 or len(remove_note_ids) > 4096 or len(new_notes) > 4096 or \
@@ -3409,7 +3481,9 @@ def dispatch_request(song, request, state_version, application=None):
                 "removedNoteIds": remove_note_ids, "addedNoteIds": added_note_ids,
                 "notes": readback,
             }
-        if guarded_doubling:
+        if guarded_doubling or guarded_harmony:
+            expected_additions = expected_doubling if guarded_doubling else expected_harmony
+            operation_label = "chord-doubling" if guarded_doubling else "diatonic-harmony"
             added_note_ids = []
             with _undo_step(song):
                 try:
@@ -3422,24 +3496,24 @@ def dispatch_request(song, request, state_version, application=None):
                         all(by_readback_id[expected["noteId"]][field] == expected[field] for field in exact) and
                         abs(by_readback_id[expected["noteId"]]["start"] - expected["start"]) <= 2e-7 and
                         abs(by_readback_id[expected["noteId"]]["duration"] - expected["duration"]) <= 2e-7
-                        for expected in expected_doubling[0])
+                        for expected in expected_additions[0])
                     added = [by_readback_id.get(note_id) for note_id in added_note_ids]
-                    additions_match = len(added_note_ids) == len(expected_doubling[1]) and \
+                    additions_match = len(added_note_ids) == len(expected_additions[1]) and \
                         len(set(added_note_ids)) == len(added_note_ids) and not any(note is None for note in added) and all(
                             all(actual[field] == expected[field] for field in exact) and
                             abs(actual["start"] - expected["start"]) <= 2e-7 and
                             abs(actual["duration"] - expected["duration"]) <= 2e-7
-                            for actual, expected in zip(added, expected_doubling[1]))
+                            for actual, expected in zip(added, expected_additions[1]))
                     if not preserved_match or not additions_match or \
-                            len(readback) != len(expected_doubling[0]) + len(expected_doubling[1]):
-                        raise ValueError("native MIDI chord-doubling readback does not match the signed plan")
+                            len(readback) != len(expected_additions[0]) + len(expected_additions[1]):
+                        raise ValueError("native MIDI %s readback does not match the signed plan" % operation_label)
                 except Exception as mutation_error:
                     try:
                         if added_note_ids:
                             clip.remove_notes_by_id(tuple(added_note_ids))
                     except Exception as rollback_error:
-                        raise RuntimeError("MIDI chord doubling failed and rollback was incomplete (%s); original error: %s" %
-                                           (rollback_error, mutation_error))
+                        raise RuntimeError("MIDI %s failed and rollback was incomplete (%s); original error: %s" %
+                                           (operation_label, rollback_error, mutation_error))
                     raise mutation_error
             return {"stateVersion": state_version + 1, "trackId": params["trackId"],
                     "clipId": params["clipId"], "lengthBeats": float(clip.length),
