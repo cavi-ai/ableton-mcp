@@ -3780,6 +3780,50 @@ class DispatchTest(unittest.TestCase):
                          [62, 65, 69, 67, 71, 74])
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
+    def test_guarded_chord_quality_rederives_explicit_altered_dominant_voicing(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        notes = [MidiNote(7), MidiNote(8)]
+        for note, pitch in zip(notes, (60, 64)):
+            note.pitch = pitch
+            note.velocity = 91
+            note.velocity_deviation = -3
+            note.release_velocity = 62
+            note.probability = 0.75
+        clip.extended_notes = notes
+        target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+        musical = dispatch_request(song, {"method": "get_song_musical_context", "params": {}}, 3)
+        changes = [
+            {"noteId": 7, "previous": before["notes"][0], "pitch": 60, "chordToneIndex": 0},
+            {"noteId": 8, "previous": before["notes"][1], "pitch": 64, "chordToneIndex": 1},
+        ]
+        new_notes = [
+            {"sourceNoteId": 8, "chordToneIndex": index, "pitch": pitch, "start": 0.0,
+             "duration": 1.0, "velocity": 91, "velocityDeviation": -3,
+             "releaseVelocity": 62, "probability": 0.75, "mute": False}
+            for index, pitch in ((2, 67), (3, 70), (4, 78))
+        ]
+        quality = {"noteIds": [7, 8], "rootDegrees": [1], "chordSize": "dominant7_sharp11",
+                   "mode": "preserve_register", "scale": {"rootNote": 0, "scaleName": "Major",
+                   "scaleIntervals": [0, 2, 4, 5, 7, 9, 11]}, "onsets": [
+                       {"start": 0.0, "rootDegree": 1, "targetRootPitch": 60,
+                        "sourceNoteIds": [7, 8], "targetPitches": [60, 64, 67, 70, 78]}],
+                   "changes": changes, "removeNoteIds": [], "newNotes": new_notes,
+                   "beforeNotes": before["notes"]}
+        params = {**target, "expectedStateVersion": 3, "before": before,
+                  "musicalContext": musical, "clipTiming": timing,
+                  "gridReference": {"tempoBpm": 120.0,
+                                    "timeSignature": {"numerator": 4, "denominator": 4},
+                                    "setFingerprint": dispatch_request(song, {"method": "get_live_state"}, 3)["setFingerprint"]},
+                  "operation": "apply_midi_diatonic_chord_quality", "midiDiatonicChordQuality": quality,
+                  "changes": changes, "removeNoteIds": [], "newNotes": new_notes}
+        result = dispatch_request(song, {"method": "replace_midi_notes", "params": params}, 3)
+        self.assertEqual([note["pitch"] for note in result["notes"]], [60, 64, 67, 70, 78])
+        self.assertEqual(result["addedNoteIds"], [100, 101, 102])
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
     def test_scale_melody_creation_binds_context_and_returns_complete_notes_atomically(self):
         song = Song()
         target = {"trackId": "track-1", "clipId": "track-1:clip-0"}
