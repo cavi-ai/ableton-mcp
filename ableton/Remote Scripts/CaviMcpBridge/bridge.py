@@ -1344,7 +1344,7 @@ def _validate_midi_diatonic_harmony_payload(clip, params):
 
 def _validate_midi_diatonic_chord_quality_payload(clip, params):
     quality = params.get("midiDiatonicChordQuality")
-    required = {"noteIds", "rootDegrees", "chordSize", "chordSizes", "inversions", "voicingModes", "mode", "scale", "onsets", "changes",
+    required = {"noteIds", "rootDegrees", "chordSize", "chordSizes", "inversions", "voicingModes", "bassDegrees", "mode", "scale", "onsets", "changes",
                 "removeNoteIds", "newNotes", "beforeNotes"}
     if not isinstance(quality, dict) or set(quality) != required or \
             params.get("changes") != quality.get("changes") or \
@@ -1355,6 +1355,7 @@ def _validate_midi_diatonic_chord_quality_payload(clip, params):
     chord_size, chord_sizes = quality.get("chordSize"), quality.get("chordSizes")
     inversions = quality.get("inversions")
     voicing_modes = quality.get("voicingModes")
+    bass_degrees = quality.get("bassDegrees")
     mode, scale = quality.get("mode"), quality.get("scale")
     scale_voices = {"triad": 3, "seventh": 4, "ninth": 5}
     chromatic_intervals = {
@@ -1374,6 +1375,8 @@ def _validate_midi_diatonic_chord_quality_payload(clip, params):
                                                     for inversion in inversions) or \
             not isinstance(voicing_modes, list) or any(voicing_mode not in ("close", "open", "drop2", "drop3")
                                                        for voicing_mode in voicing_modes) or \
+            not isinstance(bass_degrees, list) or any(bass_degree is not None and type(bass_degree) is not int
+                                                      for bass_degree in bass_degrees) or \
             (chord_size is not None and chord_size not in scale_voices and chord_size not in chromatic_intervals) or \
             (chord_size is not None and any(recipe != chord_size for recipe in chord_sizes)) or \
             mode not in ("preserve_register", "voice_leading") or not isinstance(scale, dict) or \
@@ -1388,7 +1391,8 @@ def _validate_midi_diatonic_chord_quality_payload(clip, params):
     if type(root) is not int or not 0 <= root <= 11 or not isinstance(intervals, list) or not intervals or \
             any(type(interval) is not int or not 0 <= interval <= 11 for interval in intervals) or \
             intervals != sorted(set(intervals)) or intervals[0] != 0 or \
-            any(degree < 1 or degree > len(intervals) for degree in degrees):
+            any(degree < 1 or degree > len(intervals) for degree in degrees) or \
+            any(bass_degree is not None and not 1 <= bass_degree <= len(intervals) for bass_degree in bass_degrees):
         raise ValueError("MIDI chord-quality scale or root degrees are invalid")
     current = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
     by_id = {note["noteId"]: note for note in current}
@@ -1400,12 +1404,12 @@ def _validate_midi_diatonic_chord_quality_payload(clip, params):
     if any(note["start"] in starts and note["noteId"] not in selected for note in current):
         raise ValueError("MIDI chord quality requires every note at each selected complete onset")
     if len(degrees) != len(starts) or len(chord_sizes) != len(starts) or \
-            len(inversions) != len(starts) or len(voicing_modes) != len(starts):
-        raise ValueError("MIDI chord quality requires one root degree, chord recipe, inversion, and voicing mode per onset")
+            len(inversions) != len(starts) or len(voicing_modes) != len(starts) or len(bass_degrees) != len(starts):
+        raise ValueError("MIDI chord quality requires one root degree, chord recipe, inversion, voicing mode, and bass degree per onset")
     expected_changes, expected_removals, expected_new, expected_onsets = [], [], [], []
     previous_target_root = None
-    for start, degree, onset_chord_size, inversion, voicing_mode in \
-            zip(starts, degrees, chord_sizes, inversions, voicing_modes):
+    for start, degree, onset_chord_size, inversion, voicing_mode, bass_degree in \
+            zip(starts, degrees, chord_sizes, inversions, voicing_modes, bass_degrees):
         chord = sorted((by_id[note_id] for note_id in note_ids if by_id[note_id]["start"] == start),
                        key=lambda note: (note["pitch"], note["noteId"]))
         if len(chord) < 2:
@@ -1437,15 +1441,25 @@ def _validate_midi_diatonic_chord_quality_payload(clip, params):
                                     for index, pitch in enumerate(inverted_pitches))
         else:
             target_pitches = inverted_pitches
+        target_bass_pitch = None
+        if bass_degree is not None:
+            bass_pitch_class = (root + intervals[bass_degree - 1]) % 12
+            bass_candidates = [pitch for pitch in range(bass_pitch_class, 128, 12)
+                               if pitch < target_pitches[0]]
+            if not bass_candidates:
+                raise ValueError("MIDI chord quality slash bass would exceed the pitch range")
+            target_bass_pitch = bass_candidates[-1]
+            target_pitches = [target_bass_pitch] + target_pitches
         if any(pitch < 0 or pitch > 127 for pitch in target_pitches):
             raise ValueError("MIDI chord quality would exceed the pitch range")
-        retained_count = min(len(chord), voice_count)
+        target_voice_count = len(target_pitches)
+        retained_count = min(len(chord), target_voice_count)
         for voice in range(retained_count):
             expected_changes.append({"noteId": chord[voice]["noteId"], "previous": chord[voice],
                                      "pitch": target_pitches[voice], "chordToneIndex": voice})
-        expected_removals.extend(note["noteId"] for note in chord[voice_count:])
+        expected_removals.extend(note["noteId"] for note in chord[target_voice_count:])
         source = chord[retained_count - 1]
-        for voice in range(len(chord), voice_count):
+        for voice in range(len(chord), target_voice_count):
             expected_new.append({"sourceNoteId": source["noteId"], "chordToneIndex": voice,
                                  "pitch": target_pitches[voice], "start": source["start"],
                                  "duration": source["duration"], "velocity": source["velocity"],
@@ -1455,6 +1469,7 @@ def _validate_midi_diatonic_chord_quality_payload(clip, params):
         expected_onsets.append({"start": start, "rootDegree": degree, "chordSize": onset_chord_size,
                                 "inversion": inversion,
                                 "voicingMode": voicing_mode,
+                                "bassDegree": bass_degree, "targetBassPitch": target_bass_pitch,
                                 "targetRootPitch": target_root,
                                 "sourceNoteIds": [note["noteId"] for note in chord],
                                 "targetPitches": target_pitches})

@@ -82,10 +82,15 @@ export function planMidiDiatonicChordQuality(clip, key, options) {
   if (options.voicingModes !== undefined && (!Array.isArray(options.voicingModes) ||
       options.voicingModes.length !== starts.length || options.voicingModes.some(mode => !VOICING_MODES.has(mode))))
     throw new Error("diatonic chord quality requires one voicing mode per onset");
+  if (options.bassDegrees !== undefined && (!Array.isArray(options.bassDegrees) ||
+      options.bassDegrees.length !== starts.length || options.bassDegrees.some(degree =>
+        !Number.isInteger(degree) || degree < 1 || degree > reference.intervals.length)))
+    throw new Error("diatonic chord quality requires one bass degree per onset");
 
   const chordSizes = hasRecipeSequence ? [...requestedRecipes] : starts.map(() => options.chordSize);
   const inversions = options.inversions === undefined ? starts.map(() => 0) : [...options.inversions];
   const voicingModes = options.voicingModes === undefined ? starts.map(() => "close") : [...options.voicingModes];
+  const bassDegrees = options.bassDegrees === undefined ? starts.map(() => null) : [...options.bassDegrees];
   const changes = [], removeNoteIds = [], newNotes = [], onsets = [];
   let previousTargetRoot = null;
   starts.forEach((start, onsetIndex) => {
@@ -96,6 +101,7 @@ export function planMidiDiatonicChordQuality(clip, key, options) {
     const voiceCount = SCALE_VOICES[chordSize] ?? CHROMATIC_INTERVALS[chordSize].length;
     const inversion = inversions[onsetIndex];
     const voicingMode = voicingModes[onsetIndex];
+    const bassDegree = bassDegrees[onsetIndex];
     if (inversion >= voiceCount) throw new Error("each inversion must have fewer steps than its chord has voices");
     const rootDegree = options.rootDegrees[onsetIndex];
     const rootPitchClass = (reference.rootNote + reference.intervals[rootDegree - 1]) % 12;
@@ -112,21 +118,30 @@ export function planMidiDiatonicChordQuality(clip, key, options) {
       });
     const invertedPitches = rootPositionPitches.map((pitch, index) => pitch + (index < inversion ? 12 : 0))
       .sort((left, right) => left - right);
-    const targetPitches = applyVoicingMode(invertedPitches, voicingMode);
+    const voicedPitches = applyVoicingMode(invertedPitches, voicingMode);
+    const bassPitchClass = bassDegree === null ? null :
+      (reference.rootNote + reference.intervals[bassDegree - 1]) % 12;
+    const targetBassPitch = bassPitchClass === null ? null :
+      Array.from({ length: Math.floor((127 - bassPitchClass) / 12) + 1 }, (_, index) => bassPitchClass + index * 12)
+        .filter(pitch => pitch < voicedPitches[0]).at(-1);
+    if (bassDegree !== null && targetBassPitch === undefined)
+      throw new Error("slash bass would exceed the MIDI range");
+    const targetPitches = targetBassPitch === null ? voicedPitches : [targetBassPitch, ...voicedPitches];
     if (targetPitches.some(pitch => pitch < 0 || pitch > 127))
       throw new Error("diatonic chord quality would exceed the MIDI range");
-    const retainedCount = Math.min(chord.length, voiceCount);
+    const targetVoiceCount = targetPitches.length;
+    const retainedCount = Math.min(chord.length, targetVoiceCount);
     for (let voice = 0; voice < retainedCount; voice += 1)
       changes.push({ noteId: chord[voice].noteId, previous: chord[voice], pitch: targetPitches[voice], chordToneIndex: voice });
-    removeNoteIds.push(...chord.slice(voiceCount).map(note => note.noteId));
-    const source = chord[Math.min(chord.length, voiceCount) - 1];
-    for (let voice = chord.length; voice < voiceCount; voice += 1) {
+    removeNoteIds.push(...chord.slice(targetVoiceCount).map(note => note.noteId));
+    const source = chord[Math.min(chord.length, targetVoiceCount) - 1];
+    for (let voice = chord.length; voice < targetVoiceCount; voice += 1) {
       newNotes.push({ sourceNoteId: source.noteId, chordToneIndex: voice, pitch: targetPitches[voice],
         start: source.start, duration: source.duration, velocity: source.velocity,
         velocityDeviation: source.velocityDeviation, releaseVelocity: source.releaseVelocity,
         probability: source.probability, mute: source.mute });
     }
-    onsets.push({ start, rootDegree, chordSize, inversion, voicingMode, targetRootPitch,
+    onsets.push({ start, rootDegree, chordSize, inversion, voicingMode, bassDegree, targetBassPitch, targetRootPitch,
       sourceNoteIds: chord.map(note => note.noteId), targetPitches });
     previousTargetRoot = targetRootPitch;
   });
@@ -141,7 +156,7 @@ export function planMidiDiatonicChordQuality(clip, key, options) {
   }
   if (projected.length > MAX_NOTES) throw new Error("diatonic chord quality supports at most 4096 final notes");
   return { noteIds: [...options.noteIds], rootDegrees: [...options.rootDegrees],
-    chordSize: hasSingleRecipe ? options.chordSize : null, chordSizes, inversions, voicingModes,
+    chordSize: hasSingleRecipe ? options.chordSize : null, chordSizes, inversions, voicingModes, bassDegrees,
     mode: options.mode, scale: { rootNote: reference.rootNote, scaleName: reference.name,
       scaleIntervals: [...reference.intervals] }, onsets, changes, removeNoteIds, newNotes, beforeNotes: clip.notes };
 }
