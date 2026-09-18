@@ -33,6 +33,23 @@ test("diatonic chord quality supports sevenths, ninths, and deterministic voice-
     [60, 64, 67, 71, 74]);
 });
 
+test("chord quality exposes exact suspended, added-tone, and altered-dominant voicings", () => {
+  const source = { lengthBeats: 4, notes: [note(1, 60), note(2, 64)] };
+  const expected = {
+    sus2: [60, 62, 67], sus4: [60, 65, 67], add6: [60, 64, 67, 69],
+    add9: [60, 64, 67, 74], dominant7: [60, 64, 67, 70],
+    dominant9: [60, 64, 67, 70, 74], dominant7_b9: [60, 64, 67, 70, 73],
+    dominant7_sharp9: [60, 64, 67, 70, 75], dominant7_sharp11: [60, 64, 67, 70, 78],
+    dominant7_b13: [60, 64, 67, 70, 80], dominant13: [60, 64, 67, 70, 74, 81],
+  };
+  for (const [chordSize, pitches] of Object.entries(expected)) {
+    const plan = planMidiDiatonicChordQuality(source, major,
+      { noteIds: [1, 2], rootDegrees: [1], chordSize, mode: "preserve_register" });
+    assert.deepEqual([...plan.changes.map(current => current.pitch), ...plan.newNotes.map(current => current.pitch)], pitches);
+    assert.deepEqual(plan.onsets[0].targetPitches, pitches);
+  }
+});
+
 test("diatonic chord quality preserves expression and rejects incomplete or colliding output", () => {
   const plan = planMidiDiatonicChordQuality(clip, major,
     { noteIds: ids, rootDegrees: [2, 5], chordSize: "triad", mode: "preserve_register" });
@@ -109,6 +126,8 @@ test("guarded diatonic chord quality binds Live scale and verifies native replac
 
 test("diatonic-chord-quality tools expose strict contracts", () => {
   assert.equal(validateToolArguments("plan_midi_diatonic_chord_quality", args).chordSize, "triad");
-  assert.throws(() => validateToolArguments("plan_midi_diatonic_chord_quality", { ...args, chordSize: "sixth" }),
+  assert.equal(validateToolArguments("plan_midi_diatonic_chord_quality", { ...args,
+    chordSize: "dominant7_sharp11" }).chordSize, "dominant7_sharp11");
+  assert.throws(() => validateToolArguments("plan_midi_diatonic_chord_quality", { ...args, chordSize: "major11" }),
     /invalid tool arguments/);
 });

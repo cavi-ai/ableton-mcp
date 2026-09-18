@@ -1353,11 +1353,19 @@ def _validate_midi_diatonic_chord_quality_payload(clip, params):
         raise ValueError("MIDI chord-quality payload does not match its signed plan")
     note_ids, degrees = quality.get("noteIds"), quality.get("rootDegrees")
     chord_size, mode, scale = quality.get("chordSize"), quality.get("mode"), quality.get("scale")
-    voices = {"triad": 3, "seventh": 4, "ninth": 5}
+    scale_voices = {"triad": 3, "seventh": 4, "ninth": 5}
+    chromatic_intervals = {
+        "sus2": (0, 2, 7), "sus4": (0, 5, 7), "add6": (0, 4, 7, 9),
+        "add9": (0, 4, 7, 14), "dominant7": (0, 4, 7, 10),
+        "dominant9": (0, 4, 7, 10, 14), "dominant7_b9": (0, 4, 7, 10, 13),
+        "dominant7_sharp9": (0, 4, 7, 10, 15), "dominant7_sharp11": (0, 4, 7, 10, 18),
+        "dominant7_b13": (0, 4, 7, 10, 20), "dominant13": (0, 4, 7, 10, 14, 21),
+    }
     if not isinstance(note_ids, list) or not note_ids or len(note_ids) > 4096 or \
             any(type(note_id) is not int or note_id < 0 for note_id in note_ids) or \
             len(note_ids) != len(set(note_ids)) or not isinstance(degrees, list) or not degrees or \
-            any(type(degree) is not int for degree in degrees) or chord_size not in voices or \
+            any(type(degree) is not int for degree in degrees) or \
+            (chord_size not in scale_voices and chord_size not in chromatic_intervals) or \
             mode not in ("preserve_register", "voice_leading") or not isinstance(scale, dict) or \
             set(scale) != {"rootNote", "scaleName", "scaleIntervals"}:
         raise ValueError("MIDI chord-quality options are invalid")
@@ -1393,20 +1401,24 @@ def _validate_midi_diatonic_chord_quality_payload(clip, params):
         pitch_class = (root + intervals[degree - 1]) % 12
         anchor = previous_target_root if mode == "voice_leading" and previous_target_root is not None else chord[0]["pitch"]
         target_root = min(range(pitch_class, 128, 12), key=lambda pitch: (abs(pitch - anchor), pitch))
-        root_scale_index = ((target_root - root) // 12) * len(intervals) + degree - 1
-        target_pitches = []
-        for voice in range(voices[chord_size]):
-            octave, degree_index = divmod(root_scale_index + voice * 2, len(intervals))
-            target_pitches.append(root + octave * 12 + intervals[degree_index])
+        voice_count = scale_voices.get(chord_size, len(chromatic_intervals.get(chord_size, ())))
+        if chord_size in chromatic_intervals:
+            target_pitches = [target_root + interval for interval in chromatic_intervals[chord_size]]
+        else:
+            root_scale_index = ((target_root - root) // 12) * len(intervals) + degree - 1
+            target_pitches = []
+            for voice in range(voice_count):
+                octave, degree_index = divmod(root_scale_index + voice * 2, len(intervals))
+                target_pitches.append(root + octave * 12 + intervals[degree_index])
         if any(pitch < 0 or pitch > 127 for pitch in target_pitches):
             raise ValueError("MIDI chord quality would exceed the pitch range")
-        retained_count = min(len(chord), voices[chord_size])
+        retained_count = min(len(chord), voice_count)
         for voice in range(retained_count):
             expected_changes.append({"noteId": chord[voice]["noteId"], "previous": chord[voice],
                                      "pitch": target_pitches[voice], "chordToneIndex": voice})
-        expected_removals.extend(note["noteId"] for note in chord[voices[chord_size]:])
+        expected_removals.extend(note["noteId"] for note in chord[voice_count:])
         source = chord[retained_count - 1]
-        for voice in range(len(chord), voices[chord_size]):
+        for voice in range(len(chord), voice_count):
             expected_new.append({"sourceNoteId": source["noteId"], "chordToneIndex": voice,
                                  "pitch": target_pitches[voice], "start": source["start"],
                                  "duration": source["duration"], "velocity": source["velocity"],

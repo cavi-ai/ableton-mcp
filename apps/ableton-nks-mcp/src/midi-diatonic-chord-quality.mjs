@@ -2,7 +2,14 @@ import { getLiveScaleReference } from "./live-scale-reference.mjs";
 
 const EPSILON = 2e-7;
 const MAX_NOTES = 4096;
-const VOICES = { triad: 3, seventh: 4, ninth: 5 };
+const SCALE_VOICES = { triad: 3, seventh: 4, ninth: 5 };
+const CHROMATIC_INTERVALS = {
+  sus2: [0, 2, 7], sus4: [0, 5, 7], add6: [0, 4, 7, 9], add9: [0, 4, 7, 14],
+  dominant7: [0, 4, 7, 10], dominant9: [0, 4, 7, 10, 14],
+  dominant7_b9: [0, 4, 7, 10, 13], dominant7_sharp9: [0, 4, 7, 10, 15],
+  dominant7_sharp11: [0, 4, 7, 10, 18], dominant7_b13: [0, 4, 7, 10, 20],
+  dominant13: [0, 4, 7, 10, 14, 21],
+};
 
 function overlaps(left, right) {
   return left.start < right.start + right.duration - EPSILON &&
@@ -30,7 +37,8 @@ export function planMidiDiatonicChordQuality(clip, key, options) {
   if (!Array.isArray(options.rootDegrees) || !options.rootDegrees.length ||
       options.rootDegrees.some(degree => !Number.isInteger(degree)))
     throw new Error("rootDegrees must contain integer scale degrees");
-  if (!Object.hasOwn(VOICES, options.chordSize)) throw new Error("chordSize must be triad, seventh, or ninth");
+  if (!Object.hasOwn(SCALE_VOICES, options.chordSize) && !Object.hasOwn(CHROMATIC_INTERVALS, options.chordSize))
+    throw new Error("chordSize is not a supported chord voicing");
   if (!["preserve_register", "voice_leading"].includes(options.mode))
     throw new Error("mode must be preserve_register or voice_leading");
   const reference = getLiveScaleReference(key?.scaleName, key?.rootNote);
@@ -51,7 +59,7 @@ export function planMidiDiatonicChordQuality(clip, key, options) {
   if (options.rootDegrees.length !== starts.length)
     throw new Error("diatonic chord quality requires one root degree per onset");
 
-  const voiceCount = VOICES[options.chordSize];
+  const voiceCount = SCALE_VOICES[options.chordSize] ?? CHROMATIC_INTERVALS[options.chordSize].length;
   const changes = [], removeNoteIds = [], newNotes = [], onsets = [];
   let previousTargetRoot = null;
   starts.forEach((start, onsetIndex) => {
@@ -62,14 +70,15 @@ export function planMidiDiatonicChordQuality(clip, key, options) {
     const rootPitchClass = (reference.rootNote + reference.intervals[rootDegree - 1]) % 12;
     const anchor = options.mode === "voice_leading" && previousTargetRoot !== null ? previousTargetRoot : chord[0].pitch;
     const targetRootPitch = nearestPitchForClass(rootPitchClass, anchor);
-    const rootOctave = Math.floor((targetRootPitch - reference.rootNote) / 12);
-    const rootScaleIndex = rootOctave * reference.intervals.length + rootDegree - 1;
-    const targetPitches = Array.from({ length: voiceCount }, (_, voice) => {
-      const scaleIndex = rootScaleIndex + voice * 2;
-      const octave = Math.floor(scaleIndex / reference.intervals.length);
-      const degreeIndex = ((scaleIndex % reference.intervals.length) + reference.intervals.length) % reference.intervals.length;
-      return reference.rootNote + octave * 12 + reference.intervals[degreeIndex];
-    });
+    const targetPitches = Object.hasOwn(CHROMATIC_INTERVALS, options.chordSize)
+      ? CHROMATIC_INTERVALS[options.chordSize].map(interval => targetRootPitch + interval)
+      : Array.from({ length: voiceCount }, (_, voice) => {
+        const rootOctave = Math.floor((targetRootPitch - reference.rootNote) / 12);
+        const scaleIndex = rootOctave * reference.intervals.length + rootDegree - 1 + voice * 2;
+        const octave = Math.floor(scaleIndex / reference.intervals.length);
+        const degreeIndex = ((scaleIndex % reference.intervals.length) + reference.intervals.length) % reference.intervals.length;
+        return reference.rootNote + octave * 12 + reference.intervals[degreeIndex];
+      });
     if (targetPitches.some(pitch => pitch < 0 || pitch > 127))
       throw new Error("diatonic chord quality would exceed the MIDI range");
     const retainedCount = Math.min(chord.length, voiceCount);
