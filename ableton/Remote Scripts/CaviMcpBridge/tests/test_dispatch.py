@@ -3465,6 +3465,47 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual([note["velocityDeviation"] for note in result["notes"]], [-3, -3])
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
+    def test_guarded_chord_doubling_rederives_additions_and_rejects_tampering(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        notes = [MidiNote(note_id) for note_id in (7, 8, 9, 10)]
+        for note, pitch in zip(notes, (60, 64, 67, 71)):
+            note.pitch = pitch
+            note.velocity = 91
+            note.velocity_deviation = -3
+            note.release_velocity = 62
+            note.probability = 0.75
+        clip.extended_notes = notes
+        target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+        new_notes = [
+            {"sourceNoteId": 7, "pitch": 48, "start": 0.0, "duration": 1.0,
+             "velocity": 91, "velocityDeviation": -3, "releaseVelocity": 62,
+             "probability": 0.75, "mute": False},
+            {"sourceNoteId": 10, "pitch": 83, "start": 0.0, "duration": 1.0,
+             "velocity": 91, "velocityDeviation": -3, "releaseVelocity": 62,
+             "probability": 0.75, "mute": False},
+        ]
+        doubling = {"noteIds": [7, 8, 9, 10], "mode": "outer_octaves",
+                    "newNotes": new_notes, "preservedNotes": before["notes"]}
+        params = {**target, "expectedStateVersion": 3, "before": before, "clipTiming": timing,
+                  "gridReference": {"tempoBpm": 120.0,
+                                    "timeSignature": {"numerator": 4, "denominator": 4},
+                                    "setFingerprint": dispatch_request(song, {"method": "get_live_state"}, 3)["setFingerprint"]},
+                  "operation": "apply_midi_chord_doubling", "chordDoubling": doubling,
+                  "removeNoteIds": [], "newNotes": new_notes}
+        tampered = {**params, "newNotes": [{**new_notes[0], "pitch": 47}, new_notes[1]]}
+        with self.assertRaisesRegex(ValueError, "signed plan"):
+            dispatch_request(song, {"method": "replace_midi_notes", "params": tampered}, 3)
+        result = dispatch_request(song, {"method": "replace_midi_notes", "params": params}, 3)
+        self.assertEqual(result["removedNoteIds"], [])
+        self.assertEqual(result["addedNoteIds"], [100, 101])
+        added = {note["noteId"]: note for note in result["notes"]}
+        self.assertEqual([added[note_id]["pitch"] for note_id in (100, 101)], [48, 83])
+        self.assertEqual([added[note_id]["probability"] for note_id in (100, 101)], [0.75, 0.75])
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
     def test_scale_melody_creation_binds_context_and_returns_complete_notes_atomically(self):
         song = Song()
         target = {"trackId": "track-1", "clipId": "track-1:clip-0"}
