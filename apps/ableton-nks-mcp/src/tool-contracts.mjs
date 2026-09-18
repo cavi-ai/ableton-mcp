@@ -174,6 +174,12 @@ const midiDiatonicHarmonyProperties = {
   noteIds: { ...array({ type: "integer", minimum: 0 }, "Unique stable in-scale source note IDs."), minItems: 1, maxItems: 4096, uniqueItems: true },
   degreeOffsets: { ...array({ type: "integer", minimum: -127, maximum: 127, not: { const: 0 } }, "Unique signed non-zero scale-degree offsets for added harmony voices."), minItems: 1, maxItems: 16, uniqueItems: true },
 };
+const midiScaleChordRemappingProperties = {
+  trackId: ids.trackId, clipId: ids.clipId,
+  noteIds: { ...array({ type: "integer", minimum: 0 }, "Unique stable note IDs at complete chord onsets."), minItems: 1, maxItems: 4096, uniqueItems: true },
+  targetDegrees: { ...array({ type: "integer", minimum: 1, maximum: 12 }, "One target Live scale degree for each ordered chord onset."), minItems: 1, maxItems: 4096 },
+  mode: { type: "string", enum: ["preserve_register", "voice_leading"], description: "Anchor each chord near its source register or each later chord near the previous remapped bass." },
+};
 const melodyEvent = object({
   step: { type: "integer", minimum: 0, maximum: 4095, description: "Unique zero-based grid step within the motif." },
   degree: { type: "integer", minimum: 1, maximum: 9, description: "One-based Live scale degree." },
@@ -314,6 +320,8 @@ export const toolContracts = {
   apply_midi_diatonic_transposition: { description: "Plan or apply guarded scale-degree MIDI transposition bound to Live's current key and scale.", inputSchema: guarded(midiDiatonicTranspositionProperties, ["trackId", "clipId", "noteIds", "scaleSteps"]) },
   plan_midi_diatonic_harmony: { description: "Plan literal harmony voices above or below exact in-scale MIDI notes using Live's current key and scale.", inputSchema: object(midiDiatonicHarmonyProperties, ["trackId", "clipId", "noteIds", "degreeOffsets"]) },
   apply_midi_diatonic_harmony: { description: "Plan or apply guarded scale-aware harmony additions while preserving source notes and expression.", inputSchema: guarded(midiDiatonicHarmonyProperties, ["trackId", "clipId", "noteIds", "degreeOffsets"]) },
+  plan_midi_scale_chord_remapping: { description: "Plan complete chord onsets onto explicit degrees of Live's current scale while preserving chord intervals and expression.", inputSchema: object(midiScaleChordRemappingProperties, ["trackId", "clipId", "noteIds", "targetDegrees", "mode"]) },
+  apply_midi_scale_chord_remapping: { description: "Plan or apply guarded scale-aware chord remapping with optional bass voice leading and complete native readback.", inputSchema: guarded(midiScaleChordRemappingProperties, ["trackId", "clipId", "noteIds", "targetDegrees", "mode"]) },
   get_clip_timing: { description: "Read clip loop, signature, launch quantization, and groove assignment.", inputSchema: clip },
   get_clip_groove_context: { description: "Read one native callback snapshot of exact clip/track names, MIDI note IDs and expression metadata or audio state, clip timing, complete Groove Pool and global musical context. Supports before/after validation of UI-only extraction and baking; does not execute them.", inputSchema: clip },
   inspect_clip_groove_postconditions: { description: "Read current native context and inspect extraction or baking postconditions against a supplied pre-action get_clip_groove_context snapshot. Does not execute the UI action, prove provenance, or validate audible equivalence. Extraction expects one appended groove and unchanged source/timing; baking expects removed assignment and unchanged unrelated timing/shared context.", inputSchema: object({ ...clip.properties, operation: { type: "string", enum: ["bake", "extract"] }, before: { type: "object", description: "Complete pre-action native clip groove context snapshot; supplied data is not authenticated history." } }, ["trackId", "clipId", "operation", "before"]) },

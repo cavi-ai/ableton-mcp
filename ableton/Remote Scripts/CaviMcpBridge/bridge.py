@@ -1543,6 +1543,82 @@ def _validate_midi_diatonic_transposition_payload(clip, params):
     return expected_final
 
 
+def _validate_midi_scale_chord_remapping_payload(clip, params):
+    remapping = params.get("midiScaleChordRemapping")
+    required = {"noteIds", "targetDegrees", "mode", "scale", "onsets", "changes"}
+    if not isinstance(remapping, dict) or set(remapping) != required or \
+            params.get("changes") != remapping.get("changes") or params.get("newNotes") != []:
+        raise ValueError("MIDI scale-chord-remapping payload does not match its signed plan")
+    note_ids, degrees = remapping.get("noteIds"), remapping.get("targetDegrees")
+    mode, scale = remapping.get("mode"), remapping.get("scale")
+    if not isinstance(note_ids, list) or not note_ids or len(note_ids) > 4096 or \
+            any(type(note_id) is not int or note_id < 0 for note_id in note_ids) or \
+            len(note_ids) != len(set(note_ids)) or not isinstance(degrees, list) or not degrees or \
+            any(type(degree) is not int for degree in degrees) or mode not in ("preserve_register", "voice_leading") or \
+            not isinstance(scale, dict) or set(scale) != {"rootNote", "scaleName", "scaleIntervals"}:
+        raise ValueError("MIDI scale-chord-remapping options are invalid")
+    musical = params.get("musicalContext", {}).get("key", {})
+    expected_scale = {"rootNote": musical.get("rootNote"), "scaleName": musical.get("scaleName"),
+                      "scaleIntervals": musical.get("scaleIntervals")}
+    if scale != expected_scale:
+        raise ValueError("MIDI scale-chord-remapping scale does not match Live's current scale")
+    root, intervals = scale.get("rootNote"), scale.get("scaleIntervals")
+    if type(root) is not int or not 0 <= root <= 11 or not isinstance(intervals, list) or not intervals or \
+            any(type(interval) is not int or not 0 <= interval <= 11 for interval in intervals) or \
+            intervals != sorted(set(intervals)) or intervals[0] != 0 or \
+            any(degree < 1 or degree > len(intervals) for degree in degrees):
+        raise ValueError("MIDI scale-chord-remapping scale or target degrees are invalid")
+    current = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
+    by_id = {note["noteId"]: note for note in current}
+    if len(by_id) != len(current) or any(note_id not in by_id for note_id in note_ids):
+        raise ValueError("one or more MIDI scale-chord-remapping note IDs no longer exist")
+    selected = set(note_ids)
+    starts = sorted({by_id[note_id]["start"] for note_id in note_ids})
+    if any(note["start"] in starts and note["noteId"] not in selected for note in current):
+        raise ValueError("MIDI scale chord remapping requires every note at each selected complete onset")
+    if len(degrees) != len(starts):
+        raise ValueError("MIDI scale chord remapping requires one target degree per onset")
+    expected_changes, expected_onsets, previous_target_bass = [], [], None
+    for start, degree in zip(starts, degrees):
+        chord = sorted((by_id[note_id] for note_id in note_ids if by_id[note_id]["start"] == start),
+                       key=lambda note: (note["pitch"], note["noteId"]))
+        if len(chord) < 2:
+            raise ValueError("each remapped MIDI onset must contain at least two notes")
+        source_bass = chord[0]["pitch"]
+        pitch_class = (root + intervals[degree - 1]) % 12
+        anchor = previous_target_bass if mode == "voice_leading" and previous_target_bass is not None else source_bass
+        target_bass = min(range(pitch_class, 128, 12), key=lambda pitch: (abs(pitch - anchor), pitch))
+        semitones = target_bass - source_bass
+        onset_ids = []
+        for previous in chord:
+            pitch = previous["pitch"] + semitones
+            if not 0 <= pitch <= 127:
+                raise ValueError("MIDI scale chord remapping would exceed the pitch range")
+            expected_changes.append({"noteId": previous["noteId"], "previous": previous, "pitch": pitch})
+            onset_ids.append(previous["noteId"])
+        expected_onsets.append({"start": start, "targetDegree": degree, "sourceBassPitch": source_bass,
+                                "targetBassPitch": target_bass, "semitones": semitones, "noteIds": onset_ids})
+        previous_target_bass = target_bass
+    if remapping.get("onsets") != expected_onsets or remapping.get("changes") != expected_changes:
+        raise ValueError("MIDI scale-chord-remapping changes do not match the signed plan")
+    if all(change["pitch"] == change["previous"]["pitch"] for change in expected_changes):
+        raise ValueError("MIDI scale chord remapping would not change any notes")
+    change_by_id = {change["noteId"]: change for change in expected_changes}
+    projected = [dict(note, pitch=change_by_id.get(note["noteId"], {}).get("pitch", note["pitch"])) for note in current]
+    for index, left in enumerate(projected):
+        for right in projected[index + 1:]:
+            if left["noteId"] not in change_by_id and right["noteId"] not in change_by_id:
+                continue
+            if left["pitch"] == right["pitch"] and \
+                    left["start"] < right["start"] + right["duration"] - 2e-7 and \
+                    right["start"] < left["start"] + left["duration"] - 2e-7:
+                raise ValueError("MIDI scale chord remapping would create a same-pitch collision")
+    expected_final = {note["noteId"]: dict(note) for note in current}
+    for change in expected_changes:
+        expected_final[change["noteId"]]["pitch"] = change["pitch"]
+    return expected_final
+
+
 def _validate_midi_strum_pattern_payload(clip, params):
     strum = params.get("strumPattern")
     if not isinstance(strum, dict) or set(strum) != {"noteIds", "direction", "spreadBeats", "changes"} or \
@@ -2988,7 +3064,8 @@ def dispatch_request(song, request, state_version, application=None):
             guarded_arpeggiation = method == "transform_midi_notes" and params.get("operation") == "apply_midi_chord_arpeggiation"
             guarded_transposition = method == "transform_midi_notes" and params.get("operation") == "apply_midi_transposition"
             guarded_diatonic = method == "transform_midi_notes" and params.get("operation") == "apply_midi_diatonic_transposition"
-            guarded_transform = guarded_variation or guarded_humanization or guarded_velocity or guarded_gate or guarded_probability or guarded_strum or guarded_inversion or guarded_drop or guarded_leading or guarded_arpeggiation or guarded_transposition or guarded_diatonic
+            guarded_remapping = method == "transform_midi_notes" and params.get("operation") == "apply_midi_scale_chord_remapping"
+            guarded_transform = guarded_variation or guarded_humanization or guarded_velocity or guarded_gate or guarded_probability or guarded_strum or guarded_inversion or guarded_drop or guarded_leading or guarded_arpeggiation or guarded_transposition or guarded_diatonic or guarded_remapping
             if guarded_transform:
                 if params.get("expectedStateVersion") != state_version:
                     raise ValueError("MIDI clip state version changed")
@@ -3008,7 +3085,7 @@ def dispatch_request(song, request, state_version, application=None):
                            "notes": [_midi_note_record(note) for note in clip.get_all_notes_extended()]}
                 if params.get("before") != current:
                     raise ValueError("MIDI clip changed since observation")
-                if guarded_diatonic and params.get("musicalContext") != _song_musical_context(song, state_version):
+                if (guarded_diatonic or guarded_remapping) and params.get("musicalContext") != _song_musical_context(song, state_version):
                     raise ValueError("song musical context changed since observation")
             note_ids = [int(change["noteId"]) for change in params["changes"]]
             if guarded_transform and (len(current["notes"]) > 4096 or len(note_ids) > 4096 or
@@ -3030,6 +3107,7 @@ def dispatch_request(song, request, state_version, application=None):
             expected_arpeggiation = _validate_midi_chord_arpeggiation_payload(clip, params) if guarded_arpeggiation else None
             expected_transposition = _validate_midi_transposition_payload(clip, params) if guarded_transposition else None
             expected_diatonic = _validate_midi_diatonic_transposition_payload(clip, params) if guarded_diatonic else None
+            expected_remapping = _validate_midi_scale_chord_remapping_payload(clip, params) if guarded_remapping else None
             notes = clip.get_notes_by_id(note_ids) if note_ids else []
             by_id = {int(note.note_id): note for note in notes}
             if len(by_id) != len(set(note_ids)):
@@ -3046,8 +3124,9 @@ def dispatch_request(song, request, state_version, application=None):
                                          if source in change}))
             added_note_ids = []
             new_note_specs = tuple(_new_midi_note(note) for note in params.get("newNotes", []))
-            if guarded_transposition or guarded_diatonic:
-                expected_pitch_transform = expected_transposition if guarded_transposition else expected_diatonic
+            if guarded_transposition or guarded_diatonic or guarded_remapping:
+                expected_pitch_transform = expected_transposition if guarded_transposition else \
+                    expected_diatonic if guarded_diatonic else expected_remapping
                 with _undo_step(song):
                     try:
                         for change in params["changes"]:

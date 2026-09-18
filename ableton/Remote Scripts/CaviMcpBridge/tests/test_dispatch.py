@@ -3677,6 +3677,53 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual([added[note_id]["probability"] for note_id in (100, 101, 102, 103)], [0.75] * 4)
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
+    def test_guarded_scale_chord_remapping_rederives_complete_onsets_and_rejects_tampering(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        notes = [MidiNote(note_id) for note_id in (7, 8, 9, 10, 11, 12)]
+        for index, (note, pitch) in enumerate(zip(notes, (60, 64, 67, 72, 76, 79))):
+            note.pitch = pitch
+            note.start_time = 0.0 if index < 3 else 2.0
+            note.velocity = 91
+            note.velocity_deviation = -3
+            note.release_velocity = 62
+            note.probability = 0.75
+        clip.extended_notes = notes
+        target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+        musical = dispatch_request(song, {"method": "get_song_musical_context", "params": {}}, 3)
+        pitches = (62, 66, 69, 67, 71, 74)
+        changes = [{"noteId": note["noteId"], "previous": note, "pitch": pitch}
+                   for note, pitch in zip(before["notes"], pitches)]
+        remapping = {"noteIds": [7, 8, 9, 10, 11, 12], "targetDegrees": [2, 5],
+                     "mode": "preserve_register",
+                     "scale": {"rootNote": 0, "scaleName": "Major",
+                               "scaleIntervals": [0, 2, 4, 5, 7, 9, 11]},
+                     "onsets": [
+                         {"start": 0.0, "targetDegree": 2, "sourceBassPitch": 60,
+                          "targetBassPitch": 62, "semitones": 2, "noteIds": [7, 8, 9]},
+                         {"start": 2.0, "targetDegree": 5, "sourceBassPitch": 72,
+                          "targetBassPitch": 67, "semitones": -5, "noteIds": [10, 11, 12]},
+                     ], "changes": changes}
+        params = {**target, "expectedStateVersion": 3, "before": before,
+                  "musicalContext": musical, "clipTiming": timing,
+                  "gridReference": {"tempoBpm": 120.0,
+                                    "timeSignature": {"numerator": 4, "denominator": 4},
+                                    "setFingerprint": dispatch_request(song, {"method": "get_live_state"}, 3)["setFingerprint"]},
+                  "operation": "apply_midi_scale_chord_remapping",
+                  "midiScaleChordRemapping": remapping, "changes": changes, "newNotes": []}
+        tampered = copy.deepcopy(params)
+        tampered["changes"][0]["pitch"] = 63
+        tampered["midiScaleChordRemapping"]["changes"][0]["pitch"] = 63
+        with self.assertRaisesRegex(ValueError, "chord-remapping changes"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": tampered}, 3)
+        result = dispatch_request(song, {"method": "transform_midi_notes", "params": params}, 3)
+        observed = {note["noteId"]: note for note in result["notes"]}
+        self.assertEqual([observed[note_id]["pitch"] for note_id in (7, 8, 9, 10, 11, 12)], list(pitches))
+        self.assertEqual([observed[note_id]["probability"] for note_id in (7, 8, 9, 10, 11, 12)], [0.75] * 6)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
     def test_scale_melody_creation_binds_context_and_returns_complete_notes_atomically(self):
         song = Song()
         target = {"trackId": "track-1", "clipId": "track-1:clip-0"}
