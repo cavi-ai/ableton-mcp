@@ -11,6 +11,10 @@ const CHROMATIC_INTERVALS = {
   dominant13: [0, 4, 7, 10, 14, 21],
 };
 const VOICING_MODES = new Set(["close", "open", "drop2", "drop3"]);
+const HARMONIC_FUNCTIONS = new Set(["diatonic", "secondary_dominant", "borrowed_parallel_minor"]);
+const PARALLEL_INTERVALS = {
+  borrowed_parallel_minor: [0, 2, 3, 5, 7, 8, 10],
+};
 
 function applyVoicingMode(pitches, mode) {
   if (mode === "close") return pitches;
@@ -86,11 +90,16 @@ export function planMidiDiatonicChordQuality(clip, key, options) {
       options.bassDegrees.length !== starts.length || options.bassDegrees.some(degree =>
         !Number.isInteger(degree) || degree < 1 || degree > reference.intervals.length)))
     throw new Error("diatonic chord quality requires one bass degree per onset");
+  if (options.harmonicFunctions !== undefined && (!Array.isArray(options.harmonicFunctions) ||
+      options.harmonicFunctions.length !== starts.length ||
+      options.harmonicFunctions.some(harmonicFunction => !HARMONIC_FUNCTIONS.has(harmonicFunction))))
+    throw new Error("diatonic chord quality requires one supported harmonic function per onset");
 
   const chordSizes = hasRecipeSequence ? [...requestedRecipes] : starts.map(() => options.chordSize);
   const inversions = options.inversions === undefined ? starts.map(() => 0) : [...options.inversions];
   const voicingModes = options.voicingModes === undefined ? starts.map(() => "close") : [...options.voicingModes];
   const bassDegrees = options.bassDegrees === undefined ? starts.map(() => null) : [...options.bassDegrees];
+  const harmonicFunctions = options.harmonicFunctions === undefined ? starts.map(() => "diatonic") : [...options.harmonicFunctions];
   const changes = [], removeNoteIds = [], newNotes = [], onsets = [];
   let previousTargetRoot = null;
   starts.forEach((start, onsetIndex) => {
@@ -102,19 +111,26 @@ export function planMidiDiatonicChordQuality(clip, key, options) {
     const inversion = inversions[onsetIndex];
     const voicingMode = voicingModes[onsetIndex];
     const bassDegree = bassDegrees[onsetIndex];
+    const harmonicFunction = harmonicFunctions[onsetIndex];
+    if (harmonicFunction === "secondary_dominant" && !chordSize.startsWith("dominant"))
+      throw new Error("secondary dominant requires a dominant recipe");
+    if (harmonicFunction.startsWith("borrowed_") && !Object.hasOwn(SCALE_VOICES, chordSize))
+      throw new Error("borrowed harmony requires a scale-stacked recipe");
     if (inversion >= voiceCount) throw new Error("each inversion must have fewer steps than its chord has voices");
     const rootDegree = options.rootDegrees[onsetIndex];
-    const rootPitchClass = (reference.rootNote + reference.intervals[rootDegree - 1]) % 12;
+    const functionIntervals = PARALLEL_INTERVALS[harmonicFunction] ?? reference.intervals;
+    const targetPitchClass = (reference.rootNote + functionIntervals[rootDegree - 1]) % 12;
+    const rootPitchClass = harmonicFunction === "secondary_dominant" ? (targetPitchClass + 7) % 12 : targetPitchClass;
     const anchor = options.mode === "voice_leading" && previousTargetRoot !== null ? previousTargetRoot : chord[0].pitch;
     const targetRootPitch = nearestPitchForClass(rootPitchClass, anchor);
     const rootPositionPitches = Object.hasOwn(CHROMATIC_INTERVALS, chordSize)
       ? CHROMATIC_INTERVALS[chordSize].map(interval => targetRootPitch + interval)
       : Array.from({ length: voiceCount }, (_, voice) => {
         const rootOctave = Math.floor((targetRootPitch - reference.rootNote) / 12);
-        const scaleIndex = rootOctave * reference.intervals.length + rootDegree - 1 + voice * 2;
-        const octave = Math.floor(scaleIndex / reference.intervals.length);
-        const degreeIndex = ((scaleIndex % reference.intervals.length) + reference.intervals.length) % reference.intervals.length;
-        return reference.rootNote + octave * 12 + reference.intervals[degreeIndex];
+        const scaleIndex = rootOctave * functionIntervals.length + rootDegree - 1 + voice * 2;
+        const octave = Math.floor(scaleIndex / functionIntervals.length);
+        const degreeIndex = ((scaleIndex % functionIntervals.length) + functionIntervals.length) % functionIntervals.length;
+        return reference.rootNote + octave * 12 + functionIntervals[degreeIndex];
       });
     const invertedPitches = rootPositionPitches.map((pitch, index) => pitch + (index < inversion ? 12 : 0))
       .sort((left, right) => left - right);
@@ -141,7 +157,7 @@ export function planMidiDiatonicChordQuality(clip, key, options) {
         velocityDeviation: source.velocityDeviation, releaseVelocity: source.releaseVelocity,
         probability: source.probability, mute: source.mute });
     }
-    onsets.push({ start, rootDegree, chordSize, inversion, voicingMode, bassDegree, targetBassPitch, targetRootPitch,
+    onsets.push({ start, rootDegree, chordSize, harmonicFunction, inversion, voicingMode, bassDegree, targetBassPitch, targetRootPitch,
       sourceNoteIds: chord.map(note => note.noteId), targetPitches });
     previousTargetRoot = targetRootPitch;
   });
@@ -156,7 +172,7 @@ export function planMidiDiatonicChordQuality(clip, key, options) {
   }
   if (projected.length > MAX_NOTES) throw new Error("diatonic chord quality supports at most 4096 final notes");
   return { noteIds: [...options.noteIds], rootDegrees: [...options.rootDegrees],
-    chordSize: hasSingleRecipe ? options.chordSize : null, chordSizes, inversions, voicingModes, bassDegrees,
+    chordSize: hasSingleRecipe ? options.chordSize : null, chordSizes, harmonicFunctions, inversions, voicingModes, bassDegrees,
     mode: options.mode, scale: { rootNote: reference.rootNote, scaleName: reference.name,
       scaleIntervals: [...reference.intervals] }, onsets, changes, removeNoteIds, newNotes, beforeNotes: clip.notes };
 }

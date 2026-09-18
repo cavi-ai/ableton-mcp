@@ -3754,16 +3754,17 @@ class DispatchTest(unittest.TestCase):
                    "inversions": [0, 0],
                    "voicingModes": ["close", "close"],
                    "bassDegrees": [None, None],
+                   "harmonicFunctions": ["diatonic", "diatonic"],
                    "mode": "preserve_register",
                    "scale": {"rootNote": 0, "scaleName": "Major",
                              "scaleIntervals": [0, 2, 4, 5, 7, 9, 11]},
                    "onsets": [
                        {"start": 0.0, "rootDegree": 2, "chordSize": "triad", "inversion": 0,
-                        "voicingMode": "close", "bassDegree": None, "targetBassPitch": None,
+                        "harmonicFunction": "diatonic", "voicingMode": "close", "bassDegree": None, "targetBassPitch": None,
                         "targetRootPitch": 62,
                         "sourceNoteIds": [7, 8], "targetPitches": [62, 65, 69]},
                        {"start": 2.0, "rootDegree": 5, "chordSize": "triad", "inversion": 0,
-                        "voicingMode": "close", "bassDegree": None, "targetBassPitch": None,
+                        "harmonicFunction": "diatonic", "voicingMode": "close", "bassDegree": None, "targetBassPitch": None,
                         "targetRootPitch": 67,
                         "sourceNoteIds": [9, 10, 11, 12, 13], "targetPitches": [67, 71, 74]},
                    ], "changes": changes, "removeNoteIds": [12, 13],
@@ -3807,8 +3808,8 @@ class DispatchTest(unittest.TestCase):
         changes = [
             {"noteId": 7, "previous": before["notes"][0], "pitch": 64, "chordToneIndex": 0},
             {"noteId": 8, "previous": before["notes"][1], "pitch": 65, "chordToneIndex": 1},
-            {"noteId": 9, "previous": before["notes"][2], "pitch": 59, "chordToneIndex": 0},
-            {"noteId": 10, "previous": before["notes"][3], "pitch": 71, "chordToneIndex": 1},
+            {"noteId": 9, "previous": before["notes"][2], "pitch": 71, "chordToneIndex": 0},
+            {"noteId": 10, "previous": before["notes"][3], "pitch": 78, "chordToneIndex": 1},
         ]
         new_notes = [
             {"sourceNoteId": source_id, "chordToneIndex": index, "pitch": pitch, "start": start,
@@ -3816,7 +3817,7 @@ class DispatchTest(unittest.TestCase):
              "releaseVelocity": 62, "probability": 0.75, "mute": False}
             for source_id, index, pitch, start in (
                 (8, 2, 72, 0.0), (8, 3, 79, 0.0),
-                (10, 2, 77, 2.0), (10, 3, 79, 2.0), (10, 4, 85, 2.0), (10, 5, 86, 2.0)
+                (10, 2, 84, 2.0), (10, 3, 86, 2.0), (10, 4, 92, 2.0), (10, 5, 93, 2.0)
             )
         ]
         quality = {"noteIds": [7, 8, 9, 10], "rootDegrees": [1, 5], "chordSize": None,
@@ -3824,16 +3825,17 @@ class DispatchTest(unittest.TestCase):
                    "inversions": [1, 3],
                    "voicingModes": ["open", "drop3"],
                    "bassDegrees": [3, 7],
+                   "harmonicFunctions": ["diatonic", "secondary_dominant"],
                    "mode": "preserve_register", "scale": {"rootNote": 0, "scaleName": "Major",
                    "scaleIntervals": [0, 2, 4, 5, 7, 9, 11]}, "onsets": [
                        {"start": 0.0, "rootDegree": 1, "targetRootPitch": 60, "inversion": 1,
-                        "chordSize": "sus4", "voicingMode": "open", "bassDegree": 3,
+                        "chordSize": "sus4", "harmonicFunction": "diatonic", "voicingMode": "open", "bassDegree": 3,
                         "targetBassPitch": 64, "sourceNoteIds": [7, 8],
                         "targetPitches": [64, 65, 72, 79]},
-                       {"start": 2.0, "rootDegree": 5, "targetRootPitch": 67,
-                        "chordSize": "dominant7_sharp11", "inversion": 3, "voicingMode": "drop3",
-                        "bassDegree": 7, "targetBassPitch": 59,
-                        "sourceNoteIds": [9, 10], "targetPitches": [59, 71, 77, 79, 85, 86]}],
+                       {"start": 2.0, "rootDegree": 5, "targetRootPitch": 74,
+                        "chordSize": "dominant7_sharp11", "harmonicFunction": "secondary_dominant", "inversion": 3, "voicingMode": "drop3",
+                        "bassDegree": 7, "targetBassPitch": 71,
+                        "sourceNoteIds": [9, 10], "targetPitches": [71, 78, 84, 86, 92, 93]}],
                    "changes": changes, "removeNoteIds": [], "newNotes": new_notes,
                    "beforeNotes": before["notes"]}
         params = {**target, "expectedStateVersion": 3, "before": before,
@@ -3844,7 +3846,7 @@ class DispatchTest(unittest.TestCase):
                   "operation": "apply_midi_diatonic_chord_quality", "midiDiatonicChordQuality": quality,
                   "changes": changes, "removeNoteIds": [], "newNotes": new_notes}
         result = dispatch_request(song, {"method": "replace_midi_notes", "params": params}, 3)
-        self.assertEqual([note["pitch"] for note in result["notes"]], [64, 65, 59, 71, 72, 79, 77, 79, 85, 86])
+        self.assertEqual([note["pitch"] for note in result["notes"]], [64, 65, 71, 78, 72, 79, 84, 86, 92, 93])
         self.assertEqual(result["addedNoteIds"], [100, 101, 102, 103, 104, 105])
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
