@@ -68,6 +68,30 @@ test("chord quality applies one explicit recipe per ordered onset", () => {
   }), /one chord recipe per onset/);
 });
 
+test("chord quality applies explicit secondary-dominant and parallel-minor functions", () => {
+  const progression = { lengthBeats: 4, notes: [note(1, 60), note(2, 64), note(3, 67),
+    note(4, 62, 1), note(5, 65, 1), note(6, 69, 1),
+    note(7, 67, 2), note(8, 71, 2), note(9, 74, 2)] };
+  const plan = planMidiDiatonicChordQuality(progression, major, {
+    noteIds: progression.notes.map(current => current.noteId), rootDegrees: [2, 4, 5],
+    chordSizes: ["dominant7", "triad", "triad"],
+    harmonicFunctions: ["secondary_dominant", "borrowed_parallel_minor", "diatonic"],
+    mode: "preserve_register",
+  });
+  assert.deepEqual(plan.harmonicFunctions,
+    ["secondary_dominant", "borrowed_parallel_minor", "diatonic"]);
+  assert.deepEqual(plan.onsets.map(current => current.harmonicFunction),
+    ["secondary_dominant", "borrowed_parallel_minor", "diatonic"]);
+  assert.deepEqual(plan.onsets.map(current => current.targetPitches),
+    [[57, 61, 64, 67], [65, 68, 72], [67, 71, 74]]);
+  assert.throws(() => planMidiDiatonicChordQuality(progression, major, {
+    noteIds: progression.notes.map(current => current.noteId), rootDegrees: [2, 4, 5],
+    chordSizes: ["triad", "triad", "triad"],
+    harmonicFunctions: ["secondary_dominant", "borrowed_parallel_minor", "diatonic"],
+    mode: "preserve_register",
+  }), /secondary dominant requires a dominant recipe/);
+});
+
 test("chord quality applies one explicit inversion per ordered onset", () => {
   const progression = { lengthBeats: 4, notes: [note(1, 60), note(2, 64), note(3, 67),
     note(4, 62, 1), note(5, 65, 1), note(6, 69, 1),
@@ -212,7 +236,12 @@ test("diatonic-chord-quality tools expose strict contracts", () => {
   assert.deepEqual(validateToolArguments("plan_midi_diatonic_chord_quality", {
     ...sequenceArgs, chordSizes: ["sus4", "dominant7_b9"], inversions: [1, 3],
     voicingModes: ["open", "drop3"], bassDegrees: [3, 7],
-  }).bassDegrees, [3, 7]);
+    harmonicFunctions: ["diatonic", "secondary_dominant"],
+  }).harmonicFunctions, ["diatonic", "secondary_dominant"]);
+  assert.throws(() => validateToolArguments("plan_midi_diatonic_chord_quality", {
+    ...sequenceArgs, chordSizes: ["sus4", "dominant7_b9"],
+    harmonicFunctions: ["diatonic", "chromatic_mediant"],
+  }), /invalid tool arguments/);
   assert.throws(() => validateToolArguments("plan_midi_diatonic_chord_quality", {
     ...sequenceArgs, chordSizes: ["sus4", "dominant7_b9"], bassDegrees: [0, 7],
   }), /invalid tool arguments/);
