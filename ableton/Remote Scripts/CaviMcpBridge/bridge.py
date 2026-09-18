@@ -1328,6 +1328,60 @@ def _validate_midi_chord_inversion_payload(clip, params):
     return final
 
 
+def _validate_midi_drop_voicing_payload(clip, params):
+    voicing = params.get("dropVoicing")
+    if not isinstance(voicing, dict) or set(voicing) != {"noteIds", "mode", "changes"} or \
+            params.get("changes") != voicing.get("changes") or params.get("newNotes") != []:
+        raise ValueError("MIDI drop voicing payload does not match its signed plan")
+    note_ids, mode = voicing.get("noteIds"), voicing.get("mode")
+    if not isinstance(note_ids, list) or not note_ids or len(note_ids) > 4096 or \
+            any(type(note_id) is not int or note_id < 0 for note_id in note_ids) or \
+            len(note_ids) != len(set(note_ids)) or mode not in ("drop_2", "drop_3", "drop_2_and_4"):
+        raise ValueError("MIDI drop voicing options or note IDs are invalid")
+    current = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
+    by_id = {note["noteId"]: note for note in current}
+    if len(by_id) != len(current) or any(note_id not in by_id for note_id in note_ids):
+        raise ValueError("one or more MIDI drop voicing note IDs no longer exist")
+    selected, starts = set(note_ids), {by_id[note_id]["start"] for note_id in note_ids}
+    if any(note["start"] in starts and note["noteId"] not in selected for note in current):
+        raise ValueError("MIDI drop voicings require every note at each selected complete onset")
+    expected = []
+    for start in sorted(starts):
+        chord = sorted((by_id[note_id] for note_id in note_ids if by_id[note_id]["start"] == start),
+                       key=lambda note: (note["pitch"], note["noteId"]))
+        minimum = 3 if mode == "drop_2" else 4
+        if len(chord) < minimum:
+            raise ValueError("MIDI drop voicing onset does not contain enough notes")
+        ranks = ([len(chord) - 2] if mode == "drop_2" else [len(chord) - 3] if mode == "drop_3"
+                 else [len(chord) - 2, len(chord) - 4])
+        for rank, previous in enumerate(chord):
+            pitch = previous["pitch"] - (12 if rank in ranks else 0)
+            if pitch < 0:
+                raise ValueError("MIDI drop voicing would exceed the pitch range")
+            expected.append({"noteId": previous["noteId"], "previous": previous, "pitch": pitch})
+    supplied = params.get("changes")
+    if not isinstance(supplied, list) or len(supplied) != len(expected) or any(
+            actual.get("noteId") != wanted["noteId"] or actual.get("previous") != wanted["previous"] or
+            actual.get("pitch") != wanted["pitch"] for actual, wanted in zip(supplied, expected)):
+        raise ValueError("MIDI drop voicing changes do not match the signed plan")
+    final = {note["noteId"]: dict(note) for note in current}
+    for change in expected:
+        final[change["noteId"]]["pitch"] = change["pitch"]
+    for left in range(len(current)):
+        for right in range(left + 1, len(current)):
+            before_left, before_right = current[left], current[right]
+            after_left, after_right = final[before_left["noteId"]], final[before_right["noteId"]]
+            before_overlap = before_left["pitch"] == before_right["pitch"] and \
+                before_left["start"] < before_right["start"] + before_right["duration"] - 2e-7 and \
+                before_right["start"] < before_left["start"] + before_left["duration"] - 2e-7
+            after_overlap = after_left["pitch"] == after_right["pitch"] and \
+                after_left["start"] < after_right["start"] + after_right["duration"] - 2e-7 and \
+                after_right["start"] < after_left["start"] + after_left["duration"] - 2e-7
+            if after_overlap and not before_overlap:
+                raise ValueError("MIDI drop voicing would create a same-pitch collision")
+    return final
+
+
 def _validate_scale_melody_payload(song, params, state_version, fingerprint):
     if params.get("expectedStateVersion") != state_version:
         raise ValueError("melody state version changed")
@@ -2522,7 +2576,8 @@ def dispatch_request(song, request, state_version, application=None):
             guarded_probability = method == "transform_midi_notes" and params.get("operation") == "apply_midi_probability_pattern"
             guarded_strum = method == "transform_midi_notes" and params.get("operation") == "apply_midi_strum_pattern"
             guarded_inversion = method == "transform_midi_notes" and params.get("operation") == "apply_midi_chord_inversion"
-            guarded_transform = guarded_variation or guarded_humanization or guarded_velocity or guarded_gate or guarded_probability or guarded_strum or guarded_inversion
+            guarded_drop = method == "transform_midi_notes" and params.get("operation") == "apply_midi_drop_voicing"
+            guarded_transform = guarded_variation or guarded_humanization or guarded_velocity or guarded_gate or guarded_probability or guarded_strum or guarded_inversion or guarded_drop
             if guarded_transform:
                 if params.get("expectedStateVersion") != state_version:
                     raise ValueError("MIDI clip state version changed")
@@ -2557,6 +2612,7 @@ def dispatch_request(song, request, state_version, application=None):
             expected_probability = _validate_midi_probability_pattern_payload(clip, params) if guarded_probability else None
             expected_strum = _validate_midi_strum_pattern_payload(clip, params) if guarded_strum else None
             expected_inversion = _validate_midi_chord_inversion_payload(clip, params) if guarded_inversion else None
+            expected_drop = _validate_midi_drop_voicing_payload(clip, params) if guarded_drop else None
             notes = clip.get_notes_by_id(note_ids) if note_ids else []
             by_id = {int(note.note_id): note for note in notes}
             if len(by_id) != len(set(note_ids)):
@@ -2573,7 +2629,8 @@ def dispatch_request(song, request, state_version, application=None):
                                          if source in change}))
             added_note_ids = []
             new_note_specs = tuple(_new_midi_note(note) for note in params.get("newNotes", []))
-            if guarded_inversion:
+            if guarded_inversion or guarded_drop:
+                expected_pitch_state = expected_inversion if guarded_inversion else expected_drop
                 with _undo_step(song):
                     try:
                         for change in params["changes"]:
@@ -2582,14 +2639,14 @@ def dispatch_request(song, request, state_version, application=None):
                             clip.apply_note_modifications(notes)
                         readback = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
                         observed = {note["noteId"]: note for note in readback}
-                        if set(observed) != set(expected_inversion) or any(
+                        if set(observed) != set(expected_pitch_state) or any(
                                 any(observed[note_id][field] != expected[field]
                                     for field in ("pitch", "velocity", "velocityDeviation",
                                                   "releaseVelocity", "probability", "mute")) or
                                 abs(observed[note_id]["start"] - expected["start"]) > 2e-7 or
                                 abs(observed[note_id]["duration"] - expected["duration"]) > 2e-7
-                                for note_id, expected in expected_inversion.items()):
-                            raise ValueError("native MIDI chord inversion readback does not match the signed plan")
+                                for note_id, expected in expected_pitch_state.items()):
+                            raise ValueError("native MIDI chord voicing readback does not match the signed plan")
                         return {"stateVersion": state_version + 1, "trackId": params["trackId"],
                                 "clipId": params["clipId"], "lengthBeats": float(clip.length),
                                 "notes": readback, "addedNoteIds": []}
@@ -2601,7 +2658,7 @@ def dispatch_request(song, request, state_version, application=None):
                             if originals:
                                 clip.apply_note_modifications(notes)
                         except Exception as rollback_error:
-                            raise RuntimeError("MIDI chord inversion failed and rollback was incomplete (%s); original error: %s" %
+                            raise RuntimeError("MIDI chord voicing failed and rollback was incomplete (%s); original error: %s" %
                                                (rollback_error, mutation_error))
                         raise mutation_error
             if guarded_strum:

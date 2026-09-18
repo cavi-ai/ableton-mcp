@@ -2930,6 +2930,37 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual([observed[note_id]["velocityDeviation"] for note_id in (8, 9, 7)], [-3] * 3)
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
+    def test_guarded_drop_voicing_rederives_pitch_and_rejects_tampering(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        notes = [MidiNote(note_id) for note_id in (7, 8, 9, 10)]
+        for note, pitch in zip(notes, (60, 64, 67, 71)):
+            note.pitch = pitch
+            note.velocity = 91
+            note.velocity_deviation = -3
+            note.release_velocity = 62
+            note.probability = 0.75
+        clip.extended_notes = notes
+        target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+        changes = [{"noteId": note["noteId"], "previous": note,
+                    "pitch": 55 if note["pitch"] == 67 else note["pitch"]} for note in before["notes"]]
+        params = {**target, "expectedStateVersion": 3, "before": before, "clipTiming": timing,
+                  "gridReference": {"tempoBpm": 120.0, "timeSignature": {"numerator": 4, "denominator": 4},
+                                    "setFingerprint": dispatch_request(song, {"method": "get_live_state"}, 3)["setFingerprint"]},
+                  "operation": "apply_midi_drop_voicing",
+                  "dropVoicing": {"noteIds": [7, 8, 9, 10], "mode": "drop_2", "changes": changes},
+                  "changes": changes, "newNotes": []}
+        tampered = {**params, "changes": [{**changes[0], "pitch": 59}, *changes[1:]]}
+        with self.assertRaisesRegex(ValueError, "signed plan"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": tampered}, 3)
+        result = dispatch_request(song, {"method": "transform_midi_notes", "params": params}, 3)
+        observed = {note["noteId"]: note for note in result["notes"]}
+        self.assertEqual([observed[note_id]["pitch"] for note_id in (7, 8, 9, 10)], [60, 64, 55, 71])
+        self.assertEqual([observed[note_id]["probability"] for note_id in (7, 8, 9, 10)], [0.75] * 4)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
     def test_guarded_probability_pattern_applies_probability_and_preserves_complete_note_state(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip
