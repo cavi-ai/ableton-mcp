@@ -2862,6 +2862,17 @@ class DispatchTest(unittest.TestCase):
                 **params, "expectedStateVersion": 4, "value": 99,
                 "before": dispatch_request(song, {"method": "list_scenes"}, 4)["scenes"][0]}}, 4)
 
+    def test_scene_launch_quantization_reports_unsupported_scenes(self):
+        song = Song()
+        del song.scenes[0].launch_quantization
+        listed = dispatch_request(song, {"method": "list_scenes"}, 3)
+        self.assertEqual(listed["scenes"][0]["launchQuantization"], {"supported": False})
+        self.assertNotIn("supported", listed["scenes"][1]["launchQuantization"])
+        with self.assertRaisesRegex(ValueError, "not exposed"):
+            dispatch_request(song, {"method": "set_scene_launch_quantization", "params": {
+                "sceneId": "scene-0", "expectedStateVersion": 3,
+                "before": listed["scenes"][0], "value": 8}}, 3)
+
     def test_create_groove_appends_named_groove_in_one_undo_step(self):
         song = Song()
         before = dispatch_request(song, {"method": "get_song_musical_context"}, 3)

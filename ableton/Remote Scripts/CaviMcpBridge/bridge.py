@@ -416,8 +416,10 @@ def _arrangement_clips(song, track_id, state_version):
 
 
 def _scene_record(scene, index):
+    quantization = getattr(scene, "launch_quantization", None)
     return {"id": f"scene-{index}", "name": scene.name,
-            "launchQuantization": _enum_record(scene.launch_quantization, CLIP_QUANTIZATION_NAMES)}
+            "launchQuantization": _enum_record(quantization, CLIP_QUANTIZATION_NAMES)
+            if quantization is not None else {"supported": False}}
 
 
 def _parameter_record(parameter, index, include_native_choice_labels=False):
@@ -3187,6 +3189,9 @@ def dispatch_request(song, request, state_version, application=None):
         if str(index) != suffix or index >= len(song.scenes):
             raise ValueError("scene ID is noncanonical or unavailable")
         scene = song.scenes[index]
+        quantization = getattr(scene, "launch_quantization", None)
+        if quantization is None:
+            raise ValueError("per-scene launch quantization is not exposed by this Live version")
         current = _scene_record(scene, index)
         if params.get("before") != current:
             raise ValueError("scene identity or launch quantization changed")

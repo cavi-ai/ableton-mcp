@@ -458,8 +458,8 @@ const contracts = {
     inScale: boolean("Transpose incoming notes according to Live's scale."),
     outScale: boolean("Transpose outgoing notes according to Live's scale.")
   }, ["trackId"]) },
-  get_track_freeze_state: { description: "Read one track's native freeze state. Freezing renders the track's live material to audio; unfreezing restores it. Reports unsupported explicitly when Live does not expose the property.", inputSchema: track },
-  set_track_freeze_state: { description: "Plan or toggle guarded track freeze. Freezing renders the track's live material to a processed audio source and mutates the track's audible content until unfrozen; Live's undo step restores it. Does not flatten, consolidate, or export.", inputSchema: guarded({ trackId: ids.trackId, frozen: boolean("Requested freeze state.") }, ["trackId", "frozen"]) },
+  get_track_freeze_state: { description: "Read one track's native freeze state. On the tested Live 12.4.5, is_frozen is readable but has no setter, so freeze/unfreeze remain UI-only; Live's native error surfaces if a future version exposes the setter.", inputSchema: track },
+  set_track_freeze_state: { description: "Plan or toggle guarded track freeze. On the tested Live 12.4.5 the native is_frozen property has no setter, so execution fails closed with Live's own error; the plan still binds the observed state so newer Live versions can adopt the write without contract changes. Freezing renders the track's live material to audio and mutates audible content until unfrozen.", inputSchema: guarded({ trackId: ids.trackId, frozen: boolean("Requested freeze state.") }, ["trackId", "frozen"]) },
   set_bulk_track_mixer: { description: "Plan or apply guarded volume, pan, mute, and solo changes to multiple existing ordinary tracks in one confirmed step. Per-track values clamp to each observed native range; sends are unchanged.", inputSchema: guarded({
     trackIds: { ...array(ids.trackId, "Unique ordinary track IDs to change."), minItems: 1, maxItems: 64 },
     volume: number("Volume applied to every listed track."),
