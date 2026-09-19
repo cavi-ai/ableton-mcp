@@ -884,6 +884,8 @@ export class ToolService {
     if (name === "correct_midi_clip_to_scale") return this.#correctMidiClipToScale(args);
     if (name === "transform_midi_notes") return this.#transformMidiNotes(args);
     if (name === "set_track_mixer") return this.#setTrackMixer(args);
+    if (name === "set_bulk_track_mixer") return this.#setBulkTrackMixer(args);
+    if (name === "stop_all_clips") return this.#stopAllClips(args);
     if (name === "set_track_routing") return this.#setTrackRouting(args);
     if (name === "get_track_midi_routing") return this.bridge.request("get_track_midi_routing", args);
     if (name === "set_track_midi_routing") return this.#setTrackMidiRouting(args);
@@ -3075,6 +3077,61 @@ export class ToolService {
     this.#consumeConfirmation(plan, args);
     const result = await this.bridge.request("set_track_mixer", plan);
     return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
+  }
+
+  async #setBulkTrackMixer(args) {
+    requireExpectedState(args);
+    const trackIds = args.trackIds;
+    if (!Array.isArray(trackIds) || !trackIds.length) throw new Error("trackIds must be a non-empty array");
+    if (new Set(trackIds).size !== trackIds.length) throw new Error("trackIds must be unique");
+    if (trackIds.length > 64) throw new Error("trackIds supports at most 64 tracks");
+    const hasChange = ["volume", "pan", "mute", "solo"].some((key) => args[key] !== undefined);
+    if (!hasChange) throw new Error("at least one bulk mixer change is required");
+    const soloTracks = [];
+    const observedList = [];
+    for (const trackId of trackIds) {
+      const observed = await this.bridge.request("get_track_mixer", { trackId });
+      assertExpectedState(args, observed);
+      observedList.push(observed);
+      if (args.solo === true && observed.solo) soloTracks.push(trackId);
+      if (args.volume !== undefined && !Number.isFinite(Number(args.volume))) throw new Error("volume must be finite");
+    }
+    const tracks = trackIds.map((trackId, index) => {
+      const observed = observedList[index];
+      const changes = {};
+      for (const key of ["volume", "pan"]) {
+        if (args[key] === undefined) continue;
+        const requestedValue = Number(args[key]);
+        changes[key] = {
+          previousValue: observed[key].value, requestedValue,
+          value: Math.max(observed[key].min, Math.min(observed[key].max, requestedValue))
+        };
+      }
+      for (const key of ["mute", "solo"]) {
+        if (args[key] === undefined) continue;
+        changes[key] = { previousValue: observed[key], value: args[key] };
+      }
+      return { trackId, changes };
+    });
+    return this.#confirmedMutation({ method: "set_bulk_track_mixer",
+      expectedStateVersion: args.expectedStateVersion,
+      trackIds, tracks, before: observedList,
+      ...(args.solo === true && soloTracks.length ? { warning: `Tracks ${soloTracks.join(", ")} were already soloed.` } : {}) }, args);
+  }
+
+  async #stopAllClips(args) {
+    requireExpectedState(args);
+    const trackList = await this.bridge.request("list_tracks", {});
+    assertExpectedState(args, trackList);
+    const before = [];
+    for (const track of trackList.tracks) {
+      const clips = (await this.bridge.request("list_clips", { trackId: track.id })).clips
+        .filter(({ hasClip, isPlaying }) => hasClip && isPlaying).map(({ id }) => id);
+      before.push({ trackId: track.id, clipIds: clips });
+    }
+    if (!before.some(({ clipIds }) => clipIds.length)) throw new Error("no clips are playing");
+    return this.#confirmedMutation({ method: "stop_all_clips",
+      expectedStateVersion: args.expectedStateVersion, before }, args);
   }
 
   async #setDeviceSidechainRouting(args) {

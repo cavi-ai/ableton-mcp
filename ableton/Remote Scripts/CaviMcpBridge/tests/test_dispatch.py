@@ -426,6 +426,12 @@ class Song:
     def stop_playing(self):
         self.is_playing = False
 
+    def stop_all_clips(self):
+        for track in self.tracks:
+            for slot in getattr(track, "clip_slots", ()):
+                if slot.has_clip:
+                    slot.clip.stop()
+
     def begin_undo_step(self):
         self.undo_boundaries.append("begin")
 
@@ -875,6 +881,40 @@ class DispatchTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not an audio clip"):
             dispatch_request(song, {"method": "get_audio_clip_state", "params": {
                 "trackId": "track-0", "clipId": clip_id}}, 3)
+
+    def test_bulk_track_mixer_applies_guarded_uniform_changes(self):
+        song = Song()
+        track_ids = ["track-0", "track-1"]
+        before = [dispatch_request(song, {"method": "get_track_mixer", "params": {"trackId": track_id}}, 3)
+                  for track_id in track_ids]
+        tracks = [{"trackId": track_id, "changes": {"volume": {"value": 0.9}, "mute": {"value": True}}}
+                  for track_id in track_ids]
+        params = {"trackIds": track_ids, "tracks": tracks, "before": before, "expectedStateVersion": 3}
+        result = dispatch_request(song, {"method": "set_bulk_track_mixer", "params": params}, 3)
+        self.assertEqual(result["stateVersion"], 4)
+        self.assertTrue(all(entry["volume"]["value"] == 0.9 and entry["mute"] for entry in result["tracks"]))
+        self.assertEqual(song.tracks[0].mixer_device.volume.value, 0.9)
+        self.assertTrue(song.tracks[0].mute)
+        with self.assertRaisesRegex(ValueError, "changed"):
+            dispatch_request(song, {"method": "set_bulk_track_mixer", "params": params}, 3)
+
+    def test_stop_all_clips_binds_playing_snapshot(self):
+        song = Song()
+        song.tracks[0].clip_slots[0].clip.is_playing = True
+        song.tracks[0].clip_slots[2].clip.is_playing = True
+        before = [{"trackId": "track-0", "clipIds": ["track-0:clip-0", "track-0:clip-2"]},
+                  {"trackId": "track-1", "clipIds": []}]
+        result = dispatch_request(song, {"method": "stop_all_clips", "params": {
+            "expectedStateVersion": 3, "before": before}}, 3)
+        self.assertEqual(result["stateVersion"], 4)
+        self.assertFalse(song.tracks[0].clip_slots[0].clip.is_playing)
+        with self.assertRaisesRegex(ValueError, "changed"):
+            dispatch_request(song, {"method": "stop_all_clips", "params": {
+                "expectedStateVersion": 3, "before": before}}, 3)
+        with self.assertRaisesRegex(ValueError, "no clips are playing"):
+            dispatch_request(song, {"method": "stop_all_clips", "params": {
+                "expectedStateVersion": 4, "before": [{"trackId": "track-0", "clipIds": []},
+                                                      {"trackId": "track-1", "clipIds": []}]}}, 4)
 
     def test_track_routing_rejects_ambiguous_label_only_current_choice(self):
         song = Song()

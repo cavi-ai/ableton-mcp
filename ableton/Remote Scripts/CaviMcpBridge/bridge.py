@@ -4515,6 +4515,39 @@ def dispatch_request(song, request, state_version, application=None):
             "volume": track.mixer_device.volume.value, "pan": track.mixer_device.panning.value,
             "mute": track.mute, "solo": track.solo, "sends": _send_records(song, track),
         }
+    if method == "set_bulk_track_mixer":
+        if params.get("expectedStateVersion") != state_version:
+            raise ValueError("bulk mixer state version changed")
+        current = [dispatch_request(song, {"method": "get_track_mixer", "params": {"trackId": track_id}}, state_version)
+                   for track_id in params["trackIds"]]
+        if current != params["before"]:
+            raise ValueError("one or more track mixers changed since observation")
+        for track_id, track_record in zip(params["trackIds"], params["tracks"]):
+            _, track = _track(song, track_id)
+            for key in ("volume", "pan"):
+                if key in track_record["changes"]:
+                    parameter = getattr(track.mixer_device, "panning" if key == "pan" else "volume")
+                    parameter.value = _clamp(track_record["changes"][key]["value"], parameter)
+            for key in ("mute", "solo"):
+                if key in track_record["changes"]:
+                    setattr(track, key, bool(track_record["changes"][key]["value"]))
+        observed = [dispatch_request(song, {"method": "get_track_mixer", "params": {"trackId": track_id}}, state_version + 1)
+                    for track_id in params["trackIds"]]
+        return {"stateVersion": state_version + 1, "trackIds": params["trackIds"], "tracks": observed}
+    if method == "stop_all_clips":
+        if params.get("expectedStateVersion") != state_version:
+            raise ValueError("session state version changed")
+        playing = []
+        for index, track in enumerate(song.tracks):
+            clip_ids = [f"track-{index}:clip-{slot_index}" for slot_index, slot in enumerate(getattr(track, "clip_slots", ()))
+                        if slot.has_clip and slot.clip.is_playing]
+            playing.append({"trackId": f"track-{index}", "clipIds": clip_ids})
+        if playing != params["before"]:
+            raise ValueError("session playback changed since observation")
+        if not any(entry["clipIds"] for entry in playing):
+            raise ValueError("no clips are playing")
+        song.stop_all_clips()
+        return {"stateVersion": state_version + 1, "stopped": playing}
     if method == "arm_track":
         _, track = _track(song, params["trackId"])
         track.arm = bool(params["armed"])

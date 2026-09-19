@@ -459,7 +459,15 @@ const contracts = {
     outScale: boolean("Transpose outgoing notes according to Live's scale.")
   }, ["trackId"]) },
   get_track_freeze_state: { description: "Read one track's native freeze state. Freezing renders the track's live material to audio; unfreezing restores it. Reports unsupported explicitly when Live does not expose the property.", inputSchema: track },
-  set_track_freeze_state: { description: "Plan or toggle guarded track freeze. Freezing renders the track's live material to a processed audio source and mutates the track's audible content until unfrozen; Live's undo step restores it. Does not flatten, consolidate, or export.", inputSchema: guarded({ trackId: ids.trackId, frozen: boolean("Requested freeze state.") }, ["trackId", "frozen"]) }
+  set_track_freeze_state: { description: "Plan or toggle guarded track freeze. Freezing renders the track's live material to a processed audio source and mutates the track's audible content until unfrozen; Live's undo step restores it. Does not flatten, consolidate, or export.", inputSchema: guarded({ trackId: ids.trackId, frozen: boolean("Requested freeze state.") }, ["trackId", "frozen"]) },
+  set_bulk_track_mixer: { description: "Plan or apply guarded volume, pan, mute, and solo changes to multiple existing ordinary tracks in one confirmed step. Per-track values clamp to each observed native range; sends are unchanged.", inputSchema: guarded({
+    trackIds: { ...array(ids.trackId, "Unique ordinary track IDs to change."), minItems: 1, maxItems: 64 },
+    volume: number("Volume applied to every listed track."),
+    pan: number("Pan applied to every listed track.", { minimum: -1, maximum: 1 }),
+    mute: boolean("Mute state applied to every listed track."),
+    solo: boolean("Solo state applied to every listed track; a solo write mutes everything else at Live level.")
+  }, ["trackIds"]) },
+  stop_all_clips: { description: "Plan or stop every playing Session clip in one guarded step using Live's native stop-all action. Playback-only; does not delete or mute clips.", inputSchema: guarded() }
 };
 
 const readOnlyTools = new Set([

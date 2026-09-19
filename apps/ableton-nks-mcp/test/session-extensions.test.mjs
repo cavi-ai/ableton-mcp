@@ -163,3 +163,56 @@ test("arrangement MIDI clip reads and note edits resolve timeline identity", asy
   assert.equal(result.observed.timeline.startBeats, 8);
   assert.equal(calls.at(-1).method, "set_midi_note_properties");
 });
+
+test("bulk track mixer clamps per track and requires one observed snapshot", async () => {
+  const mixers = {
+    "track-0": { stateVersion: 4, trackId: "track-0", volume: { value: 0.5, min: 0, max: 1 }, pan: { value: 0, min: -1, max: 1 }, mute: false, solo: false, sends: [] },
+    "track-1": { stateVersion: 4, trackId: "track-1", volume: { value: 0.9, min: 0.2, max: 1 }, pan: { value: 0, min: -1, max: 1 }, mute: true, solo: false, sends: [] }
+  };
+  const calls = [];
+  const service = new ToolService({ bridge: { async request(method, params) {
+    calls.push({ method, params });
+    if (method === "get_track_mixer") return mixers[params.trackId];
+    if (method === "set_bulk_track_mixer") return { stateVersion: 5, trackIds: params.trackIds, tracks: params.trackIds.map(id => mixers[id]) };
+    throw new Error(method);
+  } } });
+  const args = { trackIds: ["track-0", "track-1"], volume: 1.5, mute: true, expectedStateVersion: 4 };
+  const dry = await service.call("set_bulk_track_mixer", args);
+  assert.equal(dry.plan.tracks[0].changes.volume.value, 1);
+  assert.equal(dry.plan.tracks[1].changes.volume.value, 1);
+  assert.deepEqual(dry.plan.before, [mixers["track-0"], mixers["track-1"]]);
+  await assert.rejects(() => service.call("set_bulk_track_mixer", { ...args, trackIds: ["track-0", "track-0"] }), /unique/);
+  await assert.rejects(() => service.call("set_bulk_track_mixer", { trackIds: ["track-0"], expectedStateVersion: 4 }), /at least one/);
+  const result = await service.call("set_bulk_track_mixer", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.observed.tracks.length, 2);
+  assert.equal(calls.at(-1).method, "set_bulk_track_mixer");
+});
+
+test("stop all clips binds the playing snapshot and refuses empty sessions", async () => {
+  const playing = [{ trackId: "track-0", clipIds: ["track-0:clip-0"] }];
+  const calls = [];
+  const service = new ToolService({ bridge: { async request(method, params) {
+    calls.push({ method, params });
+    if (method === "list_tracks") return { stateVersion: 4, tracks: [{ id: "track-0", name: "Synth" }] };
+    if (method === "list_clips") return { stateVersion: 4, trackId: params.trackId, clips: [
+      { id: "track-0:clip-0", hasClip: true, isPlaying: true },
+      { id: "track-0:clip-1", hasClip: false, isPlaying: false }] };
+    if (method === "stop_all_clips") return { stateVersion: 5, stopped: params.before };
+    throw new Error(method);
+  } } });
+  const dry = await service.call("stop_all_clips", { expectedStateVersion: 4 });
+  assert.deepEqual(dry.plan.before, playing);
+  const result = await service.call("stop_all_clips", { expectedStateVersion: 4, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.deepEqual(result.observed.stopped, playing);
+  assert.equal(calls.at(-1).method, "stop_all_clips");
+
+  const quiet = new ToolService({ bridge: { async request(method, params) {
+    if (method === "list_tracks") return { stateVersion: 4, tracks: [{ id: "track-0", name: "Synth" }] };
+    if (method === "list_clips") return { stateVersion: 4, trackId: params.trackId, clips: [
+      { id: "track-0:clip-0", hasClip: true, isPlaying: false }] };
+    throw new Error(method);
+  } } });
+  await assert.rejects(() => quiet.call("stop_all_clips", { expectedStateVersion: 4 }), /no clips are playing/);
+});

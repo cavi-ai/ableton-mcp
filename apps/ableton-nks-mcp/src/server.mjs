@@ -214,7 +214,9 @@ const toolNames = [
   "get_track_midi_routing",
   "set_track_midi_routing",
   "get_track_freeze_state",
-  "set_track_freeze_state"
+  "set_track_freeze_state",
+  "set_bulk_track_mixer",
+  "stop_all_clips"
 ];
 const tools = toolNames.map((name) => ({ name, ...toolContracts[name] }));
 
