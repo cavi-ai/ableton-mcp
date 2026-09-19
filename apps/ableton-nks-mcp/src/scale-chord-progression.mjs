@@ -1,18 +1,31 @@
 import { analyzeMidiChordEvents } from "./midi-chord-analysis.mjs";
 import { getLiveScaleReference } from "./live-scale-reference.mjs";
 
+const SCALE_RECIPES = { triad: 3, seventh: 4, ninth: 5 };
+const CHROMATIC_RECIPES = {
+  dominant7: [0, 4, 7, 10],
+  dominant9: [0, 4, 7, 10, 14],
+  dominant7_b9: [0, 4, 7, 10, 13],
+  dominant7_sharp9: [0, 4, 7, 10, 15],
+  dominant7_sharp11: [0, 4, 7, 10, 18],
+  dominant7_b13: [0, 4, 7, 10, 20],
+  dominant13: [0, 4, 7, 10, 14, 21]
+};
+const HARMONIC_FUNCTIONS = new Set(["diatonic", "secondary_dominant", "borrowed_parallel_minor"]);
+const PARALLEL_MINOR_INTERVALS = [0, 2, 3, 5, 7, 8, 10];
+
 function requireInteger(value, field, minimum, maximum) {
   if (!Number.isInteger(value) || value < minimum || value > maximum)
     throw new Error(`${field} must be an integer from ${minimum} to ${maximum}`);
 }
 
-function chordOffsets(scale, degree, notesPerChord) {
+function chordOffsets(intervals, degree, notesPerChord) {
   const rootIndex = degree - 1;
-  const rootInterval = scale.intervals[rootIndex];
+  const rootInterval = intervals[rootIndex];
   return Array.from({ length: notesPerChord }, (_, noteIndex) => {
     const scaleIndex = rootIndex + noteIndex * 2;
-    const octave = Math.floor(scaleIndex / scale.intervals.length);
-    return scale.intervals[scaleIndex % scale.intervals.length] + octave * 12 - rootInterval;
+    const octave = Math.floor(scaleIndex / intervals.length);
+    return intervals[scaleIndex % intervals.length] + octave * 12 - rootInterval;
   });
 }
 
@@ -35,7 +48,10 @@ function voicings(rootPitchClass, offsets, minPitch, maxPitch, rootPositionOnly)
 }
 
 function movement(previous, pitches) {
-  return previous ? pitches.reduce((total, pitch, index) => total + Math.abs(pitch - previous[index]), 0) : 0;
+  if (!previous) return 0;
+  const shared = Math.min(previous.length, pitches.length);
+  const paired = pitches.slice(0, shared).reduce((total, pitch, index) => total + Math.abs(pitch - previous[index]), 0);
+  return paired + Math.abs(previous.length - pitches.length) * 12;
 }
 
 function selectVoicing(candidates, previous, minPitch, maxPitch) {
@@ -124,6 +140,19 @@ export function planScaleChordProgression(key, options) {
   if (!Array.isArray(options?.degrees) || options.degrees.length === 0)
     throw new Error("degrees must be a non-empty array");
   requireInteger(options.notesPerChord, "notesPerChord", 3, 4);
+  const chordRecipes = options.chordRecipes === undefined
+    ? options.degrees.map(() => options.notesPerChord === 3 ? "triad" : "seventh")
+    : options.chordRecipes;
+  const harmonicFunctions = options.harmonicFunctions === undefined
+    ? options.degrees.map(() => "diatonic")
+    : options.harmonicFunctions;
+  if (!Array.isArray(chordRecipes) || chordRecipes.length !== options.degrees.length)
+    throw new Error("functional progression requires one chord recipe per degree");
+  if (chordRecipes.some(recipe => !Object.hasOwn(SCALE_RECIPES, recipe) && !Object.hasOwn(CHROMATIC_RECIPES, recipe)))
+    throw new Error("one or more chord recipes are not supported");
+  if (!Array.isArray(harmonicFunctions) || harmonicFunctions.length !== options.degrees.length ||
+      harmonicFunctions.some(harmonicFunction => !HARMONIC_FUNCTIONS.has(harmonicFunction)))
+    throw new Error("functional progression requires one supported harmonic function per degree");
   if (!Number.isFinite(options.startBeats) || options.startBeats < 0) throw new Error("startBeats must be nonnegative");
   if (!Number.isFinite(options.chordBeats) || options.chordBeats <= 0) throw new Error("chordBeats must be positive");
   requireInteger(options.velocity, "velocity", 1, 127);
@@ -133,15 +162,28 @@ export function planScaleChordProgression(key, options) {
   if (!["closest", "root_position"].includes(options.voiceLeading))
     throw new Error("voiceLeading must be closest or root_position");
   const articulation = normalizeArticulation(options.articulation, options.chordBeats);
-  const notesPerStep = articulation.mode === "pulse" || articulation.mode === "block" ? options.notesPerChord : 1;
-  const noteCount = options.degrees.length * articulation.stepsPerChord * notesPerStep;
+  const voicesPerChord = chordRecipes.map(recipe => SCALE_RECIPES[recipe] ?? CHROMATIC_RECIPES[recipe].length);
+  const noteCount = articulation.stepsPerChord * (articulation.mode === "pulse" || articulation.mode === "block"
+    ? voicesPerChord.reduce((total, voices) => total + voices, 0)
+    : options.degrees.length);
   if (noteCount > 4096) throw new Error("articulation may generate at most 4096 MIDI notes");
 
   let previous = null;
   const chords = options.degrees.map((degree, chordIndex) => {
     requireInteger(degree, `degrees[${chordIndex}]`, 1, scale.intervals.length);
-    const rootPitchClass = scale.pitchClasses[degree - 1];
-    const candidates = voicings(rootPitchClass, chordOffsets(scale, degree, options.notesPerChord),
+    const recipe = chordRecipes[chordIndex];
+    const harmonicFunction = harmonicFunctions[chordIndex];
+    if (harmonicFunction === "secondary_dominant" && !recipe.startsWith("dominant"))
+      throw new Error("secondary dominant requires a dominant recipe");
+    if (harmonicFunction === "borrowed_parallel_minor" && !Object.hasOwn(SCALE_RECIPES, recipe))
+      throw new Error("borrowed harmony requires a scale-stacked recipe");
+    const functionIntervals = harmonicFunction === "borrowed_parallel_minor" ? PARALLEL_MINOR_INTERVALS : scale.intervals;
+    const targetPitchClass = (scale.rootNote + functionIntervals[degree - 1]) % 12;
+    const rootPitchClass = harmonicFunction === "secondary_dominant" ? (targetPitchClass + 7) % 12 : targetPitchClass;
+    const offsets = Object.hasOwn(CHROMATIC_RECIPES, recipe)
+      ? CHROMATIC_RECIPES[recipe]
+      : chordOffsets(functionIntervals, degree, SCALE_RECIPES[recipe]);
+    const candidates = voicings(rootPitchClass, offsets,
       options.minPitch, options.maxPitch, options.voiceLeading === "root_position");
     if (candidates.length === 0)
       throw new Error(`degree ${degree} chord cannot fit within the requested MIDI range`);
@@ -152,6 +194,8 @@ export function planScaleChordProgression(key, options) {
     return {
       index: chordIndex,
       degree,
+      recipe,
+      harmonicFunction,
       degreeLabel: scale.intervals.length === 7 ? (metadata?.romanNumeral ?? `degree-${degree}`) : `degree-${degree}`,
       rootPitchClass,
       rootName: scale.noteNames[degree - 1],
@@ -169,6 +213,13 @@ export function planScaleChordProgression(key, options) {
     scaleSize: scale.intervals.length,
     voiceLeading: options.voiceLeading,
     notesPerChord: options.notesPerChord,
+    startBeats: options.startBeats,
+    chordBeats: options.chordBeats,
+    velocity: options.velocity,
+    minPitch: options.minPitch,
+    maxPitch: options.maxPitch,
+    chordRecipes,
+    harmonicFunctions,
     articulation,
     chords,
     notes,
