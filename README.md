@@ -65,6 +65,8 @@ npm run cli -- doctor --json
 npm run cli -- serve
 npm run cli -- status --json
 npm run cli -- resource ableton://set/tracks --json
+npm run cli -- prompts --json
+npm run cli -- prompt harmonize-clip --args '{"trackId":"track-0","clipId":"track-0:clip-0"}' --json
 npm run cli -- call list_devices --args '{"trackId":"track-0"}' --json
 ```
 

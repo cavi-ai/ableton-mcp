@@ -9,6 +9,7 @@ import { createConfiguredService } from "./runtime.mjs";
 import { runStdio } from "./server.mjs";
 import { UnixBridgeClient } from "./bridge-client.mjs";
 import { validateToolArguments } from "./tool-validation.mjs";
+import { getPrompt, listPrompts } from "./prompts.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const requiredCapabilities = JSON.parse(readFileSync(new URL("../../../ableton/Remote Scripts/CaviMcpBridge/capabilities.json", import.meta.url), "utf8"));
@@ -128,7 +129,21 @@ export async function runCli(argv, dependencies = {}) {
       return result;
     } finally { runtime.close(); }
   }
-  const result = { commands: ["install", "uninstall", "doctor", "serve", "status", "call", "resource"], usage: "ableton-mcp <command> [--json]" };
+  if (parsed.command === "prompts") {
+    const result = { prompts: listPrompts() };
+    print(result, parsed.json, stdout);
+    return result;
+  }
+  if (parsed.command === "prompt") {
+    const name = parsed.args[0];
+    if (!name) throw new Error("prompt requires a template name");
+    const encodedArgs = option(parsed.args, "--args") || "{}";
+    const args = JSON.parse(encodedArgs);
+    const result = getPrompt(name, args);
+    print(result, parsed.json, stdout);
+    return result;
+  }
+  const result = { commands: ["install", "uninstall", "doctor", "serve", "status", "call", "resource", "prompts", "prompt"], usage: "ableton-mcp <command> [--json]" };
   print(result, parsed.json, stdout);
   return result;
 }
