@@ -86,7 +86,7 @@ Set `ABLETON_NKS_CATALOG_PATH` only when local preset search is wanted. Without 
 
 Mutating Ableton operations use plan hashes and short-lived, single-use confirmation tokens. Keep generated commercial preset content out of this repository.
 
-MCP discovery publishes closed top-level JSON Schemas and operation-specific descriptions for every tool. Ableton mutations advertise `expectedStateVersion`; Komplete UI mutations advertise `expectedSessionVersion`, along with their dry-run and confirmation fields.
+MCP discovery publishes closed top-level JSON Schemas and operation-specific descriptions for every tool, plus a `prompts` capability with producer workflow templates (`session-overview`, `produce-drum-pattern`, `harmonize-clip`, `build-producer-chain`, `arrangement-rework`). Every tool advertises MCP annotations (`readOnlyHint`/`destructiveHint`). Ableton mutations advertise `expectedStateVersion`; Komplete UI mutations advertise `expectedSessionVersion`, along with their dry-run and confirmation fields.
 
 `get_history_state` exposes Live's current undo/redo availability. Guarded `undo` and `redo` operations refuse unavailable history actions and advance the bridge state version after execution.
 
