@@ -104,6 +104,7 @@ class Track:
         self.has_midi_input = True
         self.has_audio_input = False
         self.midi_map = MIDIMap()
+        self.is_frozen = False
         self.devices = [Device()]
         self.mute = False
         self.solo = False
@@ -818,6 +819,62 @@ class DispatchTest(unittest.TestCase):
             dispatch_request(song, {"method": "set_track_midi_routing", "params": {
                 "trackId": "track-0", "expectedStateVersion": 3,
                 "before": observed["midiRouting"], "changes": {"inNote": 36}}}, 3)
+
+    def test_track_freeze_state_reads_and_guarded_toggles(self):
+        song = Song()
+        observed = dispatch_request(song, {"method": "get_track_freeze_state", "params": {"trackId": "track-0"}}, 3)
+        self.assertEqual(observed["freeze"], {"supported": True, "frozen": False})
+        params = {"trackId": "track-0", "expectedStateVersion": 3, "before": observed["freeze"], "frozen": True}
+        changed = dispatch_request(song, {"method": "set_track_freeze_state", "params": params}, 3)
+        self.assertEqual(changed["stateVersion"], 4)
+        self.assertTrue(changed["freeze"]["frozen"])
+        self.assertTrue(song.tracks[0].is_frozen)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+        with self.assertRaisesRegex(ValueError, "changed"):
+            dispatch_request(song, {"method": "set_track_freeze_state", "params": params}, 3)
+        with self.assertRaisesRegex(ValueError, "already in the requested freeze state"):
+            dispatch_request(song, {"method": "set_track_freeze_state", "params": {
+                **params, "expectedStateVersion": 4, "before": changed["freeze"]}}, 4)
+
+    def test_track_freeze_state_reports_unsupported_tracks(self):
+        song = Song()
+        del song.tracks[0].is_frozen
+        observed = dispatch_request(song, {"method": "get_track_freeze_state", "params": {"trackId": "track-0"}}, 3)
+        self.assertEqual(observed["freeze"], {"supported": False, "frozen": None})
+        with self.assertRaisesRegex(ValueError, "not exposed"):
+            dispatch_request(song, {"method": "set_track_freeze_state", "params": {
+                "trackId": "track-0", "expectedStateVersion": 3,
+                "before": observed["freeze"], "frozen": True}}, 3)
+
+    def test_arrangement_midi_clips_support_reads_and_note_writes(self):
+        song = Song()
+        clip = Clip()
+        clip.extended_notes = [MidiNote()]
+        clip.start_time = 8.0
+        clip.end_time = 16.0
+        clip.is_audio_clip = False
+        song.tracks[0].arrangement_clips = [clip]
+        clip_id = "track-0:arrangement-clip-0"
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": {"trackId": "track-0", "clipId": clip_id}}, 3)
+        self.assertEqual(timing["location"], "arrangement")
+        self.assertEqual(timing["timeline"]["startBeats"], 8.0)
+        extended = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": {"trackId": "track-0", "clipId": clip_id}}, 3)
+        self.assertEqual(extended["location"], "arrangement")
+        self.assertEqual(extended["timeline"]["endBeats"], 16.0)
+        self.assertEqual(extended["notes"][0]["noteId"], 7)
+        changed = dispatch_request(song, {"method": "set_midi_note_properties", "params": {
+            "trackId": "track-0", "clipId": clip_id,
+            "changes": [{"noteId": 7, "velocity": 42}]
+        }}, 3)
+        self.assertEqual(changed["stateVersion"], 4)
+        self.assertEqual(changed["location"], "arrangement")
+        self.assertEqual(clip.extended_notes[0].velocity, 42)
+        with self.assertRaisesRegex(ValueError, "unknown Arrangement clip ID"):
+            dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": {
+                "trackId": "track-0", "clipId": "track-0:arrangement-clip-5"}}, 3)
+        with self.assertRaisesRegex(ValueError, "not an audio clip"):
+            dispatch_request(song, {"method": "get_audio_clip_state", "params": {
+                "trackId": "track-0", "clipId": clip_id}}, 3)
 
     def test_track_routing_rejects_ambiguous_label_only_current_choice(self):
         song = Song()

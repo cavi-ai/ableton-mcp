@@ -887,6 +887,8 @@ export class ToolService {
     if (name === "set_track_routing") return this.#setTrackRouting(args);
     if (name === "get_track_midi_routing") return this.bridge.request("get_track_midi_routing", args);
     if (name === "set_track_midi_routing") return this.#setTrackMidiRouting(args);
+    if (name === "get_track_freeze_state") return this.bridge.request("get_track_freeze_state", args);
+    if (name === "set_track_freeze_state") return this.#setTrackFreezeState(args);
     if (name === "set_device_sidechain_routing") return this.#setDeviceSidechainRouting(args);
     if (name === "set_group_fold_state") return this.#setGroupFoldState(args);
     if (name === "route_tracks_to_bus") return this.#routeTracksToBus(args);
@@ -3142,6 +3144,19 @@ export class ToolService {
     if (!Object.keys(changes).length) throw new Error("at least one MIDI routing change is required");
     return this.#confirmedMutation({ method: "set_track_midi_routing", trackId: args.trackId,
       expectedStateVersion: args.expectedStateVersion, before: observed.midiRouting, changes }, args);
+  }
+
+  async #setTrackFreezeState(args) {
+    requireExpectedState(args);
+    if (typeof args.frozen !== "boolean") throw new Error("frozen must be boolean");
+    const observed = await this.bridge.request("get_track_freeze_state", { trackId: args.trackId });
+    assertExpectedState(args, observed);
+    if (!observed.freeze?.supported) throw new Error("track freeze state is not exposed by this Live version");
+    if (observed.freeze.frozen === args.frozen) throw new Error("track is already in the requested freeze state");
+    return this.#confirmedMutation({ method: "set_track_freeze_state", trackId: args.trackId,
+      expectedStateVersion: args.expectedStateVersion, before: observed.freeze, frozen: args.frozen,
+      contentMutationRisk: { kind: "rendered_track_audio", freezes: args.frozen,
+        parameterRollbackRestoresContent: false } }, args);
   }
 
   async #setGroupFoldState(args) {

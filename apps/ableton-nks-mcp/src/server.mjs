@@ -211,7 +211,9 @@ const toolNames = [
   "set_scene_launch_quantization",
   "create_groove",
   "get_track_midi_routing",
-  "set_track_midi_routing"
+  "set_track_midi_routing",
+  "get_track_freeze_state",
+  "set_track_freeze_state"
 ];
 const tools = toolNames.map((name) => ({ name, ...toolContracts[name] }));
 
