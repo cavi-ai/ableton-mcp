@@ -2047,6 +2047,7 @@ def _validate_functional_progression_payload(song, params, state_version):
     degrees = [chord.get("degree") for chord in progression.get("chords", [])]
     recipes = progression.get("chordRecipes")
     functions = progression.get("harmonicFunctions")
+    bass_degrees = progression.get("bassDegrees")
     chords = progression.get("chords")
     scale_voices = {"triad": 3, "seventh": 4, "ninth": 5}
     chromatic = {
@@ -2058,9 +2059,13 @@ def _validate_functional_progression_payload(song, params, state_version):
     if not isinstance(chords, list) or not chords or len(chords) > 64 or \
             not isinstance(recipes, list) or len(recipes) != len(chords) or \
             not isinstance(functions, list) or len(functions) != len(chords) or \
+            not isinstance(bass_degrees, list) or len(bass_degrees) != len(chords) or \
             any(recipe not in scale_voices and recipe not in chromatic for recipe in recipes) or \
             any(function not in ("diatonic", "secondary_dominant", "borrowed_parallel_minor")
-                for function in functions):
+                for function in functions) or \
+            any(bass_degree is not None and (type(bass_degree) is not int or
+                not 1 <= bass_degree <= len(params.get("musicalContext", {}).get("key", {}).get("scaleIntervals", [])))
+                for bass_degree in bass_degrees):
         raise ValueError("functional progression chord options are invalid")
     key = params["musicalContext"]["key"]
     root, intervals = key["rootNote"], key["scaleIntervals"]
@@ -2088,7 +2093,8 @@ def _validate_functional_progression_payload(song, params, state_version):
 
     expected_chords, previous = [], None
     parallel_minor = [0, 2, 3, 5, 7, 8, 10]
-    for index, (degree, recipe, function, supplied) in enumerate(zip(degrees, recipes, functions, chords)):
+    for index, (degree, recipe, function, bass_degree, supplied) in enumerate(
+            zip(degrees, recipes, functions, bass_degrees, chords)):
         if function == "secondary_dominant" and not recipe.startswith("dominant"):
             raise ValueError("functional progression secondary dominant requires a dominant recipe")
         if function == "borrowed_parallel_minor" and recipe not in scale_voices:
@@ -2122,11 +2128,21 @@ def _validate_functional_progression_payload(song, params, state_version):
             0 if previous is not None else candidate["inversion"],
             abs(sum(candidate["pitches"]) / len(candidate["pitches"]) - center),
             candidate["inversion"], candidate["pitches"][0]))
+        target_bass_pitch = None
+        if bass_degree is not None:
+            bass_class = (root + intervals[bass_degree - 1]) % 12
+            bass_candidates = [pitch for pitch in range(bass_class, 128, 12)
+                               if min_pitch <= pitch < selected["pitches"][0]]
+            if not bass_candidates:
+                raise ValueError("functional progression bass cannot fit below its chord within the signed MIDI range")
+            target_bass_pitch = bass_candidates[-1]
+        pitches = selected["pitches"] if target_bass_pitch is None else [target_bass_pitch] + selected["pitches"]
         critical = {"index": index, "degree": degree, "recipe": recipe, "harmonicFunction": function,
-                    "rootPitchClass": root_class, "pitches": selected["pitches"]}
+                    "bassDegree": bass_degree, "targetBassPitch": target_bass_pitch,
+                    "rootPitchClass": root_class, "pitches": pitches}
         if any(supplied.get(field) != value for field, value in critical.items()):
             raise ValueError("functional progression chords do not match the signed options")
-        expected_chords.append(selected["pitches"])
+        expected_chords.append(pitches)
         previous = selected["pitches"]
     articulation = progression.get("articulation", {})
     mode, step_beats, gate, steps_per_chord = (articulation.get(field) for field in

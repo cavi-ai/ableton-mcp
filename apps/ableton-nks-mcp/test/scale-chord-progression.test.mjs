@@ -58,6 +58,39 @@ test("scale progression creates secondary dominants and parallel-minor borrowed 
   { startBeats: 0, chordBeats: 2, velocity: 96, minPitch: 48, maxPitch: 84 });
 });
 
+test("functional progression adds an explicit scale-degree pedal bass below every chord", () => {
+  const result = planScaleChordProgression(cMajor, {
+    ...base,
+    degrees: [2, 4, 5],
+    chordRecipes: ["dominant7", "triad", "triad"],
+    harmonicFunctions: ["secondary_dominant", "borrowed_parallel_minor", "diatonic"],
+    bassDegrees: [1, 1, 1],
+    minPitch: 48,
+    maxPitch: 84,
+    voiceLeading: "root_position"
+  });
+  assert.deepEqual(result.chords.map(chord => ({
+    bassDegree: chord.bassDegree,
+    targetBassPitch: chord.targetBassPitch,
+    pitches: chord.pitches
+  })), [
+    { bassDegree: 1, targetBassPitch: 48, pitches: [48, 57, 61, 64, 67] },
+    { bassDegree: 1, targetBassPitch: 48, pitches: [48, 53, 56, 60] },
+    { bassDegree: 1, targetBassPitch: 48, pitches: [48, 55, 59, 62] }
+  ]);
+  assert.deepEqual(result.bassDegrees, [1, 1, 1]);
+  assert.equal(result.notes.length, 13);
+});
+
+test("functional progression rejects incomplete and impossible slash-bass sequences", () => {
+  assert.throws(() => planScaleChordProgression(cMajor, {
+    ...base, degrees: [1, 5], bassDegrees: [1]
+  }), /one bass degree per chord/);
+  assert.throws(() => planScaleChordProgression(cMajor, {
+    ...base, degrees: [1], bassDegrees: [7], minPitch: 0, maxPitch: 11
+  }), /bass.*range/);
+});
+
 test("functional progression rejects incompatible recipe and function sequences", () => {
   assert.throws(() => planScaleChordProgression(cMajor, {
     ...base,
@@ -75,7 +108,7 @@ test("functional progression rejects incompatible recipe and function sequences"
 
 test("functional progression tool contracts accept only supported recipes and functions", () => {
   const functional = { ...base, degrees: [2], chordRecipes: ["dominant7"],
-    harmonicFunctions: ["secondary_dominant"] };
+    harmonicFunctions: ["secondary_dominant"], bassDegrees: [1] };
   assert.deepEqual(validateToolArguments("plan_scale_chord_progression", functional).chordRecipes, ["dominant7"]);
   assert.equal(validateToolArguments("create_scale_chord_progression_clip", {
     ...functional, trackId: "track-0", clipId: "track-0:clip-0", name: "V of ii",
@@ -83,6 +116,9 @@ test("functional progression tool contracts accept only supported recipes and fu
   }).harmonicFunctions[0], "secondary_dominant");
   assert.throws(() => validateToolArguments("plan_scale_chord_progression", {
     ...functional, harmonicFunctions: ["chromatic_mediant"]
+  }), /invalid tool arguments/);
+  assert.throws(() => validateToolArguments("plan_scale_chord_progression", {
+    ...functional, bassDegrees: [0]
   }), /invalid tool arguments/);
 });
 
@@ -221,6 +257,40 @@ test("guarded progression creation verifies native notes and chord functions", a
   assert.equal(live.observed.clip.noteCount, 12);
   assert.equal(live.verification.matchesRequestedNotes, true);
   assert.deepEqual(live.verification.analysis.events.map(event => event.candidates[0].romanNumeral), ["I", "V", "vi", "IV"]);
+});
+
+test("guarded progression creation recognizes harmonic roots above explicit pedal bass", async () => {
+  let created = false;
+  let requestedNotes = [];
+  const bridge = { async request(method, args) {
+    if (method === "get_song_musical_context") return { stateVersion: created ? 71 : 70, key: cMajor };
+    if (method === "list_clips") return { stateVersion: 70, trackId: args.trackId,
+      clips: [{ id: "track-0:clip-0", name: null, hasClip: false }] };
+    if (method === "create_midi_clip") {
+      created = true;
+      requestedNotes = args.notes;
+      return { stateVersion: 71, trackId: args.trackId,
+        clip: { id: args.clipId, name: args.name, hasClip: true,
+          lengthBeats: args.lengthBeats, noteCount: args.notes.length } };
+    }
+    if (method === "get_midi_clip_notes_extended") return { stateVersion: 71,
+      trackId: args.trackId, clipId: args.clipId, lengthBeats: 3,
+      notes: requestedNotes.map((note, index) => ({ ...note, noteId: index + 1,
+        velocityDeviation: 0, releaseVelocity: 0, probability: 1 })) };
+    throw new Error(`unexpected ${method}`);
+  } };
+  const service = new ToolService({ bridge, catalog: { search: () => [], get: () => undefined, products: () => [] } });
+  const args = { ...base, degrees: [2, 4, 5], chordBeats: 1,
+    chordRecipes: ["dominant7", "triad", "triad"],
+    harmonicFunctions: ["secondary_dominant", "borrowed_parallel_minor", "diatonic"],
+    bassDegrees: [1, 1, 1], voiceLeading: "root_position", minPitch: 48, maxPitch: 84,
+    expectedStateVersion: 70, trackId: "track-0", clipId: "track-0:clip-0", name: "Pedal C" };
+  const dry = await service.call("create_scale_chord_progression_clip", args);
+  const live = await service.call("create_scale_chord_progression_clip", {
+    ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash
+  });
+  assert.equal(live.verification.matchesRequestedNotes, true);
+  assert.deepEqual(live.requested.progression.chords.map(chord => chord.targetBassPitch), [48, 48, 48]);
 });
 
 test("guarded triplet arpeggio accepts only sub-nanobeat native normalization", async () => {
