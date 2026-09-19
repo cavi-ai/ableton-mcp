@@ -1051,6 +1051,7 @@ export class ToolService {
     }
     if (uri === "ableton://live/status") return this.bridge.request("get_live_state", {});
     if (uri === "ableton://live/transport") return this.bridge.request("get_transport_context", {});
+    if (uri === "ableton://live/history") return this.bridge.request("get_history_state", {});
     if (uri === "ableton://set/history") return this.bridge.request("get_history_state", {});
     if (uri === "ableton://set/musical-context") {
       return enrichSongScaleContext(await this.bridge.request("get_song_musical_context", {}));
@@ -1061,12 +1062,24 @@ export class ToolService {
     if (uri === "komplete://automation/status") return this.komplete.request("get_status", {});
     const trackClips = uri.match(/^ableton:\/\/track\/([^/]+)\/clips$/);
     if (trackClips) return this.bridge.request("list_clips", { trackId: decodeURIComponent(trackClips[1]) });
-    const trackRouting = uri.match(/^ableton:\/\/track\/([^/]+)\/routing$/);
-    if (trackRouting) return this.bridge.request("get_track_routing", { trackId: decodeURIComponent(trackRouting[1]) });
+    const arrangementClips = uri.match(/^ableton:\/\/track\/([^/]+)\/arrangement-clips$/);
+    if (arrangementClips) return this.bridge.request("list_arrangement_clips", { trackId: decodeURIComponent(arrangementClips[1]) });
+    const trackMixer = uri.match(/^ableton:\/\/track\/([^/]+)\/mixer$/);
+    if (trackMixer) return this.bridge.request("get_track_mixer", { trackId: decodeURIComponent(trackMixer[1]) });
+    const trackMidiRouting = uri.match(/^ableton:\/\/track\/([^/]+)\/midi-routing$/);
+    if (trackMidiRouting) return this.bridge.request("get_track_midi_routing", { trackId: decodeURIComponent(trackMidiRouting[1]) });
+    const trackFreeze = uri.match(/^ableton:\/\/track\/([^/]+)\/freeze$/);
+    if (trackFreeze) return this.bridge.request("get_track_freeze_state", { trackId: decodeURIComponent(trackFreeze[1]) });
     const clipTiming = uri.match(/^ableton:\/\/track\/([^/]+)\/clip\/([^/]+)\/timing$/);
     if (clipTiming) return this.bridge.request("get_clip_timing", {
       trackId: decodeURIComponent(clipTiming[1]), clipId: decodeURIComponent(clipTiming[2])
     });
+    const clipNotes = uri.match(/^ableton:\/\/track\/([^/]+)\/clip\/([^/]+)\/notes$/);
+    if (clipNotes) return this.bridge.request("get_midi_clip_notes", {
+      trackId: decodeURIComponent(clipNotes[1]), clipId: decodeURIComponent(clipNotes[2])
+    });
+    const trackRouting = uri.match(/^ableton:\/\/track\/([^/]+)\/routing$/);
+    if (trackRouting) return this.bridge.request("get_track_routing", { trackId: decodeURIComponent(trackRouting[1]) });
     const audioClip = uri.match(/^ableton:\/\/track\/([^/]+)\/clip\/([^/]+)\/audio$/);
     if (audioClip) return this.bridge.request("get_audio_clip_state", {
       trackId: decodeURIComponent(audioClip[1]), clipId: decodeURIComponent(audioClip[2])
