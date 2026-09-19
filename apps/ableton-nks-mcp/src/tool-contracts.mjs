@@ -188,7 +188,9 @@ const progressionChordRecipe = { type: "string", enum: ["triad", "seventh", "nin
 const functionalProgressionProperties = {
   chordRecipes: { ...array(progressionChordRecipe, "Optional exact recipe for each ordered degree."), minItems: 1, maxItems: 64 },
   harmonicFunctions: { ...array({ type: "string", enum: ["diatonic", "secondary_dominant", "borrowed_parallel_minor"] },
-    "Optional harmonic function for each ordered degree; secondary-dominant degrees name tonicized targets."), minItems: 1, maxItems: 64 }
+    "Optional harmonic function for each ordered degree; secondary-dominant degrees name tonicized targets."), minItems: 1, maxItems: 64 },
+  bassDegrees: { ...array({ type: ["integer", "null"], minimum: 1, maximum: 12 },
+    "Optional Live scale degree for an added bass voice below each ordered chord; null leaves that chord unchanged."), minItems: 1, maxItems: 64 }
 };
 const midiDiatonicChordQualityProperties = {
   trackId: ids.trackId, clipId: ids.clipId,

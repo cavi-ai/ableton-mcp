@@ -146,6 +146,9 @@ export function planScaleChordProgression(key, options) {
   const harmonicFunctions = options.harmonicFunctions === undefined
     ? options.degrees.map(() => "diatonic")
     : options.harmonicFunctions;
+  const bassDegrees = options.bassDegrees === undefined
+    ? options.degrees.map(() => null)
+    : options.bassDegrees;
   if (!Array.isArray(chordRecipes) || chordRecipes.length !== options.degrees.length)
     throw new Error("functional progression requires one chord recipe per degree");
   if (chordRecipes.some(recipe => !Object.hasOwn(SCALE_RECIPES, recipe) && !Object.hasOwn(CHROMATIC_RECIPES, recipe)))
@@ -153,6 +156,9 @@ export function planScaleChordProgression(key, options) {
   if (!Array.isArray(harmonicFunctions) || harmonicFunctions.length !== options.degrees.length ||
       harmonicFunctions.some(harmonicFunction => !HARMONIC_FUNCTIONS.has(harmonicFunction)))
     throw new Error("functional progression requires one supported harmonic function per degree");
+  if (!Array.isArray(bassDegrees) || bassDegrees.length !== options.degrees.length ||
+      bassDegrees.some(degree => degree !== null && (!Number.isInteger(degree) || degree < 1 || degree > scale.intervals.length)))
+    throw new Error("functional progression requires one bass degree per chord");
   if (!Number.isFinite(options.startBeats) || options.startBeats < 0) throw new Error("startBeats must be nonnegative");
   if (!Number.isFinite(options.chordBeats) || options.chordBeats <= 0) throw new Error("chordBeats must be positive");
   requireInteger(options.velocity, "velocity", 1, 127);
@@ -162,7 +168,8 @@ export function planScaleChordProgression(key, options) {
   if (!["closest", "root_position"].includes(options.voiceLeading))
     throw new Error("voiceLeading must be closest or root_position");
   const articulation = normalizeArticulation(options.articulation, options.chordBeats);
-  const voicesPerChord = chordRecipes.map(recipe => SCALE_RECIPES[recipe] ?? CHROMATIC_RECIPES[recipe].length);
+  const voicesPerChord = chordRecipes.map((recipe, index) =>
+    (SCALE_RECIPES[recipe] ?? CHROMATIC_RECIPES[recipe].length) + (bassDegrees[index] === null ? 0 : 1));
   const noteCount = articulation.stepsPerChord * (articulation.mode === "pulse" || articulation.mode === "block"
     ? voicesPerChord.reduce((total, voices) => total + voices, 0)
     : options.degrees.length);
@@ -190,16 +197,27 @@ export function planScaleChordProgression(key, options) {
     const selected = selectVoicing(candidates, previous, options.minPitch, options.maxPitch);
     const movementSemitones = movement(previous, selected.pitches);
     const metadata = chordMetadata(selected.pitches, key, rootPitchClass);
+    const bassDegree = bassDegrees[chordIndex];
+    const bassPitchClass = bassDegree === null ? null :
+      (scale.rootNote + scale.intervals[bassDegree - 1]) % 12;
+    const targetBassPitch = bassPitchClass === null ? null :
+      Array.from({ length: Math.floor((127 - bassPitchClass) / 12) + 1 }, (_, index) => bassPitchClass + index * 12)
+        .filter(pitch => pitch >= options.minPitch && pitch < selected.pitches[0]).at(-1);
+    if (bassDegree !== null && targetBassPitch === undefined)
+      throw new Error("functional progression bass cannot fit below its chord within the requested MIDI range");
+    const pitches = targetBassPitch === null ? selected.pitches : [targetBassPitch, ...selected.pitches];
     previous = selected.pitches;
     return {
       index: chordIndex,
       degree,
       recipe,
       harmonicFunction,
+      bassDegree,
+      targetBassPitch,
       degreeLabel: scale.intervals.length === 7 ? (metadata?.romanNumeral ?? `degree-${degree}`) : `degree-${degree}`,
       rootPitchClass,
       rootName: scale.noteNames[degree - 1],
-      pitches: selected.pitches,
+      pitches,
       inversion: selected.inversion,
       movementSemitones,
       name: metadata?.name ?? null,
@@ -220,6 +238,7 @@ export function planScaleChordProgression(key, options) {
     maxPitch: options.maxPitch,
     chordRecipes,
     harmonicFunctions,
+    bassDegrees,
     articulation,
     chords,
     notes,

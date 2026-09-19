@@ -2010,11 +2010,21 @@ export class ToolService {
       velocity: note.velocity, mute: note.mute });
     if (!matchMidiNoteReadback(plan.notes.map(project), notes.notes.map(project)))
       throw new Error("progression clip note readback mismatch");
-    const analysis = analyzeMidiChordEvents(notes.notes, finalContext.key);
-    const roots = analysis.events.map(event => event.candidates[0]?.rootPitchClass ?? null);
     const harmonicReadbackSupported = ["block", "pulse"].includes(progression.articulation.mode);
-    const expectedRoots = progression.chords.map(chord => chord.rootPitchClass);
-    if (harmonicReadbackSupported && JSON.stringify(roots) !== JSON.stringify(expectedRoots))
+    const harmonicNotes = harmonicReadbackSupported ? notes.notes.filter(note => {
+      const chordIndex = Math.floor((note.start - progression.startBeats + 1e-9) / progression.chordBeats);
+      const chord = progression.chords[chordIndex];
+      return !chord || chord.targetBassPitch === null || note.pitch !== chord.targetBassPitch;
+    }) : notes.notes;
+    const analysis = analyzeMidiChordEvents(harmonicNotes, finalContext.key);
+    const expectedEventCount = progression.chords.length *
+      (progression.articulation.mode === "pulse" ? progression.articulation.stepsPerChord : 1);
+    const rootsMatch = analysis.events.length === expectedEventCount && analysis.events.every(event => {
+      const chordIndex = Math.floor((event.startBeats - progression.startBeats + 1e-9) / progression.chordBeats);
+      const expectedRoot = progression.chords[chordIndex]?.rootPitchClass;
+      return expectedRoot !== undefined && event.candidates.some(candidate => candidate.rootPitchClass === expectedRoot);
+    });
+    if (harmonicReadbackSupported && !rootsMatch)
       throw new Error("progression clip chord readback mismatch");
     return { dryRun: false, requested: plan, observed,
       verification: { matchesRequestedNotes: true, harmonicReadbackSupported, notes, analysis }, timestamp: new Date().toISOString() };
