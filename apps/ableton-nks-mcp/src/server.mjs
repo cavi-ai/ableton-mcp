@@ -207,7 +207,11 @@ const toolNames = [
   "komplete_save_nks_preset",
   "komplete_verify_nks_preset",
   "komplete_run_conversion_batch",
-  "komplete_pause_batch"
+  "komplete_pause_batch",
+  "set_scene_launch_quantization",
+  "create_groove",
+  "get_track_midi_routing",
+  "set_track_midi_routing"
 ];
 const tools = toolNames.map((name) => ({ name, ...toolContracts[name] }));
 

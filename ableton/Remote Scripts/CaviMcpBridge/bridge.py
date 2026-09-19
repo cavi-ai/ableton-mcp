@@ -408,6 +408,11 @@ def _arrangement_clips(song, track_id, state_version):
                       for index, clip in enumerate(track.arrangement_clips)]}
 
 
+def _scene_record(scene, index):
+    return {"id": f"scene-{index}", "name": scene.name,
+            "launchQuantization": _enum_record(scene.launch_quantization, CLIP_QUANTIZATION_NAMES)}
+
+
 def _parameter_record(parameter, index, include_native_choice_labels=False):
     record = {
         "id": f"parameter-{index}",
@@ -533,6 +538,22 @@ def _track_routing(song, track_id, state_version):
             "availableChannels": [_routing_option(option) for option in output_channels],
         },
         "monitoring": None if bool(getattr(track, "is_foldable", False)) else _enum_record(track.current_monitoring_state, ("in", "auto", "off")),
+    }
+
+
+def _track_midi_routing(song, track_id, state_version):
+    _, track = _track(song, track_id)
+    midi_map = getattr(track, "midi_map", None)
+    supported = midi_map is not None and all(hasattr(midi_map, attribute) for attribute in ("in_note", "out_note", "in_scale", "out_scale"))
+    return {
+        "stateVersion": state_version, "trackId": track_id,
+        "midiRouting": {
+            "supported": supported,
+            "inNote": int(midi_map.in_note) if supported else None,
+            "outNote": int(midi_map.out_note) if supported else None,
+            "inScale": bool(midi_map.in_scale) if supported else None,
+            "outScale": bool(midi_map.out_scale) if supported else None,
+        },
     }
 
 
@@ -2252,9 +2273,12 @@ def dispatch_request(song, request, state_version, application=None):
     params = request.get("params", {})
     fingerprint = _set_fingerprint(song)
     if method == "get_live_state":
-        return {"stateVersion": state_version, "setFingerprint": fingerprint, "tempo": song.tempo, "isPlaying": song.is_playing, "bridgeVersion": BRIDGE_VERSION, "capabilities": list(CAPABILITIES),
+        groove_pool = getattr(song, "groove_pool", None)
+        return {"stateVersion": state_version, "setFingerprint": fingerprint, "tempo": song.tempo, "isPlaying": song.is_playing,
+                "filePath": getattr(song, "file_path", None), "bridgeVersion": BRIDGE_VERSION, "capabilities": list(CAPABILITIES),
                 "nativeApiSupport": {"groupTracks": callable(getattr(song, "group_tracks", None)),
-                                     "ungroupTrack": callable(getattr(song, "ungroup_track", None))}}
+                                     "ungroupTrack": callable(getattr(song, "ungroup_track", None)),
+                                     "groovePoolCreate": groove_pool is not None and callable(getattr(groove_pool, "create_groove", None))}}
     if method == "get_transport_context":
         return _transport_context(song, state_version)
     if method == "get_looper_performance_context":
@@ -2426,6 +2450,20 @@ def dispatch_request(song, request, state_version, application=None):
             for attribute, value in values.items():
                 setattr(groove, attribute, value)
         return _song_musical_context(song, state_version + 1)
+    if method == "create_groove":
+        if _song_musical_context(song, state_version) != params["before"]:
+            raise ValueError("groove pool or musical context changed")
+        groove_pool = getattr(song, "groove_pool", None)
+        if groove_pool is None or not callable(getattr(groove_pool, "create_groove", None)):
+            raise ValueError("groove pool creation is not exposed by this Live version")
+        name = params.get("name")
+        if name is not None and (not isinstance(name, str) or not name.strip()):
+            raise ValueError("invalid groove name")
+        with _undo_step(song):
+            groove = groove_pool.create_groove()
+            if name is not None:
+                groove.name = name.strip()
+        return _song_musical_context(song, state_version + 1)
     if method == "get_transport_recording_context":
         return _transport_recording_context(song, state_version)
     if method == "set_transport_recording_context":
@@ -2500,6 +2538,36 @@ def dispatch_request(song, request, state_version, application=None):
         if "monitoring" in changes:
             track.current_monitoring_state = int(changes["monitoring"]["value"]["value"])
         return _track_routing(song, params["trackId"], state_version + 1)
+    if method == "get_track_midi_routing":
+        return _track_midi_routing(song, params["trackId"], state_version)
+    if method == "set_track_midi_routing":
+        if params.get("expectedStateVersion") != state_version:
+            raise ValueError("track MIDI routing state version changed")
+        current = _track_midi_routing(song, params["trackId"], state_version)
+        if not current["midiRouting"]["supported"]:
+            raise ValueError("track MIDI note routing is not exposed by this Live version")
+        if params.get("before") != current["midiRouting"]:
+            raise ValueError("track MIDI routing changed")
+        changes = params.get("changes", {})
+        if not isinstance(changes, dict) or not changes or not set(changes).issubset({"inNote", "outNote", "inScale", "outScale"}):
+            raise ValueError("invalid MIDI routing changes")
+        for key in ("inNote", "outNote"):
+            if key in changes and (type(changes[key]) is not int or changes[key] < 0 or changes[key] > 127):
+                raise ValueError(f"{key} must be a MIDI note from 0 to 127")
+        for key in ("inScale", "outScale"):
+            if key in changes and type(changes[key]) is not bool:
+                raise ValueError(f"{key} must be boolean")
+        _, track = _track(song, params["trackId"])
+        with _undo_step(song):
+            if "inNote" in changes:
+                track.midi_map.in_note = int(changes["inNote"])
+            if "outNote" in changes:
+                track.midi_map.out_note = int(changes["outNote"])
+            if "inScale" in changes:
+                track.midi_map.in_scale = bool(changes["inScale"])
+            if "outScale" in changes:
+                track.midi_map.out_scale = bool(changes["outScale"])
+        return _track_midi_routing(song, params["trackId"], state_version + 1)
     if method == "set_group_fold_state":
         track_index, track = _track(song, params["trackId"])
         if not bool(getattr(track, "is_foldable", False)):
@@ -3065,14 +3133,36 @@ def dispatch_request(song, request, state_version, application=None):
             "mute": track.mute, "solo": track.solo, "sends": _send_records(song, track),
         }
     if method == "list_scenes":
-        return {"stateVersion": state_version, "scenes": [{"id": f"scene-{i}", "name": scene.name} for i, scene in enumerate(song.scenes)]}
+        return {"stateVersion": state_version, "scenes": [_scene_record(scene, index) for index, scene in enumerate(song.scenes)]}
     if method == "create_scene":
         index = int(params["index"])
         song.create_scene(index)
         song.scenes[index].name = params["name"]
-        return {"stateVersion": state_version + 1, "scene": {
-            "id": f"scene-{index}", "name": song.scenes[index].name,
-        }}
+        return {"stateVersion": state_version + 1, "scene": _scene_record(song.scenes[index], index)}
+    if method == "set_scene_launch_quantization":
+        if params.get("expectedStateVersion") != state_version:
+            raise ValueError("scene state version changed")
+        scene_id = params["sceneId"]
+        if not isinstance(scene_id, str) or not scene_id.startswith("scene-"):
+            raise ValueError("invalid scene ID")
+        suffix = scene_id.removeprefix("scene-")
+        if not suffix.isascii() or not suffix.isdigit():
+            raise ValueError("invalid scene ID")
+        index = int(suffix)
+        if str(index) != suffix or index >= len(song.scenes):
+            raise ValueError("scene ID is noncanonical or unavailable")
+        scene = song.scenes[index]
+        current = _scene_record(scene, index)
+        if params.get("before") != current:
+            raise ValueError("scene identity or launch quantization changed")
+        value = params["value"]
+        if type(value) is not int or value < 0 or value >= len(CLIP_QUANTIZATION_NAMES):
+            raise ValueError("invalid launch quantization")
+        if value == int(scene.launch_quantization):
+            raise ValueError("scene launch quantization is already selected")
+        with _undo_step(song):
+            scene.launch_quantization = value
+        return {"stateVersion": state_version + 1, "scene": _scene_record(scene, index)}
     if method == "rename_session_object":
         target = params["target"]
         if target["targetType"] == "track":

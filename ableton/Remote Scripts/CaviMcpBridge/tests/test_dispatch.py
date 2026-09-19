@@ -90,11 +90,20 @@ class DrumRack(NestedDevice):
         self.chains.insert(index, Chain("Chain", []))
 
 
+class MIDIMap:
+    def __init__(self):
+        self.in_note = 0
+        self.out_note = 0
+        self.in_scale = False
+        self.out_scale = False
+
+
 class Track:
     def __init__(self):
         self.name = "Synth"
         self.has_midi_input = True
         self.has_audio_input = False
+        self.midi_map = MIDIMap()
         self.devices = [Device()]
         self.mute = False
         self.solo = False
@@ -278,6 +287,7 @@ class Scene:
     def __init__(self):
         self.name = "Verse"
         self.is_triggered = False
+        self.launch_quantization = 0
 
     def fire(self):
         self.is_triggered = True
@@ -291,6 +301,23 @@ class CuePoint:
 
     def jump(self):
         self.jumped = True
+
+
+def _mock_groove(name="Swing 16-65", base=3, timing=1.0, quantization=1.0, random_amount=0.0, velocity=-25.0):
+    return type("Groove", (), {
+        "name": name, "base": base, "timing_amount": timing,
+        "quantization_amount": quantization, "random_amount": random_amount, "velocity_amount": velocity,
+    })()
+
+
+class GroovePool:
+    def __init__(self):
+        self.grooves = [_mock_groove()]
+
+    def create_groove(self):
+        groove = _mock_groove("New Groove", 1, 0.0, 0.0, 0.0, 0.0)
+        self.grooves.append(groove)
+        return groove
 
 
 class Song:
@@ -319,6 +346,7 @@ class Song:
         self.tracks[0].clip_slots.append(audio_slot)
         self.tempo = 120.0
         self.is_playing = False
+        self.file_path = "/tmp/Untitled.als"
         self.signature_numerator = 4
         self.signature_denominator = 4
         self.root_note = 0
@@ -342,10 +370,7 @@ class Song:
         self.session_record = False
         self.overdub = True
         self.session_automation_record = False
-        self.groove_pool = type("GroovePool", (), {"grooves": [type("Groove", (), {
-            "name": "Swing 16-65", "base": 3, "timing_amount": 1.0,
-            "quantization_amount": 1.0, "random_amount": 0.0, "velocity_amount": -25.0,
-        })()]})()
+        self.groove_pool = GroovePool()
         self.current_song_time = 4.0
         self.cue_points = [CuePoint()]
         self.metronome = False
@@ -760,6 +785,39 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(changed["input"]["channel"]["id"], "channel-1")
         self.assertEqual(changed["output"]["type"]["id"], "no-output")
         self.assertEqual(changed["monitoring"]["name"], "off")
+
+    def test_track_midi_routing_reads_map_and_applies_guarded_changes(self):
+        song = Song()
+        observed = dispatch_request(song, {"method": "get_track_midi_routing", "params": {"trackId": "track-0"}}, 3)
+        self.assertEqual(observed["midiRouting"], {
+            "supported": True, "inNote": 0, "outNote": 0, "inScale": False, "outScale": False})
+        params = {"trackId": "track-0", "expectedStateVersion": 3,
+                  "before": observed["midiRouting"],
+                  "changes": {"inNote": 36, "outScale": True}}
+        changed = dispatch_request(song, {"method": "set_track_midi_routing", "params": params}, 3)
+        self.assertEqual(changed["stateVersion"], 4)
+        self.assertEqual(changed["midiRouting"]["inNote"], 36)
+        self.assertTrue(changed["midiRouting"]["outScale"])
+        self.assertEqual(song.tracks[0].midi_map.in_note, 36)
+        self.assertTrue(song.tracks[0].midi_map.out_scale)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+        with self.assertRaisesRegex(ValueError, "changed"):
+            dispatch_request(song, {"method": "set_track_midi_routing", "params": params}, 3)
+        with self.assertRaisesRegex(ValueError, "MIDI note from 0 to 127"):
+            dispatch_request(song, {"method": "set_track_midi_routing", "params": {
+                **params, "expectedStateVersion": 4, "before": changed["midiRouting"],
+                "changes": {"outNote": 128}}}, 4)
+
+    def test_track_midi_routing_reports_unsupported_maps(self):
+        song = Song()
+        del song.tracks[0].midi_map
+        observed = dispatch_request(song, {"method": "get_track_midi_routing", "params": {"trackId": "track-0"}}, 3)
+        self.assertEqual(observed["midiRouting"], {
+            "supported": False, "inNote": None, "outNote": None, "inScale": None, "outScale": None})
+        with self.assertRaisesRegex(ValueError, "not exposed"):
+            dispatch_request(song, {"method": "set_track_midi_routing", "params": {
+                "trackId": "track-0", "expectedStateVersion": 3,
+                "before": observed["midiRouting"], "changes": {"inNote": 36}}}, 3)
 
     def test_track_routing_rejects_ambiguous_label_only_current_choice(self):
         song = Song()
@@ -2420,10 +2478,18 @@ class DispatchTest(unittest.TestCase):
         song.group_tracks = lambda: None
         song.ungroup_track = True
         result = dispatch_request(song, {"method": "get_live_state"}, 4)
-        self.assertEqual(result["nativeApiSupport"], {"groupTracks": True, "ungroupTrack": False})
+        self.assertEqual(result["nativeApiSupport"], {"groupTracks": True, "ungroupTrack": False, "groovePoolCreate": True})
         del song.group_tracks
         result = dispatch_request(song, {"method": "get_live_state"}, 4)
         self.assertFalse(result["nativeApiSupport"]["groupTracks"])
+        song.groove_pool.create_groove = None
+        result = dispatch_request(song, {"method": "get_live_state"}, 4)
+        self.assertFalse(result["nativeApiSupport"]["groovePoolCreate"])
+
+    def test_live_state_reports_set_file_path(self):
+        song = Song()
+        result = dispatch_request(song, {"method": "get_live_state"}, 4)
+        self.assertEqual(result["filePath"], "/tmp/Untitled.als")
 
     def test_track_state_snapshot_is_one_native_callback_with_ordered_device_parameters(self):
         song = Song()
@@ -2676,6 +2742,49 @@ class DispatchTest(unittest.TestCase):
         dispatch_request(song, {"method": "arm_track", "params": {"trackId": "track-0", "armed": True}}, 6)
         self.assertTrue(song.tracks[0].arm)
 
+    def test_scene_launch_quantization_is_read_and_guarded(self):
+        song = Song()
+        listed = dispatch_request(song, {"method": "list_scenes"}, 3)
+        self.assertEqual(listed["scenes"][0]["launchQuantization"]["value"], 0)
+        self.assertIn({"value": 8, "name": "1_4"}, listed["scenes"][0]["launchQuantization"]["choices"])
+        params = {"sceneId": "scene-0", "expectedStateVersion": 3,
+                  "before": listed["scenes"][0], "value": 8}
+        result = dispatch_request(song, {"method": "set_scene_launch_quantization", "params": params}, 3)
+        self.assertEqual(result["stateVersion"], 4)
+        self.assertEqual(result["scene"]["launchQuantization"]["value"], 8)
+        self.assertEqual(song.scenes[0].launch_quantization, 8)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+        with self.assertRaisesRegex(ValueError, "changed"):
+            dispatch_request(song, {"method": "set_scene_launch_quantization", "params": params}, 3)
+        with self.assertRaisesRegex(ValueError, "already selected"):
+            dispatch_request(song, {"method": "set_scene_launch_quantization", "params": {
+                **params, "expectedStateVersion": 4,
+                "before": dispatch_request(song, {"method": "list_scenes"}, 4)["scenes"][0]}}, 4)
+        with self.assertRaisesRegex(ValueError, "invalid launch quantization"):
+            dispatch_request(song, {"method": "set_scene_launch_quantization", "params": {
+                **params, "expectedStateVersion": 4, "value": 99,
+                "before": dispatch_request(song, {"method": "list_scenes"}, 4)["scenes"][0]}}, 4)
+
+    def test_create_groove_appends_named_groove_in_one_undo_step(self):
+        song = Song()
+        before = dispatch_request(song, {"method": "get_song_musical_context"}, 3)
+        result = dispatch_request(song, {"method": "create_groove", "params": {
+            "before": before, "name": "Bass Swing"}}, 3)
+        self.assertEqual(result["stateVersion"], 4)
+        self.assertEqual(len(result["groove"]["pool"]), 2)
+        self.assertEqual(result["groove"]["pool"][1]["name"], "Bass Swing")
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+        with self.assertRaisesRegex(ValueError, "changed"):
+            dispatch_request(song, {"method": "create_groove", "params": {
+                "before": before, "name": "Bass Swing"}}, 3)
+
+    def test_create_groove_fails_closed_when_native_api_is_missing(self):
+        song = Song()
+        before = dispatch_request(song, {"method": "get_song_musical_context"}, 3)
+        song.groove_pool.create_groove = None
+        with self.assertRaisesRegex(ValueError, "not exposed"):
+            dispatch_request(song, {"method": "create_groove", "params": {"before": before}}, 3)
+
     def test_session_structure_creation_and_exact_rename(self):
         song = Song()
         created_track = dispatch_request(song, {"method": "create_track", "params": {
@@ -2685,7 +2794,9 @@ class DispatchTest(unittest.TestCase):
         created_scene = dispatch_request(song, {"method": "create_scene", "params": {
             "index": 0, "name": "Intro"
         }}, 4)
-        self.assertEqual(created_scene["scene"], {"id": "scene-0", "name": "Intro"})
+        self.assertEqual(created_scene["scene"]["id"], "scene-0")
+        self.assertEqual(created_scene["scene"]["name"], "Intro")
+        self.assertEqual(created_scene["scene"]["launchQuantization"]["value"], 0)
         renamed = dispatch_request(song, {"method": "rename_session_object", "params": {
             "target": {"targetType": "clip", "trackId": "track-0", "targetId": "track-0:clip-0",
                        "previousName": "Loop", "name": "Hook"}

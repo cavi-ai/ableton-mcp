@@ -255,7 +255,7 @@ const envelopePoint = object({
   value: number("Requested parameter value; the service clamps to live bounds."),
 }, ["time", "duration", "value"]);
 
-export const toolContracts = {
+const contracts = {
   capture_device_chain_snapshot: { description: "Capture an ordinary, Return, or Main track's ordered top-level devices and exposed parameters as persistable JSON. Not a native rack or preset; excludes hidden plugin state, samples, automation, nested devices, and mappings.", inputSchema: object({ trackId: ids.deviceOwnerId }, ["trackId"]) },
   recall_device_chain_snapshot: { description: "Plan or recall exposed parameters and names onto the same exact compatible ordered device topology in one guarded Live undo step. Does not create, delete, or load devices and cannot restore hidden plugin state.", inputSchema: guarded({ trackId: ids.deviceOwnerId, snapshot: deviceChainSnapshot }, ["trackId", "snapshot"]) },
   capture_device_parameter_snapshot: { description: "Capture exposed device parameters as persistable JSON, with a consistent live identity check. Not a native preset: excludes hidden plugin state, samples, automation and mappings.", inputSchema: device },
@@ -276,7 +276,7 @@ export const toolContracts = {
   get_browser_item_metadata: { description: "Read private MCP-managed tags, favorite state, and revision for one exact currently observed Live browser item. Does not read Live's native collections.", inputSchema: object({ root: string("Live browser root."), path: array(string("Exact browser path segment."), "Non-empty path to one item.") }, ["root", "path"]) },
   set_browser_item_metadata: { description: "Plan or edit private MCP-managed browser tags and favorite state with exact Live item identity, revision, and single-use confirmation. Does not modify Live's native collections.", inputSchema: metadataGuarded({ root: string("Live browser root."), path: array(string("Exact browser path segment."), "Non-empty path to one item."), favorite: boolean("Private favorite state."), tags: array(string("Private user tag."), "Complete replacement tag set, up to 32 entries.") }, ["root", "path"]) },
   search_browser_item_metadata: { description: "Search saved private browser item tags and favorites. Results are not reverified against current Live browser content and do not represent native Live collections.", inputSchema: object({ root: string("Optional browser root filter."), favorite: boolean("Optional private favorite filter."), tags: array(string("Required private user tag."), "Require all tags."), limit: { type: "integer", minimum: 1, maximum: 200 } }) },
-  get_live_state: { description: "Read Ableton bridge identity, capabilities, tempo, playback, and state version.", inputSchema: empty },
+  get_live_state: { description: "Read Ableton bridge identity, capabilities, set file path, tempo, playback, and state version.", inputSchema: empty },
   get_history_state: { description: "Read current Ableton undo and redo availability.", inputSchema: empty },
   undo: { description: "Plan or apply one guarded Ableton undo operation.", inputSchema: guarded() },
   redo: { description: "Plan or apply one guarded Ableton redo operation.", inputSchema: guarded() },
@@ -303,7 +303,7 @@ export const toolContracts = {
   delete_arrangement_cue_point: { description: "Plan or delete one exact Arrangement cue point.", inputSchema: guarded({ cuePointId: string("Stable cue-point ID.") }, ["cuePointId"]) },
   jump_to_arrangement_cue_point: { description: "Plan or move the playhead to one exact Arrangement cue point.", inputSchema: guarded({ cuePointId: string("Stable cue-point ID.") }, ["cuePointId"]) },
   list_tracks: { description: "List stable Ableton track identities, mixer state, and existing group hierarchy.", inputSchema: empty },
-  list_scenes: { description: "List stable Session scene identities and state.", inputSchema: empty },
+  list_scenes: { description: "List stable Session scene identities, names, and per-scene launch quantization.", inputSchema: empty },
   list_clips: { description: "List clip slots and clips on one exact track.", inputSchema: track },
   create_track: { description: "Plan or create an audio or MIDI track at an exact insertion index.", inputSchema: guarded({ type: { type: "string", enum: ["audio", "midi"] }, index: { type: "integer", minimum: 0 }, name: string("Track name.") }, ["type", "name"]) },
   create_return_track: { description: "Plan or append a Return Track for shared send effects using Live's native bus API. Name is the raw label; Live prefixes the displayed return letter, and the result reports the observed display name.", inputSchema: guarded({ name: string("Raw Return Track label without its automatic bus-letter prefix.") }, ["name"]) },
@@ -448,4 +448,60 @@ export const toolContracts = {
   komplete_verify_nks_preset: { description: "Verify an exact indexed NKS preset without changing Komplete state.", inputSchema: object({ fileName: string("Exact NKS filename."), productSlug: string("Expected product slug.") }, ["fileName"]) },
   komplete_run_conversion_batch: { description: "Plan or start an exact Komplete conversion job batch.", inputSchema: sessionGuarded({ jobs: array({ type: "object", additionalProperties: true }, "Worker-defined conversion job records.") }, ["jobs"]) },
   komplete_pause_batch: { description: "Plan or pause the active Komplete conversion batch.", inputSchema: sessionGuarded() },
+  set_scene_launch_quantization: { description: "Plan or apply a guarded per-scene clip-launch quantization override from list_scenes. The global setting stays in song musical context; only the selected scene changes.", inputSchema: guarded({ sceneId: ids.sceneId, launchQuantization: choice("Launch quantization value or name from list_scenes.") }, ["sceneId", "launchQuantization"]) },
+  create_groove: { description: "Plan or create a new groove in Live's Groove Pool with an optional name. Adjust its base grid and amounts afterward with set_groove; groove deletion is not exposed by Live's public API.", inputSchema: guarded({ name: string("New groove name.") }) },
+  get_track_midi_routing: { description: "Read one track's native MIDI note routing (input/output notes and scale transposition) from its MIDIMap. Reports unsupported explicitly when Live does not expose it.", inputSchema: track },
+  set_track_midi_routing: { description: "Plan or apply guarded changes to one track's native MIDI input/output note and scale transposition. Affects every clip launched on the track; does not change device-level or rack-chain note routing.", inputSchema: guarded({
+    trackId: ids.trackId,
+    inNote: { type: "integer", minimum: 0, maximum: 127, description: "MIDI note that triggers the track." },
+    outNote: { type: "integer", minimum: 0, maximum: 127, description: "MIDI note the track outputs." },
+    inScale: boolean("Transpose incoming notes according to Live's scale."),
+    outScale: boolean("Transpose outgoing notes according to Live's scale.")
+  }, ["trackId"]) }
 };
+
+const readOnlyTools = new Set([
+  "search_presets", "get_preset", "get_preset_metadata",
+  "get_browser_item_metadata", "search_browser_item_metadata",
+  "get_live_state", "get_transport_context", "get_history_state",
+  "get_song_musical_context", "get_live_scale_reference", "list_live_scales",
+  "get_song_grid_reference", "plan_grid_envelope_pattern",
+  "plan_drum_pattern", "plan_drum_pattern_edit", "plan_drum_variation",
+  "get_clip_groove_context", "inspect_clip_groove_postconditions",
+  "get_transport_recording_context", "list_arrangement_cue_points",
+  "list_tracks", "list_scenes", "list_clips",
+  "get_midi_clip_notes", "get_midi_clip_notes_extended",
+  "analyze_midi_clip_scale", "analyze_midi_clip_chords",
+  "plan_scale_chord_progression", "plan_scale_bassline", "plan_scale_melody",
+  "plan_midi_humanization", "plan_midi_velocity_curve", "plan_midi_gate_pattern",
+  "plan_midi_probability_pattern", "plan_midi_ratchet_pattern", "plan_midi_strum_pattern",
+  "plan_midi_chord_inversion", "plan_midi_drop_voicing", "plan_midi_chord_voice_leading",
+  "plan_midi_chord_doubling", "plan_midi_chord_arpeggiation",
+  "plan_midi_transposition", "plan_midi_diatonic_transposition", "plan_midi_diatonic_harmony",
+  "plan_midi_scale_chord_remapping", "plan_midi_diatonic_chord_quality",
+  "get_clip_timing", "get_audio_clip_state", "get_audio_source_beat_times",
+  "propose_audio_transient_warp", "get_device_sidechain_routing",
+  "analyze_audio_file", "analyze_audio_clip", "get_automation_capabilities",
+  "get_track_mixer", "get_track_routing", "get_set_mixer",
+  "list_producer_chain_blueprints", "get_producer_chain_blueprint",
+  "inspect_producer_chain", "inspect_producer_bus",
+  "list_arrangement_clips", "list_factory_device_profiles", "get_factory_coverage",
+  "get_factory_device_context", "get_plugin_integration_context",
+  "get_looper_performance_context", "get_beat_repeat_performance_context",
+  "get_factory_browser_items", "get_browser_items", "search_browser_items",
+  "search_local_splice_samples", "get_device_hierarchy",
+  "get_clip_parameter_envelope", "list_devices", "list_device_parameters",
+  "capture_device_parameter_snapshot", "capture_device_chain_snapshot",
+  "capture_track_state_snapshot", "load_track_state_snapshot",
+  "komplete_get_status", "komplete_verify_nks_preset",
+  "get_track_midi_routing"
+]);
+
+const destructiveTools = new Set([
+  "delete_session_object", "delete_clip", "delete_arrangement_clip",
+  "delete_device", "crop_audio_clip", "set_looper_state", "set_device_parameters"
+]);
+
+export const toolContracts = Object.fromEntries(Object.entries(contracts).map(([name, contract]) => [
+  name, { ...contract, annotations: { readOnlyHint: readOnlyTools.has(name), destructiveHint: destructiveTools.has(name) } }
+]));
