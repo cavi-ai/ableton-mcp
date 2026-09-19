@@ -832,6 +832,7 @@ export class ToolService {
     if (name === "set_device_active" || name === "delete_device" || name === "move_device") return this.#deviceLifecycle(name, args);
     if (name === "set_song_musical_context") return this.#setSongMusicalContext(args);
     if (name === "set_groove") return this.#setGroove(args);
+    if (name === "create_groove") return this.#createGroove(args);
     if (name === "set_transport_recording_context") return this.#setTransportRecordingContext(args);
     if (["create_arrangement_cue_point", "rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point"].includes(name)) {
       return this.#arrangementCuePointMutation(name, args);
@@ -841,6 +842,7 @@ export class ToolService {
     if (name === "create_track") return this.#createTrack(args);
     if (name === "create_return_track") return this.#createReturnTrack(args);
     if (name === "create_scene") return this.#createScene(args);
+    if (name === "set_scene_launch_quantization") return this.#setSceneLaunchQuantization(args);
     if (name === "rename_session_object") return this.#renameSessionObject(args);
     if (name === "duplicate_session_object") return this.#duplicateSessionObject(args);
     if (name === "delete_session_object") return this.#deleteSessionObject(args);
@@ -883,6 +885,8 @@ export class ToolService {
     if (name === "transform_midi_notes") return this.#transformMidiNotes(args);
     if (name === "set_track_mixer") return this.#setTrackMixer(args);
     if (name === "set_track_routing") return this.#setTrackRouting(args);
+    if (name === "get_track_midi_routing") return this.bridge.request("get_track_midi_routing", args);
+    if (name === "set_track_midi_routing") return this.#setTrackMidiRouting(args);
     if (name === "set_device_sidechain_routing") return this.#setDeviceSidechainRouting(args);
     if (name === "set_group_fold_state") return this.#setGroupFoldState(args);
     if (name === "route_tracks_to_bus") return this.#routeTracksToBus(args);
@@ -1299,6 +1303,15 @@ export class ToolService {
     if (!Object.keys(changes).length) throw new Error("at least one groove change is required");
     return this.#confirmedMutation({ method: "set_groove", expectedStateVersion: args.expectedStateVersion,
       grooveId: args.grooveId, before, changes }, args);
+  }
+
+  async #createGroove(args) {
+    requireExpectedState(args);
+    const observed = await this.bridge.request("get_song_musical_context", {});
+    assertExpectedState(args, observed);
+    const plan = { method: "create_groove", expectedStateVersion: args.expectedStateVersion, before: observed };
+    if (args.name !== undefined) plan.name = sessionName(args.name);
+    return this.#confirmedMutation(plan, args);
   }
 
   async #historyMutation(method, args) {
@@ -1781,6 +1794,18 @@ export class ToolService {
       method: "create_scene", expectedStateVersion: args.expectedStateVersion,
       index, name: sessionName(args.name), before: insertionContext(observed.scenes, index)
     }, args);
+  }
+
+  async #setSceneLaunchQuantization(args) {
+    requireExpectedState(args);
+    const observed = await this.bridge.request("list_scenes", {});
+    assertExpectedState(args, observed);
+    const scene = observed.scenes.find(({ id }) => id === args.sceneId);
+    if (!scene) throw new Error(`unknown scene ${args.sceneId}`);
+    const value = normalizeChoice(args.launchQuantization, "launchQuantization", scene.launchQuantization.choices);
+    if (value === scene.launchQuantization.value) throw new Error("scene launch quantization is already selected");
+    return this.#confirmedMutation({ method: "set_scene_launch_quantization", sceneId: scene.id,
+      expectedStateVersion: args.expectedStateVersion, before: scene, value }, args);
   }
 
   async #renameSessionObject(args) {
@@ -3095,6 +3120,28 @@ export class ToolService {
       method: "set_track_routing", trackId: args.trackId,
       expectedStateVersion: args.expectedStateVersion, changes
     }, args);
+  }
+
+  async #setTrackMidiRouting(args) {
+    requireExpectedState(args);
+    const observed = await this.bridge.request("get_track_midi_routing", { trackId: args.trackId });
+    assertExpectedState(args, observed);
+    if (!observed.midiRouting?.supported) throw new Error("track MIDI note routing is not exposed by this Live version");
+    const changes = {};
+    for (const key of ["inNote", "outNote"]) {
+      if (args[key] === undefined) continue;
+      const value = Number(args[key]);
+      if (!Number.isInteger(value) || value < 0 || value > 127) throw new Error(`${key} must be an integer MIDI note from 0 to 127`);
+      changes[key] = value;
+    }
+    for (const key of ["inScale", "outScale"]) {
+      if (args[key] === undefined) continue;
+      if (typeof args[key] !== "boolean") throw new Error(`${key} must be boolean`);
+      changes[key] = args[key];
+    }
+    if (!Object.keys(changes).length) throw new Error("at least one MIDI routing change is required");
+    return this.#confirmedMutation({ method: "set_track_midi_routing", trackId: args.trackId,
+      expectedStateVersion: args.expectedStateVersion, before: observed.midiRouting, changes }, args);
   }
 
   async #setGroupFoldState(args) {
