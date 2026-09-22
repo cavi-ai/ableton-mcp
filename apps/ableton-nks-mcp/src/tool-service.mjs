@@ -884,9 +884,13 @@ export class ToolService {
     if (name === "correct_midi_clip_to_scale") return this.#correctMidiClipToScale(args);
     if (name === "transform_midi_notes") return this.#transformMidiNotes(args);
     if (name === "set_track_mixer") return this.#setTrackMixer(args);
+    if (name === "set_bulk_track_mixer") return this.#setBulkTrackMixer(args);
+    if (name === "stop_all_clips") return this.#stopAllClips(args);
     if (name === "set_track_routing") return this.#setTrackRouting(args);
     if (name === "get_track_midi_routing") return this.bridge.request("get_track_midi_routing", args);
     if (name === "set_track_midi_routing") return this.#setTrackMidiRouting(args);
+    if (name === "get_track_freeze_state") return this.bridge.request("get_track_freeze_state", args);
+    if (name === "set_track_freeze_state") return this.#setTrackFreezeState(args);
     if (name === "set_device_sidechain_routing") return this.#setDeviceSidechainRouting(args);
     if (name === "set_group_fold_state") return this.#setGroupFoldState(args);
     if (name === "route_tracks_to_bus") return this.#routeTracksToBus(args);
@@ -1047,6 +1051,7 @@ export class ToolService {
     }
     if (uri === "ableton://live/status") return this.bridge.request("get_live_state", {});
     if (uri === "ableton://live/transport") return this.bridge.request("get_transport_context", {});
+    if (uri === "ableton://live/history") return this.bridge.request("get_history_state", {});
     if (uri === "ableton://set/history") return this.bridge.request("get_history_state", {});
     if (uri === "ableton://set/musical-context") {
       return enrichSongScaleContext(await this.bridge.request("get_song_musical_context", {}));
@@ -1057,12 +1062,24 @@ export class ToolService {
     if (uri === "komplete://automation/status") return this.komplete.request("get_status", {});
     const trackClips = uri.match(/^ableton:\/\/track\/([^/]+)\/clips$/);
     if (trackClips) return this.bridge.request("list_clips", { trackId: decodeURIComponent(trackClips[1]) });
-    const trackRouting = uri.match(/^ableton:\/\/track\/([^/]+)\/routing$/);
-    if (trackRouting) return this.bridge.request("get_track_routing", { trackId: decodeURIComponent(trackRouting[1]) });
+    const arrangementClips = uri.match(/^ableton:\/\/track\/([^/]+)\/arrangement-clips$/);
+    if (arrangementClips) return this.bridge.request("list_arrangement_clips", { trackId: decodeURIComponent(arrangementClips[1]) });
+    const trackMixer = uri.match(/^ableton:\/\/track\/([^/]+)\/mixer$/);
+    if (trackMixer) return this.bridge.request("get_track_mixer", { trackId: decodeURIComponent(trackMixer[1]) });
+    const trackMidiRouting = uri.match(/^ableton:\/\/track\/([^/]+)\/midi-routing$/);
+    if (trackMidiRouting) return this.bridge.request("get_track_midi_routing", { trackId: decodeURIComponent(trackMidiRouting[1]) });
+    const trackFreeze = uri.match(/^ableton:\/\/track\/([^/]+)\/freeze$/);
+    if (trackFreeze) return this.bridge.request("get_track_freeze_state", { trackId: decodeURIComponent(trackFreeze[1]) });
     const clipTiming = uri.match(/^ableton:\/\/track\/([^/]+)\/clip\/([^/]+)\/timing$/);
     if (clipTiming) return this.bridge.request("get_clip_timing", {
       trackId: decodeURIComponent(clipTiming[1]), clipId: decodeURIComponent(clipTiming[2])
     });
+    const clipNotes = uri.match(/^ableton:\/\/track\/([^/]+)\/clip\/([^/]+)\/notes$/);
+    if (clipNotes) return this.bridge.request("get_midi_clip_notes", {
+      trackId: decodeURIComponent(clipNotes[1]), clipId: decodeURIComponent(clipNotes[2])
+    });
+    const trackRouting = uri.match(/^ableton:\/\/track\/([^/]+)\/routing$/);
+    if (trackRouting) return this.bridge.request("get_track_routing", { trackId: decodeURIComponent(trackRouting[1]) });
     const audioClip = uri.match(/^ableton:\/\/track\/([^/]+)\/clip\/([^/]+)\/audio$/);
     if (audioClip) return this.bridge.request("get_audio_clip_state", {
       trackId: decodeURIComponent(audioClip[1]), clipId: decodeURIComponent(audioClip[2])
@@ -3075,6 +3092,61 @@ export class ToolService {
     return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
   }
 
+  async #setBulkTrackMixer(args) {
+    requireExpectedState(args);
+    const trackIds = args.trackIds;
+    if (!Array.isArray(trackIds) || !trackIds.length) throw new Error("trackIds must be a non-empty array");
+    if (new Set(trackIds).size !== trackIds.length) throw new Error("trackIds must be unique");
+    if (trackIds.length > 64) throw new Error("trackIds supports at most 64 tracks");
+    const hasChange = ["volume", "pan", "mute", "solo"].some((key) => args[key] !== undefined);
+    if (!hasChange) throw new Error("at least one bulk mixer change is required");
+    const soloTracks = [];
+    const observedList = [];
+    for (const trackId of trackIds) {
+      const observed = await this.bridge.request("get_track_mixer", { trackId });
+      assertExpectedState(args, observed);
+      observedList.push(observed);
+      if (args.solo === true && observed.solo) soloTracks.push(trackId);
+      if (args.volume !== undefined && !Number.isFinite(Number(args.volume))) throw new Error("volume must be finite");
+    }
+    const tracks = trackIds.map((trackId, index) => {
+      const observed = observedList[index];
+      const changes = {};
+      for (const key of ["volume", "pan"]) {
+        if (args[key] === undefined) continue;
+        const requestedValue = Number(args[key]);
+        changes[key] = {
+          previousValue: observed[key].value, requestedValue,
+          value: Math.max(observed[key].min, Math.min(observed[key].max, requestedValue))
+        };
+      }
+      for (const key of ["mute", "solo"]) {
+        if (args[key] === undefined) continue;
+        changes[key] = { previousValue: observed[key], value: args[key] };
+      }
+      return { trackId, changes };
+    });
+    return this.#confirmedMutation({ method: "set_bulk_track_mixer",
+      expectedStateVersion: args.expectedStateVersion,
+      trackIds, tracks, before: observedList,
+      ...(args.solo === true && soloTracks.length ? { warning: `Tracks ${soloTracks.join(", ")} were already soloed.` } : {}) }, args);
+  }
+
+  async #stopAllClips(args) {
+    requireExpectedState(args);
+    const trackList = await this.bridge.request("list_tracks", {});
+    assertExpectedState(args, trackList);
+    const before = [];
+    for (const track of trackList.tracks) {
+      const clips = (await this.bridge.request("list_clips", { trackId: track.id })).clips
+        .filter(({ hasClip, isPlaying }) => hasClip && isPlaying).map(({ id }) => id);
+      before.push({ trackId: track.id, clipIds: clips });
+    }
+    if (!before.some(({ clipIds }) => clipIds.length)) throw new Error("no clips are playing");
+    return this.#confirmedMutation({ method: "stop_all_clips",
+      expectedStateVersion: args.expectedStateVersion, before }, args);
+  }
+
   async #setDeviceSidechainRouting(args) {
     requireExpectedState(args);
     const keys = ["sourceTypeId", "sourceChannelId"].filter(key => args[key] !== undefined);
@@ -3142,6 +3214,19 @@ export class ToolService {
     if (!Object.keys(changes).length) throw new Error("at least one MIDI routing change is required");
     return this.#confirmedMutation({ method: "set_track_midi_routing", trackId: args.trackId,
       expectedStateVersion: args.expectedStateVersion, before: observed.midiRouting, changes }, args);
+  }
+
+  async #setTrackFreezeState(args) {
+    requireExpectedState(args);
+    if (typeof args.frozen !== "boolean") throw new Error("frozen must be boolean");
+    const observed = await this.bridge.request("get_track_freeze_state", { trackId: args.trackId });
+    assertExpectedState(args, observed);
+    if (!observed.freeze?.supported) throw new Error("track freeze state is not exposed by this Live version");
+    if (observed.freeze.frozen === args.frozen) throw new Error("track is already in the requested freeze state");
+    return this.#confirmedMutation({ method: "set_track_freeze_state", trackId: args.trackId,
+      expectedStateVersion: args.expectedStateVersion, before: observed.freeze, frozen: args.frozen,
+      contentMutationRisk: { kind: "rendered_track_audio", freezes: args.frozen,
+        parameterRollbackRestoresContent: false } }, args);
   }
 
   async #setGroupFoldState(args) {

@@ -311,10 +311,7 @@ def _beat_repeat_performance_context(song, track_id, device_id, state_version):
 
 
 def _clip_timing(song, track_id, clip_id, state_version):
-    _, _, slot = _clip_slot(song, track_id, clip_id)
-    if not slot.has_clip:
-        raise ValueError("clip slot is empty")
-    clip = slot.clip
+    clip, timeline = _clip_reference(song, track_id, clip_id)
     grooves = _grooves(song)
     groove_id = next((f"groove-{index}" for index, groove in enumerate(grooves) if groove == clip.groove), None)
     unwarped_audio = bool(getattr(clip, "is_audio_clip", False)) and not bool(clip.warping)
@@ -325,6 +322,7 @@ def _clip_timing(song, track_id, clip_id, state_version):
         loop.update(startBeats=float(clip.loop_start), endBeats=float(clip.loop_end))
     return {
         "stateVersion": state_version, "trackId": track_id, "clipId": clip_id,
+        "location": "arrangement" if timeline is not None else "session", "timeline": timeline,
         "loop": loop,
         "timeSignature": {"numerator": int(clip.signature_numerator), "denominator": int(clip.signature_denominator)},
         "launchQuantization": _enum_record(clip.launch_quantization, CLIP_QUANTIZATION_NAMES),
@@ -333,10 +331,9 @@ def _clip_timing(song, track_id, clip_id, state_version):
     }
 
 
-def _audio_clip(song, track_id, clip_id):
+def _clip_reference(song, track_id, clip_id):
     if not isinstance(clip_id, str):
-        raise ValueError("invalid audio clip ID")
-    timeline = None
+        raise ValueError("invalid clip ID")
     if ":arrangement-clip-" in clip_id:
         _, track = _track(song, track_id)
         prefix = f"{track_id}:arrangement-clip-"
@@ -345,14 +342,24 @@ def _audio_clip(song, track_id, clip_id):
             raise ValueError("unknown Arrangement clip ID")
         index = int(suffix)
         clip = track.arrangement_clips[index]
-        timeline = _arrangement_clip_record(clip, track_id, index)
-    else:
-        _, _, slot = _clip_slot(song, track_id, clip_id)
-        if not slot.has_clip:
-            raise ValueError("clip slot is empty")
-        clip = slot.clip
+        return clip, _arrangement_clip_record(clip, track_id, index)
+    _, _, slot = _clip_slot(song, track_id, clip_id)
+    if not slot.has_clip:
+        raise ValueError("clip slot is empty")
+    return slot.clip, None
+
+
+def _audio_clip(song, track_id, clip_id):
+    clip, timeline = _clip_reference(song, track_id, clip_id)
     if not getattr(clip, "is_audio_clip", False):
         raise ValueError("clip is not an audio clip")
+    return clip, timeline
+
+
+def _midi_clip(song, track_id, clip_id):
+    clip, timeline = _clip_reference(song, track_id, clip_id)
+    if hasattr(clip, "is_midi_clip") and not clip.is_midi_clip:
+        raise ValueError("clip is not a MIDI clip")
     return clip, timeline
 
 
@@ -409,8 +416,10 @@ def _arrangement_clips(song, track_id, state_version):
 
 
 def _scene_record(scene, index):
+    quantization = getattr(scene, "launch_quantization", None)
     return {"id": f"scene-{index}", "name": scene.name,
-            "launchQuantization": _enum_record(scene.launch_quantization, CLIP_QUANTIZATION_NAMES)}
+            "launchQuantization": _enum_record(quantization, CLIP_QUANTIZATION_NAMES)
+            if quantization is not None else {"supported": False}}
 
 
 def _parameter_record(parameter, index, include_native_choice_labels=False):
@@ -554,6 +563,15 @@ def _track_midi_routing(song, track_id, state_version):
             "inScale": bool(midi_map.in_scale) if supported else None,
             "outScale": bool(midi_map.out_scale) if supported else None,
         },
+    }
+
+
+def _track_freeze_state(song, track_id, state_version):
+    _, track = _track(song, track_id)
+    supported = hasattr(track, "is_frozen")
+    return {
+        "stateVersion": state_version, "trackId": track_id,
+        "freeze": {"supported": supported, "frozen": bool(track.is_frozen) if supported else None},
     }
 
 
@@ -2568,6 +2586,25 @@ def dispatch_request(song, request, state_version, application=None):
             if "outScale" in changes:
                 track.midi_map.out_scale = bool(changes["outScale"])
         return _track_midi_routing(song, params["trackId"], state_version + 1)
+    if method == "get_track_freeze_state":
+        return _track_freeze_state(song, params["trackId"], state_version)
+    if method == "set_track_freeze_state":
+        if params.get("expectedStateVersion") != state_version:
+            raise ValueError("track freeze state version changed")
+        current = _track_freeze_state(song, params["trackId"], state_version)
+        if not current["freeze"]["supported"]:
+            raise ValueError("track freeze state is not exposed by this Live version")
+        if params.get("before") != current["freeze"]:
+            raise ValueError("track freeze state changed")
+        frozen = params["frozen"]
+        if type(frozen) is not bool:
+            raise ValueError("frozen must be boolean")
+        if current["freeze"]["frozen"] == frozen:
+            raise ValueError("track is already in the requested freeze state")
+        _, track = _track(song, params["trackId"])
+        with _undo_step(song):
+            track.is_frozen = frozen
+        return _track_freeze_state(song, params["trackId"], state_version + 1)
     if method == "set_group_fold_state":
         track_index, track = _track(song, params["trackId"])
         if not bool(getattr(track, "is_foldable", False)):
@@ -3152,6 +3189,9 @@ def dispatch_request(song, request, state_version, application=None):
         if str(index) != suffix or index >= len(song.scenes):
             raise ValueError("scene ID is noncanonical or unavailable")
         scene = song.scenes[index]
+        quantization = getattr(scene, "launch_quantization", None)
+        if quantization is None:
+            raise ValueError("per-scene launch quantization is not exposed by this Live version")
         current = _scene_record(scene, index)
         if params.get("before") != current:
             raise ValueError("scene identity or launch quantization changed")
@@ -3378,10 +3418,7 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "set_clip_timing":
         if "before" in params and _clip_timing(song, params["trackId"], params["clipId"], state_version) != params["before"]:
             raise ValueError("clip timing changed since observation")
-        _, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
-        if not slot.has_clip:
-            raise ValueError("clip slot is empty")
-        clip = slot.clip
+        clip, _ = _clip_reference(song, params["trackId"], params["clipId"])
         changes = params["changes"]
         loop = changes.get("loop", {})
         if getattr(clip, "is_audio_clip", False) and not clip.warping and any(key in loop for key in ("startBeats", "endBeats")):
@@ -3423,17 +3460,13 @@ def dispatch_request(song, request, state_version, application=None):
         slot.clip.duplicate_loop()
         return _clip_timing(song, track_id, clip_id, state_version + 1)
     if method == "get_midi_clip_notes":
-        _, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
-        if not slot.has_clip:
-            raise ValueError("clip slot is empty")
-        clip = slot.clip
-        if hasattr(clip, "is_midi_clip") and not clip.is_midi_clip:
-            raise ValueError("clip is not a MIDI clip")
+        clip, timeline = _midi_clip(song, params["trackId"], params["clipId"])
         notes = clip.get_notes(0.0, 0, clip.length, 128)
         return {
             "stateVersion": state_version,
             "trackId": params["trackId"],
             "clipId": params["clipId"],
+            "location": "arrangement" if timeline is not None else "session", "timeline": timeline,
             "lengthBeats": clip.length,
             "notes": [{
                 "pitch": int(note[0]), "start": float(note[1]), "duration": float(note[2]),
@@ -3441,12 +3474,8 @@ def dispatch_request(song, request, state_version, application=None):
             } for note in notes],
         }
     if method in ("get_midi_clip_notes_extended", "set_midi_note_properties", "transform_midi_notes"):
-        _, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
-        if not slot.has_clip:
-            raise ValueError("clip slot is empty")
-        clip = slot.clip
-        if hasattr(clip, "is_midi_clip") and not clip.is_midi_clip:
-            raise ValueError("clip is not a MIDI clip")
+        clip, timeline = _midi_clip(song, params["trackId"], params["clipId"])
+        location = "arrangement" if timeline is not None else "session"
         if method in ("set_midi_note_properties", "transform_midi_notes"):
             guarded_variation = method == "transform_midi_notes" and params.get("operation") == "apply_drum_variation"
             guarded_humanization = method == "transform_midi_notes" and params.get("operation") == "apply_midi_humanization"
@@ -3477,7 +3506,8 @@ def dispatch_request(song, request, state_version, application=None):
                 if grid_reference.get("setFingerprint") != fingerprint:
                     raise ValueError("Live set fingerprint changed since observation")
                 current = {"stateVersion": state_version, "trackId": params["trackId"],
-                           "clipId": params["clipId"], "lengthBeats": float(clip.length),
+                           "clipId": params["clipId"], "location": location, "timeline": timeline,
+                           "lengthBeats": float(clip.length),
                            "notes": [_midi_note_record(note) for note in clip.get_all_notes_extended()]}
                 if params.get("before") != current:
                     raise ValueError("MIDI clip changed since observation")
@@ -3860,6 +3890,7 @@ def dispatch_request(song, request, state_version, application=None):
         result = {
             "stateVersion": state_version + (1 if method != "get_midi_clip_notes_extended" else 0),
             "trackId": params["trackId"], "clipId": params["clipId"],
+            "location": location, "timeline": timeline,
             "lengthBeats": float(clip.length), "notes": [_midi_note_record(note) for note in notes],
         }
         if method == "transform_midi_notes":
@@ -3868,12 +3899,8 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "replace_midi_notes":
         if params.get("expectedStateVersion") != state_version:
             raise ValueError("MIDI clip state version changed")
-        _, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
-        if not slot.has_clip:
-            raise ValueError("clip slot is empty")
-        clip = slot.clip
-        if hasattr(clip, "is_midi_clip") and not clip.is_midi_clip:
-            raise ValueError("clip is not a MIDI clip")
+        clip, timeline = _midi_clip(song, params["trackId"], params["clipId"])
+        location = "arrangement" if timeline is not None else "session"
         if params.get("clipTiming") != _clip_timing(song, params["trackId"], params["clipId"], state_version):
             raise ValueError("MIDI clip timing changed since observation")
         grid_reference = params.get("gridReference", {})
@@ -3888,7 +3915,7 @@ def dispatch_request(song, request, state_version, application=None):
             raise ValueError("song grid changed since observation")
         current = {
             "stateVersion": state_version, "trackId": params["trackId"], "clipId": params["clipId"],
-            "lengthBeats": float(clip.length),
+            "location": location, "timeline": timeline, "lengthBeats": float(clip.length),
             "notes": [_midi_note_record(note) for note in clip.get_all_notes_extended()],
         }
         if params.get("before") != current:
@@ -3969,7 +3996,8 @@ def dispatch_request(song, request, state_version, application=None):
                                            (rollback_error, mutation_error))
                     raise mutation_error
             return {"stateVersion": state_version + 1, "trackId": params["trackId"],
-                    "clipId": params["clipId"], "lengthBeats": float(clip.length),
+                    "clipId": params["clipId"], "location": location, "timeline": timeline,
+                    "lengthBeats": float(clip.length),
                     "removedNoteIds": remove_note_ids, "addedNoteIds": added_note_ids, "notes": readback}
         if guarded_ratchet:
             selected_ids = set(remove_note_ids)
@@ -4009,7 +4037,8 @@ def dispatch_request(song, request, state_version, application=None):
                     raise mutation_error
             return {
                 "stateVersion": state_version + 1, "trackId": params["trackId"],
-                "clipId": params["clipId"], "lengthBeats": float(clip.length),
+                "clipId": params["clipId"], "location": location, "timeline": timeline,
+                "lengthBeats": float(clip.length),
                 "removedNoteIds": remove_note_ids, "addedNoteIds": added_note_ids,
                 "notes": readback,
             }
@@ -4048,7 +4077,8 @@ def dispatch_request(song, request, state_version, application=None):
                                            (operation_label, rollback_error, mutation_error))
                     raise mutation_error
             return {"stateVersion": state_version + 1, "trackId": params["trackId"],
-                    "clipId": params["clipId"], "lengthBeats": float(clip.length),
+                    "clipId": params["clipId"], "location": location, "timeline": timeline,
+                    "lengthBeats": float(clip.length),
                     "removedNoteIds": [], "addedNoteIds": added_note_ids, "notes": readback}
         with _undo_step(song):
             added_note_ids = list(clip.add_new_notes(new_note_specs)) if new_note_specs else []
@@ -4061,7 +4091,8 @@ def dispatch_request(song, request, state_version, application=None):
                 raise
         return {
             "stateVersion": state_version + 1, "trackId": params["trackId"],
-            "clipId": params["clipId"], "lengthBeats": float(clip.length),
+            "clipId": params["clipId"], "location": location, "timeline": timeline,
+            "lengthBeats": float(clip.length),
             "removedNoteIds": remove_note_ids, "addedNoteIds": added_note_ids,
             "notes": [_midi_note_record(note) for note in clip.get_all_notes_extended()],
         }
@@ -4489,6 +4520,39 @@ def dispatch_request(song, request, state_version, application=None):
             "volume": track.mixer_device.volume.value, "pan": track.mixer_device.panning.value,
             "mute": track.mute, "solo": track.solo, "sends": _send_records(song, track),
         }
+    if method == "set_bulk_track_mixer":
+        if params.get("expectedStateVersion") != state_version:
+            raise ValueError("bulk mixer state version changed")
+        current = [dispatch_request(song, {"method": "get_track_mixer", "params": {"trackId": track_id}}, state_version)
+                   for track_id in params["trackIds"]]
+        if current != params["before"]:
+            raise ValueError("one or more track mixers changed since observation")
+        for track_id, track_record in zip(params["trackIds"], params["tracks"]):
+            _, track = _track(song, track_id)
+            for key in ("volume", "pan"):
+                if key in track_record["changes"]:
+                    parameter = getattr(track.mixer_device, "panning" if key == "pan" else "volume")
+                    parameter.value = _clamp(track_record["changes"][key]["value"], parameter)
+            for key in ("mute", "solo"):
+                if key in track_record["changes"]:
+                    setattr(track, key, bool(track_record["changes"][key]["value"]))
+        observed = [dispatch_request(song, {"method": "get_track_mixer", "params": {"trackId": track_id}}, state_version + 1)
+                    for track_id in params["trackIds"]]
+        return {"stateVersion": state_version + 1, "trackIds": params["trackIds"], "tracks": observed}
+    if method == "stop_all_clips":
+        if params.get("expectedStateVersion") != state_version:
+            raise ValueError("session state version changed")
+        playing = []
+        for index, track in enumerate(song.tracks):
+            clip_ids = [f"track-{index}:clip-{slot_index}" for slot_index, slot in enumerate(getattr(track, "clip_slots", ()))
+                        if slot.has_clip and slot.clip.is_playing]
+            playing.append({"trackId": f"track-{index}", "clipIds": clip_ids})
+        if playing != params["before"]:
+            raise ValueError("session playback changed since observation")
+        if not any(entry["clipIds"] for entry in playing):
+            raise ValueError("no clips are playing")
+        song.stop_all_clips()
+        return {"stateVersion": state_version + 1, "stopped": playing}
     if method == "arm_track":
         _, track = _track(song, params["trackId"])
         track.arm = bool(params["armed"])

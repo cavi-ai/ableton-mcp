@@ -4,6 +4,7 @@ import { ToolService } from "./tool-service.mjs";
 import { createConfiguredService } from "./runtime.mjs";
 import { toolContracts } from "./tool-contracts.mjs";
 import { validateToolArguments } from "./tool-validation.mjs";
+import { getPrompt, listPrompts } from "./prompts.mjs";
 
 const resources = [
   "nks://catalog/products",
@@ -11,15 +12,21 @@ const resources = [
   "nks://catalog/artwork/{artwork_id}",
   "ableton://live/status",
   "ableton://live/transport",
+  "ableton://live/history",
   "ableton://set/musical-context",
   "ableton://set/mixer",
   "ableton://set/history",
   "ableton://set/tracks",
-  "ableton://track/{track_id}/routing",
   "ableton://set/scenes",
+  "ableton://track/{track_id}/mixer",
+  "ableton://track/{track_id}/routing",
+  "ableton://track/{track_id}/midi-routing",
+  "ableton://track/{track_id}/freeze",
   "ableton://track/{track_id}/clips",
+  "ableton://track/{track_id}/arrangement-clips",
   "ableton://track/{track_id}/clip/{clip_id}/timing",
   "ableton://track/{track_id}/clip/{clip_id}/audio",
+  "ableton://track/{track_id}/clip/{clip_id}/notes",
   "ableton://track/{track_id}/devices",
   "ableton://device/{device_id}/parameters",
   "komplete://automation/status"
@@ -211,7 +218,11 @@ const toolNames = [
   "set_scene_launch_quantization",
   "create_groove",
   "get_track_midi_routing",
-  "set_track_midi_routing"
+  "set_track_midi_routing",
+  "get_track_freeze_state",
+  "set_track_freeze_state",
+  "set_bulk_track_mixer",
+  "stop_all_clips"
 ];
 const tools = toolNames.map((name) => ({ name, ...toolContracts[name] }));
 
@@ -229,7 +240,7 @@ export function createRouter(service) {
       if (method === "initialize") {
         result = {
           protocolVersion: params.protocolVersion || "2025-03-26",
-          capabilities: { resources: {}, tools: {} },
+          capabilities: { resources: {}, tools: {}, prompts: { listChanged: false } },
           serverInfo: { name: "ableton-mcp", version: "0.1.0" }
         };
       } else if (method === "resources/list") result = { resources };
@@ -243,7 +254,13 @@ export function createRouter(service) {
         validateToolArguments(params.name, args);
         const value = await service.call(params.name, args);
         result = { content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value };
-      } else throw Object.assign(new Error(`method not found: ${method}`), { code: -32601 });
+      }
+      else if (method === "prompts/list") result = { prompts: listPrompts() };
+      else if (method === "prompts/get") {
+        const prompt = getPrompt(params.name, params.arguments);
+        result = { description: prompt.description, messages: prompt.messages };
+      }
+      else throw Object.assign(new Error(`method not found: ${method}`), { code: -32601 });
       return { jsonrpc: "2.0", id, result };
     } catch (error) {
       return { jsonrpc: "2.0", id, error: { code: error.code || -32603, message: error.message } };

@@ -7,7 +7,7 @@ Local-first Ableton Live control through an installable Remote Script, MCP serve
 - `apps/ableton-nks-mcp` — MCP server, CLI, and tests
 - `packages/nks-pipeline` — preset inventory, catalog, artwork, preview, and generation helpers
 - `ableton/Remote Scripts/CaviMcpBridge` — Ableton Live bridge
-- `config` — product and artwork configuration
+- `config` — product and artwork configuration; set each plugin's `factoryRoots` in `config/plugins/*.json` to your local preset library (empty roots discover nothing)
 - `examples/artwork` — redistributable generic artwork for exercising the renderer
 - `schemas` — manifest schemas
 
@@ -17,7 +17,7 @@ User favorites and normalized tags are stored in dedicated catalog tables rather
 
 ## Control surface
 
-Read operations expose Live status including the set file path, playhead, transport-recording, metronome, and count-in context, song key/scale and timing context, global and recording quantization, groove pool and swing state, Arrangement loop and cue-point state, tracks, scenes with per-scene launch quantization, clips, clip loop/signature/quantization/groove state, audio clip gain/pitch/warp/marker state, devices, device parameters, complete track, master, and return-bus mixer state with named sends, input/output routing state, monitor mode, track MIDI note routing (MIDIMap input/output notes and scale transposition), Session clip envelopes, extended MIDI note properties, and optional NKS catalog search. Guarded mutations cover those transport, musical-context, cue-point, clip-timing, audio-clip, routing, monitoring, and track MIDI note-routing fields alongside track/scene creation, groove-pool creation, per-scene launch-quantization overrides, exact session-object renaming, Session clip duplication/deletion and clip-loop duplication, scene duplication, content-aware track/scene deletion, tempo, track/master/return-bus mixing, scene and clip launch, clip stop, device parameters, Session clip envelope steps, per-note MIDI properties, MIDI-note quantize/legato/duplicate transforms, deterministic MIDI humanization, complete-onset crescendo/decrescendo/fixed/accent velocity curves, and panic. Every mutation requires an observed state version, defaults to a dry-run plan, and uses a short-lived single-use confirmation token for execution.
+Read operations expose Live status including the set file path, playhead, transport-recording, metronome, and count-in context, song key/scale and timing context, global and recording quantization, groove pool and swing state, Arrangement loop and cue-point state, tracks, scenes with per-scene launch quantization, clips, clip loop/signature/quantization/groove state, audio clip gain/pitch/warp/marker state, devices, device parameters, complete track, master, and return-bus mixer state with named sends, input/output routing state, monitor mode, track MIDI note routing (MIDIMap input/output notes and scale transposition), track freeze state, Session clip envelopes, extended MIDI note properties on Session and Arrangement MIDI clips, and optional NKS catalog search. Guarded mutations cover those transport, musical-context, cue-point, clip-timing, audio-clip, routing, monitoring, and track MIDI note-routing fields alongside track/scene creation, groove-pool creation, per-scene launch-quantization overrides, exact session-object renaming, Session clip duplication/deletion and clip-loop duplication, scene duplication, content-aware track/scene deletion, tempo, track/master/return-bus mixing, scene and clip launch, clip stop, device parameters, Session clip envelope steps, per-note MIDI properties and quantize/legato/duplicate transforms on Session and Arrangement MIDI clips, deterministic MIDI humanization, complete-onset crescendo/decrescendo/fixed/accent velocity curves, guarded track freeze/unfreeze (readable state; on Live 12.4.5 the native property has no setter so the write fails closed), one-step bulk track-mixer changes and native stop-all-clips, and panic. Every mutation requires an observed state version, defaults to a dry-run plan, and uses a short-lived single-use confirmation token for execution.
 
 `get_automation_capabilities` reports the exact supported surface. Ableton Live 12.4.5 exposes Session clip parameter envelopes and the per-note fields pitch, start, duration, velocity, velocity deviation, release velocity, probability, and mute. Its public API does not expose Arrangement automation envelopes or per-note pitch-bend, pressure, and slide curves; the MCP reports those boundaries instead of simulating unsupported writes.
 
@@ -25,7 +25,7 @@ Read operations expose Live status including the set file path, playhead, transp
 
 See [Shared instrument audio buses](docs/shared-instrument-buses.md) for building processed buses with separate instrument children, routing verification, processing order, and explicit group/template limitations.
 
-`create_return_track` appends a guarded shared-effects bus through Live's native API. `create_groove` appends a new groove to the Groove Pool; adjust its base grid and amounts afterward with `set_groove`. Live 12.4.5 does not expose Group Track creation or ungrouping to Remote Scripts, and its public Groove Pool API has no deletion method (the UI-only right-click delete is not scriptable), so `get_live_state.nativeApiSupport` reports those boundaries instead of advertising nonfunctional controls.
+`create_return_track` appends a guarded shared-effects bus through Live's native API. `create_groove` appends a new groove to the Groove Pool; adjust its base grid and amounts afterward with `set_groove`. Live-verified boundaries: Live 12.4.5 does not expose Group Track creation or ungrouping to Remote Scripts, its public Groove Pool API has no creation or deletion method, per-scene launch quantization, per-track MIDIMap note routing, or a writable `Track.is_frozen` (freeze stays UI-only), so `get_live_state.nativeApiSupport` and fail-closed reads report those boundaries instead of advertising nonfunctional controls.
 
 See [Native saving and recall](docs/native-saving-and-recall.md) for Live Set and device-preset UI workflows, recall checks, and the current MCP/CLI boundaries.
 
@@ -65,6 +65,8 @@ npm run cli -- doctor --json
 npm run cli -- serve
 npm run cli -- status --json
 npm run cli -- resource ableton://set/tracks --json
+npm run cli -- prompts --json
+npm run cli -- prompt harmonize-clip --args '{"trackId":"track-0","clipId":"track-0:clip-0"}' --json
 npm run cli -- call list_devices --args '{"trackId":"track-0"}' --json
 ```
 
@@ -86,7 +88,7 @@ Set `ABLETON_NKS_CATALOG_PATH` only when local preset search is wanted. Without 
 
 Mutating Ableton operations use plan hashes and short-lived, single-use confirmation tokens. Keep generated commercial preset content out of this repository.
 
-MCP discovery publishes closed top-level JSON Schemas and operation-specific descriptions for every tool. Ableton mutations advertise `expectedStateVersion`; Komplete UI mutations advertise `expectedSessionVersion`, along with their dry-run and confirmation fields.
+MCP discovery publishes closed top-level JSON Schemas and operation-specific descriptions for every tool, plus a `prompts` capability with producer workflow templates (`session-overview`, `produce-drum-pattern`, `harmonize-clip`, `build-producer-chain`, `arrangement-rework`). Every tool advertises MCP annotations (`readOnlyHint`/`destructiveHint`). Ableton mutations advertise `expectedStateVersion`; Komplete UI mutations advertise `expectedSessionVersion`, along with their dry-run and confirmation fields.
 
 `get_history_state` exposes Live's current undo/redo availability. Guarded `undo` and `redo` operations refuse unavailable history actions and advance the bridge state version after execution.
 

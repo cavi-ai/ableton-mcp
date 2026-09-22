@@ -182,3 +182,17 @@ test("call and resource expose the MCP service through the CLI", async () => {
   ]);
   assert.equal(JSON.parse(output[0]).tracks.length, 0);
 });
+
+test("prompts commands render templates without opening a runtime", async () => {
+  const opened = [];
+  const runtimeFactory = () => { opened.push(true); return { close() {} }; };
+  const output = [];
+  const listed = await runCli(["prompts", "--json"], { runtimeFactory, stdout: (line) => output.push(line) });
+  assert.equal(listed.prompts.length, 5);
+  const rendered = await runCli(["prompt", "produce-drum-pattern", "--args", '{"trackId":"track-3"}', "--json"],
+    { runtimeFactory, stdout: () => {} });
+  assert.match(rendered.messages[0].content.text, /track-3/);
+  await assert.rejects(() => runCli(["prompt", "produce-drum-pattern"], { runtimeFactory, stdout: () => {} }), /missing required prompt argument/);
+  await assert.rejects(() => runCli(["prompt"], { runtimeFactory, stdout: () => {} }), /requires a template name/);
+  assert.deepEqual(opened, []);
+});

@@ -217,6 +217,17 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         pan: { value: 0, min: -1, max: 1 }, mute: false, solo: false,
         sends: [{ id: "send-0", returnTrackId: "return-0", name: "Reverb", value: 0.2, min: 0, max: 1 }]
       };
+      if (method === "get_track_midi_routing") return {
+        stateVersion: 4, trackId: params.trackId, midiRouting: {
+          supported: false, inNote: null, outNote: null, inScale: null, outScale: null }
+      };
+      if (method === "get_track_freeze_state") return {
+        stateVersion: 4, trackId: params.trackId, freeze: { supported: true, frozen: false }
+      };
+      if (method === "list_arrangement_clips") return {
+        stateVersion: 4, trackId: params.trackId, clips: [{ id: `${params.trackId}:arrangement-clip-0`,
+          name: "Hook", startBeats: 8, endBeats: 16, lengthBeats: 8, type: "midi" }]
+      };
       if (method === "get_track_routing") return {
         stateVersion: 4, trackId: params.trackId,
         input: {
@@ -474,6 +485,23 @@ test("MCP resources return live and catalog-backed content", async () => {
   const artwork = await service.readResource("nks://catalog/artwork/art%3Abass");
   assert.equal(artwork.artwork.category, "bass");
   assert.equal(JSON.stringify(artwork).includes("base64"), false);
+});
+
+test("expanded track and clip resources resolve guarded bridge reads", async () => {
+  const { service, calls } = fixture();
+  assert.equal((await service.readResource("ableton://live/history")).canUndo, true);
+  assert.equal((await service.readResource("ableton://track/track-0/mixer")).trackId, "track-0");
+  assert.equal((await service.readResource("ableton://track/track-0/midi-routing")).midiRouting.supported, false);
+  assert.equal((await service.readResource("ableton://track/track-0/freeze")).freeze.frozen, false);
+  assert.equal((await service.readResource("ableton://track/track-0/arrangement-clips")).trackId, "track-0");
+  assert.equal((await service.readResource("ableton://track/track-0/clip/track-0:clip-0/notes")).clipId, "track-0:clip-0");
+  assert.equal((await service.readResource("ableton://set/scenes")).scenes.length, 2);
+  assert.equal((await service.readResource("ableton://track/track-0/clips")).clips[0].name, "Loop");
+  const methods = calls.filter(({ method }) => method.startsWith("get_") || method.startsWith("list_")).map(({ method }) => method);
+  for (const method of ["get_track_mixer", "get_track_midi_routing", "get_track_freeze_state",
+    "list_arrangement_clips", "get_midi_clip_notes", "get_history_state"]) {
+    assert.ok(methods.includes(method), `${method} resource read`);
+  }
 });
 
 test("unknown artwork resources fail clearly", async () => {
