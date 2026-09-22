@@ -2,6 +2,36 @@
 
 Local-first Ableton Live control through an installable Remote Script, MCP server, and command-line interface. NKS catalog integration is optional.
 
+## Quick start
+
+Tested on macOS with Ableton Live 12.4.5.
+
+```bash
+git clone https://github.com/cavi-ai/ableton-mcp.git
+cd ableton-mcp
+npm ci
+npm run cli -- install
+```
+
+Enable **CaviMcpBridge** as a Control Surface in Live's preferences, then check the connection:
+
+```bash
+npm run cli -- doctor --json
+```
+
+Register the stdio server with an MCP client, using the absolute path of the checkout:
+
+```json
+{
+  "mcpServers": {
+    "ableton": {
+      "command": "node",
+      "args": ["/path/to/ableton-mcp/apps/ableton-nks-mcp/src/cli.mjs", "serve"]
+    }
+  }
+}
+```
+
 ## Repository layout
 
 - `apps/ableton-nks-mcp` — MCP server, CLI, and tests
@@ -48,13 +78,17 @@ The repository does not scrape or auto-populate vendor artwork. Operators provid
 - Node.js 22 or newer
 - Python 3 for bridge tests
 - Ableton Live for live integration
-- ImageMagick for artwork rendering
+- ImageMagick 7 (`magick`) for artwork rendering and tests
+- ffmpeg for audio analysis and tests
 
 ## Development
 
 ```bash
+npm ci
 npm test
 ```
+
+`npm test` runs the pipeline and MCP Node suites, then the bridge's Python unit tests. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## CLI
 
@@ -74,8 +108,6 @@ npm run cli -- call list_devices --args '{"trackId":"track-0"}' --json
 
 Use `ableton-mcp uninstall` to remove only that installed script directory. Pass `--destination <Remote Scripts path>` when the Ableton User Library is in a non-default location.
 
-The default bridge socket is `${TMPDIR}/cavi-ableton-mcp.sock`. Override it with `CAVI_MCP_BRIDGE_SOCKET` when needed.
-
 Run the MCP server in fixture mode:
 
 ```bash
@@ -84,6 +116,18 @@ ABLETON_NKS_MCP_FIXTURE=1 npm start
 
 Set `ABLETON_NKS_CATALOG_PATH` only when local preset search is wanted. Without it, preset search returns an empty collection.
 
+## Configuration
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CAVI_MCP_BRIDGE_SOCKET` | `/tmp/cavi-ableton-mcp.sock` | Remote Script bridge socket; read by both the bridge inside Live and the server |
+| `ABLETON_NKS_CATALOG_PATH` | unset | NKS catalog database for preset search |
+| `CAVI_MCP_BROWSER_METADATA_PATH` | `~/.cavi/ableton-mcp/browser-metadata.sqlite` | Metadata for Live browser items |
+| `CAVI_MCP_CONFIRMATION_DIR` | `~/.cavi/ableton-mcp/confirmations` | Single-use confirmation tokens |
+| `CAVI_MCP_SNAPSHOT_DIR` | `~/.cavi/ableton-mcp/snapshots` | Track and device-chain snapshots |
+| `KOMPLETE_AUTOMATION_SOCKET` | `/tmp/cavi-komplete-automation.sock` | Socket for the Komplete automation tools; the service listening on it is not part of this repository |
+| `ABLETON_NKS_MCP_FIXTURE` | unset | `1` makes `npm start` serve fixture data without Live |
+
 ## Safety
 
 Mutating Ableton operations use plan hashes and short-lived, single-use confirmation tokens. Keep generated commercial preset content out of this repository.
@@ -91,6 +135,10 @@ Mutating Ableton operations use plan hashes and short-lived, single-use confirma
 MCP discovery publishes closed top-level JSON Schemas and operation-specific descriptions for every tool, plus a `prompts` capability with producer workflow templates (`session-overview`, `produce-drum-pattern`, `harmonize-clip`, `build-producer-chain`, `arrangement-rework`). Every tool advertises MCP annotations (`readOnlyHint`/`destructiveHint`). Ableton mutations advertise `expectedStateVersion`; Komplete UI mutations advertise `expectedSessionVersion`, along with their dry-run and confirmation fields.
 
 `get_history_state` exposes Live's current undo/redo availability. Guarded `undo` and `redo` operations refuse unavailable history actions and advance the bridge state version after execution.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Report vulnerabilities as described in [SECURITY.md](SECURITY.md).
 
 ## License
 
