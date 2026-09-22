@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "description": "Local-first Ableton Live MCP server, CLI, and Remote Script bridge",
   "license": "MIT",
+  "author": "CAVI AI",
+  "homepage": "https://github.com/cavi-ai/ableton-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/cavi-ai/ableton-mcp/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/cavi-ai/ableton-mcp.git"

@@ -7,7 +7,7 @@ Local-first Ableton Live control through an installable Remote Script, MCP serve
 - `apps/ableton-nks-mcp` — MCP server, CLI, and tests
 - `packages/nks-pipeline` — preset inventory, catalog, artwork, preview, and generation helpers
 - `ableton/Remote Scripts/CaviMcpBridge` — Ableton Live bridge
-- `config` — product and artwork configuration
+- `config` — product and artwork configuration; set each plugin's `factoryRoots` in `config/plugins/*.json` to your local preset library (empty roots discover nothing)
 - `examples/artwork` — redistributable generic artwork for exercising the renderer
 - `schemas` — manifest schemas
 
