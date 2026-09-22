@@ -15,6 +15,9 @@ reports/
 artwork/
 !examples/artwork/
 !examples/artwork/**
+!config/artwork/
+config/artwork/*
+!config/artwork/*.json
 .env
 .env.*
 !.env.example

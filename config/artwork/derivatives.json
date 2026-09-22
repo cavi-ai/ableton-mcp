@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "verifiedAgainst": "/Users/Shared/NI Resources/image/arkhis",
+  "outputs": [
+    { "name": "NKS2_hardware_banner", "filename": "NKS2_hardware_banner.webp", "format": "WEBP", "width": 1280, "height": 212 },
+    { "name": "NKS2_software_tile", "filename": "NKS2_software_tile.webp", "format": "WEBP", "width": 420, "height": 316 },
+    { "name": "VB_artwork", "filename": "VB_artwork.png", "format": "PNG", "width": 96, "height": 47 },
+    { "name": "MST_artwork", "filename": "MST_artwork.png", "format": "PNG", "width": 134, "height": 66 },
+    { "name": "MST_plugin", "filename": "MST_plugin.png", "format": "PNG", "width": 133, "height": 100 },
+    { "name": "VB_logo", "filename": "VB_logo.png", "format": "PNG", "width": 227, "height": 47 },
+    { "name": "OSO_logo", "filename": "OSO_logo.png", "format": "PNG", "width": 417, "height": 65 },
+    { "name": "MST_logo", "filename": "MST_logo.png", "format": "PNG", "width": 240, "height": 196 }
+  ]
+}

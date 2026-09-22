@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "categories": [
+    { "id": "bass", "symbol": "low-orbit", "accent": "#8B5CF6", "aliases": ["synth bass", "bass", "basses", "bs", "ba", "808"] },
+    { "id": "lead", "symbol": "rising-spear", "accent": "#F43F5E", "aliases": ["synth lead", "leads", "lead", "solo", "ld"] },
+    { "id": "pad", "symbol": "soft-horizon", "accent": "#6366F1", "aliases": ["soundscape pad", "pads", "pad", "pd"] },
+    { "id": "pluck", "symbol": "radiant-point", "accent": "#F59E0B", "aliases": ["plucked", "plucks", "pluck", "pl"] },
+    { "id": "keys", "symbol": "split-steps", "accent": "#38BDF8", "aliases": ["keyboard", "piano", "electric piano", "keys", "key", "organ", "clav", "ky"] },
+    { "id": "strings", "symbol": "twin-bow", "accent": "#D946EF", "aliases": ["string ensemble", "strings", "string", "violin", "cello"] },
+    { "id": "brass", "symbol": "flared-bell", "accent": "#F97316", "aliases": ["brass ensemble", "brass", "horn", "trumpet"] },
+    { "id": "drums", "symbol": "impact-ring", "accent": "#EF4444", "aliases": ["drum kit", "drums", "drum", "kick", "snare", "dr"] },
+    { "id": "percussion", "symbol": "three-strikes", "accent": "#FB923C", "aliases": ["percussion", "percussive", "mallet"] },
+    { "id": "arpeggio", "symbol": "ascending-nodes", "accent": "#22D3EE", "aliases": ["arpeggiated", "arpeggio", "arp"] },
+    { "id": "sequence", "symbol": "pulse-path", "accent": "#10B981", "aliases": ["rhythmic sequence", "sequences", "sequence", "sequenced", "rhythmic", "seq", "sq"] },
+    { "id": "effects", "symbol": "broken-halo", "accent": "#A3E635", "aliases": ["sound effects", "effects", "fx", "noise"] },
+    { "id": "atmosphere", "symbol": "distant-eclipse", "accent": "#818CF8", "aliases": ["atmospheres", "atmosphere", "atmos", "soundscape", "texture", "ambient"] },
+    { "id": "vocals", "symbol": "breath-wave", "accent": "#F472B6", "aliases": ["vocal ensemble", "vocals", "vocal", "choir", "voice", "vox"] },
+    { "id": "miscellaneous", "symbol": "quiet-constellation", "accent": "#94A3B8", "aliases": [] }
+  ]
+}

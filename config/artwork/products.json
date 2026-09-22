@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "promptVersion": 1,
+  "sharedDirection": "Dark cinematic, premium, atmospheric, high contrast, strong central silhouette, protected edges, legible at controller-thumbnail scale.",
+  "negativeConstraints": [
+    "no text",
+    "no letters or numbers",
+    "no logos",
+    "no trademarks",
+    "no copied software interfaces",
+    "no official product packaging",
+    "no edge clipping",
+    "no rainbow oversaturation"
+  ],
+  "products": {
+    "omnisphere": {
+      "identity": "Expansive environments, organic textures, mist, deep atmospheric perspective, and restrained cosmic elements.",
+      "productMasterPath": "artwork/nks/masters/omnisphere/product-master.png",
+      "nativeImageKey": "omnisphere",
+      "displayName": "Omnisphere"
+    },
+    "serum-2": {
+      "identity": "Sharp spectral forms, glass, liquid energy, wave geometry, and controlled electric highlights.",
+      "productMasterPath": "artwork/nks/masters/serum-2/product-master.png",
+      "nativeImageKey": "serum 2",
+      "displayName": "Serum 2"
+    },
+    "vps-avenger": {
+      "identity": "Monumental mechanical forms, dense architecture, metallic surfaces, and controlled power.",
+      "productMasterPath": "artwork/nks/masters/vps-avenger/product-master.png",
+      "nativeImageKey": "vps avenger",
+      "displayName": "VPS Avenger"
+    }
+  }
+}
