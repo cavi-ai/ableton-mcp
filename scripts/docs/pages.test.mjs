@@ -37,3 +37,11 @@ test("the README tool count matches the published contracts", async () => {
   const readme = await readFile(path.join(REPO_ROOT, "README.md"), "utf8");
   assert.match(readme, new RegExp(`publishes ${Object.keys(toolContracts).length} tools`, "u"));
 });
+
+test("README links to repository files resolve", async () => {
+  const readme = await readFile(path.join(REPO_ROOT, "README.md"), "utf8");
+  const { existsSync } = await import("node:fs");
+  const broken = [...readme.matchAll(/\]\(([^)#\s]+)(?:#[^)]*)?\)/gu)].map(([, target]) => target)
+    .filter((target) => !/^[a-z]+:/u.test(target) && !existsSync(path.join(REPO_ROOT, target)));
+  assert.deepEqual(broken, []);
+});

@@ -1,6 +1,6 @@
 import { createInterface } from "node:readline";
 import { ToolService } from "./tool-service.mjs";
-import { isMainModule } from "./paths.mjs";
+import { PACKAGE_VERSION, isMainModule } from "./paths.mjs";
 import { createConfiguredService } from "./runtime.mjs";
 import { toolContracts } from "./tool-contracts.mjs";
 import { validateToolArguments } from "./tool-validation.mjs";
@@ -233,7 +233,7 @@ export function createRouter(service) {
         result = {
           protocolVersion: params.protocolVersion || "2025-03-26",
           capabilities: { resources: {}, tools: {}, prompts: { listChanged: false } },
-          serverInfo: { name: "ableton-mcp", version: "0.1.0" }
+          serverInfo: { name: "ableton-mcp", version: PACKAGE_VERSION }
         };
       } else if (method === "resources/list") result = { resources };
       else if (method === "resources/read") {

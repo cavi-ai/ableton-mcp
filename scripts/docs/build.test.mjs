@@ -78,3 +78,15 @@ test("build rejects mismatched versions and stray output, and regenerates stale 
   await writeFile(path.join(output, "stray.md"), "stray\n");
   await assert.rejects(buildDocumentation({ ...IDENTITY, outputRoot: output }), /dirty output/u);
 });
+
+test("build refreshes the manifest when the same content is rebuilt for a new commit", async (context) => {
+  const temporary = await mkdtemp(path.join(os.tmpdir(), "ableton-mcp-docs-rebuild-"));
+  context.after(() => rm(temporary, { recursive: true, force: true }));
+  const { buildDocumentation } = await import("./build.mjs");
+  const output = path.join(temporary, "built");
+  await buildDocumentation({ ...IDENTITY, outputRoot: output });
+  const next = { ...IDENTITY, commit: "f".repeat(40) };
+  const { manifest } = await buildDocumentation({ ...next, outputRoot: output });
+  assert.equal(manifest.release.commit, next.commit);
+  assert.equal(JSON.parse(await readFile(path.join(output, "manifest.json"), "utf8")).release.commit, next.commit);
+});

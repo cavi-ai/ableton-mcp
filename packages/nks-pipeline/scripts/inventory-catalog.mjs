@@ -34,6 +34,7 @@ const configs = readdirSync(configDirectory)
   .sort()
   .map((name) => JSON.parse(readFileSync(join(configDirectory, name), "utf8")))
   .filter((config) => config.enabled && (!productSlug || config.productSlug === productSlug));
+if (productSlug && configs.length === 0) throw new Error(`no enabled product matches --product ${productSlug}`);
 for (const config of configs) {
   if (!adapters[config.productSlug]) throw new Error(`no discovery adapter for ${config.productSlug}`);
 }
@@ -44,11 +45,17 @@ const catalog = Catalog.open(catalogPath);
 try {
   for (const config of configs) {
     const factoryRoots = config.factoryRoots.map(expandHome);
-    const { discovered, unchanged } = await inventoryProduct({
-      discover: () => adapters[config.productSlug]({ ...config, factoryRoots }),
-      store,
-      catalog
-    });
+    const discoveries = await adapters[config.productSlug]({ ...config, factoryRoots });
+    catalog.database.exec("BEGIN");
+    let result;
+    try {
+      result = await inventoryProduct({ discover: async () => discoveries, store, catalog });
+      catalog.database.exec("COMMIT");
+    } catch (error) {
+      catalog.database.exec("ROLLBACK");
+      throw error;
+    }
+    const { discovered, unchanged } = result;
     console.log(`${config.productSlug} discovered=${discovered} unchanged=${unchanged}`);
   }
 } finally {

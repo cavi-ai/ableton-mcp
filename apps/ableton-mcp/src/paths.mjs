@@ -1,7 +1,9 @@
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir, platform as currentPlatform } from "node:os";
+
+export const PACKAGE_VERSION = JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8")).version;
 
 export function defaultRemoteScriptRoots({ platform = currentPlatform(), home = homedir() } = {}) {
   if (platform === "darwin") {

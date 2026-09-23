@@ -67,3 +67,11 @@ test("inventory-catalog rejects an enabled product without a discovery adapter",
   }));
   await assert.rejects(inventory(root), /no discovery adapter for unknown-synth/);
 });
+
+test("inventory-catalog rejects a --product that matches no enabled config", async () => {
+  const root = await workspace();
+  await assert.rejects(run(process.execPath, [
+    script, "--config-dir", join(root, "plugins"), "--product", "vps-avenger",
+    "--manifest", join(root, "out", "manifest.json"), "--catalog", join(root, "out", "catalog.sqlite")
+  ]), /no enabled product matches --product vps-avenger/);
+});

@@ -34,3 +34,14 @@ test("engines floor covers unflagged node:sqlite when a packed module imports it
   assert.ok(floor, `unexpected engines.node ${pkg.engines.node}`);
   assert.ok(atLeast(version(floor), [22, 13, 0]), `node:sqlite needs --experimental-sqlite below 22.13.0; engines.node is ${pkg.engines.node}`);
 });
+
+test("server, doctor, and bridge report the package version", async () => {
+  const { version } = JSON.parse(await readFile(new URL("package.json", root), "utf8"));
+  const { PACKAGE_VERSION } = await import("../src/paths.mjs");
+  assert.equal(PACKAGE_VERSION, version);
+  const bridge = await readFile(new URL("ableton/Remote Scripts/CaviMcpBridge/bridge.py", root), "utf8");
+  assert.equal(bridge.match(/^BRIDGE_VERSION = "([^"]+)"$/mu)?.[1], version);
+  for (const source of ["../src/cli.mjs", "../src/server.mjs"]) {
+    assert.doesNotMatch(await readFile(new URL(source, import.meta.url), "utf8"), /["']\d+\.\d+\.\d+["']/u, source);
+  }
+});

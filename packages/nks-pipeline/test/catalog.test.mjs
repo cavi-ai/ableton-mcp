@@ -149,3 +149,12 @@ test("Catalog search without a product slug spans every product", async () => {
   assert.deepEqual(catalog.search({ productSlug: "serum-2" }).map((preset) => preset.id), ["serum-2:a"]);
   catalog.close();
 });
+
+test("Catalog search treats an empty product slug as every product", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "nks-catalog-empty-"));
+  const catalog = Catalog.open(join(dir, "catalog.sqlite"));
+  catalog.upsert({ id: "serum-2:a", productSlug: "serum-2", name: "Deep", bank: "Factory", subBank: "Bass", types: [],
+    modes: [], author: "Vendor", sourceFingerprint: "sha256:a", state: "indexed", evidence: [] });
+  assert.deepEqual(catalog.search({ productSlug: "", query: "deep" }).map((preset) => preset.id), ["serum-2:a"]);
+  catalog.close();
+});

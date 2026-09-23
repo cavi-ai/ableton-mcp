@@ -99,7 +99,7 @@ export class Catalog {
          LEFT JOIN preset_metadata ON preset_metadata.preset_id = presets.id
          WHERE (?1 IS NULL OR presets.product_slug = ?1) AND lower(presets.name) LIKE ?2 ORDER BY presets.id`
       )
-      .all(productSlug ?? null, `%${query.toLowerCase()}%`)
+      .all(productSlug || null, `%${query.toLowerCase()}%`)
       .map((row) => this.#presetFromRow(row))
       .filter((record) => favorite === undefined || record.metadata.favorite === favorite)
       .filter((record) => requiredTags.every((tag) => record.metadata.tags.includes(tag)));

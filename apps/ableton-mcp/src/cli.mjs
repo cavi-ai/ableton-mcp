@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir, platform as currentPlatform } from "node:os";
-import { defaultRemoteScriptRoots, isMainModule, resolveRuntimeConfig } from "./paths.mjs";
+import { PACKAGE_VERSION, defaultRemoteScriptRoots, isMainModule, resolveRuntimeConfig } from "./paths.mjs";
 import { createConfiguredService } from "./runtime.mjs";
 import { runStdio } from "./server.mjs";
 import { UnixBridgeClient } from "./bridge-client.mjs";
@@ -59,7 +59,7 @@ export async function runCli(argv, dependencies = {}) {
       bridgeState = await bridgeProbe();
       const advertised = Array.isArray(bridgeState.capabilities) ? bridgeState.capabilities : [];
       missingCapabilities = requiredCapabilities.filter((name) => !advertised.includes(name));
-      if (bridgeState.bridgeVersion !== "0.1.0") reason = "outdated bridge: expected 0.1.0";
+      if (bridgeState.bridgeVersion !== PACKAGE_VERSION) reason = `outdated bridge: expected ${PACKAGE_VERSION}`;
       else if (missingCapabilities.length) reason = `bridge is missing required capabilities: ${missingCapabilities.join(", ")}`;
     } catch (error) {
       reason = error.message;
