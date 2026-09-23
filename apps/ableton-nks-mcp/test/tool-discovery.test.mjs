@@ -37,3 +37,17 @@ test("every tool advertises MCP annotations matching its mutation class", async 
     assert.deepEqual(byName.get(name).annotations, { readOnlyHint: false, destructiveHint: true }, name);
   }
 });
+
+test("every contracted tool has a service handler", async () => {
+  const bridge = { request: async () => { throw new Error("bridge unavailable"); } };
+  const service = new ToolService({ bridge, catalog: { search: () => [], get: () => undefined } });
+  const unhandled = [];
+  for (const name of Object.keys(toolContracts)) {
+    try {
+      await service.call(name, {});
+    } catch (error) {
+      if (error.message === `unknown tool ${name}`) unhandled.push(name);
+    }
+  }
+  assert.deepEqual(unhandled, []);
+});

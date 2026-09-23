@@ -39,7 +39,7 @@
     "test:pipeline": "npm --workspace @cavi-ai/nks-pipeline test"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13"
   },
   "dependencies": {
     "ajv": "8.20.0"

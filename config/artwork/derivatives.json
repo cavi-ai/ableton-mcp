@@ -1,6 +1,5 @@
 {
   "version": 1,
-  "verifiedAgainst": "/Users/Shared/NI Resources/image/arkhis",
   "outputs": [
     { "name": "NKS2_hardware_banner", "filename": "NKS2_hardware_banner.webp", "format": "WEBP", "width": 1280, "height": 212 },
     { "name": "NKS2_software_tile", "filename": "NKS2_software_tile.webp", "format": "WEBP", "width": 420, "height": 316 },
