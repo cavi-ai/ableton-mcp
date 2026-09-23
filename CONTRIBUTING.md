@@ -9,14 +9,14 @@ npm ci
 npm test
 ```
 
-`npm test` must pass on a clean checkout before a pull request is opened. Ableton Live is not required for the test suites; `ABLETON_NKS_MCP_FIXTURE=1 npm start` serves fixture data over stdio.
+`npm test` must pass on a clean checkout before a pull request is opened. Ableton Live is not required for the test suites; `ABLETON_MCP_FIXTURE=1 npm start` serves fixture data over stdio.
 
 ## Where changes go
 
-- MCP tool schemas: `apps/ableton-nks-mcp/src/tool-contracts.mjs`
-- MCP tool behavior: `apps/ableton-nks-mcp/src/tool-service.mjs` and the module it delegates to
+- MCP tool schemas: `apps/ableton-mcp/src/tool-contracts.mjs`
+- MCP tool behavior: `apps/ableton-mcp/src/tool-service.mjs` and the module it delegates to
 - Live-side operations: `ableton/Remote Scripts/CaviMcpBridge/bridge.py`, advertised in `capabilities.json`
-- Tests: `apps/ableton-nks-mcp/test`, `packages/nks-pipeline/test`, `ableton/Remote Scripts/CaviMcpBridge/tests`
+- Tests: `apps/ableton-mcp/test`, `packages/nks-pipeline/test`, `ableton/Remote Scripts/CaviMcpBridge/tests`
 
 ## Rules for changes
 

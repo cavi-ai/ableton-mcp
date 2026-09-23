@@ -6,6 +6,6 @@ Report vulnerabilities privately through GitHub's "Report a vulnerability" form 
 
 ## Scope
 
-- The Remote Script bridge listens on a Unix domain socket, default `/tmp/cavi-ableton-mcp.sock`, overridable with `CAVI_MCP_BRIDGE_SOCKET`. It opens no TCP port.
+- The Remote Script bridge listens on a Unix domain socket, default `/tmp/cavi-ableton-mcp.sock`, overridable with `ABLETON_MCP_BRIDGE_SOCKET`. It opens no TCP port.
 - Every Ableton mutation requires an observed state version, defaults to a dry-run plan, and executes only with a short-lived, single-use confirmation token.
 - `ableton-mcp install` writes only the `CaviMcpBridge` directory into the Remote Scripts destination; `uninstall` removes only that directory.

@@ -273,7 +273,7 @@ export async function runStdio({ service }) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  if (process.env.ABLETON_NKS_MCP_FIXTURE === "1") {
+  if (process.env.ABLETON_MCP_FIXTURE === "1") {
     process.stderr.write("ableton-mcp fixture mode\n");
     await runStdio({ service: fixtureService() });
   } else {

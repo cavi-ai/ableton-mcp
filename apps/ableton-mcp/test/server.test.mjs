@@ -53,7 +53,7 @@ test("MCP exposes and validates nested MIDI repeat counts", async () => {
 test("stdio server initializes and lists MCP resources and tools", async () => {
   const child = spawn(process.execPath, ["src/server.mjs"], {
     cwd: new URL("..", import.meta.url),
-    env: { ...process.env, ABLETON_NKS_MCP_FIXTURE: "1" },
+    env: { ...process.env, ABLETON_MCP_FIXTURE: "1" },
     stdio: ["pipe", "pipe", "pipe"]
   });
   let stdout = "";

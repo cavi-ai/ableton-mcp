@@ -26,7 +26,7 @@ Register the stdio server with an MCP client, using the absolute path of the che
   "mcpServers": {
     "ableton": {
       "command": "node",
-      "args": ["/path/to/ableton-mcp/apps/ableton-nks-mcp/src/cli.mjs", "serve"]
+      "args": ["/path/to/ableton-mcp/apps/ableton-mcp/src/cli.mjs", "serve"]
     }
   }
 }
@@ -34,7 +34,7 @@ Register the stdio server with an MCP client, using the absolute path of the che
 
 ## Repository layout
 
-- `apps/ableton-nks-mcp` — MCP server, CLI, and tests
+- `apps/ableton-mcp` — MCP server, CLI, and tests
 - `packages/nks-pipeline` — preset inventory, catalog, artwork, preview, and generation helpers
 - `ableton/Remote Scripts/CaviMcpBridge` — Ableton Live bridge
 - `config` — product and artwork configuration; set each plugin's `factoryRoots` in `config/plugins/*.json` to your local preset library (empty roots discover nothing)
@@ -111,21 +111,21 @@ Use `ableton-mcp uninstall` to remove only that installed script directory. Pass
 Run the MCP server in fixture mode:
 
 ```bash
-ABLETON_NKS_MCP_FIXTURE=1 npm start
+ABLETON_MCP_FIXTURE=1 npm start
 ```
 
-Set `ABLETON_NKS_CATALOG_PATH` only when local preset search is wanted. Without it, preset search returns an empty collection.
+Set `ABLETON_MCP_CATALOG_PATH` only when local preset search is wanted. Without it, preset search returns an empty collection.
 
 ## Configuration
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `CAVI_MCP_BRIDGE_SOCKET` | `/tmp/cavi-ableton-mcp.sock` | Remote Script bridge socket; read by both the bridge inside Live and the server |
-| `ABLETON_NKS_CATALOG_PATH` | unset | NKS catalog database for preset search |
-| `CAVI_MCP_BROWSER_METADATA_PATH` | `~/.cavi/ableton-mcp/browser-metadata.sqlite` | Metadata for Live browser items |
-| `CAVI_MCP_CONFIRMATION_DIR` | `~/.cavi/ableton-mcp/confirmations` | Single-use confirmation tokens |
-| `CAVI_MCP_SNAPSHOT_DIR` | `~/.cavi/ableton-mcp/snapshots` | Track and device-chain snapshots |
-| `ABLETON_NKS_MCP_FIXTURE` | unset | `1` makes `npm start` serve fixture data without Live |
+| `ABLETON_MCP_BRIDGE_SOCKET` | `/tmp/cavi-ableton-mcp.sock` | Remote Script bridge socket; read by both the bridge inside Live and the server |
+| `ABLETON_MCP_CATALOG_PATH` | unset | NKS catalog database for preset search |
+| `ABLETON_MCP_BROWSER_METADATA_PATH` | `~/.cavi/ableton-mcp/browser-metadata.sqlite` | Metadata for Live browser items |
+| `ABLETON_MCP_CONFIRMATION_DIR` | `~/.cavi/ableton-mcp/confirmations` | Single-use confirmation tokens |
+| `ABLETON_MCP_SNAPSHOT_DIR` | `~/.cavi/ableton-mcp/snapshots` | Track and device-chain snapshots |
+| `ABLETON_MCP_FIXTURE` | unset | `1` makes `npm start` serve fixture data without Live |
 
 ## Safety
 

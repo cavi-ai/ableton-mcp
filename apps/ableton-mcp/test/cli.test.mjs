@@ -97,12 +97,12 @@ test("install excludes packaged tests and Python caches while copying runtime br
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("doctor reports actionable configuration without requiring the private NKS catalog", async () => {
+test("doctor reports actionable configuration without requiring an NKS catalog", async () => {
   const root = await mkdtemp(join(tmpdir(), "ableton-mcp-doctor-"));
   const result = await runCli(["doctor", "--json"], {
     platform: "darwin",
     home: root,
-    env: { CAVI_MCP_BRIDGE_SOCKET: join(root, "missing.sock") },
+    env: { ABLETON_MCP_BRIDGE_SOCKET: join(root, "missing.sock") },
     stdout: () => {}
   });
   assert.equal(result.catalog.configured, false);
