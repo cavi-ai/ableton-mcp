@@ -4,7 +4,8 @@ import { mkdtemp, symlink, mkdir, writeFile, readFile, stat, rm } from "node:fs/
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
-import { isMainModule, parseCli, runCli } from "../src/cli.mjs";
+import { parseCli, runCli } from "../src/cli.mjs";
+import { isMainModule } from "../src/paths.mjs";
 import { ToolService } from "../src/tool-service.mjs";
 
 test("CLI validation preserves real guarded confirmation execution", async () => {

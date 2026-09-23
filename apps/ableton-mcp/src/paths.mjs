@@ -1,4 +1,6 @@
+import { realpathSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { homedir, platform as currentPlatform } from "node:os";
 
 export function defaultRemoteScriptRoots({ platform = currentPlatform(), home = homedir() } = {}) {
@@ -23,4 +25,10 @@ export function resolveRuntimeConfig(environment = process.env, options = {}) {
     confirmationDirectory: environment.ABLETON_MCP_CONFIRMATION_DIR || join(home, ".cavi", "ableton-mcp", "confirmations"),
     snapshotDirectory: environment.ABLETON_MCP_SNAPSHOT_DIR || join(home, ".cavi", "ableton-mcp", "snapshots")
   };
+}
+
+export function isMainModule(moduleUrl, argvPath) {
+  if (!argvPath) return false;
+  try { return realpathSync(fileURLToPath(moduleUrl)) === realpathSync(argvPath); }
+  catch { return false; }
 }

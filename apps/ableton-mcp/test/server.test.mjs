@@ -152,3 +152,21 @@ test("stdio server initializes and lists MCP resources and tools", async () => {
   assert.match(stderr, /fixture mode/);
   assert.equal(stdout.includes("fixture mode"), false);
 });
+
+test("stdio server starts when launched through a symlinked path", async () => {
+  const { mkdtemp, symlink } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const link = join(await mkdtemp(join(tmpdir(), "ableton-mcp-link-")), "app");
+  await symlink(fileURLToPath(new URL("..", import.meta.url)), link);
+  const child = spawn(process.execPath, [join(link, "src/server.mjs")], {
+    env: { ...process.env, ABLETON_MCP_FIXTURE: "1" },
+    stdio: ["pipe", "pipe", "pipe"]
+  });
+  let stdout = "";
+  child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
+  child.stdin.end(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" })}\n`);
+  await once(child, "exit");
+  assert.ok(JSON.parse(stdout.trim()).result.tools.length > 0);
+});

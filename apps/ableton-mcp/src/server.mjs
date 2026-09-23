@@ -1,6 +1,6 @@
 import { createInterface } from "node:readline";
-import { pathToFileURL } from "node:url";
 import { ToolService } from "./tool-service.mjs";
+import { isMainModule } from "./paths.mjs";
 import { createConfiguredService } from "./runtime.mjs";
 import { toolContracts } from "./tool-contracts.mjs";
 import { validateToolArguments } from "./tool-validation.mjs";
@@ -272,7 +272,7 @@ export async function runStdio({ service }) {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isMainModule(import.meta.url, process.argv[1])) {
   if (process.env.ABLETON_MCP_FIXTURE === "1") {
     process.stderr.write("ableton-mcp fixture mode\n");
     await runStdio({ service: fixtureService() });

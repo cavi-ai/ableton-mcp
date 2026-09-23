@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 import { cp, mkdir, rm } from "node:fs/promises";
-import { realpathSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir, platform as currentPlatform } from "node:os";
-import { defaultRemoteScriptRoots, resolveRuntimeConfig } from "./paths.mjs";
+import { defaultRemoteScriptRoots, isMainModule, resolveRuntimeConfig } from "./paths.mjs";
 import { createConfiguredService } from "./runtime.mjs";
 import { runStdio } from "./server.mjs";
 import { UnixBridgeClient } from "./bridge-client.mjs";
@@ -13,12 +13,6 @@ import { getPrompt, listPrompts } from "./prompts.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const requiredCapabilities = JSON.parse(readFileSync(new URL("../../../ableton/Remote Scripts/CaviMcpBridge/capabilities.json", import.meta.url), "utf8"));
-
-export function isMainModule(moduleUrl, argvPath) {
-  if (!argvPath) return false;
-  try { return realpathSync(fileURLToPath(moduleUrl)) === realpathSync(argvPath); }
-  catch { return false; }
-}
 
 export function parseCli(argv) {
   const command = argv.find((value) => !value.startsWith("-")) || "help";
