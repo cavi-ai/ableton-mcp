@@ -6,6 +6,7 @@
 - Guarded mutations: dry-run plans, state versions, single-use confirmation tokens
 - Read-only MCP resources and producer workflow prompts
 - Optional NKS preset catalog: `npm run catalog:inventory` builds it from `config/plugins`; `search_presets` searches every product unless `productSlug` is given
+- Presets no longer found on disk are flagged `missing` and hidden from search; tags and favorites are kept
 - Optional NKS artwork pipeline
 - Environment variables use the `ABLETON_MCP_` prefix
 - Versioned documentation under `docs/ableton-mcp/source`, published on release

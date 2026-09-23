@@ -29,6 +29,8 @@ For every enabled product, this discovers presets, then writes `reports/nks/mani
 
 Runs are incremental. A preset whose source fingerprint hasn't changed is reported as `unchanged` and keeps its record. An enabled product without a discovery adapter is an error.
 
+A preset the run no longer finds on disk is flagged `missing: true` and counted as `missing`. Its catalog row, tags, favorite state and artwork stay in place. `search_presets` and the product counts skip it, and `get_preset` still returns it with the flag. When the file is back on the next run, the flag is cleared and the preset returns to search with its tags. A misconfigured or empty `factoryRoots` therefore hides presets rather than deleting your metadata. Fix the path and run the inventory again.
+
 Vendor presets stay on your machine. The repository ignores `reports/`, and nothing is uploaded.
 
 ## Use it from the server

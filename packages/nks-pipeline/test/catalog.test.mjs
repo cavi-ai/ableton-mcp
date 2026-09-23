@@ -158,3 +158,16 @@ test("Catalog search treats an empty product slug as every product", async () =>
   assert.deepEqual(catalog.search({ productSlug: "", query: "deep" }).map((preset) => preset.id), ["serum-2:a"]);
   catalog.close();
 });
+
+test("Catalog search and product counts skip presets flagged missing, and get still returns them", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "nks-catalog-missing-"));
+  const catalog = Catalog.open(join(dir, "catalog.sqlite"));
+  const base = { productSlug: "serum-2", bank: "Factory", subBank: "Bass", types: [], modes: [], author: "Vendor",
+    state: "discovered", evidence: [] };
+  catalog.upsert({ ...base, id: "serum-2:a", name: "Deep", sourceFingerprint: "sha256:a" });
+  catalog.upsert({ ...base, id: "serum-2:b", name: "Deeper", sourceFingerprint: "sha256:b", missing: true });
+  assert.deepEqual(catalog.search({ query: "deep" }).map((preset) => preset.id), ["serum-2:a"]);
+  assert.deepEqual(catalog.products().map((row) => ({ ...row })), [{ productSlug: "serum-2", count: 1 }]);
+  assert.equal(catalog.get("serum-2:b").missing, true);
+  catalog.close();
+});

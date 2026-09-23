@@ -89,7 +89,7 @@ The server publishes 183 tools. Mutations of the Live Set require `expectedState
 | `search_browser_item_metadata` | Search saved private browser item tags and favorites. Results are not reverified against current Live browser content and do not represent native Live collections. | none |
 | `search_browser_items` | Search a bounded subtree of Live's browser and return exact paths usable by load_browser_item. | `root`, `query` |
 | `search_local_splice_samples` | Search local downloaded Splice audio assets under an explicit directory. Read-only; not cloud catalog search, download, or sync. Returns exact local source paths for analyze_audio_file. | `rootPath`, `query` |
-| `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. | none |
+| `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
 ## Mutations (93)
 

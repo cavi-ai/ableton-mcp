@@ -97,7 +97,8 @@ export class Catalog {
                   (SELECT tag FROM preset_tags WHERE preset_id = presets.id ORDER BY tag)), '[]') AS tags_json
          FROM presets LEFT JOIN preset_artwork ON preset_artwork.preset_id = presets.id
          LEFT JOIN preset_metadata ON preset_metadata.preset_id = presets.id
-         WHERE (?1 IS NULL OR presets.product_slug = ?1) AND lower(presets.name) LIKE ?2 ORDER BY presets.id`
+         WHERE (?1 IS NULL OR presets.product_slug = ?1) AND lower(presets.name) LIKE ?2
+           AND COALESCE(json_extract(presets.json, '$.missing'), 0) = 0 ORDER BY presets.id`
       )
       .all(productSlug || null, `%${query.toLowerCase()}%`)
       .map((row) => this.#presetFromRow(row))
@@ -154,7 +155,7 @@ export class Catalog {
 
   products() {
     return this.database.prepare(
-      "SELECT product_slug AS productSlug, count(*) AS count FROM presets GROUP BY product_slug ORDER BY product_slug"
+      "SELECT product_slug AS productSlug, count(*) AS count FROM presets WHERE COALESCE(json_extract(json, '$.missing'), 0) = 0 GROUP BY product_slug ORDER BY product_slug"
     ).all();
   }
 

@@ -49,14 +49,14 @@ try {
     catalog.database.exec("BEGIN");
     let result;
     try {
-      result = await inventoryProduct({ discover: async () => discoveries, store, catalog });
+      result = await inventoryProduct({ productSlug: config.productSlug, discover: async () => discoveries, store, catalog });
       catalog.database.exec("COMMIT");
     } catch (error) {
       catalog.database.exec("ROLLBACK");
       throw error;
     }
-    const { discovered, unchanged } = result;
-    console.log(`${config.productSlug} discovered=${discovered} unchanged=${unchanged}`);
+    const { discovered, unchanged, missing } = result;
+    console.log(`${config.productSlug} discovered=${discovered} unchanged=${unchanged} missing=${missing}`);
   }
 } finally {
   catalog.close();

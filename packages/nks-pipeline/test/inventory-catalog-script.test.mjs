@@ -44,7 +44,7 @@ function inventory(root) {
 test("inventory-catalog writes the manifest and a searchable catalog from plugin configs", async () => {
   const root = await workspace();
   const first = await inventory(root);
-  assert.equal(first.stdout.trim(), "serum-2 discovered=2 unchanged=0");
+  assert.equal(first.stdout.trim(), "serum-2 discovered=2 unchanged=0 missing=0");
 
   const manifest = JSON.parse(await readFile(join(root, "out", "manifest.json"), "utf8"));
   assert.deepEqual(manifest.records.map((record) => record.name).sort(), ["Bright", "Deep"]);
@@ -57,7 +57,7 @@ test("inventory-catalog writes the manifest and a searchable catalog from plugin
   }
 
   const second = await inventory(root);
-  assert.equal(second.stdout.trim(), "serum-2 discovered=0 unchanged=2");
+  assert.equal(second.stdout.trim(), "serum-2 discovered=0 unchanged=2 missing=0");
 });
 
 test("inventory-catalog rejects an enabled product without a discovery adapter", async () => {
@@ -74,4 +74,32 @@ test("inventory-catalog rejects a --product that matches no enabled config", asy
     script, "--config-dir", join(root, "plugins"), "--product", "vps-avenger",
     "--manifest", join(root, "out", "manifest.json"), "--catalog", join(root, "out", "catalog.sqlite")
   ]), /no enabled product matches --product vps-avenger/);
+});
+
+test("inventory-catalog hides a deleted preset, keeps its favorite, and restores it when the file returns", async () => {
+  const { rename } = await import("node:fs/promises");
+  const root = await workspace();
+  await inventory(root);
+  const catalogPath = join(root, "out", "catalog.sqlite");
+  let catalog = Catalog.open(catalogPath);
+  const deep = catalog.search({ productSlug: "serum-2", query: "deep" })[0];
+  catalog.setMetadata(deep.id, 0, { favorite: true, tags: ["sub"] });
+  catalog.close();
+
+  const preset = join(root, "home", "serum", "Bass", "Deep.fxp");
+  await rename(preset, join(root, "Deep.fxp"));
+  assert.equal((await inventory(root)).stdout.trim(), "serum-2 discovered=0 unchanged=1 missing=1");
+  catalog = Catalog.open(catalogPath);
+  assert.deepEqual(catalog.search({ productSlug: "serum-2" }).map((item) => item.name), ["Bright"]);
+  assert.deepEqual(catalog.metadata(deep.id), { favorite: true, tags: ["sub"], revision: 1 });
+  catalog.close();
+
+  await rename(join(root, "Deep.fxp"), preset);
+  assert.equal((await inventory(root)).stdout.trim(), "serum-2 discovered=0 unchanged=2 missing=0");
+  catalog = Catalog.open(catalogPath);
+  const restored = catalog.search({ productSlug: "serum-2", query: "deep" })[0];
+  assert.equal(restored.id, deep.id);
+  assert.equal(restored.missing, undefined);
+  assert.deepEqual(restored.metadata, { favorite: true, tags: ["sub"], revision: 1 });
+  catalog.close();
 });

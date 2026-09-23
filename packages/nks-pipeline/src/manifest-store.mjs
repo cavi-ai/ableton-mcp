@@ -26,6 +26,13 @@ export class ManifestStore {
     return value && structuredClone(value);
   }
 
+  list(productSlug) {
+    return [...this.records.values()]
+      .filter((item) => item.productSlug === productSlug)
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map((item) => structuredClone(item));
+  }
+
   pending(productSlug) {
     return [...this.records.values()]
       .filter(
