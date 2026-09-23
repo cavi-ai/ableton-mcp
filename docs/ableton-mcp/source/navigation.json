@@ -1,0 +1,45 @@
+{
+  "title": "Ableton MCP",
+  "version": "{{PRODUCT_VERSION}}",
+  "sections": [
+    {
+      "title": "Introduction",
+      "pages": [
+        { "title": "Overview", "path": "introduction/overview.md" },
+        { "title": "Installation", "path": "introduction/installation.md" },
+        { "title": "Quickstart", "path": "introduction/quickstart.md" }
+      ]
+    },
+    {
+      "title": "Guides",
+      "pages": [
+        { "title": "Guarded mutations", "path": "guides/guarded-mutations.md" },
+        { "title": "Shared instrument buses", "path": "guides/shared-instrument-buses.md" },
+        { "title": "Native saving and recall", "path": "guides/native-saving-and-recall.md" },
+        { "title": "Preset catalog", "path": "guides/preset-catalog.md" },
+        { "title": "NKS artwork", "path": "guides/artwork.md" },
+        { "title": "Troubleshooting", "path": "guides/troubleshooting.md" }
+      ]
+    },
+    {
+      "title": "Reference",
+      "pages": [
+        { "title": "CLI", "path": "reference/cli.md" },
+        { "title": "Configuration", "path": "reference/configuration.md" },
+        { "title": "Tools", "path": "reference/tools.md" }
+      ]
+    },
+    {
+      "title": "Security",
+      "pages": [
+        { "title": "Security model", "path": "security/model.md" }
+      ]
+    },
+    {
+      "title": "Release",
+      "pages": [
+        { "title": "Version and support", "path": "release/version-and-support.md" }
+      ]
+    }
+  ]
+}

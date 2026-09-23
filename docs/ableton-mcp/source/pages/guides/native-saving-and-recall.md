@@ -45,4 +45,3 @@ Verify membership by opening the collection and finding the exact item. If its s
 - A device preset is not a complete track or shared-bus system.
 - Native UI saving is not yet a reusable MCP/CLI save adapter.
 - Track-template, rack/FX-chain, third-party hidden-state, and full-Project recall each require their own workflow and acceptance evidence.
-- Automation should handle its own test-set save/discard prompts; they are not an ownership or permission question.

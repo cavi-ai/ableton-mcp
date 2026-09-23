@@ -21,3 +21,4 @@ config/artwork/*
 .env
 .env.*
 !.env.example
+/docs/ableton-mcp/v*/

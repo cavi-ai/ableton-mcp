@@ -2,7 +2,7 @@
 
 ## Setup
 
-Install Node.js 22+, Python 3, ImageMagick 7 (`magick`), and ffmpeg, then:
+Install Node.js 22.13 or newer, Python 3, ImageMagick 7 (`magick`), and ffmpeg, then:
 
 ```bash
 npm ci
@@ -15,8 +15,9 @@ npm test
 
 - MCP tool schemas: `apps/ableton-mcp/src/tool-contracts.mjs`
 - MCP tool behavior: `apps/ableton-mcp/src/tool-service.mjs` and the module it delegates to
-- Live-side operations: `ableton/Remote Scripts/CaviMcpBridge/bridge.py`, advertised in `capabilities.json`
-- Tests: `apps/ableton-mcp/test`, `packages/nks-pipeline/test`, `ableton/Remote Scripts/CaviMcpBridge/tests`
+- Live-side operations: `ableton/Remote Scripts/CaviMcpBridge/bridge.py`, advertised in `capabilities.json`. Tests fail if a dispatched method is missing from `capabilities.json`, or if a contracted tool has no handler.
+- Documentation: `docs/ableton-mcp/source`. After changing a tool contract, run `npm run docs:tools` to regenerate `reference/tools.md`.
+- Tests: `apps/ableton-mcp/test`, `packages/nks-pipeline/test`, `ableton/Remote Scripts/CaviMcpBridge/tests`, `scripts/docs`
 
 ## Rules for changes
 
