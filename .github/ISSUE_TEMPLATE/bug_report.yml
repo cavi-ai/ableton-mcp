@@ -1,0 +1,55 @@
+name: Bug report
+description: A defect in the MCP server, the CLI, the Remote Script bridge, or the NKS tooling
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Release tag or commit SHA
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - MCP server (stdio)
+        - CLI
+        - Remote Script bridge
+        - NKS catalog or artwork pipeline
+        - Documentation
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Tool name and arguments, CLI command, or MCP request
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: Include the error message and the relevant `doctor --json` output
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: macOS version, Live version and edition, Node.js version
+    validations:
+      required: true
