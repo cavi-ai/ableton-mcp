@@ -97,10 +97,10 @@ export class Catalog {
                   (SELECT tag FROM preset_tags WHERE preset_id = presets.id ORDER BY tag)), '[]') AS tags_json
          FROM presets LEFT JOIN preset_artwork ON preset_artwork.preset_id = presets.id
          LEFT JOIN preset_metadata ON preset_metadata.preset_id = presets.id
-         WHERE (?1 IS NULL OR presets.product_slug = ?1) AND lower(presets.name) LIKE ?2
+         WHERE (? IS NULL OR presets.product_slug = ?) AND lower(presets.name) LIKE ?
            AND COALESCE(json_extract(presets.json, '$.missing'), 0) = 0 ORDER BY presets.id`
       )
-      .all(productSlug || null, `%${query.toLowerCase()}%`)
+      .all(productSlug || null, productSlug || null, `%${query.toLowerCase()}%`)
       .map((row) => this.#presetFromRow(row))
       .filter((record) => favorite === undefined || record.metadata.favorite === favorite)
       .filter((record) => requiredTags.every((tag) => record.metadata.tags.includes(tag)));
