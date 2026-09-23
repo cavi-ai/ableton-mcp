@@ -137,3 +137,15 @@ test("Catalog rejects stale preset metadata revisions and unknown presets", asyn
   assert.throws(() => catalog.metadata("missing"), /unknown preset missing/);
   catalog.close();
 });
+
+test("Catalog search without a product slug spans every product", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "nks-catalog-all-"));
+  const catalog = Catalog.open(join(dir, "catalog.sqlite"));
+  for (const [id, productSlug, name] of [["serum-2:a", "serum-2", "Deep Bass"], ["omnisphere:a", "omnisphere", "Deep Pad"]]) {
+    catalog.upsert({ id, productSlug, name, bank: "Factory", subBank: "Main", types: [], modes: [],
+      author: "Vendor", sourceFingerprint: `sha256:${id}`, state: "indexed", evidence: [] });
+  }
+  assert.deepEqual(catalog.search({ query: "deep" }).map((preset) => preset.id), ["omnisphere:a", "serum-2:a"]);
+  assert.deepEqual(catalog.search({ productSlug: "serum-2" }).map((preset) => preset.id), ["serum-2:a"]);
+  catalog.close();
+});

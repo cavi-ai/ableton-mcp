@@ -51,3 +51,8 @@ test("every contracted tool has a service handler", async () => {
   }
   assert.deepEqual(unhandled, []);
 });
+
+test("search_presets advertises only the filters the catalog applies", () => {
+  assert.deepEqual(Object.keys(toolContracts.search_presets.inputSchema.properties).sort(),
+    ["favorite", "limit", "productSlug", "query", "tags"]);
+});

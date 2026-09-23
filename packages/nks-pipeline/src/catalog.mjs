@@ -97,9 +97,9 @@ export class Catalog {
                   (SELECT tag FROM preset_tags WHERE preset_id = presets.id ORDER BY tag)), '[]') AS tags_json
          FROM presets LEFT JOIN preset_artwork ON preset_artwork.preset_id = presets.id
          LEFT JOIN preset_metadata ON preset_metadata.preset_id = presets.id
-         WHERE presets.product_slug = ? AND lower(presets.name) LIKE ? ORDER BY presets.id`
+         WHERE (?1 IS NULL OR presets.product_slug = ?1) AND lower(presets.name) LIKE ?2 ORDER BY presets.id`
       )
-      .all(productSlug, `%${query.toLowerCase()}%`)
+      .all(productSlug ?? null, `%${query.toLowerCase()}%`)
       .map((row) => this.#presetFromRow(row))
       .filter((record) => favorite === undefined || record.metadata.favorite === favorite)
       .filter((record) => requiredTags.every((tag) => record.metadata.tags.includes(tag)));
