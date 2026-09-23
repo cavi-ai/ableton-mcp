@@ -45,3 +45,7 @@ The audio analysis tools need `ffmpeg` and `ffprobe` on `PATH`. MCP clients ofte
 ## Preset search returns nothing
 
 `ABLETON_MCP_CATALOG_PATH` is unset, or the catalog is empty. `doctor` reports `catalog.configured`. Build the catalog with `npm run catalog:inventory`; see [Preset catalog](preset-catalog.md).
+
+## `ExperimentalWarning: SQLite is an experimental feature`
+
+Node.js 22 prints this on stderr when the SQLite module loads. It doesn't affect the MCP protocol, which uses stdout. Node.js 24 doesn't print it.

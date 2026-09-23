@@ -13,7 +13,8 @@ test("server can be imported from a Node eval without starting stdio", async () 
   child.stderr.setEncoding("utf8").on("data", chunk => { stderr += chunk; });
   const [code] = await once(child, "exit");
   assert.equal(code, 0, stderr);
-  assert.equal(stderr, "");
+  const nodeSqliteWarning = /ExperimentalWarning: SQLite is an experimental feature|Use `node --trace-warnings/;
+  assert.deepEqual(stderr.split("\n").filter(line => line && !nodeSqliteWarning.test(line)), []);
   assert.equal(JSON.parse(stdout).result.tools.some(tool => tool.name === "get_live_state"), true);
 });
 
