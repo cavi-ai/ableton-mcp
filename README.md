@@ -125,14 +125,13 @@ Set `ABLETON_NKS_CATALOG_PATH` only when local preset search is wanted. Without 
 | `CAVI_MCP_BROWSER_METADATA_PATH` | `~/.cavi/ableton-mcp/browser-metadata.sqlite` | Metadata for Live browser items |
 | `CAVI_MCP_CONFIRMATION_DIR` | `~/.cavi/ableton-mcp/confirmations` | Single-use confirmation tokens |
 | `CAVI_MCP_SNAPSHOT_DIR` | `~/.cavi/ableton-mcp/snapshots` | Track and device-chain snapshots |
-| `KOMPLETE_AUTOMATION_SOCKET` | `/tmp/cavi-komplete-automation.sock` | Socket for the Komplete automation tools; the service listening on it is not part of this repository |
 | `ABLETON_NKS_MCP_FIXTURE` | unset | `1` makes `npm start` serve fixture data without Live |
 
 ## Safety
 
 Mutating Ableton operations use plan hashes and short-lived, single-use confirmation tokens. Keep generated commercial preset content out of this repository.
 
-MCP discovery publishes closed top-level JSON Schemas and operation-specific descriptions for every tool, plus a `prompts` capability with producer workflow templates (`session-overview`, `produce-drum-pattern`, `harmonize-clip`, `build-producer-chain`, `arrangement-rework`). Every tool advertises MCP annotations (`readOnlyHint`/`destructiveHint`). Ableton mutations advertise `expectedStateVersion`; Komplete UI mutations advertise `expectedSessionVersion`, along with their dry-run and confirmation fields.
+MCP discovery publishes closed top-level JSON Schemas and operation-specific descriptions for every tool, plus a `prompts` capability with producer workflow templates (`session-overview`, `produce-drum-pattern`, `harmonize-clip`, `build-producer-chain`, `arrangement-rework`). Every tool advertises MCP annotations (`readOnlyHint`/`destructiveHint`). Ableton mutations advertise `expectedStateVersion` along with their dry-run and confirmation fields.
 
 `get_history_state` exposes Live's current undo/redo availability. Guarded `undo` and `redo` operations refuse unavailable history actions and advance the bridge state version after execution.
 

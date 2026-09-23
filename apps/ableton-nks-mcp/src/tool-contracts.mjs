@@ -22,11 +22,6 @@ const confirmation = {
 const guarded = (properties = {}, required = []) => object(
   { ...properties, ...confirmation }, ["expectedStateVersion", ...required]
 );
-const sessionGuarded = (properties = {}, required = []) => object({
-  ...properties,
-  expectedSessionVersion: { type: "integer", minimum: 1, description: "Exact Komplete sessionVersion observed immediately before planning." },
-  dryRun: confirmation.dryRun, confirmationToken: confirmation.confirmationToken, planHash: confirmation.planHash,
-}, ["expectedSessionVersion", ...required]);
 const metadataGuarded = (properties = {}, required = []) => object({
   ...properties,
   expectedMetadataRevision: { type: "integer", minimum: 0, description: "Exact preset metadata revision observed immediately before planning." },
@@ -441,13 +436,6 @@ const contracts = {
   launch_clip: { description: "Plan or launch one exact Session clip slot.", inputSchema: guarded({ trackId: ids.trackId, clipId: ids.clipId }, ["trackId", "clipId"]) },
   stop_clip: { description: "Plan or stop one exact Session clip slot.", inputSchema: guarded({ trackId: ids.trackId, clipId: ids.clipId }, ["trackId", "clipId"]) },
   arm_track: { description: "Plan or set the record-arm state of one exact track.", inputSchema: guarded({ trackId: ids.trackId, armed: boolean("Requested arm state.") }, ["trackId", "armed"]) },
-  komplete_get_status: { description: "Read current Komplete automation session state.", inputSchema: empty },
-  komplete_open_instrument: { description: "Plan or open the instrument identified by an exact product slug in Komplete Kontrol.", inputSchema: sessionGuarded({ productSlug: string("Exact product slug.") }, ["productSlug"]) },
-  komplete_load_source_preset: { description: "Plan or load one exact source preset in Komplete Kontrol.", inputSchema: sessionGuarded({ productSlug: string("Exact product slug."), sourcePath: string("Absolute source preset path."), presetId: ids.presetId }, ["sourcePath"]) },
-  komplete_save_nks_preset: { description: "Plan or save the currently loaded sound as an NKS preset.", inputSchema: sessionGuarded({ productSlug: string("Exact product slug."), destinationPath: string("Absolute NKS destination path."), name: string("Preset name."), presetId: ids.presetId }, ["destinationPath"]) },
-  komplete_verify_nks_preset: { description: "Verify an exact indexed NKS preset without changing Komplete state.", inputSchema: object({ fileName: string("Exact NKS filename."), productSlug: string("Expected product slug.") }, ["fileName"]) },
-  komplete_run_conversion_batch: { description: "Plan or start an exact Komplete conversion job batch.", inputSchema: sessionGuarded({ jobs: array({ type: "object", additionalProperties: true }, "Worker-defined conversion job records.") }, ["jobs"]) },
-  komplete_pause_batch: { description: "Plan or pause the active Komplete conversion batch.", inputSchema: sessionGuarded() },
   set_scene_launch_quantization: { description: "Plan or apply a guarded per-scene clip-launch quantization override from list_scenes. The global setting stays in song musical context; only the selected scene changes.", inputSchema: guarded({ sceneId: ids.sceneId, launchQuantization: choice("Launch quantization value or name from list_scenes.") }, ["sceneId", "launchQuantization"]) },
   create_groove: { description: "Plan or create a new groove in Live's Groove Pool with an optional name. Adjust its base grid and amounts afterward with set_groove; groove deletion is not exposed by Live's public API.", inputSchema: guarded({ name: string("New groove name.") }) },
   get_track_midi_routing: { description: "Read one track's native MIDI note routing (input/output notes and scale transposition) from its MIDIMap. Reports unsupported explicitly when Live does not expose it.", inputSchema: track },
@@ -503,7 +491,6 @@ const readOnlyTools = new Set([
   "get_clip_parameter_envelope", "list_devices", "list_device_parameters",
   "capture_device_parameter_snapshot", "capture_device_chain_snapshot",
   "capture_track_state_snapshot", "load_track_state_snapshot",
-  "komplete_get_status", "komplete_verify_nks_preset",
   "get_track_midi_routing", "get_track_freeze_state"
 ]);
 

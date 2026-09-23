@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test test/*.test.mjs",
+    "catalog:inventory": "node scripts/inventory-catalog.mjs",
     "artwork:matrix": "node scripts/build-artwork-matrix.mjs",
     "artwork:render": "node scripts/render-artwork-derivatives.mjs",
     "artwork:contact-sheets": "node scripts/build-artwork-contact-sheets.mjs",

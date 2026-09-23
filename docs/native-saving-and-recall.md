@@ -1,6 +1,6 @@
 # Native saving and recall
 
-Live Set and device-preset saving currently require Live's native UI. They are not MCP save commands. Komplete NKS saving is a separate workflow and does not save a Live Set, track, or rack.
+Live Set and device-preset saving currently require Live's native UI. They are not MCP save commands.
 
 ## Save a Live Set
 

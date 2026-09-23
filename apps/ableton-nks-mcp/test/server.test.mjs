@@ -71,7 +71,8 @@ test("stdio server initializes and lists MCP resources and tools", async () => {
   await once(child, "exit");
   const messages = stdout.trim().split("\n").map(JSON.parse);
   assert.equal(messages[0].result.serverInfo.name, "ableton-mcp");
-  assert.equal(messages[1].result.resources.length, 23);
+  assert.equal(messages[1].result.resources.length, 22);
+  assert.equal(messages[1].result.resources.some(({ uri }) => uri.startsWith("komplete://")), false);
   assert.equal(
     messages[1].result.resources.some(({ uri }) => uri === "nks://catalog/artwork/{artwork_id}"),
     true
@@ -94,10 +95,6 @@ test("stdio server initializes and lists MCP resources and tools", async () => {
   for (const name of ["set_song_musical_context", "set_clip_timing", "set_device_parameters", "create_midi_clip", "set_clip_parameter_envelope", "set_midi_note_properties", "panic", "transport_play", "transport_stop", "set_tempo", "set_track_mixer", "launch_scene", "launch_clip", "stop_clip", "arm_track"]) {
     const tool = messages[2].result.tools.find((candidate) => candidate.name === name);
     assert.equal(tool.inputSchema.required.includes("expectedStateVersion"), true, `${name} must advertise its state guard`);
-  }
-  for (const name of ["komplete_open_instrument", "komplete_load_source_preset", "komplete_save_nks_preset", "komplete_run_conversion_batch", "komplete_pause_batch"]) {
-    const tool = messages[2].result.tools.find((candidate) => candidate.name === name);
-    assert.equal(tool.inputSchema.required.includes("expectedSessionVersion"), true, `${name} must advertise its session guard`);
   }
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_audio_clip_state"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "set_audio_clip_state"), true);
@@ -149,7 +146,7 @@ test("stdio server initializes and lists MCP resources and tools", async () => {
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "duplicate_clip_loop"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "list_tracks"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "list_devices"), true);
-  assert.equal(messages[2].result.tools.some((tool) => tool.name === "komplete_run_conversion_batch"), true);
+  assert.equal(messages[2].result.tools.some((tool) => tool.name.startsWith("komplete_")), false);
   assert.equal(messages[3].result.content[0].type, "text");
   assert.equal(JSON.parse(messages[4].result.contents[0].text).method, "get_live_state");
   assert.match(stderr, /fixture mode/);

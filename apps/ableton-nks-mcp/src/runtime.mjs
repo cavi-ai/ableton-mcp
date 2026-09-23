@@ -19,17 +19,16 @@ const emptyCatalog = {
 };
 
 export function createConfiguredService(environment = process.env, { persistentConfirmations = false } = {}) {
-  const { catalogPath, socketPath, kompleteSocketPath, confirmationDirectory, snapshotDirectory, browserMetadataPath } = resolveRuntimeConfig(environment);
+  const { catalogPath, socketPath, confirmationDirectory, snapshotDirectory, browserMetadataPath } = resolveRuntimeConfig(environment);
   const catalog = catalogPath ? Catalog.open(catalogPath) : emptyCatalog;
   const bridge = new UnixBridgeClient(socketPath);
-  const komplete = new UnixBridgeClient(kompleteSocketPath);
   const confirmations = persistentConfirmations
     ? new FileConfirmationStore({ directory: confirmationDirectory })
     : undefined;
   let browserLibrary;
   const browserMetadata = () => (browserLibrary ??= new BrowserMetadataLibrary({ path: browserMetadataPath }));
   return {
-    service: new ToolService({ bridge, catalog, komplete, confirmations,
+    service: new ToolService({ bridge, catalog, confirmations,
       snapshotLibrary: new SnapshotLibrary({ directory: snapshotDirectory }), browserMetadata }),
     close: () => { browserLibrary?.close(); catalog.close(); }
   };

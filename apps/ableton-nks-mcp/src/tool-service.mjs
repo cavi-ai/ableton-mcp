@@ -41,12 +41,6 @@ function requireExpectedState(args) {
   }
 }
 
-function requireExpectedSession(args) {
-  if (!Number.isInteger(args.expectedSessionVersion)) {
-    throw new Error("expectedSessionVersion is required for Komplete mutations");
-  }
-}
-
 function normalizeChoice(value, field, choices) {
   const choice = typeof value === "string"
     ? choices.find((item) => item.name === value)
@@ -240,12 +234,6 @@ function transformMidiNotes(observed, noteIds, operation) {
   throw new Error("operation.type must be quantize, legato, or duplicate");
 }
 
-const unavailableKomplete = {
-  async request() {
-    throw new Error("Komplete automation worker is not configured");
-  }
-};
-
 const BROWSER_ROOTS = new Set([
   "audio_effects", "clips", "current_project", "drums", "hotswap_target", "instruments",
   "legacy_libraries", "max_for_live", "midi_effects", "packs", "plugins", "samples", "sounds",
@@ -282,11 +270,10 @@ function normalizeBrowserSearch(args) {
 }
 
 export class ToolService {
-  constructor({ bridge, catalog, komplete = unavailableKomplete, confirmations = new ConfirmationStore(), snapshotLibrary, browserMetadata }) {
+  constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, browserMetadata }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
-    this.komplete = komplete;
     this.snapshotLibrary = snapshotLibrary;
     this.browserMetadata = browserMetadata;
   }
@@ -812,18 +799,6 @@ export class ToolService {
     if (name === "list_device_parameters") {
       return this.bridge.request("list_device_parameters", args);
     }
-    if (name === "komplete_get_status") return this.komplete.request("get_status", {});
-    if (name === "komplete_verify_nks_preset") {
-      return this.komplete.request("verify_nks_preset", args);
-    }
-    const kompleteMethod = {
-      komplete_open_instrument: "open_instrument",
-      komplete_load_source_preset: "load_source_preset",
-      komplete_save_nks_preset: "save_nks_preset",
-      komplete_run_conversion_batch: "run_conversion_batch",
-      komplete_pause_batch: "pause_batch"
-    }[name];
-    if (kompleteMethod) return this.#kompleteMutation(kompleteMethod, args);
     if (name === "set_device_parameters") return this.#setDeviceParameters(args);
     if (name === "set_looper_state") return this.#setLooperState(args);
     if (name === "set_beat_repeat_enabled") return this.#setBeatRepeatEnabled(args);
@@ -1059,7 +1034,6 @@ export class ToolService {
     if (uri === "ableton://set/mixer") return this.bridge.request("get_set_mixer", {});
     if (uri === "ableton://set/tracks") return this.bridge.request("list_tracks", {});
     if (uri === "ableton://set/scenes") return this.bridge.request("list_scenes", {});
-    if (uri === "komplete://automation/status") return this.komplete.request("get_status", {});
     const trackClips = uri.match(/^ableton:\/\/track\/([^/]+)\/clips$/);
     if (trackClips) return this.bridge.request("list_clips", { trackId: decodeURIComponent(trackClips[1]) });
     const arrangementClips = uri.match(/^ableton:\/\/track\/([^/]+)\/arrangement-clips$/);
@@ -3348,26 +3322,6 @@ export class ToolService {
     }
     this.#consumeConfirmation(plan, args);
     const observed = await this.bridge.request(name, plan);
-    return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString() };
-  }
-
-  async #kompleteMutation(method, args) {
-    requireExpectedSession(args);
-    const current = await this.komplete.request("get_status", {});
-    if (current.sessionVersion !== args.expectedSessionVersion) {
-      throw new Error(
-        `sessionVersion mismatch: expected ${args.expectedSessionVersion}, observed ${current.sessionVersion}`
-      );
-    }
-    const plan = { method, ...args };
-    delete plan.dryRun;
-    delete plan.confirmationToken;
-    delete plan.planHash;
-    if (args.dryRun !== false) {
-      return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    }
-    this.#consumeConfirmation(plan, args);
-    const observed = await this.komplete.request(method, plan);
     return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString() };
   }
 }
