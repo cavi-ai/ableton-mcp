@@ -4411,6 +4411,34 @@ def dispatch_request(song, request, state_version, application=None):
                 "variationIndex": index, "device": _device_tree(device, params["deviceId"]),
                 "parameters": [_parameter_record(parameter, i, include_native_choice_labels=True)
                                for i, parameter in enumerate(device.parameters)]}
+    if method == "delete_rack_macro_variation":
+        _, _, device = _device(song, params["trackId"], params["deviceId"])
+        if not device.can_have_chains or _device_tree(device, params["deviceId"]) != params["beforeDevice"]:
+            raise ValueError("rack state changed")
+        native = getattr(device, "delete_selected_variation", None)
+        if not callable(native):
+            raise ValueError("rack variation deletion is unavailable")
+        index = params["variationIndex"]
+        before_count = int(device.variation_count)
+        if type(index) is not int or index < 0 or index >= before_count:
+            raise ValueError("variation index is outside the available range")
+        before_parameters = [_parameter_record(parameter, i, include_native_choice_labels=True)
+                             for i, parameter in enumerate(device.parameters)]
+        if before_parameters != params["beforeParameters"]:
+            raise ValueError("rack parameter state changed")
+        song.begin_undo_step()
+        try:
+            device.selected_variation_index = index
+            native()
+        finally:
+            song.end_undo_step()
+        after_device = _device_tree(device, params["deviceId"])
+        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                "variationIndex": index,
+                "deleted": after_device["rackMacros"]["variationCount"] == before_count - 1,
+                "device": after_device,
+                "parameters": [_parameter_record(parameter, i, include_native_choice_labels=True)
+                               for i, parameter in enumerate(device.parameters)]}
     if method == "list_device_parameters":
         _, _, device = _device(song, params["trackId"], params["deviceId"])
         parameters = [_parameter_record(parameter, i, include_native_choice_labels=True)

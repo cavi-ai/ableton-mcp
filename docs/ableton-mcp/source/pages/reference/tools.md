@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 186 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 187 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (82)
 
@@ -189,7 +189,7 @@ The server publishes 186 tools. Mutations of the Live Set require `expectedState
 | `transport_stop` | Plan or stop Ableton transport playback. | `expectedStateVersion` |
 | `undo` | Plan or apply one guarded Ableton undo operation. | `expectedStateVersion` |
 
-## Destructive mutations (11)
+## Destructive mutations (12)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -199,6 +199,7 @@ The server publishes 186 tools. Mutations of the Live Set require `expectedState
 | `delete_arrangement_cue_point` | Plan or delete one exact Arrangement cue point. | `expectedStateVersion`, `cuePointId` |
 | `delete_clip` | Plan or delete one exact occupied Session clip. | `expectedStateVersion`, `trackId`, `clipId` |
 | `delete_device` | Plan or delete one exact loaded device from an ordinary, Return, Main, or rack chain. | `expectedStateVersion`, `trackId`, `deviceId` |
+| `delete_rack_macro_variation` | Plan or delete one exact zero-based rack macro variation. Destructive: Live does not expose saved variation contents for preview or reconstruction. Requires confirmation and reports observed count. | `expectedStateVersion`, `trackId`, `deviceId`, `variationIndex` |
 | `delete_session_object` | Plan or delete an exact track, Return Track, scene, or Session clip with explicit content authority. Return deletion discloses its devices and affected track-send lanes. | `expectedStateVersion`, `targetType`, `targetId` |
 | `remove_audio_warp_marker` | Plan or apply deletion of an exact visible audio warp marker. Rejects the hidden terminal marker and stale clip state. | `expectedStateVersion`, `trackId`, `clipId`, `beatTime` |
 | `set_device_parameters` | Plan or apply guarded bounded changes to exact loaded-device parameters on an ordinary, Return, or Main track. Native Looper State writes targeting Record or Overdub are flagged as recorded-content mutations: restoring a previous parameter value does not restore captured audio. | `expectedStateVersion`, `trackId`, `deviceId`, `changes` |

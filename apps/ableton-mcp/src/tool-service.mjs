@@ -842,6 +842,23 @@ export class ToolService {
         variationIndex: args.variationIndex,
         limitation: "Live does not expose saved variation contents before recall; inspect returned parameters." }, args);
     }
+    if (name === "delete_rack_macro_variation") {
+      requireExpectedState(args);
+      const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, { ...observed, deviceId: observed.device?.id });
+      const rack = observed.device;
+      if (rack?.id !== args.deviceId || !rack.canHaveChains || !rack.rackMacros) throw new Error("device does not expose rack variations");
+      if (!Number.isInteger(args.variationIndex) || args.variationIndex < 0 || args.variationIndex >= rack.rackMacros.variationCount) {
+        throw new Error("variation index is outside the available range");
+      }
+      const parameters = await this.bridge.request("list_device_parameters", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, parameters);
+      if (parameters.deviceId !== args.deviceId || !Array.isArray(parameters.parameters)) throw new Error("rack parameter identity mismatch");
+      return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+        expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, beforeParameters: parameters.parameters,
+        variationIndex: args.variationIndex,
+        warning: "Saved variation contents are not exposed by Live; deleting this variation may not be reconstructable. Live undo behavior is unverified." }, args);
+    }
     if (name === "list_device_parameters") {
       return this.bridge.request("list_device_parameters", args);
     }

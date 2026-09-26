@@ -99,6 +99,37 @@ test("rack macro variation recall requires a valid exact index and binds current
   }
 });
 
+test("rack macro variation deletion previews exact index and refuses empty or stale selections", async () => {
+  const rack = { id: "track-0:device-0", canHaveChains: true,
+    rackMacros: { hasMappings: true, visibleCount: 8, variationCount: 2, selectedVariationIndex: 0 },
+    chains: [], returnChains: [], drumPads: [] };
+  const parameters = [{ id: "parameter-1", name: "Macro 1", originalName: "Macro 1",
+    min: 0, max: 127, value: 32, displayValue: "32", enabled: true, quantized: false, valueItems: [] }];
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
+    if (method === "list_device_parameters") return { stateVersion: 4, trackId: "track-0", deviceId: rack.id,
+      parameters, nameAmbiguities: [] };
+    assert.equal(method, "delete_rack_macro_variation");
+    assert.equal(params.variationIndex, 1);
+    assert.deepEqual(params.beforeDevice, rack);
+    assert.deepEqual(params.beforeParameters, parameters);
+    return { stateVersion: 5, trackId: "track-0", variationIndex: 1, deleted: true,
+      device: { ...rack, rackMacros: { ...rack.rackMacros, variationCount: 1, selectedVariationIndex: -1 } },
+      parameters };
+  } } });
+  const args = { trackId: "track-0", deviceId: rack.id, expectedStateVersion: 4, variationIndex: 1 };
+  const dry = await service.call("delete_rack_macro_variation", args);
+  assert.equal(dry.plan.variationIndex, 1);
+  assert.match(dry.plan.warning, /contents.*not exposed/i);
+  const applied = await service.call("delete_rack_macro_variation", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(applied.observed.device.rackMacros.variationCount, 1);
+  for (const variationIndex of [-1, 2, 1.5, "1"]) {
+    await assert.rejects(() => service.call("delete_rack_macro_variation", { ...args, variationIndex }), /variation index/);
+  }
+  await assert.rejects(() => service.call("delete_rack_macro_variation", { ...args, expectedStateVersion: 3 }), /stateVersion mismatch/);
+});
+
 test("rack sends require exact available enabled indices and confirmation", async () => {
   const deviceId = "track-0:device-0", chainId = `${deviceId}/chain-0`;
   const rack = { id: deviceId, canHaveChains: true, chains: [{ id: chainId,

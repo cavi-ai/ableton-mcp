@@ -408,6 +408,7 @@ const contracts = {
   adjust_rack_macro_count: { description: "Plan or invoke one native add/remove macro action on an exact rack, then report the observed count. Removal is refused while any macro mapping exists because Live does not expose the affected mapping target.", inputSchema: guarded({ trackId: ids.deviceOwnerId, deviceId: ids.deviceId, action: { type: "string", enum: ["add", "remove"], description: "One native macro-count adjustment." } }, ["trackId", "deviceId", "action"]) },
   store_rack_macro_variation: { description: "Plan or store a new native variation of mapped rack macros. Binds exact rack and parameter state and reports Live's observed count; variation contents are not exposed by Live's API.", inputSchema: guarded({ trackId: ids.deviceOwnerId, deviceId: ids.deviceId }, ["trackId", "deviceId"]) },
   recall_rack_macro_variation: { description: "Plan or recall one existing rack macro variation by zero-based index. Binds exact rack and current parameter state; Live exposes observed values after recall, not the saved variation contents beforehand.", inputSchema: guarded({ trackId: ids.deviceOwnerId, deviceId: ids.deviceId, variationIndex: { type: "integer", minimum: 0 } }, ["trackId", "deviceId", "variationIndex"]) },
+  delete_rack_macro_variation: { description: "Plan or delete one exact zero-based rack macro variation. Destructive: Live does not expose saved variation contents for preview or reconstruction. Requires confirmation and reports observed count.", inputSchema: guarded({ trackId: ids.deviceOwnerId, deviceId: ids.deviceId, variationIndex: { type: "integer", minimum: 0 } }, ["trackId", "deviceId", "variationIndex"]) },
   get_clip_parameter_envelope: { description: "Sample one Session clip parameter envelope at exact beat positions.", inputSchema: object({ trackId: ids.trackId, clipId: ids.clipId, deviceId: ids.deviceId, parameterId: ids.parameterId, sampleTimes: array(number("Beat position.", { minimum: 0 }), "Beat positions to sample.") }, ["trackId", "clipId", "deviceId", "parameterId"]) },
   list_devices: { description: "List loaded devices on one exact ordinary, Return, or Main track.", inputSchema: object({ trackId: ids.deviceOwnerId }, ["trackId"]) },
   get_device_sidechain_routing: { description: "Read exact native external-sidechain source type and channel choices for one loaded device. Reports unsupported explicitly; does not confuse device-sidechain routing with track input routing.", inputSchema: device },
@@ -501,7 +502,7 @@ const destructiveTools = new Set([
   "delete_session_object", "delete_clip", "delete_arrangement_clip",
   "delete_arrangement_cue_point", "remove_audio_warp_marker",
   "delete_device", "crop_audio_clip", "set_looper_state", "set_device_parameters",
-  "set_track_freeze_state", "adjust_rack_macro_count"
+  "set_track_freeze_state", "adjust_rack_macro_count", "delete_rack_macro_variation"
 ]);
 
 // These tools answer from bundled reference data; all other tools can observe or
