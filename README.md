@@ -1,6 +1,7 @@
 # ableton-mcp
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![M8ven Score](https://m8ven.ai/badge/mcp/cavi-ai/ableton-mcp)](https://m8ven.ai/mcp/cavi-ai/ableton-mcp)
 
 Local-first Ableton Live control for MCP clients. It has three parts: a Remote Script bridge that runs inside Live, a stdio MCP server, and an `ableton-mcp` CLI. Every change to the Live Set is planned first and runs only with a single-use confirmation.
 
