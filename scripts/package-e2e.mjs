@@ -45,12 +45,14 @@ const listing = await exchange(bin, ["serve"], { ABLETON_MCP_BRIDGE_SOCKET: path
   { id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "package-e2e", version: "0" } } },
   { id: 2, method: "tools/list" },
   { id: 3, method: "resources/list" },
-  { id: 4, method: "prompts/list" }
+  { id: 4, method: "resources/templates/list" },
+  { id: 5, method: "prompts/list" }
 ]);
 assert.equal(listing[0].result.serverInfo.name, "ableton-mcp");
 assert.equal(listing[1].result.tools.length, Object.keys(toolContracts).length);
-assert.ok(listing[2].result.resources.length > 0);
-assert.ok(listing[3].result.prompts.length > 0);
+assert.equal(listing[2].result.resources.length, 9);
+assert.equal(listing[3].result.resourceTemplates.length, 13);
+assert.ok(listing[4].result.prompts.length > 0);
 
 const fixture = await exchange(process.execPath, [path.join(installed, "apps/ableton-mcp/src/server.mjs")], { ABLETON_MCP_FIXTURE: "1" }, [
   { id: 1, method: "tools/call", params: { name: "search_presets", arguments: { query: "Deep" } } }
@@ -74,7 +76,8 @@ process.stdout.write(`${JSON.stringify({
   tarball: filename,
   tools: listing[1].result.tools.length,
   resources: listing[2].result.resources.length,
-  prompts: listing[3].result.prompts.length,
+  resourceTemplates: listing[3].result.resourceTemplates.length,
+  prompts: listing[4].result.prompts.length,
   bridgeFiles
 })}\n`);
 rmSync(work, { recursive: true, force: true });

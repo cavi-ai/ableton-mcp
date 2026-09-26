@@ -26,6 +26,23 @@ test("initialize advertises only the protocol version this server supports", asy
   }
 });
 
+test("resource discovery separates concrete URIs from parameterized templates", async () => {
+  const route = createRouter({ readResource: async (uri) => ({ uri }) });
+  const listed = await route({ id: 1, method: "resources/list" });
+  const templated = await route({ id: 2, method: "resources/templates/list" });
+  assert.equal(listed.result.resources.length, 9);
+  assert.ok(listed.result.resources.every(({ uri }) => !uri.includes("{")));
+  assert.equal(templated.result.resourceTemplates.length, 13);
+  assert.ok(templated.result.resourceTemplates.every(({ uriTemplate, mimeType }) =>
+    uriTemplate.includes("{") && mimeType === "application/json"));
+  assert.ok(templated.result.resourceTemplates.some(({ uriTemplate }) =>
+    uriTemplate === "ableton://track/{track_id}/clip/{clip_id}/notes"));
+  const read = await route({ id: 3, method: "resources/read", params: {
+    uri: "ableton://track/track-0/clip/track-0%3Aclip-0/notes"
+  } });
+  assert.match(read.result.contents[0].text, /track-0%3Aclip-0/);
+});
+
 test("stdio sends no reply to notifications and survives invalid requests", async () => {
   const child = spawn(process.execPath, ["src/server.mjs"], {
     cwd: new URL("..", import.meta.url),
@@ -107,12 +124,9 @@ test("stdio server initializes and lists MCP resources and tools", async () => {
   await once(child, "exit");
   const messages = stdout.trim().split("\n").map(JSON.parse);
   assert.equal(messages[0].result.serverInfo.name, "ableton-mcp");
-  assert.equal(messages[1].result.resources.length, 22);
+  assert.equal(messages[1].result.resources.length, 9);
   assert.equal(messages[1].result.resources.some(({ uri }) => uri.startsWith("komplete://")), false);
-  assert.equal(
-    messages[1].result.resources.some(({ uri }) => uri === "nks://catalog/artwork/{artwork_id}"),
-    true
-  );
+  assert.equal(messages[1].result.resources.some(({ uri }) => uri.includes("{")), false);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "set_device_parameters"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "create_midi_clip"), true);
   assert.equal(messages[2].result.tools.some((tool) => tool.name === "get_clip_parameter_envelope"), true);

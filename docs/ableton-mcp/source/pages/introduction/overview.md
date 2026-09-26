@@ -16,7 +16,7 @@ Everything runs on the local machine. The bridge opens no TCP port. The server m
 - **Audio analysis**: loudness, true peak, spectrum, pitch, transients and tuning of local audio files, using `ffmpeg`.
 - **An optional NKS preset catalog**: search, tags and favorites for presets discovered from local plug-in libraries.
 
-The server publishes 22 resources and five prompt templates: `session-overview`, `produce-drum-pattern`, `harmonize-clip`, `build-producer-chain` and `arrangement-rework`. [Tools](../reference/tools.md) lists every tool.
+The server publishes 9 concrete resources, 13 resource templates and five prompt templates: `session-overview`, `produce-drum-pattern`, `harmonize-clip`, `build-producer-chain` and `arrangement-rework`. [Tools](../reference/tools.md) lists every tool.
 
 ## Boundaries
 
