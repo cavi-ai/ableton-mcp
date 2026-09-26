@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { cp, mkdir, rm } from "node:fs/promises";
+import { cp, mkdir, rm, readFile, readdir } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +13,35 @@ import { getPrompt, listPrompts } from "./prompts.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const requiredCapabilities = JSON.parse(readFileSync(new URL("../../../ableton/Remote Scripts/CaviMcpBridge/capabilities.json", import.meta.url), "utf8"));
+const remoteScriptFiles = ["__init__.py", "bridge.py", "capabilities.json", "protocol.py"];
+
+async function remoteScriptCopies({ sourceRoot, platform, home, applicationsRoot }) {
+  const roots = defaultRemoteScriptRoots({ platform, home });
+  if (platform === "darwin") {
+    let apps = [];
+    try { apps = await readdir(applicationsRoot); } catch (error) { if (error.code !== "ENOENT") throw error; }
+    roots.push(...apps.filter(name => /^Ableton Live .+\.app$/.test(name))
+      .sort().map(name => join(applicationsRoot, name, "Contents", "App-Resources", "MIDI Remote Scripts")));
+  }
+  const source = join(sourceRoot, "ableton", "Remote Scripts", "CaviMcpBridge");
+  const copies = [];
+  for (const root of roots) {
+    const path = join(root, "CaviMcpBridge");
+    let installed;
+    try { installed = await readFile(join(path, "__init__.py")); }
+    catch (error) { if (error.code === "ENOENT") continue; throw error; }
+    const differingFiles = [];
+    for (const name of remoteScriptFiles) {
+      let actual;
+      try { actual = name === "__init__.py" ? installed : await readFile(join(path, name)); }
+      catch (error) { if (error.code !== "ENOENT") throw error; }
+      const expected = await readFile(join(source, name));
+      if (!actual?.equals(expected)) differingFiles.push(name);
+    }
+    copies.push({ path, matchesPackagedFiles: differingFiles.length === 0, differingFiles });
+  }
+  return copies;
+}
 
 export function parseCli(argv) {
   const command = argv.find((value) => !value.startsWith("-")) || "help";
@@ -75,7 +104,9 @@ export async function runCli(argv, dependencies = {}) {
         ...(reason ? { reason } : {})
       },
       catalog: { configured: Boolean(config.catalogPath), path: config.catalogPath || null },
-      remoteScriptRoots: defaultRemoteScriptRoots({ platform, home })
+      remoteScriptRoots: defaultRemoteScriptRoots({ platform, home }),
+      remoteScriptCopies: await remoteScriptCopies({ sourceRoot, platform, home,
+        applicationsRoot: dependencies.applicationsRoot || "/Applications" })
     };
     print(result, parsed.json, stdout);
     return result;
