@@ -26,6 +26,33 @@ test("initialize advertises only the protocol version this server supports", asy
   }
 });
 
+test("stdio sends no reply to notifications and survives invalid requests", async () => {
+  const child = spawn(process.execPath, ["src/server.mjs"], {
+    cwd: new URL("..", import.meta.url),
+    env: { ...process.env, ABLETON_MCP_FIXTURE: "1" },
+    stdio: ["pipe", "pipe", "pipe"]
+  });
+  let stdout = "";
+  child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
+  child.stderr.resume();
+  for (const message of [
+    { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26" } },
+    { jsonrpc: "2.0", method: "notifications/initialized" },
+    { jsonrpc: "2.0", method: "tools/call", params: { name: "search_presets", arguments: {} } },
+    null,
+    { jsonrpc: "2.0", id: {}, method: "tools/list" },
+    { jsonrpc: "2.0", id: 2, method: "tools/list" }
+  ]) child.stdin.write(`${JSON.stringify(message)}\n`);
+  child.stdin.end();
+  const [code] = await once(child, "exit");
+  assert.equal(code, 0);
+  const replies = stdout.trim().split("\n").map(JSON.parse);
+  assert.deepEqual(replies.map((reply) => reply.id), [1, null, null, 2]);
+  assert.equal(replies[1].error.code, -32600);
+  assert.equal(replies[2].error.code, -32600);
+  assert.ok(replies[3].result.tools.length > 0);
+});
+
 test("MCP rejects malformed tool arguments before service dispatch", async () => {
   let dispatches = 0;
   const route = createRouter({ call: async () => { dispatches++; return { accepted: true }; } });
