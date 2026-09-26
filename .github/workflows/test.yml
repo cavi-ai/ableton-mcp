@@ -29,4 +29,5 @@ jobs:
       - run: brew install imagemagick ffmpeg
       - run: npm ci
       - run: npm test
+      - run: npm run eval:core
       - run: npm run verify:package

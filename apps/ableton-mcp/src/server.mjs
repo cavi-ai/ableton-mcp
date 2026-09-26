@@ -6,6 +6,8 @@ import { toolContracts } from "./tool-contracts.mjs";
 import { validateToolArguments } from "./tool-validation.mjs";
 import { getPrompt, listPrompts } from "./prompts.mjs";
 
+const SUPPORTED_PROTOCOL_VERSION = "2025-03-26";
+
 const resources = [
   "nks://catalog/products",
   "nks://catalog/presets/{preset_id}",
@@ -260,7 +262,7 @@ export function createRouter(service, { toolProfile = "all" } = {}) {
       let result;
       if (method === "initialize") {
         result = {
-          protocolVersion: params.protocolVersion || "2025-03-26",
+          protocolVersion: SUPPORTED_PROTOCOL_VERSION,
           capabilities: { resources: {}, tools: {}, prompts: { listChanged: false } },
           serverInfo: { name: "ableton-mcp", version: PACKAGE_VERSION }
         };

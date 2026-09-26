@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "probes": [
+    { "id": "discovery-budget", "probe": "discovery-cost", "access": "read_only", "max_tools": 60, "max_schema_bytes": 80000 },
+    { "id": "token-budget", "probe": "token-cost", "access": "read_only", "max_total_tokens": 20000, "max_tool_tokens": 1200 },
+    { "id": "catalog-pagination", "probe": "pagination", "access": "read_only", "max_pages": 5 },
+    { "id": "declared-surfaces", "probe": "surface-listing", "access": "read_only", "max_pages": 5 },
+    { "id": "scales-guessable", "probe": "schema-guessability", "tool": "list_live_scales", "access": "read_only", "arguments": {} },
+    { "id": "scales-repeat", "probe": "degradation-over-n", "tool": "list_live_scales", "access": "read_only", "arguments": {}, "max_attempts": 5 },
+    { "id": "scales-latency", "probe": "latency-budget", "tool": "list_live_scales", "access": "read_only", "arguments": {}, "attempts": 3, "max_latency_ms": 1000 },
+    { "id": "blueprints-guessable", "probe": "schema-guessability", "tool": "list_producer_chain_blueprints", "access": "read_only", "arguments": {} },
+    { "id": "blueprints-repeat", "probe": "degradation-over-n", "tool": "list_producer_chain_blueprints", "access": "read_only", "arguments": {}, "max_attempts": 5 },
+    { "id": "blueprints-latency", "probe": "latency-budget", "tool": "list_producer_chain_blueprints", "access": "read_only", "arguments": {}, "attempts": 3, "max_latency_ms": 1000 },
+    { "id": "scales-contention", "probe": "contention", "tool": "list_live_scales", "access": "read_only", "arguments": {} },
+    { "id": "scales-payload", "probe": "payload-bounds", "tool": "list_live_scales", "access": "read_only", "arguments": {}, "field": "payload", "size_bytes": 1000000, "expect_handled": false }
+  ]
+}

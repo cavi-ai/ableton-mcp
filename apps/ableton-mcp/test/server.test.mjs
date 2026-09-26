@@ -18,6 +18,14 @@ test("server can be imported from a Node eval without starting stdio", async () 
   assert.equal(JSON.parse(stdout).result.tools.some(tool => tool.name === "get_live_state"), true);
 });
 
+test("initialize advertises only the protocol version this server supports", async () => {
+  const route = createRouter({ call: async () => ({}) });
+  for (const requested of ["2025-03-26", "2000-01-01", "2026-07-28"]) {
+    const reply = await route({ id: 1, method: "initialize", params: { protocolVersion: requested } });
+    assert.equal(reply.result.protocolVersion, "2025-03-26");
+  }
+});
+
 test("MCP rejects malformed tool arguments before service dispatch", async () => {
   let dispatches = 0;
   const route = createRouter({ call: async () => { dispatches++; return { accepted: true }; } });
