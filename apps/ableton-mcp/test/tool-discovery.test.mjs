@@ -16,6 +16,28 @@ test("MCP discovery exposes every contracted producer tool", async () => {
   assert.match(metadata.description, /private|native/i);
 });
 
+test("core discovery is bounded and cannot call tools it does not advertise", async () => {
+  let calls = 0;
+  const route = createRouter({ call: async () => { calls++; return { ok: true }; } }, { toolProfile: "core" });
+  const tools = (await route({ id: 1, method: "tools/list" })).result.tools;
+  assert.equal(tools.length, 55);
+  const names = new Set(tools.map((tool) => tool.name));
+  assert.ok(names.has("get_live_state"));
+  assert.ok(names.has("set_tempo"));
+  assert.ok(!names.has("apply_midi_diatonic_chord_quality"));
+  assert.ok(tools.every((tool) => toolContracts[tool.name]));
+  assert.ok(tools.reduce((bytes, tool) => bytes + Buffer.byteLength(JSON.stringify(tool)), 0) / 4 < 20000);
+  const hidden = await route({ id: 2, method: "tools/call", params: {
+    name: "apply_midi_diatonic_chord_quality", arguments: {}
+  } });
+  assert.equal(hidden.error.code, -32601);
+  assert.equal(calls, 0);
+  const visible = await route({ id: 3, method: "tools/call", params: { name: "list_tracks", arguments: {} } });
+  assert.equal(visible.result.structuredContent.ok, true);
+  assert.equal(calls, 1);
+  assert.throws(() => createRouter({}, { toolProfile: "unknown" }), /unknown tool profile/);
+});
+
 test("every tool advertises MCP annotations matching its mutation class", async () => {
   const listed = await createRouter(new ToolService({}))({ id: 1, method: "tools/list" });
   for (const tool of listed.result.tools) {

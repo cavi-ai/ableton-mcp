@@ -10,6 +10,7 @@ All configuration is environment variables. Each one is optional.
 | `ABLETON_MCP_CONFIRMATION_DIR` | `~/.cavi/ableton-mcp/confirmations` | Single-use confirmation tokens for CLI `call`. |
 | `ABLETON_MCP_SNAPSHOT_DIR` | `~/.cavi/ableton-mcp/snapshots` | Saved track-state snapshots from `save_track_state_snapshot`. |
 | `ABLETON_MCP_FIXTURE` | unset | `1` makes `npm start` serve fixture data without Live. `ableton-mcp serve` ignores it. |
+| `ABLETON_MCP_TOOL_PROFILE` | `all` | `core` advertises 55 common MCP tools; `all` advertises the full catalog. Changing this requires a server restart. CLI `call` is unaffected. |
 
 Live reads `ABLETON_MCP_BRIDGE_SOCKET` from its own launch environment. Apps started from the Dock or Finder don't inherit your shell's variables. If you change the socket, start Live's executable from the same shell, for example `"/Applications/Ableton Live 12 Suite.app/Contents/MacOS/Live"`.
 
