@@ -4388,6 +4388,29 @@ def dispatch_request(song, request, state_version, application=None):
                 "device": after_device,
                 "parameters": [_parameter_record(parameter, i, include_native_choice_labels=True)
                                for i, parameter in enumerate(device.parameters)]}
+    if method == "recall_rack_macro_variation":
+        _, _, device = _device(song, params["trackId"], params["deviceId"])
+        if not device.can_have_chains or _device_tree(device, params["deviceId"]) != params["beforeDevice"]:
+            raise ValueError("rack state changed")
+        if not getattr(device, "has_macro_mappings", False) or not callable(getattr(device, "recall_selected_variation", None)):
+            raise ValueError("rack has no mapped macro or variation recall is unavailable")
+        index = params["variationIndex"]
+        if type(index) is not int or index < 0 or index >= int(device.variation_count):
+            raise ValueError("variation index is outside the available range")
+        before_parameters = [_parameter_record(parameter, i, include_native_choice_labels=True)
+                             for i, parameter in enumerate(device.parameters)]
+        if before_parameters != params["beforeParameters"]:
+            raise ValueError("rack parameter state changed")
+        song.begin_undo_step()
+        try:
+            device.selected_variation_index = index
+            device.recall_selected_variation()
+        finally:
+            song.end_undo_step()
+        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                "variationIndex": index, "device": _device_tree(device, params["deviceId"]),
+                "parameters": [_parameter_record(parameter, i, include_native_choice_labels=True)
+                               for i, parameter in enumerate(device.parameters)]}
     if method == "list_device_parameters":
         _, _, device = _device(song, params["trackId"], params["deviceId"])
         parameters = [_parameter_record(parameter, i, include_native_choice_labels=True)

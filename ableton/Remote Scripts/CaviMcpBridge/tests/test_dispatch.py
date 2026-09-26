@@ -2275,6 +2275,36 @@ class DispatchTest(unittest.TestCase):
                 **target, "beforeDevice": before_device, "beforeParameters": before_parameters}}, 4)
         self.assertEqual(rack.variation_count, 1)
 
+    def test_recall_rack_macro_variation_rechecks_state_and_reads_values(self):
+        song = Song()
+        rack = DrumRack()
+        rack.has_macro_mappings = True
+        rack.visible_macro_count = 8
+        rack.variation_count = 2
+        rack.selected_variation_index = -1
+        rack.parameters[0].value = 0.25
+        calls = []
+        def recall():
+            calls.append(rack.selected_variation_index)
+            rack.parameters[0].value = 0.75
+        rack.recall_selected_variation = recall
+        song.tracks[0].devices = [rack]
+        target = {"trackId": "track-0", "deviceId": "track-0:device-0"}
+        before_device = dispatch_request(song, {"method": "get_device_hierarchy", "params": target}, 3)["device"]
+        before_parameters = dispatch_request(song, {"method": "list_device_parameters", "params": target}, 3)["parameters"]
+        payload = {**target, "beforeDevice": before_device, "beforeParameters": before_parameters,
+                   "variationIndex": 1}
+        rack.parameters[0].value = 0.5
+        with self.assertRaisesRegex(ValueError, "parameter state changed"):
+            dispatch_request(song, {"method": "recall_rack_macro_variation", "params": payload}, 3)
+        self.assertEqual(calls, [])
+        rack.parameters[0].value = 0.25
+        result = dispatch_request(song, {"method": "recall_rack_macro_variation", "params": payload}, 3)
+        self.assertEqual(calls, [1])
+        self.assertEqual(result["device"]["rackMacros"]["selectedVariationIndex"], 1)
+        self.assertEqual(result["parameters"][0]["value"], 0.75)
+        self.assertEqual(result["stateVersion"], 4)
+
     def test_device_hierarchy_includes_rack_return_chain_devices(self):
         song = Song()
         rack = DrumRack()

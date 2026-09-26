@@ -70,6 +70,35 @@ test("rack macro variation storage refuses racks without mapped macros", async (
   }), /mapped macro/);
 });
 
+test("rack macro variation recall requires a valid exact index and binds current values", async () => {
+  const rack = { id: "track-0:device-0", canHaveChains: true,
+    rackMacros: { hasMappings: true, visibleCount: 8, variationCount: 2, selectedVariationIndex: -1 },
+    chains: [], returnChains: [], drumPads: [] };
+  const parameters = [{ id: "parameter-1", name: "Macro 1", originalName: "Macro 1",
+    min: 0, max: 127, value: 32, displayValue: "32", enabled: true, quantized: false, valueItems: [] }];
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
+    if (method === "list_device_parameters") return { stateVersion: 4, trackId: "track-0", deviceId: rack.id,
+      parameters, nameAmbiguities: [] };
+    assert.equal(method, "recall_rack_macro_variation");
+    assert.equal(params.variationIndex, 1);
+    assert.deepEqual(params.beforeDevice, rack);
+    assert.deepEqual(params.beforeParameters, parameters);
+    return { stateVersion: 5, trackId: "track-0", variationIndex: 1,
+      device: { ...rack, rackMacros: { ...rack.rackMacros, selectedVariationIndex: 1 } },
+      parameters: [{ ...parameters[0], value: 100, displayValue: "100" }] };
+  } } });
+  const args = { trackId: "track-0", deviceId: rack.id, expectedStateVersion: 4, variationIndex: 1 };
+  const dry = await service.call("recall_rack_macro_variation", args);
+  assert.deepEqual(dry.plan.beforeParameters, parameters);
+  const applied = await service.call("recall_rack_macro_variation", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(applied.observed.parameters[0].value, 100);
+  for (const variationIndex of [-1, 2, 1.5, "1"]) {
+    await assert.rejects(() => service.call("recall_rack_macro_variation", { ...args, variationIndex }), /variation index/);
+  }
+});
+
 test("rack sends require exact available enabled indices and confirmation", async () => {
   const deviceId = "track-0:device-0", chainId = `${deviceId}/chain-0`;
   const rack = { id: deviceId, canHaveChains: true, chains: [{ id: chainId,
