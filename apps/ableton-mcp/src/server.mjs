@@ -300,6 +300,14 @@ export async function runStdio({ service, toolProfile = "all" }) {
     let request;
     try { request = JSON.parse(line); }
     catch { process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } })}\n`); continue; }
+    if (!request || typeof request !== "object" || Array.isArray(request) ||
+      request.jsonrpc !== "2.0" || typeof request.method !== "string" || !request.method ||
+      (Object.hasOwn(request, "id") && request.id !== null &&
+        typeof request.id !== "string" && typeof request.id !== "number")) {
+      process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "invalid request" } })}\n`);
+      continue;
+    }
+    if (!Object.hasOwn(request, "id")) continue;
     process.stdout.write(`${JSON.stringify(await route(request))}\n`);
   }
 }
