@@ -35,6 +35,41 @@ test("rack macro removal refuses an unknown mapped target", async () => {
   }), /mapped/);
 });
 
+test("rack macro variation storage binds both rack and parameter state", async () => {
+  const rack = { id: "track-0:device-0", canHaveChains: true,
+    rackMacros: { hasMappings: true, visibleCount: 8, variationCount: 0, selectedVariationIndex: -1 },
+    chains: [], returnChains: [], drumPads: [] };
+  const parameters = [{ id: "parameter-1", name: "Macro 1", originalName: "Macro 1",
+    min: 0, max: 127, value: 64, displayValue: "64", enabled: true, quantized: false, valueItems: [] }];
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
+    if (method === "list_device_parameters") return { stateVersion: 4, trackId: "track-0", deviceId: rack.id,
+      parameters, nameAmbiguities: [] };
+    assert.equal(method, "store_rack_macro_variation");
+    assert.deepEqual(params.beforeDevice, rack);
+    assert.deepEqual(params.beforeParameters, parameters);
+    return { stateVersion: 5, trackId: "track-0", device: { ...rack,
+      rackMacros: { ...rack.rackMacros, variationCount: 1, selectedVariationIndex: 0 } }, parameters };
+  } } });
+  const args = { trackId: "track-0", deviceId: rack.id, expectedStateVersion: 4 };
+  const dry = await service.call("store_rack_macro_variation", args);
+  assert.deepEqual(dry.plan.beforeParameters, parameters);
+  const applied = await service.call("store_rack_macro_variation", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(applied.observed.device.rackMacros.variationCount, 1);
+});
+
+test("rack macro variation storage refuses racks without mapped macros", async () => {
+  const rack = { id: "track-0:device-0", canHaveChains: true,
+    rackMacros: { hasMappings: false, visibleCount: 8, variationCount: 0, selectedVariationIndex: -1 } };
+  const service = new ToolService({ bridge: { async request() {
+    return { stateVersion: 4, trackId: "track-0", device: rack };
+  } } });
+  await assert.rejects(() => service.call("store_rack_macro_variation", {
+    trackId: "track-0", deviceId: rack.id, expectedStateVersion: 4
+  }), /mapped macro/);
+});
+
 test("rack sends require exact available enabled indices and confirmation", async () => {
   const deviceId = "track-0:device-0", chainId = `${deviceId}/chain-0`;
   const rack = { id: deviceId, canHaveChains: true, chains: [{ id: chainId,

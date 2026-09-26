@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 184 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 185 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (82)
 
@@ -91,7 +91,7 @@ The server publishes 184 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search local downloaded Splice audio assets under an explicit directory. Read-only; not cloud catalog search, download, or sync. Returns exact local source paths for analyze_audio_file. | `rootPath`, `query` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (91)
+## Mutations (92)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -182,6 +182,7 @@ The server publishes 184 tools. Mutations of the Live Set require `expectedState
 | `set_transport_recording_context` | Plan or apply guarded playhead and recording-mode changes. | `expectedStateVersion` |
 | `stop_all_clips` | Plan or stop every playing Session clip in one guarded step using Live's native stop-all action. Playback-only; does not delete or mute clips. | `expectedStateVersion` |
 | `stop_clip` | Plan or stop one exact Session clip slot. | `expectedStateVersion`, `trackId`, `clipId` |
+| `store_rack_macro_variation` | Plan or store a new native variation of mapped rack macros. Binds exact rack and parameter state and reports Live's observed count; variation contents are not exposed by Live's API. | `expectedStateVersion`, `trackId`, `deviceId` |
 | `transform_midi_notes` | Plan or apply guarded quantize, legato, or duplicate transforms to exact MIDI note IDs on one exact Session or Arrangement MIDI clip. | `expectedStateVersion`, `trackId`, `clipId`, `operation`, `noteIds` |
 | `transport_play` | Plan or start Ableton transport playback. | `expectedStateVersion` |
 | `transport_stop` | Plan or stop Ableton transport playback. | `expectedStateVersion` |

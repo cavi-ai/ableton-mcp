@@ -157,6 +157,7 @@ const toolNames = [
   "get_device_hierarchy",
   "create_rack_chain",
   "adjust_rack_macro_count",
+  "store_rack_macro_variation",
   "set_rack_chain_mixer",
   "rename_rack_chain",
   "set_drum_pad_state",

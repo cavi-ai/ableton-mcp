@@ -808,6 +808,21 @@ export class ToolService {
         expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, action: args.action,
         warning: "Live chooses the size of each native adjustment; inspect the returned visibleCount. Removing an unmapped visible macro may still change controller layout." }, args);
     }
+    if (name === "store_rack_macro_variation") {
+      requireExpectedState(args);
+      const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, { ...observed, deviceId: observed.device?.id });
+      const rack = observed.device;
+      if (rack?.id !== args.deviceId || !rack.canHaveChains || !rack.rackMacros?.hasMappings) {
+        throw new Error("rack must expose at least one mapped macro");
+      }
+      const parameters = await this.bridge.request("list_device_parameters", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, parameters);
+      if (parameters.deviceId !== args.deviceId || !Array.isArray(parameters.parameters)) throw new Error("rack parameter identity mismatch");
+      return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+        expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, beforeParameters: parameters.parameters,
+        limitation: "Live does not expose the stored variation's target values or mapping destinations." }, args);
+    }
     if (name === "list_device_parameters") {
       return this.bridge.request("list_device_parameters", args);
     }
