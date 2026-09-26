@@ -8,7 +8,7 @@ import { getPrompt, listPrompts } from "./prompts.mjs";
 
 const SUPPORTED_PROTOCOL_VERSION = "2025-03-26";
 
-const resources = [
+const resourceUris = [
   "nks://catalog/products",
   "nks://catalog/presets/{preset_id}",
   "nks://catalog/artwork/{artwork_id}",
@@ -31,7 +31,11 @@ const resources = [
   "ableton://track/{track_id}/clip/{clip_id}/notes",
   "ableton://track/{track_id}/devices",
   "ableton://device/{device_id}/parameters"
-].map((uri) => ({ uri, name: uri }));
+];
+const resources = resourceUris.filter((uri) => !uri.includes("{"))
+  .map((uri) => ({ uri, name: uri, mimeType: "application/json" }));
+const resourceTemplates = resourceUris.filter((uri) => uri.includes("{"))
+  .map((uriTemplate) => ({ uriTemplate, name: uriTemplate, mimeType: "application/json" }));
 
 const toolNames = [
   "search_presets",
@@ -267,6 +271,7 @@ export function createRouter(service, { toolProfile = "all" } = {}) {
           serverInfo: { name: "ableton-mcp", version: PACKAGE_VERSION }
         };
       } else if (method === "resources/list") result = { resources };
+      else if (method === "resources/templates/list") result = { resourceTemplates };
       else if (method === "resources/read") {
         const value = await service.readResource(params.uri);
         result = { contents: [{ uri: params.uri, text: JSON.stringify(value), mimeType: "application/json" }] };
