@@ -2200,6 +2200,22 @@ class DispatchTest(unittest.TestCase):
             "chainIds": ["track-0:device-0/chain-0"]
         }])
 
+    def test_device_hierarchy_reports_observed_rack_macro_state(self):
+        song = Song()
+        rack = DrumRack()
+        rack.has_macro_mappings = True
+        rack.visible_macro_count = 8
+        rack.variation_count = 2
+        rack.selected_variation_index = 1
+        song.tracks[0].devices = [rack]
+        observed = dispatch_request(song, {"method": "get_device_hierarchy", "params": {
+            "trackId": "track-0", "deviceId": "track-0:device-0"}}, 3)["device"]
+        self.assertEqual(observed["rackMacros"], {
+            "hasMappings": True, "visibleCount": 8,
+            "variationCount": 2, "selectedVariationIndex": 1,
+        })
+        self.assertNotIn("rackMacros", observed["chains"][0]["devices"][0])
+
     def test_device_hierarchy_includes_rack_return_chain_devices(self):
         song = Song()
         rack = DrumRack()

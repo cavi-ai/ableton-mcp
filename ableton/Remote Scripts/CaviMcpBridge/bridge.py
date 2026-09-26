@@ -767,6 +767,15 @@ def _chain_mixer(chain, audio=True):
 
 def _device_tree(device, device_id):
     record = _device_record(device, device_id)
+    if device.can_have_chains and all(hasattr(device, field) for field in (
+        "has_macro_mappings", "visible_macro_count", "variation_count", "selected_variation_index"
+    )):
+        record["rackMacros"] = {
+            "hasMappings": bool(device.has_macro_mappings),
+            "visibleCount": int(device.visible_macro_count),
+            "variationCount": int(device.variation_count),
+            "selectedVariationIndex": int(device.selected_variation_index),
+        }
     chains = []
     chain_ids = []
     if device.can_have_chains:
