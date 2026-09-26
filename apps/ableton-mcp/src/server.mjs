@@ -281,8 +281,12 @@ export function createRouter(service, { toolProfile = "all" } = {}) {
         if (!visibleToolNames.has(params.name)) throw Object.assign(new Error(`unknown tool: ${params.name}`), { code: -32601 });
         const args = params.arguments === undefined ? {} : params.arguments;
         validateToolArguments(params.name, args);
-        const value = await service.call(params.name, args);
-        result = { content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value };
+        try {
+          const value = await service.call(params.name, args);
+          result = { content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value };
+        } catch (error) {
+          result = { content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }], isError: true };
+        }
       }
       else if (method === "prompts/list") result = { prompts: listPrompts() };
       else if (method === "prompts/get") {
