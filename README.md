@@ -46,6 +46,8 @@ npm run cli -- call list_devices --args '{"trackId":"track-0"}' --json
 
 To try client wiring without Live, run `ABLETON_MCP_FIXTURE=1 npm start`.
 
+For a smaller initial tool catalog, set `ABLETON_MCP_TOOL_PROFILE=core` in the MCP server's environment. It advertises 55 common tools instead of all 183. Use the default `all` profile when an agent needs the complete MIDI, audio, rack, or snapshot toolset; restart the server after changing profiles. The CLI's direct `call` command remains independent of the discovery profile.
+
 ## What it does
 
 - **Reads**: transport, tempo, key and scale, quantization, grooves, cue points, tracks, scenes, clips, notes, clip envelopes, devices and parameters, mixer and routing, rack hierarchies, and the Live browser.
@@ -75,6 +77,7 @@ It publishes 183 tools, 22 resources and 5 prompt templates. When Live's Remote 
 | `ABLETON_MCP_CONFIRMATION_DIR` | `~/.cavi/ableton-mcp/confirmations` | Confirmation tokens for CLI `call`. |
 | `ABLETON_MCP_SNAPSHOT_DIR` | `~/.cavi/ableton-mcp/snapshots` | Saved track-state snapshots. |
 | `ABLETON_MCP_FIXTURE` | unset | `1` makes `npm start` serve fixture data without Live. |
+| `ABLETON_MCP_TOOL_PROFILE` | `all` | `core` advertises 55 common tools to reduce MCP discovery context; `all` advertises every tool. |
 
 ## Security
 

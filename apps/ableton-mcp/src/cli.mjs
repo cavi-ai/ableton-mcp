@@ -90,7 +90,7 @@ export async function runCli(argv, dependencies = {}) {
   }
   if (parsed.command === "serve") {
     const runtime = runtimeFactory(env);
-    try { await runStdio({ service: runtime.service }); } finally { runtime.close(); }
+    try { await runStdio({ service: runtime.service, toolProfile: env.ABLETON_MCP_TOOL_PROFILE || "all" }); } finally { runtime.close(); }
     return { served: true };
   }
   if (parsed.command === "status") {

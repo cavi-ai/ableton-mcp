@@ -216,7 +216,34 @@ const toolNames = [
   "set_bulk_track_mixer",
   "stop_all_clips"
 ];
-const tools = toolNames.map((name) => ({ name, ...toolContracts[name] }));
+// A smaller first-session surface for hosts with a tight tool-context budget.
+// The full catalog remains the default and every handler keeps its contract.
+const coreToolNames = new Set([
+  "search_presets", "get_preset", "get_preset_metadata",
+  "get_live_state", "get_transport_context", "get_song_musical_context",
+  "get_song_grid_reference", "get_transport_recording_context",
+  "get_live_scale_reference", "list_live_scales",
+  "list_tracks", "list_scenes", "list_clips", "list_arrangement_clips",
+  "get_midi_clip_notes_extended", "get_clip_timing", "get_audio_clip_state",
+  "get_track_mixer", "get_track_routing", "get_set_mixer",
+  "list_producer_chain_blueprints", "get_producer_chain_blueprint",
+  "get_browser_items", "search_browser_items", "load_browser_item",
+  "list_devices", "list_device_parameters", "get_device_hierarchy",
+  "get_factory_device_context", "get_plugin_integration_context",
+  "analyze_audio_file", "analyze_audio_clip",
+  "create_track", "create_scene", "create_midi_clip", "create_audio_clip",
+  "set_midi_note_properties", "set_clip_timing", "set_audio_clip_state",
+  "set_device_parameters", "set_device_active", "set_track_mixer",
+  "set_track_routing", "set_tempo", "set_song_musical_context",
+  "transport_play", "transport_stop", "launch_scene", "launch_clip",
+  "stop_clip", "stop_all_clips", "arm_track", "panic", "undo", "redo"
+]);
+
+function listedTools(profile) {
+  if (profile !== "all" && profile !== "core") throw new Error(`unknown tool profile: ${profile}`);
+  return toolNames.filter((name) => profile === "all" || coreToolNames.has(name))
+    .map((name) => ({ name, ...toolContracts[name] }));
+}
 
 function fixtureService() {
   const catalog = { search: ({ query }) => [{ id: "serum-2:fixture", name: query || "Deep" }] };
@@ -224,7 +251,9 @@ function fixtureService() {
   return new ToolService({ bridge, catalog });
 }
 
-export function createRouter(service) {
+export function createRouter(service, { toolProfile = "all" } = {}) {
+  const tools = listedTools(toolProfile);
+  const visibleToolNames = new Set(tools.map((tool) => tool.name));
   return async function route(request) {
     const { id, method, params = {} } = request;
     try {
@@ -242,6 +271,7 @@ export function createRouter(service) {
       }
       else if (method === "tools/list") result = { tools };
       else if (method === "tools/call") {
+        if (!visibleToolNames.has(params.name)) throw Object.assign(new Error(`unknown tool: ${params.name}`), { code: -32601 });
         const args = params.arguments === undefined ? {} : params.arguments;
         validateToolArguments(params.name, args);
         const value = await service.call(params.name, args);
@@ -260,8 +290,8 @@ export function createRouter(service) {
   };
 }
 
-export async function runStdio({ service }) {
-  const route = createRouter(service);
+export async function runStdio({ service, toolProfile = "all" }) {
+  const route = createRouter(service, { toolProfile });
   const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
   for await (const line of lines) {
     if (!line.trim()) continue;
@@ -275,12 +305,12 @@ export async function runStdio({ service }) {
 if (isMainModule(import.meta.url, process.argv[1])) {
   if (process.env.ABLETON_MCP_FIXTURE === "1") {
     process.stderr.write("ableton-mcp fixture mode\n");
-    await runStdio({ service: fixtureService() });
+    await runStdio({ service: fixtureService(), toolProfile: process.env.ABLETON_MCP_TOOL_PROFILE || "all" });
   } else {
     try {
       const runtime = createConfiguredService(process.env);
       process.stderr.write("ableton-mcp configured runtime\n");
-      await runStdio({ service: runtime.service });
+      await runStdio({ service: runtime.service, toolProfile: process.env.ABLETON_MCP_TOOL_PROFILE || "all" });
       runtime.close();
     } catch (error) {
       process.stderr.write(`${error.message}\n`);
