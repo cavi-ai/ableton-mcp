@@ -87,10 +87,11 @@ The bridge listens on a Unix domain socket and opens no TCP port. Mutations requ
 
 ```bash
 npm test
+npm run eval:core
 npm run verify:package
 ```
 
-`npm test` runs the pipeline and server suites, the bridge's Python tests, and the docs tests. ImageMagick 7 (`magick`) and `ffmpeg` must be installed. `verify:package` packs the npm tarball, installs it into a temporary project, and drives the installed CLI and server.
+`npm test` runs the pipeline and server suites, the bridge's Python tests, and the docs tests. `eval:core` checks the compact MCP catalog and read-only tool behavior with MCP Eval. ImageMagick 7 (`magick`) and `ffmpeg` must be installed. `verify:package` packs the npm tarball, installs it into a temporary project, and drives the installed CLI and server.
 
 ## Project status
 

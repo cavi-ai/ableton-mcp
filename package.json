@@ -49,6 +49,7 @@
     "catalog:inventory": "node packages/nks-pipeline/scripts/inventory-catalog.mjs",
     "test": "npm --workspace @cavi-ai/nks-pipeline test && npm --workspace @cavi-ai/ableton-mcp-core test && python3 -m unittest discover -s 'ableton/Remote Scripts/CaviMcpBridge/tests' && npm run docs:test",
     "test:mcp": "npm --workspace @cavi-ai/ableton-mcp-core test",
+    "eval:core": "ABLETON_MCP_TOOL_PROFILE=core MCPEVAL_HOME=.tmp/mcpeval mcpeval probe --server ableton-mcp-core --manifest evals/core.manifest.json -- node apps/ableton-mcp/src/cli.mjs serve",
     "test:pipeline": "npm --workspace @cavi-ai/nks-pipeline test",
     "docs:build": "node scripts/docs/build.mjs",
     "docs:verify": "node scripts/docs/verify.mjs",
@@ -61,5 +62,8 @@
   },
   "dependencies": {
     "ajv": "8.20.0"
+  },
+  "devDependencies": {
+    "@cavi-ai/mcp-eval": "0.3.0"
   }
 }
