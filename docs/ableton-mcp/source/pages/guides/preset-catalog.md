@@ -41,6 +41,16 @@ ABLETON_MCP_CATALOG_PATH="$PWD/reports/nks/catalog.sqlite" npm run cli -- call s
 
 Set the same variable in your MCP client's server entry.
 
+For Codex, run this from the repository checkout after building the catalog:
+
+```bash
+codex mcp add ableton-mcp \
+  --env "ABLETON_MCP_CATALOG_PATH=$PWD/reports/nks/catalog.sqlite" \
+  -- node "$PWD/apps/ableton-mcp/src/cli.mjs" serve
+```
+
+If you built the catalog elsewhere, replace the path with that catalog's absolute path. Restart the MCP client to load the new server entry, then verify `search_presets` returns your local presets. The catalog and vendor preset files stay local.
+
 ## Tags and favorites
 
 User tags and favorites are stored in their own tables. Vendor preset records are never altered. `get_preset_metadata` returns the current revision. `set_preset_metadata` requires that revision plus the standard dry-run and confirmation steps before it replaces tags or favorite state. `search_presets` can filter by favorite state and require all supplied tags.
