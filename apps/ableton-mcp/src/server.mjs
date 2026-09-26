@@ -263,6 +263,9 @@ export function createRouter(service, { toolProfile = "all" } = {}) {
   return async function route(request) {
     const { id, method, params = {} } = request;
     try {
+      if (!params || typeof params !== "object" || Array.isArray(params)) {
+        throw Object.assign(new Error("params must be an object"), { code: -32602 });
+      }
       let result;
       if (method === "initialize") {
         result = {
@@ -278,6 +281,9 @@ export function createRouter(service, { toolProfile = "all" } = {}) {
       }
       else if (method === "tools/list") result = { tools };
       else if (method === "tools/call") {
+        if (typeof params.name !== "string" || !params.name) {
+          throw Object.assign(new Error("tool name is required"), { code: -32602 });
+        }
         if (!visibleToolNames.has(params.name)) throw Object.assign(new Error(`unknown tool: ${params.name}`), { code: -32601 });
         const args = params.arguments === undefined ? {} : params.arguments;
         validateToolArguments(params.name, args);

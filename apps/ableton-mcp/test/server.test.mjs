@@ -58,16 +58,20 @@ test("stdio sends no reply to notifications and survives invalid requests", asyn
     { jsonrpc: "2.0", method: "tools/call", params: { name: "search_presets", arguments: {} } },
     null,
     { jsonrpc: "2.0", id: {}, method: "tools/list" },
+    { jsonrpc: "2.0", id: 3, method: "tools/call", params: null },
+    { jsonrpc: "2.0", id: 4, method: "resources/read", params: [] },
+    { jsonrpc: "2.0", id: 5, method: "tools/call", params: {} },
     { jsonrpc: "2.0", id: 2, method: "tools/list" }
   ]) child.stdin.write(`${JSON.stringify(message)}\n`);
   child.stdin.end();
   const [code] = await once(child, "exit");
   assert.equal(code, 0);
   const replies = stdout.trim().split("\n").map(JSON.parse);
-  assert.deepEqual(replies.map((reply) => reply.id), [1, null, null, 2]);
+  assert.deepEqual(replies.map((reply) => reply.id), [1, null, null, 3, 4, 5, 2]);
   assert.equal(replies[1].error.code, -32600);
   assert.equal(replies[2].error.code, -32600);
-  assert.ok(replies[3].result.tools.length > 0);
+  for (const reply of replies.slice(3, 6)) assert.equal(reply.error.code, -32602);
+  assert.ok(replies[6].result.tools.length > 0);
 });
 
 test("MCP rejects malformed tool arguments before service dispatch", async () => {
