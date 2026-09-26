@@ -91,7 +91,7 @@ The server publishes 183 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search local downloaded Splice audio assets under an explicit directory. Read-only; not cloud catalog search, download, or sync. Returns exact local source paths for analyze_audio_file. | `rootPath`, `query` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (93)
+## Mutations (91)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -126,7 +126,6 @@ The server publishes 183 tools. Mutations of the Live Set require `expectedState
 | `create_scale_melody_clip` | Plan or create one exact scale-degree melody in an empty Session clip. Binds Live key, meter, grid, destination, and state; native execution verifies every generated note. | `expectedStateVersion`, `trackId`, `clipId`, `name`, `grid`, `motifBars`, `repeats`, `events`, `gate`, `velocity`, `basePitch`, `minPitch`, `maxPitch` |
 | `create_scene` | Plan or create a Session scene at an exact insertion index. | `expectedStateVersion`, `name` |
 | `create_track` | Plan or create an audio or MIDI track at an exact insertion index. | `expectedStateVersion`, `type`, `name` |
-| `delete_arrangement_cue_point` | Plan or delete one exact Arrangement cue point. | `expectedStateVersion`, `cuePointId` |
 | `duplicate_arrangement_clip` | Plan or duplicate one exact Arrangement clip at a non-overlapping beat position on the same track. Preserves the source and validates its identity again at the native write boundary. | `expectedStateVersion`, `trackId`, `clipId`, `startBeats` |
 | `duplicate_clip` | Plan or duplicate an exact occupied Session clip into an exact empty slot. | `expectedStateVersion`, `trackId`, `clipId`, `destinationClipId` |
 | `duplicate_clip_loop` | Plan or duplicate the current loop region of one exact clip. | `expectedStateVersion`, `trackId`, `clipId` |
@@ -149,7 +148,6 @@ The server publishes 183 tools. Mutations of the Live Set require `expectedState
 | `recall_device_parameter_snapshot` | Guarded recall of parameter JSON onto a matching native device class and exact ordered parameter layout. Supports ordinary, Return, and Main tracks; rejects incompatible bounds/choices and disabled changed controls. Does not restore hidden state. | `expectedStateVersion`, `trackId`, `deviceId`, `snapshot` |
 | `recall_track_state_snapshot` | Plan or recall a captured track-state JSON snapshot onto the same exact compatible track topology. Restores track name, mixer, sends, routing and exposed top-level-device parameters in one guarded native undo step; does not load devices, clips, samples, hidden state, automation or mappings. | `expectedStateVersion`, `trackId`, `snapshot` |
 | `redo` | Plan or apply one guarded Ableton redo operation. | `expectedStateVersion` |
-| `remove_audio_warp_marker` | Plan or apply deletion of an exact visible audio warp marker. Rejects the hidden terminal marker and stale clip state. | `expectedStateVersion`, `trackId`, `clipId`, `beatTime` |
 | `rename_arrangement_cue_point` | Plan or rename one exact Arrangement cue point. | `expectedStateVersion`, `cuePointId`, `name` |
 | `rename_rack_chain` | Plan or rename an exact rack chain with a guarded hierarchy snapshot. For return chains, name is a raw label; Live adds the return letter prefix. Use observed name for display, not verbatim restoration. | `expectedStateVersion`, `trackId`, `deviceId`, `chainId`, `name` |
 | `rename_session_object` | Plan or rename an exact track, Return Track, scene, or Session clip. Return names are raw labels; Live prefixes the displayed bus letter. | `expectedStateVersion`, `targetType`, `targetId`, `name` |
@@ -189,15 +187,17 @@ The server publishes 183 tools. Mutations of the Live Set require `expectedState
 | `transport_stop` | Plan or stop Ableton transport playback. | `expectedStateVersion` |
 | `undo` | Plan or apply one guarded Ableton undo operation. | `expectedStateVersion` |
 
-## Destructive mutations (8)
+## Destructive mutations (10)
 
 | Tool | Description | Required arguments |
 |---|---|---|
 | `crop_audio_clip` | Plan or apply Live native cropping of one exact audio clip. Preview reports the selected loop interval when enabled, otherwise start/end markers, in current units. Live may retain pre-loop playback material and creates a processed source. Selected interval is not a guarantee of exclusive source-file bounds. Binds audio and loop state and reads back native results. | `expectedStateVersion`, `trackId`, `clipId` |
 | `delete_arrangement_clip` | Plan or delete one exact Arrangement clip, preserving other timeline material. Requires current clip identity and confirmation; deletion is undoable in Live. | `expectedStateVersion`, `trackId`, `clipId` |
+| `delete_arrangement_cue_point` | Plan or delete one exact Arrangement cue point. | `expectedStateVersion`, `cuePointId` |
 | `delete_clip` | Plan or delete one exact occupied Session clip. | `expectedStateVersion`, `trackId`, `clipId` |
 | `delete_device` | Plan or delete one exact loaded device from an ordinary, Return, Main, or rack chain. | `expectedStateVersion`, `trackId`, `deviceId` |
 | `delete_session_object` | Plan or delete an exact track, Return Track, scene, or Session clip with explicit content authority. Return deletion discloses its devices and affected track-send lanes. | `expectedStateVersion`, `targetType`, `targetId` |
+| `remove_audio_warp_marker` | Plan or apply deletion of an exact visible audio warp marker. Rejects the hidden terminal marker and stale clip state. | `expectedStateVersion`, `trackId`, `clipId`, `beatTime` |
 | `set_device_parameters` | Plan or apply guarded bounded changes to exact loaded-device parameters on an ordinary, Return, or Main track. Native Looper State writes targeting Record or Overdub are flagged as recorded-content mutations: restoring a previous parameter value does not restore captured audio. | `expectedStateVersion`, `trackId`, `deviceId`, `changes` |
 | `set_looper_state` | Plan or request one exact native Looper State choice: Stop, Record, Play, or Overdub. Native execution rechecks the complete Looper, routing, and transport snapshot before writing State; result reports the immediately observed State parameter and whether it matches the target, not an audible or quantized-boundary outcome. Record/Overdub can mutate captured audio and cannot be rolled back by restoring a parameter value. This does not promise beat-scheduled execution; verify native quantization behavior separately. | `expectedStateVersion`, `trackId`, `deviceId`, `targetState` |
 | `set_track_freeze_state` | Plan or toggle guarded track freeze. On the tested Live 12.4.5 the native is_frozen property has no setter, so execution fails closed with Live's own error; the plan still binds the observed state so newer Live versions can adopt the write without contract changes. Freezing renders the track's live material to audio and mutates audible content until unfrozen. | `expectedStateVersion`, `trackId`, `frozen` |

@@ -496,10 +496,24 @@ const readOnlyTools = new Set([
 
 const destructiveTools = new Set([
   "delete_session_object", "delete_clip", "delete_arrangement_clip",
+  "delete_arrangement_cue_point", "remove_audio_warp_marker",
   "delete_device", "crop_audio_clip", "set_looper_state", "set_device_parameters",
   "set_track_freeze_state"
 ]);
 
+// These tools answer from bundled reference data; all other tools can observe or
+// change the local catalog, filesystem, or a running Ableton Live set.
+const closedWorldTools = new Set([
+  "get_live_scale_reference", "list_live_scales",
+  "list_producer_chain_blueprints", "get_producer_chain_blueprint",
+  "list_factory_device_profiles"
+]);
+
 export const toolContracts = Object.fromEntries(Object.entries(contracts).map(([name, contract]) => [
-  name, { ...contract, annotations: { readOnlyHint: readOnlyTools.has(name), destructiveHint: destructiveTools.has(name) } }
+  name, { ...contract, annotations: {
+    readOnlyHint: readOnlyTools.has(name),
+    destructiveHint: destructiveTools.has(name),
+    idempotentHint: readOnlyTools.has(name),
+    openWorldHint: !closedWorldTools.has(name)
+  } }
 ]));
