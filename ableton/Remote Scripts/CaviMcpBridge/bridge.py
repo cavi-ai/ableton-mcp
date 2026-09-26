@@ -4347,6 +4347,25 @@ def dispatch_request(song, request, state_version, application=None):
             "stateVersion": state_version, "trackId": params["trackId"],
             "device": _device_tree(device, params["deviceId"]),
         }
+    if method == "adjust_rack_macro_count":
+        _, _, device = _device(song, params["trackId"], params["deviceId"])
+        if not device.can_have_chains or _device_tree(device, params["deviceId"]) != params["beforeDevice"]:
+            raise ValueError("rack state changed")
+        action = params["action"]
+        if action not in ("add", "remove"):
+            raise ValueError("invalid rack macro action")
+        if action == "remove" and device.has_macro_mappings:
+            raise ValueError("cannot remove a macro while any rack macro is mapped")
+        native = getattr(device, "add_macro" if action == "add" else "remove_macro", None)
+        if not callable(native):
+            raise ValueError("rack macro adjustment is unavailable")
+        song.begin_undo_step()
+        try:
+            native()
+        finally:
+            song.end_undo_step()
+        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                "device": _device_tree(device, params["deviceId"])}
     if method == "list_device_parameters":
         _, _, device = _device(song, params["trackId"], params["deviceId"])
         parameters = [_parameter_record(parameter, i, include_native_choice_labels=True)

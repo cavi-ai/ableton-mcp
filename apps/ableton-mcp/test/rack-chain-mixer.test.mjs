@@ -2,6 +2,39 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ToolService } from "../src/tool-service.mjs";
 
+test("rack macro count adjustment binds observed rack and requires confirmation", async () => {
+  const deviceId = "track-0:device-0";
+  const rack = { id: deviceId, canHaveChains: true, rackMacros: {
+    hasMappings: false, visibleCount: 8, variationCount: 0, selectedVariationIndex: -1
+  }, chains: [], returnChains: [], drumPads: [] };
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
+    assert.equal(method, "adjust_rack_macro_count");
+    assert.deepEqual(params.beforeDevice, rack);
+    return { stateVersion: 5, trackId: "track-0", device: { ...rack,
+      rackMacros: { ...rack.rackMacros, visibleCount: 10 } } };
+  } } });
+  const args = { trackId: "track-0", deviceId, expectedStateVersion: 4, action: "add" };
+  const dry = await service.call("adjust_rack_macro_count", args);
+  assert.equal(dry.plan.action, "add");
+  const applied = await service.call("adjust_rack_macro_count", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(applied.observed.device.rackMacros.visibleCount, 10);
+  await assert.rejects(() => service.call("adjust_rack_macro_count", { ...args, expectedStateVersion: 3 }), /stateVersion mismatch/);
+  await assert.rejects(() => service.call("adjust_rack_macro_count", { ...args, action: "bad" }), /action/);
+});
+
+test("rack macro removal refuses an unknown mapped target", async () => {
+  const rack = { id: "track-0:device-0", canHaveChains: true,
+    rackMacros: { hasMappings: true, visibleCount: 8, variationCount: 0, selectedVariationIndex: -1 } };
+  const service = new ToolService({ bridge: { async request() {
+    return { stateVersion: 4, trackId: "track-0", device: rack };
+  } } });
+  await assert.rejects(() => service.call("adjust_rack_macro_count", {
+    trackId: "track-0", deviceId: rack.id, expectedStateVersion: 4, action: "remove"
+  }), /mapped/);
+});
+
 test("rack sends require exact available enabled indices and confirmation", async () => {
   const deviceId = "track-0:device-0", chainId = `${deviceId}/chain-0`;
   const rack = { id: deviceId, canHaveChains: true, chains: [{ id: chainId,

@@ -2216,6 +2216,37 @@ class DispatchTest(unittest.TestCase):
         })
         self.assertNotIn("rackMacros", observed["chains"][0]["devices"][0])
 
+    def test_rack_macro_adjustment_rechecks_rack_and_reads_native_count(self):
+        song = Song()
+        rack = DrumRack()
+        rack.visible_macro_count = 8
+        rack.has_macro_mappings = False
+        rack.variation_count = 0
+        rack.selected_variation_index = -1
+        rack.add_macro = lambda: setattr(rack, "visible_macro_count", rack.visible_macro_count + 2)
+        rack.remove_macro = lambda: setattr(rack, "visible_macro_count", rack.visible_macro_count - 2)
+        song.tracks[0].devices = [rack]
+        before = dispatch_request(song, {"method": "get_device_hierarchy", "params": {
+            "trackId": "track-0", "deviceId": "track-0:device-0"}}, 3)["device"]
+        result = dispatch_request(song, {"method": "adjust_rack_macro_count", "params": {
+            "trackId": "track-0", "deviceId": "track-0:device-0", "beforeDevice": before,
+            "action": "add"}}, 3)
+        self.assertEqual(result["device"]["rackMacros"]["visibleCount"], 10)
+        self.assertEqual(result["stateVersion"], 4)
+        with self.assertRaisesRegex(ValueError, "rack state changed"):
+            dispatch_request(song, {"method": "adjust_rack_macro_count", "params": {
+                "trackId": "track-0", "deviceId": "track-0:device-0", "beforeDevice": before,
+                "action": "remove"}}, 4)
+        self.assertEqual(rack.visible_macro_count, 10)
+        current = result["device"]
+        rack.has_macro_mappings = True
+        with self.assertRaisesRegex(ValueError, "mapped"):
+            dispatch_request(song, {"method": "adjust_rack_macro_count", "params": {
+                "trackId": "track-0", "deviceId": "track-0:device-0", "beforeDevice": {
+                    **current, "rackMacros": {**current["rackMacros"], "hasMappings": True}},
+                "action": "remove"}}, 4)
+        self.assertEqual(rack.visible_macro_count, 10)
+
     def test_device_hierarchy_includes_rack_return_chain_devices(self):
         song = Song()
         rack = DrumRack()

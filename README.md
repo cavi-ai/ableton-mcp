@@ -46,7 +46,7 @@ npm run cli -- call list_devices --args '{"trackId":"track-0"}' --json
 
 To try client wiring without Live, run `ABLETON_MCP_FIXTURE=1 npm start`.
 
-For a smaller initial tool catalog, set `ABLETON_MCP_TOOL_PROFILE=core` in the MCP server's environment. It advertises 55 common tools instead of all 183. Use the default `all` profile when an agent needs the complete MIDI, audio, rack, or snapshot toolset; restart the server after changing profiles. The CLI's direct `call` command remains independent of the discovery profile.
+For a smaller initial tool catalog, set `ABLETON_MCP_TOOL_PROFILE=core` in the MCP server's environment. It advertises 55 common tools instead of all 184. Use the default `all` profile when an agent needs the complete MIDI, audio, rack, or snapshot toolset; restart the server after changing profiles. The CLI's direct `call` command remains independent of the discovery profile.
 
 ## What it does
 
@@ -56,7 +56,7 @@ For a smaller initial tool catalog, set `ABLETON_MCP_TOOL_PROFILE=core` in the M
 - **Audio analysis**: loudness, true peak, spectrum, pitch, transients and tuning of local audio files.
 - **Optional NKS preset catalog**: search, tags and favorites for presets discovered from your plug-in libraries.
 
-It publishes 183 tools, 9 concrete resources, 13 resource templates and 5 prompt templates. When Live's Remote Script API doesn't expose something, such as Arrangement automation, Group Track creation, or freezing, the tool reports that boundary and fails closed.
+It publishes 184 tools, 9 concrete resources, 13 resource templates and 5 prompt templates. When Live's Remote Script API doesn't expose something, such as Arrangement automation, Group Track creation, or freezing, the tool reports that boundary and fails closed.
 
 ## Documentation
 

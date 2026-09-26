@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 183 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 184 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (82)
 
@@ -187,10 +187,11 @@ The server publishes 183 tools. Mutations of the Live Set require `expectedState
 | `transport_stop` | Plan or stop Ableton transport playback. | `expectedStateVersion` |
 | `undo` | Plan or apply one guarded Ableton undo operation. | `expectedStateVersion` |
 
-## Destructive mutations (10)
+## Destructive mutations (11)
 
 | Tool | Description | Required arguments |
 |---|---|---|
+| `adjust_rack_macro_count` | Plan or invoke one native add/remove macro action on an exact rack, then report the observed count. Removal is refused while any macro mapping exists because Live does not expose the affected mapping target. | `expectedStateVersion`, `trackId`, `deviceId`, `action` |
 | `crop_audio_clip` | Plan or apply Live native cropping of one exact audio clip. Preview reports the selected loop interval when enabled, otherwise start/end markers, in current units. Live may retain pre-loop playback material and creates a processed source. Selected interval is not a guarantee of exclusive source-file bounds. Binds audio and loop state and reads back native results. | `expectedStateVersion`, `trackId`, `clipId` |
 | `delete_arrangement_clip` | Plan or delete one exact Arrangement clip, preserving other timeline material. Requires current clip identity and confirmation; deletion is undoable in Live. | `expectedStateVersion`, `trackId`, `clipId` |
 | `delete_arrangement_cue_point` | Plan or delete one exact Arrangement cue point. | `expectedStateVersion`, `cuePointId` |

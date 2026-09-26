@@ -796,6 +796,18 @@ export class ToolService {
       return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
         expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, index, name: args.name }, args);
     }
+    if (name === "adjust_rack_macro_count") {
+      requireExpectedState(args);
+      if (args.action !== "add" && args.action !== "remove") throw new Error("invalid rack macro action");
+      const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, { ...observed, deviceId: observed.device?.id });
+      const rack = observed.device;
+      if (rack?.id !== args.deviceId || !rack.canHaveChains || !rack.rackMacros) throw new Error("device does not expose rack macros");
+      if (args.action === "remove" && rack.rackMacros.hasMappings) throw new Error("cannot remove a macro while any rack macro is mapped");
+      return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+        expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, action: args.action,
+        warning: "Live chooses the size of each native adjustment; inspect the returned visibleCount. Removing an unmapped visible macro may still change controller layout." }, args);
+    }
     if (name === "list_device_parameters") {
       return this.bridge.request("list_device_parameters", args);
     }

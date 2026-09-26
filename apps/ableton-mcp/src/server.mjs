@@ -156,6 +156,7 @@ const toolNames = [
   "delete_device",
   "get_device_hierarchy",
   "create_rack_chain",
+  "adjust_rack_macro_count",
   "set_rack_chain_mixer",
   "rename_rack_chain",
   "set_drum_pad_state",
