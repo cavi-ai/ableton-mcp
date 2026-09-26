@@ -87,6 +87,16 @@ test("MCP rejects malformed tool arguments before service dispatch", async () =>
   assert.equal(dispatches, 1);
 });
 
+test("MCP returns handler failures as tool results without hiding protocol validation errors", async () => {
+  const route = createRouter({ call: async () => { throw new Error("bridge unavailable"); } });
+  const failed = await route({ id: 1, method: "tools/call", params: { name: "get_live_state", arguments: {} } });
+  assert.equal(failed.error, undefined);
+  assert.equal(failed.result.isError, true);
+  assert.deepEqual(failed.result.content, [{ type: "text", text: "bridge unavailable" }]);
+  const invalid = await route({ id: 2, method: "tools/call", params: { name: "arm_track", arguments: {} } });
+  assert.equal(invalid.error.code, -32602);
+});
+
 test("MCP exposes and validates nested MIDI repeat counts", async () => {
   const route = createRouter({ call: async (_name, args) => ({ repeats: args.operation.repeats }) });
   const listed = await route({ id: 1, method: "tools/list" });

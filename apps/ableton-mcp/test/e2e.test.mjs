@@ -24,5 +24,7 @@ test("MCP router executes a confirmed mutation through the Unix bridge once", as
   const live = await route({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "set_device_parameters", arguments: confirmedArgs } });
   assert.equal(live.result.structuredContent.observed.stateVersion, 5);
   const replay = await route({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "set_device_parameters", arguments: confirmedArgs } });
-  assert.match(replay.error.message, /unknown confirmation token/);
+  assert.equal(replay.error, undefined);
+  assert.equal(replay.result.isError, true);
+  assert.match(replay.result.content[0].text, /unknown confirmation token/);
 });
