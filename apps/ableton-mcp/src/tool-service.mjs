@@ -1551,6 +1551,11 @@ export class ToolService {
     if (args.launchQuantization !== undefined) changes.launchQuantization = normalizeChoice(
       args.launchQuantization, "launchQuantization", observed.launchQuantization.choices
     );
+    if (args.launchLegato !== undefined) {
+      if (typeof args.launchLegato !== "boolean") throw new Error("launchLegato must be boolean");
+      if (observed.launchLegato?.supported !== true) throw new Error("clip launch Legato is unavailable");
+      changes.launchLegato = args.launchLegato;
+    }
     if (args.grooveId !== undefined) {
       if (typeof args.grooveId !== "string") throw new Error("grooveId must identify an available groove");
       if (!observed.availableGrooves.some(({ id }) => id === args.grooveId)) throw new Error(`unknown groove ${args.grooveId}`);

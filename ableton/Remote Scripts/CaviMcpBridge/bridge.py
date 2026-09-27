@@ -326,6 +326,8 @@ def _clip_timing(song, track_id, clip_id, state_version):
         "loop": loop,
         "timeSignature": {"numerator": int(clip.signature_numerator), "denominator": int(clip.signature_denominator)},
         "launchQuantization": _enum_record(clip.launch_quantization, CLIP_QUANTIZATION_NAMES),
+        "launchLegato": {"supported": True, "enabled": bool(clip.legato)}
+        if timeline is None and hasattr(clip, "legato") else {"supported": False},
         "grooveId": groove_id,
         "availableGrooves": [_groove_record(groove, index) for index, groove in enumerate(grooves)],
     }
@@ -3487,8 +3489,13 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "set_clip_timing":
         if "before" in params and _clip_timing(song, params["trackId"], params["clipId"], state_version) != params["before"]:
             raise ValueError("clip timing changed since observation")
-        clip, _ = _clip_reference(song, params["trackId"], params["clipId"])
+        clip, timeline = _clip_reference(song, params["trackId"], params["clipId"])
         changes = params["changes"]
+        if "launchLegato" in changes:
+            if timeline is not None or not hasattr(clip, "legato"):
+                raise ValueError("clip launch Legato is unavailable")
+            if type(changes["launchLegato"]) is not bool:
+                raise ValueError("launchLegato must be boolean")
         loop = changes.get("loop", {})
         if getattr(clip, "is_audio_clip", False) and not clip.warping and any(key in loop for key in ("startBeats", "endBeats")):
             raise ValueError("beat-based loop positions cannot be applied to unwarped audio")
@@ -3516,6 +3523,8 @@ def dispatch_request(song, request, state_version, application=None):
             clip.signature_denominator = int(signature["denominator"])
         if "launchQuantization" in changes:
             clip.launch_quantization = int(changes["launchQuantization"])
+        if "launchLegato" in changes:
+            clip.legato = changes["launchLegato"]
         if "grooveId" in changes:
             clip.groove = _grooves(song)[int(changes["grooveId"].removeprefix("groove-"))]
         return _clip_timing(song, params["trackId"], params["clipId"], state_version + 1)

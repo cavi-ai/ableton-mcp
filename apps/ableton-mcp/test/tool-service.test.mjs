@@ -323,6 +323,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         loop: { enabled: true, startBeats: 0, endBeats: 4 },
         timeSignature: { numerator: 4, denominator: 4 },
         launchQuantization: { value: 0, name: "global", choices: [{ value: 0, name: "global" }, { value: 12, name: "1_16" }] },
+        launchLegato: { supported: true, enabled: false },
         grooveId: null, availableGrooves: [{ id: "groove-0", name: "Swing 16-65" }]
       };
       if (method === "get_audio_clip_state") return {
@@ -1001,6 +1002,14 @@ test("clip timing mutation rejects invalid loops and signs groove assignment", a
   assert.equal(dry.dryRun, true);
   assert.equal(dry.plan.changes.launchQuantization, 12);
   assert.equal(dry.plan.changes.grooveId, "groove-0");
+});
+
+test("clip timing signs the Session clip launch Legato switch", async () => {
+  const { service } = fixture();
+  const base = { trackId: "track-0", clipId: "track-0:clip-0", expectedStateVersion: 4 };
+  const dry = await service.call("set_clip_timing", { ...base, launchLegato: true });
+  assert.equal(dry.plan.changes.launchLegato, true);
+  await assert.rejects(() => service.call("set_clip_timing", { ...base, launchLegato: "yes" }), /launchLegato must be boolean/);
 });
 
 test("clip loop duplication signs exact timing and executes once", async () => {
