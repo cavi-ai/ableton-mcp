@@ -184,6 +184,8 @@ const toolNames = [
   "list_device_parameters",
   "capture_device_parameter_snapshot",
   "capture_device_chain_snapshot",
+  "save_device_chain_snapshot",
+  "load_device_chain_snapshot",
   "recall_device_chain_snapshot",
   "capture_track_state_snapshot",
   "save_track_state_snapshot",

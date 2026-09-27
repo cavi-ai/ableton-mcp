@@ -31,3 +31,15 @@ test("track snapshot library refuses symlinked entries and oversized captures", 
     await assert.rejects(() => library.save("huge", { format: "cavi-track-state-v1", payload: "x".repeat(5 * 1024 * 1024) }), /too large/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
+
+test("device-chain library persists chain snapshots without accepting track snapshots", async () => {
+  const directory = await mkdtemp(`${tmpdir()}/cavi-chain-library-test-`);
+  try {
+    const library = new SnapshotLibrary({ directory, formats: ["cavi-device-chain-v1", "cavi-device-chain-v2"] });
+    const snapshot = { format: "cavi-device-chain-v2", devices: [{ name: "Rack", className: "AudioEffectGroupDevice",
+      type: "audio_effect", parameters: [], chains: [{ name: "Parallel", devices: [] }], returnChains: [] }] };
+    await library.save("parallel-fx", snapshot);
+    assert.deepEqual((await library.load("parallel-fx")).snapshot, snapshot);
+    await assert.rejects(() => library.save("wrong-kind", { format: "cavi-track-state-v2" }), /invalid.*snapshot format/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});

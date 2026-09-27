@@ -4,6 +4,7 @@ import { ToolService } from "./tool-service.mjs";
 import { resolveRuntimeConfig } from "./paths.mjs";
 import { FileConfirmationStore } from "./confirmation-store.mjs";
 import { SnapshotLibrary } from "./snapshot-library.mjs";
+import { join } from "node:path";
 import { BrowserMetadataLibrary } from "./browser-metadata-library.mjs";
 
 const emptyCatalog = {
@@ -29,7 +30,9 @@ export function createConfiguredService(environment = process.env, { persistentC
   const browserMetadata = () => (browserLibrary ??= new BrowserMetadataLibrary({ path: browserMetadataPath }));
   return {
     service: new ToolService({ bridge, catalog, confirmations, spliceRoots, generationQueuePath: catalogPath,
-      snapshotLibrary: new SnapshotLibrary({ directory: snapshotDirectory }), browserMetadata }),
+      snapshotLibrary: new SnapshotLibrary({ directory: snapshotDirectory }),
+      deviceChainLibrary: new SnapshotLibrary({ directory: join(snapshotDirectory, "device-chains"),
+        formats: ["cavi-device-chain-v1", "cavi-device-chain-v2"] }), browserMetadata }),
     close: () => { browserLibrary?.close(); catalog.close(); }
   };
 }

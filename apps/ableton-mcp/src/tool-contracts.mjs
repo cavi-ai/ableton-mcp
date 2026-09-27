@@ -282,6 +282,8 @@ const envelopePoint = object({
 
 const contracts = {
   capture_device_chain_snapshot: { description: "Capture ordered devices, nested rack and return-chain topology, names, and exposed parameters as persistable JSON. Not a native rack or preset; excludes hidden plugin state, samples, automation, pad assignments, and mappings.", inputSchema: object({ trackId: ids.deviceOwnerId }, ["trackId"]) },
+  save_device_chain_snapshot: { description: "Capture an exact device chain, including nested rack state, into the private named local chain library. Never overwrites. Does not save hidden plugin state, samples, pad assignments, or mappings.", inputSchema: object({ trackId: ids.deviceOwnerId, name: string("New local chain snapshot name; letters, numbers, dot, underscore and hyphen only.") }, ["trackId", "name"]) },
+  load_device_chain_snapshot: { description: "Read a named local device-chain snapshot for review and guarded recall onto an already compatible track, Return, or Main device owner. Does not mutate Live.", inputSchema: object({ name: string("Exact saved chain snapshot name.") }, ["name"]) },
   recall_device_chain_snapshot: { description: "Plan or recall exposed parameters and names onto exactly compatible ordered device and rack-chain topology in one guarded Live undo step. Legacy top-level v1 captures remain supported. Does not create, delete, or load devices or restore hidden plugin state.", inputSchema: guarded({ trackId: ids.deviceOwnerId, snapshot: deviceChainSnapshot }, ["trackId", "snapshot"]) },
   capture_device_parameter_snapshot: { description: "Capture exposed device parameters as persistable JSON, with a consistent live identity check. Not a native preset: excludes hidden plugin state, samples, automation and mappings.", inputSchema: device },
   capture_track_state_snapshot: { description: "Capture one consistent, persistable JSON snapshot of an existing track's mixer, routing, ordered devices, and exposed nested rack parameters. Not a native track preset; excludes clips, hidden state, samples, automation, pad assignments and mappings.", inputSchema: track },
@@ -539,7 +541,7 @@ const readOnlyTools = new Set([
   "get_factory_browser_items", "list_browser_roots", "get_browser_items", "search_browser_items", "search_browser_roots",
   "list_local_splice_roots", "search_local_splice_samples", "get_device_hierarchy",
   "get_clip_parameter_envelope", "list_devices", "list_device_parameters",
-  "capture_device_parameter_snapshot", "capture_device_chain_snapshot",
+  "capture_device_parameter_snapshot", "capture_device_chain_snapshot", "load_device_chain_snapshot",
   "capture_track_state_snapshot", "load_track_state_snapshot",
   "get_track_midi_routing", "get_track_freeze_state"
 ]);

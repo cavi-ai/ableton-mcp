@@ -315,11 +315,12 @@ function normalizeBrowserSearch(args) {
 }
 
 export class ToolService {
-  constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, browserMetadata, spliceRoots = [], generationQueuePath }) {
+  constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, deviceChainLibrary, browserMetadata, spliceRoots = [], generationQueuePath }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
     this.snapshotLibrary = snapshotLibrary;
+    this.deviceChainLibrary = deviceChainLibrary;
     this.browserMetadata = browserMetadata;
     this.spliceRoots = spliceRoots;
     this.generationQueuePath = generationQueuePath;
@@ -337,6 +338,16 @@ export class ToolService {
         metadataSource: "private_mcp" };
     }
     if (name === "capture_device_chain_snapshot") return this.#captureDeviceChainSnapshot(args);
+    if (name === "save_device_chain_snapshot") {
+      if (!this.deviceChainLibrary) throw new Error("device-chain snapshot library is not configured");
+      const capture = await this.#captureDeviceChainSnapshot(args);
+      return { ...await this.deviceChainLibrary.save(args.name, capture.snapshot), trackId: args.trackId,
+        stateVersion: capture.stateVersion, limitation: capture.limitation };
+    }
+    if (name === "load_device_chain_snapshot") {
+      if (!this.deviceChainLibrary) throw new Error("device-chain snapshot library is not configured");
+      return this.deviceChainLibrary.load(args.name);
+    }
     if (name === "recall_device_chain_snapshot") return this.#recallDeviceChainSnapshot(args);
     if (name === "capture_track_state_snapshot") return this.#captureTrackStateSnapshot(args);
     if (name === "save_track_state_snapshot") {

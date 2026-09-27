@@ -8,14 +8,15 @@ function snapshotPath(directory, name) {
 }
 
 export class SnapshotLibrary {
-  constructor({ directory }) {
+  constructor({ directory, formats = ["cavi-track-state-v1", "cavi-track-state-v2"] }) {
     if (typeof directory !== "string" || !directory) throw new Error("snapshot directory is required");
     this.directory = directory;
+    this.formats = new Set(formats);
   }
 
   async save(name, snapshot) {
     const path = snapshotPath(this.directory, name);
-    if (!["cavi-track-state-v1", "cavi-track-state-v2"].includes(snapshot?.format)) throw new Error("invalid track snapshot format");
+    if (!this.formats.has(snapshot?.format)) throw new Error("invalid snapshot format");
     const content = `${JSON.stringify(snapshot, null, 2)}\n`;
     if (Buffer.byteLength(content) > 4 * 1024 * 1024) throw new Error("snapshot capture is too large");
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
@@ -39,7 +40,7 @@ export class SnapshotLibrary {
     if (info.isSymbolicLink()) throw new Error("snapshot entry must not be a symlink");
     if (!info.isFile() || info.size > 4 * 1024 * 1024) throw new Error("snapshot file is invalid or too large");
     const snapshot = JSON.parse(await readFile(path, "utf8"));
-    if (!["cavi-track-state-v1", "cavi-track-state-v2"].includes(snapshot?.format)) throw new Error("invalid track snapshot format");
+    if (!this.formats.has(snapshot?.format)) throw new Error("invalid snapshot format");
     return { name, path, snapshot };
   }
 }

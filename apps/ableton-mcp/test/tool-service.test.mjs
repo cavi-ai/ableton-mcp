@@ -4,6 +4,7 @@ import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ToolService } from "../src/tool-service.mjs";
+import { SnapshotLibrary } from "../src/snapshot-library.mjs";
 import { validateToolArguments } from "../src/tool-validation.mjs";
 
 test("unwarped loop plans preserve seconds and reject incompatible units", async () => {
@@ -1278,6 +1279,30 @@ test("device chain snapshots capture and validate nested rack topology", async (
   await assert.rejects(() => service.call("recall_device_chain_snapshot", {
     trackId: "track-0", expectedStateVersion: 9, snapshot: incompatible,
   }), /topology mismatch/);
+});
+
+test("named device-chain capture can be loaded for guarded recall", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cavi-chain-save-"));
+  try {
+    const observed = { stateVersion: 3, trackId: "return-0", devices: [{
+      id: "return-0:device-0", name: "Reverb", className: "Reverb", type: "audio_effect",
+      parameters: [{ id: "parameter-0", originalName: "Dry/Wet", min: 0, max: 1,
+        quantized: false, valueItems: [], value: 0.7, enabled: true }]
+    }] };
+    const service = new ToolService({ bridge: { async request(method) {
+      if (method === "get_device_chain_snapshot") return structuredClone(observed);
+      throw new Error(method);
+    } }, deviceChainLibrary: new SnapshotLibrary({ directory, formats: ["cavi-device-chain-v1", "cavi-device-chain-v2"] }) });
+    await service.call("save_device_chain_snapshot", { trackId: "return-0", name: "wet-reverb" });
+    const loaded = await service.call("load_device_chain_snapshot", { name: "wet-reverb" });
+    assert.equal(loaded.snapshot.devices[0].parameters[0].value, 0.7);
+    validateToolArguments("recall_device_chain_snapshot", { trackId: "return-0",
+      expectedStateVersion: 3, snapshot: loaded.snapshot });
+    observed.devices[0].parameters[0].value = 0.2;
+    const dry = await service.call("recall_device_chain_snapshot", { trackId: "return-0",
+      expectedStateVersion: 3, snapshot: loaded.snapshot });
+    assert.equal(dry.plan.target.devices[0].parameters[0].value, 0.7);
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
 test("device reordering requires exact state and confirmation", async () => {
