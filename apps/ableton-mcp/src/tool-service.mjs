@@ -1,5 +1,7 @@
 import { assertExpectedState } from "./bridge-protocol.mjs";
 import { realpath, stat } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { createHash } from "node:crypto";
 import { isAbsolute } from "node:path";
 import { analyzeAudioFile } from "./audio-analysis.mjs";
 import { planClipPitchAdjustment } from "./audio-tuning.mjs";
@@ -1284,6 +1286,7 @@ export class ToolService {
     if (name === "duplicate_session_object") return this.#duplicateSessionObject(args);
     if (name === "delete_session_object") return this.#deleteSessionObject(args);
     if (name === "set_audio_clip_state") return this.#setAudioClipState(args);
+    if (name === "apply_monophonic_audio_tuning") return this.#applyMonophonicAudioTuning(args);
     if (name === "move_audio_warp_marker") return this.#moveAudioWarpMarker(args);
     if (name === "remove_audio_warp_marker") return this.#removeAudioWarpMarker(args);
     if (name === "add_audio_warp_marker") return this.#addAudioWarpMarker(args);
@@ -2019,6 +2022,61 @@ export class ToolService {
       method: "set_audio_clip_state", trackId: args.trackId, clipId: args.clipId,
       expectedStateVersion: args.expectedStateVersion, before: observed, changes
     }, args);
+  }
+
+  async #applyMonophonicAudioTuning(args) {
+    requireExpectedState(args);
+    if (!Number.isInteger(args.targetMidiNote) || args.targetMidiNote < 0 || args.targetMidiNote > 127)
+      throw new Error("targetMidiNote must be a MIDI note from 0 to 127");
+    const target = { trackId: args.trackId, clipId: args.clipId };
+    const before = await this.bridge.request("get_audio_clip_state", target);
+    assertExpectedState(args, before);
+    if (before.clipId !== args.clipId || typeof before.source?.path !== "string" || !before.source.path)
+      throw new Error("exact audio clip source is unavailable");
+    const first = await analyzeAudioFile(before.source.path, { startSeconds: 0, durationSeconds: 60,
+      targetMidiNote: args.targetMidiNote, channelIndex: 0 });
+    if (first.durationSeconds - first.window.durationSeconds > 0.001)
+      throw new Error("full-source tuning supports audio files of at most 60 seconds");
+    if (![1, 2].includes(first.channels)) throw new Error("full-source tuning requires mono or stereo audio");
+    const analyses = [first];
+    if (first.channels === 2) analyses.push(await analyzeAudioFile(before.source.path, {
+      startSeconds: 0, durationSeconds: 60, targetMidiNote: args.targetMidiNote, channelIndex: 1 }));
+    const adjustments = analyses.map(result => planClipPitchAdjustment(result.tuningMeasurement, before.pitch));
+    if (adjustments.some(adjustment => !adjustment.eligible))
+      throw new Error("full-source tuning requires stable monophonic pitch in every channel");
+    const cents = analyses.map(result => result.tuningMeasurement.medianCentsFromTarget);
+    if (Math.max(...cents) - Math.min(...cents) > 15)
+      throw new Error("stereo channels disagree on the source fundamental");
+    const shiftCents = Math.round(-cents.reduce((sum, value) => sum + value, 0) / cents.length);
+    const coarse = Math.round(shiftCents / 100) || 0, fine = shiftCents - coarse * 100;
+    if (coarse < -48 || coarse > 48 || fine < -50 || fine > 50)
+      throw new Error("measured tuning offset is outside Live clip pitch range");
+    if (before.pitch.coarse === coarse && before.pitch.fine === fine)
+      throw new Error("audio clip already has the proposed whole-source tuning offset");
+    const hash = createHash("sha256");
+    for await (const chunk of createReadStream(first.sourcePath)) hash.update(chunk);
+    const sourceSha256 = hash.digest("hex");
+    const after = await this.bridge.request("get_audio_clip_state", target);
+    if (JSON.stringify(before) !== JSON.stringify(after))
+      throw new Error("audio clip changed during full-source tuning analysis; retry");
+    const plan = { method: "set_audio_clip_state", operation: "apply_monophonic_audio_tuning",
+      ...target, expectedStateVersion: args.expectedStateVersion, before,
+      measurement: { sourcePath: first.sourcePath, sourceSha256, targetMidiNote: args.targetMidiNote,
+        durationSeconds: first.durationSeconds,
+        channels: analyses.map((result, channelIndex) => ({ channelIndex,
+          medianCentsFromTarget: result.tuningMeasurement.medianCentsFromTarget,
+          measuredFrameFraction: result.tuningMeasurement.measuredFrameFraction,
+          maximumSpreadCents: result.tuningMeasurement.wholeClipTuningProposal.maximumSpreadCents })) },
+      changes: { pitchCoarse: { previous: before.pitch.coarse, value: coarse },
+        pitchFine: { previous: before.pitch.fine, value: fine } },
+      limitation: "Whole-clip pitch offset from stable full-source periodicity, not note-level vocal correction or audible validation. Warp, envelopes and downstream devices may affect the heard result." };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    this.#consumeConfirmation(plan, args);
+    const observed = await this.bridge.request("set_audio_clip_state", plan);
+    if (observed.stateVersion !== args.expectedStateVersion + 1 || observed.trackId !== args.trackId ||
+        observed.clipId !== args.clipId || observed.pitch?.coarse !== coarse || observed.pitch?.fine !== fine)
+      throw new Error("audio tuning readback does not match the confirmed plan");
+    return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString() };
   }
 
   async #cropAudioClip(args) {

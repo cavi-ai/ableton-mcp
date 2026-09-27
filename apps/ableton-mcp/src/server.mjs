@@ -125,6 +125,7 @@ const toolNames = [
   "analyze_audio_file",
   "analyze_audio_clip",
   "set_audio_clip_state",
+  "apply_monophonic_audio_tuning",
   "move_audio_warp_marker",
   "remove_audio_warp_marker",
   "add_audio_warp_marker",

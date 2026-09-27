@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 212 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 213 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (92)
 
@@ -101,7 +101,7 @@ The server publishes 212 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search downloaded Splice audio assets by filename or pack/category folder under an explicit local directory in stable relative-path order. Offset and nextOffset page through matching files. Optional private MCP tags/favorites join by exact local identity. Read-only; not cloud catalog search, download, or sync. Returns exact local source paths for analyze_audio_file. | `rootPath`, `query` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (106)
+## Mutations (107)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -123,6 +123,7 @@ The server publishes 212 tools. Mutations of the Live Set require `expectedState
 | `apply_midi_strum_pattern` | Plan or apply guarded chord strumming while preserving pitch, velocity, probability, mute, release velocity, and velocity deviation. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `direction`, `spreadBeats` |
 | `apply_midi_transposition` | Plan or apply guarded chromatic MIDI transposition with complete native readback verification. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `semitones` |
 | `apply_midi_velocity_curve` | Plan or apply a guarded MIDI velocity curve while preserving timing, pitch, duration, probability, and expression metadata. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `curve` |
+| `apply_monophonic_audio_tuning` | Plan or apply an exact Live clip coarse/fine pitch offset from full-source, stable monophonic analysis of a mono or stereo local source at most 60 seconds long. Every stereo channel must agree; confirmation binds a SHA-256 source hash and current clip state, then verifies native pitch readback. Whole-clip tuning only: not note-by-note vocal correction, rendered audio analysis, or audible validation. | `expectedStateVersion`, `trackId`, `clipId`, `targetMidiNote` |
 | `arm_track` | Plan or set the record-arm state of one exact track. | `expectedStateVersion`, `trackId`, `armed` |
 | `capture_midi_session` | Plan or invoke Live's native Capture MIDI into Session View for recently played MIDI on audible tracks. May create or change clips on multiple MIDI tracks or add a scene; the target is determined by Live, not guaranteed by the plan. Reports immediate slot changes plus note count/digest changes in armed playing MIDI clips; inspect notes separately for content. Requires native can_capture_midi readiness and confirmation. | `expectedStateVersion` |
 | `claim_nks_generation_job` | Atomically lease one pending NKS generation job for a worker. Returns its catalog preset without loading the plugin or saving a file. | `workerId`, `productSlug` |
