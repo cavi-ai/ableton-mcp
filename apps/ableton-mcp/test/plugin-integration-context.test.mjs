@@ -63,6 +63,14 @@ test("plugin integration context joins installed variants, Live exposure, and NK
   assert.equal(result.capabilities.parameterWrite, true);
   assert.equal(result.capabilities.hiddenStateRead, false);
   assert.equal(result.capabilities.nativePresetRecall, false);
+  assert.equal(result.capabilities.liveUserLibraryPresetLoad, true);
+  assert.deepEqual(result.livePresetWorkflow, {
+    save: { surface: "Live UI", action: "Save Preset", mcpAvailable: false },
+    discover: { tool: "search_browser_items", root: "user_library" },
+    load: { tool: "load_browser_item", useReturnedPath: true, stagingTrackRecommended: true },
+    verify: { tool: "list_devices", scope: "loaded device identity and exposed parameters only",
+      hiddenPluginStateReadable: false }
+  });
   assert.deepEqual(result.presetNavigation, {
     entryPoint: "Click the preset name in Serum 2's top bar to open the preset browser.",
     browseBy: ["bank", "category", "subcategory", "author"],
