@@ -219,6 +219,7 @@ const toolNames = [
   "stop_clip",
   "arm_track",
   "set_scene_launch_quantization",
+  "set_scene_musical_context",
   "create_groove",
   "get_track_midi_routing",
   "set_track_midi_routing",

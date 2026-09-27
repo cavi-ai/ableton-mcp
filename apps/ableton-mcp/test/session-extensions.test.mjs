@@ -32,6 +32,31 @@ test("scene launch quantization plans against the exact observed scene", async (
   assert.equal(calls.at(-1).method, "set_scene_launch_quantization");
 });
 
+test("scene musical context plans exact tempo and meter overrides", async () => {
+  const scene = { id: "scene-0", name: "Breakdown", launchQuantization: sceneQuantization(0),
+    tempo: { enabled: false, bpm: null }, timeSignature: { enabled: false, numerator: null, denominator: null } };
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "list_scenes") return { stateVersion: 4, scenes: [scene] };
+    assert.equal(method, "set_scene_musical_context");
+    assert.deepEqual(params.before, scene);
+    assert.deepEqual(params.changes, { tempo: { enabled: true, bpm: 60 },
+      timeSignature: { enabled: true, numerator: 3, denominator: 4 } });
+    return { stateVersion: 5, scene: { ...scene, tempo: params.changes.tempo,
+      timeSignature: params.changes.timeSignature } };
+  } } });
+  const args = { sceneId: "scene-0", expectedStateVersion: 4, tempoEnabled: true, tempo: 60,
+    timeSignatureEnabled: true, numerator: 3, denominator: 4 };
+  const dry = await service.call("set_scene_musical_context", args);
+  assert.deepEqual(dry.plan.before, scene);
+  const result = await service.call("set_scene_musical_context", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.observed.scene.tempo.bpm, 60);
+  assert.equal(result.observed.scene.timeSignature.numerator, 3);
+  await assert.rejects(() => service.call("set_scene_musical_context", { ...args, tempo: 1000 }), /tempo/i);
+  await assert.rejects(() => service.call("set_scene_musical_context", { ...args, denominator: 3 }), /denominator/i);
+  await assert.rejects(() => service.call("set_scene_musical_context", { ...args, expectedStateVersion: 3 }), /stateVersion mismatch/);
+});
+
 test("groove creation plans against the full musical context", async () => {
   const context = { stateVersion: 4, groove: { amount: 1, swingAmount: 0, pool: [{ id: "groove-0", name: "Swing" }] } };
   const calls = [];

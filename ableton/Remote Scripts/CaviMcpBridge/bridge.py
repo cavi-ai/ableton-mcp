@@ -417,9 +417,19 @@ def _arrangement_clips(song, track_id, state_version):
 
 def _scene_record(scene, index):
     quantization = getattr(scene, "launch_quantization", None)
+    tempo_supported = hasattr(scene, "tempo_enabled") and hasattr(scene, "tempo")
+    signature_supported = all(hasattr(scene, key) for key in (
+        "time_signature_enabled", "time_signature_numerator", "time_signature_denominator"))
     return {"id": f"scene-{index}", "name": scene.name,
             "launchQuantization": _enum_record(quantization, CLIP_QUANTIZATION_NAMES)
-            if quantization is not None else {"supported": False}}
+            if quantization is not None else {"supported": False},
+            "tempo": {"enabled": bool(scene.tempo_enabled),
+                      "bpm": float(scene.tempo) if scene.tempo_enabled else None}
+            if tempo_supported else {"supported": False},
+            "timeSignature": {"enabled": bool(scene.time_signature_enabled),
+                              "numerator": int(scene.time_signature_numerator) if scene.time_signature_enabled else None,
+                              "denominator": int(scene.time_signature_denominator) if scene.time_signature_enabled else None}
+            if signature_supported else {"supported": False}}
 
 
 def _parameter_record(parameter, index, include_native_choice_labels=False):
@@ -3211,6 +3221,56 @@ def dispatch_request(song, request, state_version, application=None):
             raise ValueError("scene launch quantization is already selected")
         with _undo_step(song):
             scene.launch_quantization = value
+        return {"stateVersion": state_version + 1, "scene": _scene_record(scene, index)}
+    if method == "set_scene_musical_context":
+        if params.get("expectedStateVersion") != state_version:
+            raise ValueError("scene state version changed")
+        scene_id = params["sceneId"]
+        if not isinstance(scene_id, str) or not scene_id.startswith("scene-"):
+            raise ValueError("invalid scene ID")
+        suffix = scene_id.removeprefix("scene-")
+        if not suffix.isascii() or not suffix.isdigit() or str(int(suffix)) != suffix or int(suffix) >= len(song.scenes):
+            raise ValueError("scene ID is noncanonical or unavailable")
+        index = int(suffix)
+        scene = song.scenes[index]
+        before = _scene_record(scene, index)
+        if params.get("before") != before:
+            raise ValueError("scene musical context changed")
+        changes = params["changes"]
+        if not isinstance(changes, dict) or not changes or set(changes) - {"tempo", "timeSignature"}:
+            raise ValueError("invalid scene musical changes")
+        if "tempo" in changes:
+            target = changes["tempo"]
+            if not isinstance(target, dict) or before["tempo"].get("supported") is False or type(target.get("enabled")) is not bool:
+                raise ValueError("scene tempo is unavailable")
+            if target["enabled"] and (type(target.get("bpm")) not in (int, float) or
+                                      not math.isfinite(target["bpm"]) or not 20 <= target["bpm"] <= 999):
+                raise ValueError("invalid scene tempo")
+            if set(target) != ({"enabled", "bpm"} if target["enabled"] else {"enabled"}):
+                raise ValueError("invalid scene tempo change")
+        if "timeSignature" in changes:
+            target = changes["timeSignature"]
+            if not isinstance(target, dict) or before["timeSignature"].get("supported") is False or type(target.get("enabled")) is not bool:
+                raise ValueError("scene time signature is unavailable")
+            if target["enabled"] and (type(target.get("numerator")) is not int or
+                                      not 1 <= target["numerator"] <= 99 or
+                                      type(target.get("denominator")) is not int or
+                                      target["denominator"] not in (1, 2, 4, 8, 16)):
+                raise ValueError("invalid scene time signature")
+            if set(target) != ({"enabled", "numerator", "denominator"} if target["enabled"] else {"enabled"}):
+                raise ValueError("invalid scene time signature change")
+        with _undo_step(song):
+            if "tempo" in changes:
+                target = changes["tempo"]
+                scene.tempo_enabled = target["enabled"]
+                if target["enabled"]:
+                    scene.tempo = target["bpm"]
+            if "timeSignature" in changes:
+                target = changes["timeSignature"]
+                scene.time_signature_enabled = target["enabled"]
+                if target["enabled"]:
+                    scene.time_signature_numerator = target["numerator"]
+                    scene.time_signature_denominator = target["denominator"]
         return {"stateVersion": state_version + 1, "scene": _scene_record(scene, index)}
     if method == "rename_session_object":
         target = params["target"]

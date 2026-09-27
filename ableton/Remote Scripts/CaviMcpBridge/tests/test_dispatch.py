@@ -3028,6 +3028,30 @@ class DispatchTest(unittest.TestCase):
                 **params, "expectedStateVersion": 4, "value": 99,
                 "before": dispatch_request(song, {"method": "list_scenes"}, 4)["scenes"][0]}}, 4)
 
+    def test_scene_musical_context_rechecks_scene_and_reads_overrides(self):
+        song = Song()
+        scene = song.scenes[0]
+        scene.tempo_enabled = False
+        scene.tempo = -1.0
+        scene.time_signature_enabled = False
+        scene.time_signature_numerator = -1
+        scene.time_signature_denominator = -1
+        before = dispatch_request(song, {"method": "list_scenes"}, 3)["scenes"][0]
+        self.assertEqual(before["tempo"], {"enabled": False, "bpm": None})
+        self.assertEqual(before["timeSignature"], {"enabled": False, "numerator": None, "denominator": None})
+        payload = {"sceneId": "scene-0", "expectedStateVersion": 3, "before": before,
+                   "changes": {"tempo": {"enabled": True, "bpm": 60.0},
+                               "timeSignature": {"enabled": True, "numerator": 3, "denominator": 4}}}
+        scene.name = "Changed"
+        with self.assertRaisesRegex(ValueError, "scene.*changed"):
+            dispatch_request(song, {"method": "set_scene_musical_context", "params": payload}, 3)
+        scene.name = "Verse"
+        result = dispatch_request(song, {"method": "set_scene_musical_context", "params": payload}, 3)
+        self.assertEqual(result["scene"]["tempo"], {"enabled": True, "bpm": 60.0})
+        self.assertEqual(result["scene"]["timeSignature"], {"enabled": True, "numerator": 3, "denominator": 4})
+        self.assertEqual(result["stateVersion"], 4)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
     def test_scene_launch_quantization_reports_unsupported_scenes(self):
         song = Song()
         del song.scenes[0].launch_quantization

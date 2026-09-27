@@ -896,6 +896,7 @@ export class ToolService {
     if (name === "create_return_track") return this.#createReturnTrack(args);
     if (name === "create_scene") return this.#createScene(args);
     if (name === "set_scene_launch_quantization") return this.#setSceneLaunchQuantization(args);
+    if (name === "set_scene_musical_context") return this.#setSceneMusicalContext(args);
     if (name === "rename_session_object") return this.#renameSessionObject(args);
     if (name === "duplicate_session_object") return this.#duplicateSessionObject(args);
     if (name === "delete_session_object") return this.#deleteSessionObject(args);
@@ -1875,6 +1876,42 @@ export class ToolService {
     if (value === scene.launchQuantization.value) throw new Error("scene launch quantization is already selected");
     return this.#confirmedMutation({ method: "set_scene_launch_quantization", sceneId: scene.id,
       expectedStateVersion: args.expectedStateVersion, before: scene, value }, args);
+  }
+
+  async #setSceneMusicalContext(args) {
+    requireExpectedState(args);
+    const observed = await this.bridge.request("list_scenes", {});
+    assertExpectedState(args, observed);
+    const scene = observed.scenes.find(({ id }) => id === args.sceneId);
+    if (!scene) throw new Error(`unknown scene ${args.sceneId}`);
+    const changes = {};
+    if (args.tempoEnabled !== undefined) {
+      if (typeof args.tempoEnabled !== "boolean" || scene.tempo?.supported === false || !scene.tempo) throw new Error("scene tempo is unavailable or invalid");
+      if (args.tempoEnabled) {
+        if (typeof args.tempo !== "number" || !Number.isFinite(args.tempo) || args.tempo < 20 || args.tempo > 999) throw new Error("invalid scene tempo");
+        changes.tempo = { enabled: true, bpm: args.tempo };
+      } else {
+        if (args.tempo !== undefined) throw new Error("tempo must be omitted when disabling scene tempo");
+        changes.tempo = { enabled: false };
+      }
+    } else if (args.tempo !== undefined) throw new Error("tempoEnabled is required with tempo");
+    if (args.timeSignatureEnabled !== undefined) {
+      if (typeof args.timeSignatureEnabled !== "boolean" || scene.timeSignature?.supported === false || !scene.timeSignature) throw new Error("scene time signature is unavailable or invalid");
+      if (args.timeSignatureEnabled) {
+        if (!Number.isInteger(args.numerator) || args.numerator < 1 || args.numerator > 99 ||
+            ![1, 2, 4, 8, 16].includes(args.denominator)) throw new Error("invalid scene time signature numerator or denominator");
+        changes.timeSignature = { enabled: true, numerator: args.numerator, denominator: args.denominator };
+      } else {
+        if (args.numerator !== undefined || args.denominator !== undefined) throw new Error("meter values must be omitted when disabling scene time signature");
+        changes.timeSignature = { enabled: false };
+      }
+    } else if (args.numerator !== undefined || args.denominator !== undefined) throw new Error("timeSignatureEnabled is required with meter values");
+    if (!Object.keys(changes).length) throw new Error("no scene musical changes requested");
+    if (Object.entries(changes).every(([key, target]) => Object.entries(target).every(([field, value]) => scene[key][field] === value))) {
+      throw new Error("scene musical context is already selected");
+    }
+    return this.#confirmedMutation({ method: "set_scene_musical_context", sceneId: scene.id,
+      expectedStateVersion: args.expectedStateVersion, before: scene, changes }, args);
   }
 
   async #renameSessionObject(args) {
