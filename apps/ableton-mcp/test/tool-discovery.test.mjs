@@ -14,6 +14,9 @@ test("MCP discovery exposes every contracted producer tool", async () => {
   const metadata = tools.find(tool => tool.name === "set_browser_item_metadata");
   assert.deepEqual(metadata.inputSchema.required, ["expectedMetadataRevision", "root", "path"]);
   assert.match(metadata.description, /private|native/i);
+  const feel = tools.find(tool => tool.name === "analyze_midi_feel");
+  assert.deepEqual(feel.inputSchema.required, ["trackId", "clipId", "grid"]);
+  assert.equal(feel.annotations.readOnlyHint, true);
 });
 
 test("core discovery is bounded and cannot call tools it does not advertise", async () => {
@@ -55,7 +58,7 @@ test("every tool advertises MCP annotations matching its mutation class", async 
   }
   const byName = new Map(listed.result.tools.map(tool => [tool.name, tool]));
   for (const name of ["get_live_state", "list_scenes", "plan_drum_pattern", "analyze_audio_file",
-    "get_track_midi_routing", "capture_track_state_snapshot"]) {
+    "analyze_midi_feel", "get_track_midi_routing", "capture_track_state_snapshot"]) {
     assert.equal(byName.get(name).annotations.readOnlyHint, true, name);
     assert.equal(byName.get(name).annotations.destructiveHint, false, name);
   }

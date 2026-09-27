@@ -6,6 +6,7 @@ import { planClipPitchAdjustment } from "./audio-tuning.mjs";
 import { buildSongGridReference, planGridEnvelopePattern } from "./song-grid-reference.mjs";
 import { listConfiguredSpliceRoots, observeLocalSpliceSample, searchLocalSpliceSamples } from "./splice-local-search.mjs";
 import { inspectGroovePostconditions } from "./groove-workflow.mjs";
+import { analyzeMidiFeel } from "./midi-feel-analysis.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { CatalogService } from "./catalog-service.mjs";
 import { GenerationQueue } from "../../../packages/nks-pipeline/src/generation-queue.mjs";
@@ -406,6 +407,17 @@ export class ToolService {
       return { ...observed, samples: observed.samples.map((sample) => ({ ...sample,
         metadata: library.get({ root: "local_splice", path: [observed.rootPath, sample.relativePath], uri: sample.sourcePath }) })),
         metadataSource: "private_mcp" };
+    }
+    if (name === "analyze_midi_feel") {
+      const target = { trackId: args.trackId, clipId: args.clipId };
+      const before = await this.bridge.request("get_midi_clip_notes_extended", target);
+      const timing = await this.bridge.request("get_clip_timing", target);
+      const after = await this.bridge.request("get_midi_clip_notes_extended", target);
+      if (before.stateVersion !== timing.stateVersion || JSON.stringify(before) !== JSON.stringify(after) ||
+          before.trackId !== args.trackId || before.clipId !== args.clipId ||
+          timing.trackId !== args.trackId || timing.clipId !== args.clipId)
+        throw new Error("MIDI clip changed during feel analysis; retry");
+      return analyzeMidiFeel(before, timing, args);
     }
     if (name === "capture_device_chain_snapshot") return this.#captureDeviceChainSnapshot(args);
     if (name === "save_device_chain_snapshot") {

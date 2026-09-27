@@ -448,6 +448,7 @@ const contracts = {
   apply_midi_diatonic_chord_quality: { description: "Plan or atomically apply guarded functional-harmony chord rebuilding with per-onset functions, recipes, inversions, voicing modes, slash basses, stable retained voices, and verified additions/removals.", inputSchema: midiDiatonicChordQualityInput(true) },
   get_clip_timing: { description: "Read clip loop, signature, launch quantization, Session launch Legato, groove assignment, and editor grid including triplets for one exact Session or Arrangement clip; Arrangement responses include timeline identity.", inputSchema: clip },
   get_clip_groove_context: { description: "Read one native callback snapshot of exact clip/track names, MIDI note IDs and expression metadata or audio state, clip timing, complete Groove Pool and global musical context. Supports before/after validation of UI-only extraction and baking; does not execute them.", inputSchema: clip },
+  analyze_midi_feel: { description: "Measure stored MIDI note timing offsets and velocity accents by straight-sixteenth, eighth-triplet, or sixteenth-triplet slot over one to eight bars in the clip's meter. Read-only; reports any assigned native groove but cannot measure its playback effect or extract a Live Groove Pool pattern.", inputSchema: object({ trackId: ids.trackId, clipId: ids.clipId, grid: { type: "string", enum: ["straight16", "eighthTriplet", "sixteenthTriplet"] }, bars: { type: "integer", minimum: 1, maximum: 8, description: "Number of clip-meter bars in the repeating analysis cycle; defaults to one." } }, ["trackId", "clipId", "grid"]) },
   inspect_clip_groove_postconditions: { description: "Read current native context and inspect extraction or baking postconditions against a supplied pre-action get_clip_groove_context snapshot. Does not execute the UI action, prove provenance, or validate audible equivalence. Extraction expects one appended groove and unchanged source/timing; baking expects removed assignment and unchanged unrelated timing/shared context.", inputSchema: object({ ...clip.properties, operation: { type: "string", enum: ["bake", "extract"] }, before: { type: "object", description: "Complete pre-action native clip groove context snapshot; supplied data is not authenticated history." } }, ["trackId", "clipId", "operation", "before"]) },
   set_clip_timing: { description: "Plan or apply guarded clip loop, signature, launch quantization, Session launch Legato, groove, and editor-grid changes.", inputSchema: guarded({
     trackId: ids.trackId, clipId: ids.clipId,
@@ -572,7 +573,7 @@ const readOnlyTools = new Set([
   "get_song_musical_context", "get_live_scale_reference", "list_live_scales",
   "get_song_grid_reference", "plan_grid_envelope_pattern",
   "plan_drum_pattern", "plan_drum_pattern_edit", "plan_drum_variation",
-  "get_clip_groove_context", "inspect_clip_groove_postconditions",
+  "get_clip_groove_context", "analyze_midi_feel", "inspect_clip_groove_postconditions",
   "get_transport_recording_context", "list_arrangement_cue_points",
   "list_tracks", "list_scenes", "list_clips",
   "get_midi_clip_notes", "get_midi_clip_notes_extended",

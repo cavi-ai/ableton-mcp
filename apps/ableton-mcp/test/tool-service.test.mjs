@@ -1607,6 +1607,42 @@ test("per-note mutation rejects unknown IDs, invalid ranges, and unsupported MPE
   }), /unsupported per-note properties: pitchBend/);
 });
 
+test("MIDI feel analysis measures straight-sixteenth offsets and accents without changing notes", async () => {
+  const source = [
+    { noteId: 1, pitch: 36, start: 0, duration: 0.1, velocity: 100 },
+    { noteId: 2, pitch: 42, start: 0.26, duration: 0.1, velocity: 90 },
+    { noteId: 3, pitch: 38, start: 0.51, duration: 0.1, velocity: 80 },
+    { noteId: 4, pitch: 36, start: 1.02, duration: 0.1, velocity: 110 }
+  ];
+  const { service, calls } = fixture({ extendedNotes: source });
+  const result = await service.call("analyze_midi_feel", {
+    trackId: "track-0", clipId: "track-0:clip-0", grid: "straight16"
+  });
+  assert.equal(result.stateVersion, 4);
+  assert.equal(result.cycleBeats, 4);
+  assert.deepEqual(result.notes.map(note => note.slot), [0, 1, 2, 4]);
+  assert.ok(Math.abs(result.notes[1].offsetBeats - 0.01) < 1e-9);
+  assert.ok(Math.abs(result.notes[3].offsetBeats - 0.02) < 1e-9);
+  assert.deepEqual(result.slots.map(slot => [slot.slot, slot.hitCount, slot.meanVelocity]),
+    [[0, 1, 100], [1, 1, 90], [2, 1, 80], [4, 1, 110]]);
+  assert.equal(result.slots[0].barDownbeat, true);
+  assert.equal(result.slots[3].quarterPulse, true);
+  assert.equal(result.nativeGrooveId, null);
+  assert.equal(calls.some(call => call.method.startsWith("set_")), false);
+});
+
+test("MIDI feel analysis resolves triplet slots without treating raw timing as native groove playback", async () => {
+  const { service } = fixture({ extendedNotes: [
+    { noteId: 7, pitch: 42, start: 0.34, duration: 0.1, velocity: 72 }
+  ] });
+  const result = await service.call("analyze_midi_feel", {
+    trackId: "track-0", clipId: "track-0:clip-0", grid: "eighthTriplet", bars: 1
+  });
+  assert.equal(result.notes[0].slot, 1);
+  assert.ok(Math.abs(result.notes[0].offsetBeats - (0.34 - 1 / 3)) < 1e-9);
+  assert.match(result.limitation, /stored MIDI|raw MIDI/i);
+});
+
 test("quantization targets absolute note ends independently of starts", async () => {
   for (const [target, wantStart, wantDuration] of [["end", 0.1, 0.65], ["both", 0, 0.75]]) {
     const { service } = fixture({ extendedNotes: [{ noteId: 7, pitch: 60, start: 0.1, duration: 0.6, velocity: 100,

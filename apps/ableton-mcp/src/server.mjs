@@ -67,6 +67,7 @@ const toolNames = [
   "plan_drum_pattern_edit",
   "plan_drum_variation",
   "get_clip_groove_context",
+  "analyze_midi_feel",
   "inspect_clip_groove_postconditions",
   "set_song_musical_context",
   "set_groove",
