@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, realpath, rm, writeFile, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BrowserMetadataLibrary } from "../src/browser-metadata-library.mjs";
@@ -155,6 +155,34 @@ test("local Splice search includes private tags and favorites by exact file iden
     });
     assert.deepEqual(result.samples[0].metadata, { favorite: true, tags: ["drums"], revision: 1 });
     assert.equal(result.metadataSource, "private_mcp");
+  } finally { library.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("local Splice metadata keeps one identity across configured root and nested searches", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "splice-nested-metadata-"));
+  const nested = join(directory, "Pack");
+  const library = new BrowserMetadataLibrary({ path: join(directory, "metadata.sqlite") });
+  const service = new ToolService({ browserMetadata: library, spliceRoots: [directory] });
+  try {
+    await mkdir(nested);
+    await writeFile(join(nested, "Kick.wav"), "audio");
+    const rootItem = { root: "local_splice", path: [directory, "Pack/Kick.wav"] };
+    const plan = await service.call("set_browser_item_metadata", {
+      ...rootItem, expectedMetadataRevision: 0, favorite: true, tags: ["drums"],
+    });
+    await service.call("set_browser_item_metadata", {
+      ...rootItem, expectedMetadataRevision: 0, favorite: true, tags: ["drums"],
+      dryRun: false, confirmationToken: plan.confirmation.token, planHash: plan.confirmation.planHash,
+    });
+    const nestedItem = await service.call("get_browser_item_metadata", {
+      root: "local_splice", path: [nested, "Kick.wav"],
+    });
+    assert.deepEqual(nestedItem.metadata, { favorite: true, tags: ["drums"], revision: 1 });
+    assert.deepEqual(nestedItem.item.path, [await realpath(directory), "Pack/Kick.wav"]);
+    const search = await service.call("search_local_splice_samples", {
+      rootPath: nested, query: "kick", includeMetadata: true,
+    });
+    assert.deepEqual(search.samples[0].metadata, { favorite: true, tags: ["drums"], revision: 1 });
   } finally { library.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
