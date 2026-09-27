@@ -21,7 +21,7 @@ async function fixture() {
 test("generation queue persists deterministic leases across processes and prevents duplicate claims", async () => {
   const path = await fixture();
   let first = GenerationQueue.open(path, { leaseMs: 100, maxAttempts: 2 });
-  assert.equal(first.enqueue("serum-2"), 2);
+  assert.equal(first.enqueue("serum-2", ["serum-2:a", "serum-2:b"]), 2);
   assert.equal(first.claim("worker-a", "serum-2", 1000).presetId, "serum-2:a");
   first.close();
   const second = GenerationQueue.open(path, { leaseMs: 100, maxAttempts: 2 });
@@ -35,7 +35,7 @@ test("generation queue persists deterministic leases across processes and preven
 test("generation queue retries stale leases, quarantines exhausted attempts and gates completion on catalog evidence", async () => {
   const path = await fixture();
   const queue = GenerationQueue.open(path, { leaseMs: 100, maxAttempts: 2 });
-  queue.enqueue("serum-2");
+  queue.enqueue("serum-2", ["serum-2:a", "serum-2:b"]);
   assert.equal(queue.claim("worker-a", "serum-2", 1000).attempts, 1);
   assert.equal(queue.claim("worker-b", "serum-2", 1101).presetId, "serum-2:a");
   assert.throws(() => queue.completeSaved("serum-2:a", "worker-b", 1102), /not nks_saved/);

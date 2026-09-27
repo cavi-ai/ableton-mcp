@@ -1909,13 +1909,15 @@ export class ToolService {
   }
 
   #enqueueNksGenerationJobs(args) {
-    const { productSlug, eligible, fingerprint } = this.#nksGenerationStatus(args);
-    const plan = { method: "enqueue_nks_generation_jobs", productSlug, eligible, fingerprint };
+    if (!this.generationQueuePath) throw new Error("preset catalog is not configured");
+    const { productSlug, presetIds, eligible, fingerprint } = GenerationQueue.inspectSelection(
+      this.generationQueuePath, args.productSlug, args.presetIds);
+    const plan = { method: "enqueue_nks_generation_jobs", productSlug, presetIds, eligible, fingerprint };
     if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
     this.#consumeConfirmation(plan, args);
     const queue = GenerationQueue.open(this.generationQueuePath);
     try {
-      const enqueued = queue.enqueue(productSlug, fingerprint);
+      const enqueued = queue.enqueue(productSlug, presetIds, fingerprint);
       return { dryRun: false, enqueued, jobs: GenerationQueue.inspect(this.generationQueuePath, productSlug).jobs };
     } finally {
       queue.close();

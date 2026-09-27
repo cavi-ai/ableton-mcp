@@ -139,7 +139,7 @@ The server publishes 202 tools. Mutations of the Live Set require `expectedState
 | `duplicate_clip_loop` | Plan or duplicate the current loop region of one exact clip. | `expectedStateVersion`, `trackId`, `clipId` |
 | `duplicate_session_object` | Plan or duplicate an exact track, Session scene, or clip, optionally naming a duplicated track. | `expectedStateVersion`, `targetType`, `targetId` |
 | `edit_drum_pattern_clip` | Plan or apply guarded replacement of selected drum lanes and bars in an existing MIDI clip. Preserves unrelated notes and verifies the complete native note set. | `expectedStateVersion`, `trackId`, `clipId`, `grid`, `startBar`, `bars`, `lanes` |
-| `enqueue_nks_generation_jobs` | Plan or enqueue eligible discovered presets for NKS generation using a single-use confirmation. Does not generate or mark any preset saved. | `productSlug` |
+| `enqueue_nks_generation_jobs` | Plan or enqueue only the explicitly selected eligible discovered presets for NKS generation, in batches of at most 100, using a single-use confirmation. Does not generate or mark any preset saved. | `productSlug`, `presetIds` |
 | `heartbeat_nks_generation_job` | Extend an unexpired NKS generation lease owned by this worker. | `presetId`, `workerId` |
 | `humanize_midi_notes` | Plan or apply guarded deterministic MIDI timing and velocity humanization with exact clip, grid, and complete native note readback. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `seed`, `gridBeats`, `maxTimingOffsetBeats`, `maxVelocityOffset` |
 | `jump_to_arrangement_cue_point` | Plan or move the playhead to one exact Arrangement cue point. | `expectedStateVersion`, `cuePointId` |

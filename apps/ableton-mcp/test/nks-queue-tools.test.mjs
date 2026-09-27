@@ -24,16 +24,18 @@ test("NKS queue status is read-only and enqueue needs a current single-use confi
   await assert.rejects(service.call("claim_nks_generation_job", { workerId: "worker-a", productSlug: " " }),
     /productSlug is required/);
   assert.equal((await service.call("get_nks_generation_status", { productSlug: "serum-2" })).initialized, false);
-  const plan = await service.call("enqueue_nks_generation_jobs", { productSlug: "serum-2" });
+  const selection = { productSlug: "serum-2", presetIds: ["serum-2:a"] };
+  await assert.rejects(service.call("enqueue_nks_generation_jobs", { productSlug: "serum-2" }), /presetIds/);
+  const plan = await service.call("enqueue_nks_generation_jobs", selection);
   assert.equal(plan.dryRun, true);
   assert.equal(plan.plan.eligible, 1);
   assert.deepEqual((await service.call("get_nks_generation_status", { productSlug: "serum-2" })).jobs, {});
-  await assert.rejects(service.call("enqueue_nks_generation_jobs", { productSlug: "serum-2", dryRun: false }), /confirmation/);
-  const applied = await service.call("enqueue_nks_generation_jobs", { productSlug: "serum-2", dryRun: false,
+  await assert.rejects(service.call("enqueue_nks_generation_jobs", { ...selection, dryRun: false }), /confirmation/);
+  const applied = await service.call("enqueue_nks_generation_jobs", { ...selection, dryRun: false,
     confirmationToken: plan.confirmation.token, planHash: plan.confirmation.planHash });
   assert.equal(applied.enqueued, 1);
   assert.deepEqual((await service.call("get_nks_generation_status", { productSlug: "serum-2" })).jobs, { pending: 1 });
-  await assert.rejects(service.call("enqueue_nks_generation_jobs", { productSlug: "serum-2", dryRun: false,
+  await assert.rejects(service.call("enqueue_nks_generation_jobs", { ...selection, dryRun: false,
     confirmationToken: plan.confirmation.token, planHash: plan.confirmation.planHash }), /confirmation/);
 });
 
@@ -44,12 +46,36 @@ test("NKS enqueue refuses a stale catalog plan and never marks presets saved", a
     subBank: "Bass", author: "Xfer", sourceFingerprint: "sha256:a", state: "discovered", evidence: [] };
   catalog.upsert(record);
   const service = new ToolService({ catalog, generationQueuePath: path });
-  const plan = await service.call("enqueue_nks_generation_jobs", { productSlug: "serum-2" });
+  const plan = await service.call("enqueue_nks_generation_jobs", { productSlug: "serum-2", presetIds: [record.id] });
   catalog.upsert({ ...record, sourceFingerprint: "sha256:b" });
-  await assert.rejects(service.call("enqueue_nks_generation_jobs", { productSlug: "serum-2", dryRun: false,
+  await assert.rejects(service.call("enqueue_nks_generation_jobs", { productSlug: "serum-2", presetIds: [record.id], dryRun: false,
     confirmationToken: plan.confirmation.token, planHash: plan.confirmation.planHash }), /plan hash mismatch/);
   assert.equal(GenerationQueue.inspect(path, "serum-2").initialized, false);
   assert.equal(catalog.get(record.id).state, "discovered");
+  catalog.close();
+});
+
+test("NKS enqueue limits jobs to selected IDs and rejects invalid selections", async () => {
+  const path = join(await mkdtemp(join(tmpdir(), "nks-mcp-selection-")), "catalog.sqlite");
+  const catalog = Catalog.open(path);
+  for (const id of ["serum-2:a", "serum-2:b", "serum-2:c"]) catalog.upsert({
+    id, productSlug: "serum-2", name: id, bank: "Factory", subBank: "Bass",
+    author: "Xfer", sourceFingerprint: `sha256:${id}`, state: "discovered", evidence: [] });
+  const service = new ToolService({ catalog, generationQueuePath: path });
+  for (const presetIds of [[], ["serum-2:b", "serum-2:b"], ["other:a"], Array(101).fill("serum-2:a")])
+    await assert.rejects(service.call("enqueue_nks_generation_jobs", { productSlug: "serum-2", presetIds }), /presetIds|eligible/);
+  assert.equal(GenerationQueue.inspect(path, "serum-2").initialized, false);
+  const selection = { productSlug: "serum-2", presetIds: ["serum-2:b"] };
+  const plan = await service.call("enqueue_nks_generation_jobs", selection);
+  assert.equal(plan.plan.eligible, 1);
+  await assert.rejects(service.call("enqueue_nks_generation_jobs", { ...selection, presetIds: ["serum-2:a"], dryRun: false,
+    confirmationToken: plan.confirmation.token, planHash: plan.confirmation.planHash }), /plan hash mismatch/);
+  const applied = await service.call("enqueue_nks_generation_jobs", { ...selection, dryRun: false,
+    confirmationToken: plan.confirmation.token, planHash: plan.confirmation.planHash });
+  assert.equal(applied.enqueued, 1);
+  assert.deepEqual(GenerationQueue.inspect(path, "serum-2").jobs, { pending: 1 });
+  assert.equal(GenerationQueue.inspectJob(path, "serum-2:a").job, null);
+  assert.equal(GenerationQueue.inspectJob(path, "serum-2:c").job, null);
   catalog.close();
 });
 
@@ -60,8 +86,8 @@ test("MCP worker tools lease, renew, retry, and complete only with verified cata
     subBank: "Bass", author: "Xfer", sourceFingerprint: "sha256:a", state: "discovered", evidence: [] };
   catalog.upsert(record);
   const service = new ToolService({ catalog, generationQueuePath: path });
-  const plan = await service.call("enqueue_nks_generation_jobs", { productSlug: "serum-2" });
-  await service.call("enqueue_nks_generation_jobs", { productSlug: "serum-2", dryRun: false,
+  const plan = await service.call("enqueue_nks_generation_jobs", { productSlug: "serum-2", presetIds: [record.id] });
+  await service.call("enqueue_nks_generation_jobs", { productSlug: "serum-2", presetIds: [record.id], dryRun: false,
     confirmationToken: plan.confirmation.token, planHash: plan.confirmation.planHash });
   const route = createRouter(service);
   const call = async (name, args) => (await route({ jsonrpc: "2.0", id: 1, method: "tools/call",

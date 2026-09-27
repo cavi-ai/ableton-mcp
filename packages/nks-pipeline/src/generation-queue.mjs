@@ -9,7 +9,29 @@ function candidatesFor(database, productSlug) {
     fingerprint: createHash("sha256").update(JSON.stringify(candidates)).digest("hex") };
 }
 
+function selectedCandidates(database, productSlug, presetIds) {
+  if (typeof productSlug !== "string" || !productSlug.trim()) throw new Error("productSlug is required");
+  if (!Array.isArray(presetIds) || presetIds.length < 1 || presetIds.length > 100 ||
+      presetIds.some(id => typeof id !== "string" || !id.trim()) || new Set(presetIds).size !== presetIds.length)
+    throw new Error("presetIds must contain 1 to 100 unique nonempty IDs");
+  const sortedIds = [...presetIds].sort();
+  const placeholders = sortedIds.map(() => "?").join(", ");
+  const candidates = database.prepare(`SELECT id, source_fingerprint AS fingerprint FROM presets
+    WHERE product_slug = ? AND state = 'discovered'
+      AND COALESCE(json_extract(json, '$.missing'), 0) = 0
+      AND id IN (${placeholders}) ORDER BY id`).all(productSlug, ...sortedIds);
+  if (candidates.length !== sortedIds.length) throw new Error("presetIds must all be eligible discovered presets for productSlug");
+  return { productSlug, presetIds: sortedIds, eligible: candidates.length,
+    fingerprint: createHash("sha256").update(JSON.stringify(candidates)).digest("hex") };
+}
+
 export class GenerationQueue {
+  static inspectSelection(path, productSlug, presetIds) {
+    const database = new DatabaseSync(path, { readOnly: true });
+    try { return selectedCandidates(database, productSlug, presetIds); }
+    finally { database.close(); }
+  }
+
   static inspect(path, productSlug) {
     if (typeof productSlug !== "string" || !productSlug.trim()) throw new Error("productSlug is required");
     const database = new DatabaseSync(path, { readOnly: true });
@@ -88,18 +110,21 @@ export class GenerationQueue {
     }
   }
 
-  enqueue(productSlug, expectedFingerprint) {
-    if (typeof productSlug !== "string" || !productSlug) throw new Error("productSlug is required");
+  enqueue(productSlug, presetIds, expectedFingerprint) {
     return this.#transaction(() => {
-      if (expectedFingerprint !== undefined && candidatesFor(this.database, productSlug).fingerprint !== expectedFingerprint)
+      const selection = selectedCandidates(this.database, productSlug, presetIds);
+      if (expectedFingerprint !== undefined && selection.fingerprint !== expectedFingerprint)
         throw new Error("confirmation plan hash mismatch: catalog candidates changed");
+      const placeholders = selection.presetIds.map(() => "?").join(", ");
       return this.database.prepare(`INSERT INTO nks_generation_jobs
       (preset_id, source_fingerprint, status, attempts)
       SELECT id, source_fingerprint, 'pending', 0 FROM presets
-      WHERE product_slug = ? AND state = 'discovered' AND COALESCE(json_extract(json, '$.missing'), 0) = 0
+      WHERE product_slug = ? AND id IN (${placeholders}) AND state = 'discovered'
+        AND COALESCE(json_extract(json, '$.missing'), 0) = 0
       ON CONFLICT(preset_id) DO UPDATE SET source_fingerprint = excluded.source_fingerprint,
         status = 'pending', attempts = 0, worker_id = NULL, lease_expires_at = NULL, last_error = NULL
-      WHERE nks_generation_jobs.source_fingerprint != excluded.source_fingerprint`).run(productSlug).changes;
+      WHERE nks_generation_jobs.source_fingerprint != excluded.source_fingerprint`)
+        .run(productSlug, ...selection.presetIds).changes;
     });
   }
 
