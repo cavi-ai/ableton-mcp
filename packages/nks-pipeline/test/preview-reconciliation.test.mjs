@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Catalog } from "../src/catalog.mjs";
@@ -16,6 +16,7 @@ async function fixture() {
   const catalogPath = join(directory, "catalog.sqlite");
   const rawPath = join(directory, "raw.wav");
   const previewPath = join(directory, "preview.wav");
+  const captureReportPath = join(directory, "capture.json");
   const sourcePath = join(directory, "factory.fxp");
   await writeFile(sourcePath, "factory source");
   const record = { id: "serum-2:a", productSlug: "serum-2", name: "A", bank: "Factory",
@@ -32,13 +33,27 @@ async function fixture() {
   execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i",
     "sine=frequency=440:sample_rate=48000:duration=12", "-c:a", "pcm_s24le", rawPath]);
   const result = await runPreview({ rawPath, finalPath: previewPath });
-  return { manifestPath, catalogPath, previewPath, record, result, sourcePath };
+  const capture = { kind: "reported_ableton_live_capture", presetId: record.id,
+    sourceFingerprint: record.sourceFingerprint, nksSha256: "a".repeat(64),
+    rawPath, rawSha256: createHash("sha256").update(await readFile(rawPath)).digest("hex"),
+    previewSha256: result.sha256 };
+  await writeFile(captureReportPath, JSON.stringify(capture));
+  return { manifestPath, catalogPath, rawPath, previewPath, captureReportPath, capture, record, result, sourcePath };
 }
+
+test("preview reconciliation refuses audio without a preset-bound capture report", async () => {
+  const input = await fixture();
+  await assert.rejects(reconcilePreview({ manifestPath: input.manifestPath, catalogPath: input.catalogPath,
+    presetId: input.record.id, previewPath: input.previewPath, expectedSha256: input.result.sha256,
+    apply: true }), /capture report/);
+  assert.equal((await ManifestStore.open(input.manifestPath)).get(input.record.id).state, "nks_saved");
+});
 
 test("preview reconciliation verifies audio and advances matching manifest and catalog only on apply", async () => {
   const input = await fixture();
   const args = { manifestPath: input.manifestPath, catalogPath: input.catalogPath,
-    presetId: input.record.id, previewPath: input.previewPath, expectedSha256: input.result.sha256 };
+    presetId: input.record.id, previewPath: input.previewPath, expectedSha256: input.result.sha256,
+    captureReportPath: input.captureReportPath };
   assert.equal((await reconcilePreview(args)).dryRun, true);
   assert.equal((await ManifestStore.open(input.manifestPath)).get(input.record.id).state, "nks_saved");
   assert.equal((await reconcilePreview({ ...args, apply: true })).updated, true);
@@ -54,7 +69,8 @@ test("preview reconciliation verifies audio and advances matching manifest and c
 test("preview reconciliation rejects wrong checksum and changed source without advancing", async () => {
   const input = await fixture();
   const args = { manifestPath: input.manifestPath, catalogPath: input.catalogPath,
-    presetId: input.record.id, previewPath: input.previewPath, expectedSha256: "b".repeat(64), apply: true };
+    presetId: input.record.id, previewPath: input.previewPath, expectedSha256: "b".repeat(64),
+    captureReportPath: input.captureReportPath, apply: true };
   await assert.rejects(reconcilePreview(args), /checksum/);
   await writeFile(input.sourcePath, "changed source");
   await assert.rejects(reconcilePreview({ ...args, expectedSha256: input.result.sha256 }), /source fingerprint changed/);
@@ -68,7 +84,8 @@ test("preview reconciliation CLI defaults to dry run and advances on explicit ap
   const input = await fixture();
   const script = new URL("../scripts/reconcile-preview.mjs", import.meta.url).pathname;
   const args = [script, "--manifest", input.manifestPath, "--catalog", input.catalogPath,
-    "--preset-id", input.record.id, "--preview", input.previewPath, "--sha256", input.result.sha256];
+    "--preset-id", input.record.id, "--preview", input.previewPath, "--sha256", input.result.sha256,
+    "--capture-report", input.captureReportPath];
   const dry = JSON.parse(execFileSync(process.execPath, args, { encoding: "utf8" }));
   assert.equal(dry.dryRun, true);
   assert.equal(dry.planned, true);
@@ -86,6 +103,32 @@ test("preview reconciliation refuses divergent catalog evidence", async () => {
   catalog.close();
   await assert.rejects(reconcilePreview({ manifestPath: input.manifestPath, catalogPath: input.catalogPath,
     presetId: input.record.id, previewPath: input.previewPath, expectedSha256: input.result.sha256,
-    apply: true }), /catalog.*NKS artifact/);
+    captureReportPath: input.captureReportPath, apply: true }), /catalog.*NKS artifact/);
+  assert.equal((await ManifestStore.open(input.manifestPath)).get(input.record.id).state, "nks_saved");
+});
+
+test("preview reconciliation rejects a capture report for another preset or raw audio", async () => {
+  const input = await fixture();
+  const args = { manifestPath: input.manifestPath, catalogPath: input.catalogPath,
+    presetId: input.record.id, previewPath: input.previewPath, expectedSha256: input.result.sha256,
+    captureReportPath: input.captureReportPath, apply: true };
+  await writeFile(input.captureReportPath, JSON.stringify({ ...input.capture, presetId: "serum-2:other" }));
+  await assert.rejects(reconcilePreview(args), /capture report.*preset/);
+  await writeFile(input.captureReportPath, JSON.stringify({ ...input.capture, rawSha256: "b".repeat(64) }));
+  await assert.rejects(reconcilePreview(args), /capture report.*raw audio/);
+  assert.equal((await ManifestStore.open(input.manifestPath)).get(input.record.id).state, "nks_saved");
+});
+
+test("preview reconciliation rejects a raw capture that did not produce the preview", async () => {
+  const input = await fixture();
+  const unrelatedRaw = join(input.rawPath, "..");
+  const otherPath = join(unrelatedRaw, "other.wav");
+  execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i",
+    "sine=frequency=550:sample_rate=48000:duration=12", "-c:a", "pcm_s24le", otherPath]);
+  await writeFile(input.captureReportPath, JSON.stringify({ ...input.capture, rawPath: otherPath,
+    rawSha256: createHash("sha256").update(await readFile(otherPath)).digest("hex") }));
+  await assert.rejects(reconcilePreview({ manifestPath: input.manifestPath, catalogPath: input.catalogPath,
+    presetId: input.record.id, previewPath: input.previewPath, expectedSha256: input.result.sha256,
+    captureReportPath: input.captureReportPath, apply: true }), /did not produce preview/);
   assert.equal((await ManifestStore.open(input.manifestPath)).get(input.record.id).state, "nks_saved");
 });

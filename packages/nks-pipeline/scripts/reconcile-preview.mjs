@@ -2,7 +2,8 @@ import { isAbsolute } from "node:path";
 import { reconcilePreview } from "../src/preview-reconciliation.mjs";
 
 const fields = new Map([["--manifest", "manifestPath"], ["--catalog", "catalogPath"],
-  ["--preset-id", "presetId"], ["--preview", "previewPath"], ["--sha256", "expectedSha256"]]);
+  ["--preset-id", "presetId"], ["--preview", "previewPath"], ["--sha256", "expectedSha256"],
+  ["--capture-report", "captureReportPath"]]);
 
 function parse(argv) {
   const input = { apply: false };
@@ -14,7 +15,7 @@ function parse(argv) {
       throw new Error(`unknown or incomplete option ${flag}`);
     input[field] = argv[++index];
   }
-  for (const field of ["manifestPath", "catalogPath", "previewPath"])
+  for (const field of ["manifestPath", "catalogPath", "previewPath", "captureReportPath"])
     if (!isAbsolute(input[field] || "")) throw new Error(`${field} requires an absolute path`);
   if (!input.presetId || !input.expectedSha256) throw new Error("presetId and expectedSha256 are required");
   return input;
