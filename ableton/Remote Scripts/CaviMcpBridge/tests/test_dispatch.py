@@ -674,6 +674,8 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(result["stateVersion"], 4)
         self.assertEqual([track.current_output_routing for track in song.tracks], ["Sends Only", "Sends Only"])
         self.assertEqual([track.mixer_device.sends[0].value for track in song.tracks], [1.0, 1.0])
+        self.assertEqual([route["mixer"]["sends"][0]["value"] for route in result["routes"]], [1.0, 1.0])
+        self.assertEqual([route["routing"]["output"]["type"]["name"] for route in result["routes"]], ["Sends Only", "Sends Only"])
 
     def test_return_bus_prevalidation_prevents_partial_routing(self):
         song = Song()

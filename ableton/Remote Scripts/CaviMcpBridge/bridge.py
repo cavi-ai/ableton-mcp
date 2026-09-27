@@ -2744,9 +2744,12 @@ def dispatch_request(song, request, state_version, application=None):
             for _, track, send, output_name in changes:
                 send.value = value
                 track.current_output_routing = output_name
-        return {"stateVersion": state_version + 1, "returnTrackId": return_id,
-                "routes": [{"trackId": track_id, "sendValue": value, "outputTypeId": params["routes"][index]["outputTypeId"]}
-                           for index, (track_id, _, _, _) in enumerate(changes)]}
+        observed_routes = []
+        for track_id, _, _, _ in changes:
+            mixer = dispatch_request(song, {"method": "get_track_mixer", "params": {"trackId": track_id}}, state_version + 1)
+            routing = _track_routing(song, track_id, state_version + 1)
+            observed_routes.append({"trackId": track_id, "mixer": mixer, "routing": routing})
+        return {"stateVersion": state_version + 1, "returnTrackId": return_id, "routes": observed_routes}
     if method == "list_browser_roots":
         roots = []
         for root in BROWSER_ROOTS:
