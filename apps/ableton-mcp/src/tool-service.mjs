@@ -892,6 +892,10 @@ export class ToolService {
         ? observed.parameters.filter(parameter =>
             (parameter.originalName || parameter.name || "").trim().toLowerCase() !== "device on")
         : null;
+      const maxForLiveControls = ["MxDeviceInstrument", "MxDeviceAudioEffect", "MxDeviceMidiEffect"].includes(device.className)
+        ? observed.parameters.filter(parameter =>
+            (parameter.originalName || parameter.name || "").trim().toLowerCase() !== "device on")
+        : null;
       return {
         stateVersion: observed.stateVersion, trackId: args.trackId, device,
         profile: profile || null,
@@ -905,6 +909,12 @@ export class ToolService {
             .map(parameter => parameter.id),
           configureInLiveRequired: configuredPluginControls.length === 0,
           hiddenPluginStateReadable: false
+        },
+        maxForLiveExposure: maxForLiveControls === null ? null : {
+          deviceKind: device.type, exposedControlIds: maxForLiveControls.map(parameter => parameter.id),
+          writableControlIds: maxForLiveControls.filter(parameter => parameter.enabled !== false).map(parameter => parameter.id),
+          nameAmbiguities: observed.nameAmbiguities ?? [],
+          patchInternalsReadable: false, modulationTargetsReadable: false
         }
       };
     }

@@ -882,6 +882,29 @@ test("plug-in context distinguishes configured controls from currently writable 
   });
 });
 
+test("generic Max for Live context exposes exact writable IDs and ambiguous names", async () => {
+  const device = { id: "track-0:device-0", name: "Renamed Modulator",
+    className: "MxDeviceAudioEffect", classDisplayName: "Max Audio Effect", type: "audio_effect" };
+  const service = new ToolService({ bridge: { async request(method) {
+    if (method === "list_devices") return { stateVersion: 4, trackId: "track-0", devices: [device] };
+    if (method === "list_device_parameters") return { stateVersion: 4, trackId: "track-0", deviceId: device.id,
+      parameters: [
+        { id: "parameter-0", name: "Device On", originalName: "Device On", enabled: true },
+        { id: "parameter-1", name: "Rate", originalName: "Rate", enabled: true },
+        { id: "parameter-2", name: "Rate", originalName: "Rate", enabled: false }
+      ], nameAmbiguities: [{ name: "Rate", parameterIds: ["parameter-1", "parameter-2"] }] };
+    throw new Error(method);
+  } } });
+  const context = await service.call("get_factory_device_context", { trackId: "track-0", deviceId: device.id });
+  assert.equal(context.profile, null);
+  assert.deepEqual(context.maxForLiveExposure, {
+    deviceKind: "audio_effect", exposedControlIds: ["parameter-1", "parameter-2"],
+    writableControlIds: ["parameter-1"],
+    nameAmbiguities: [{ name: "Rate", parameterIds: ["parameter-1", "parameter-2"] }],
+    patchInternalsReadable: false, modulationTargetsReadable: false
+  });
+});
+
 test("device activation and deletion use guarded exact-identity plans", async () => {
   const { service, calls } = fixture();
   const base = { expectedStateVersion: 4, trackId: "track-0", deviceId: "track-0:device-1" };
