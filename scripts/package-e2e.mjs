@@ -45,6 +45,15 @@ const previewPlan = JSON.parse(execFileSync(process.execPath,
     "--raw", path.join(work, "raw.wav"), "--out", path.join(work, "preview.wav")], { encoding: "utf8" }));
 assert.equal(previewPlan.dryRun, true);
 assert.equal(existsSync(path.join(work, "preview.wav")), false);
+const pilotManifest = path.join(work, "pilot-manifest.json");
+writeFileSync(pilotManifest, JSON.stringify({ records: [{ id: "serum-2:0123456789abcdef01234567",
+  productSlug: "serum-2", name: "Bass", sourcePath: "/factory/Bass.fxp",
+  sourceRelativePath: "Bass/Bass.fxp", sourceFingerprint: "sha256:abc", state: "discovered" }] }));
+const pilotPlan = JSON.parse(execFileSync(process.execPath,
+  [path.join(installed, "packages/nks-pipeline/scripts/build-serum-pilot.mjs"),
+    "--manifest", pilotManifest, "--out", path.join(work, "pilot.json")], { encoding: "utf8" }));
+assert.equal(pilotPlan.dryRun, true);
+assert.equal(pilotPlan.pilotSize, 1);
 
 const listing = await exchange(bin, ["serve"], { ABLETON_MCP_BRIDGE_SOCKET: path.join(work, "absent.sock") }, [
   { id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "package-e2e", version: "0" } } },

@@ -1,20 +1,15 @@
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { readFile, realpath, stat } from "node:fs/promises";
-import { basename, extname, isAbsolute, relative } from "node:path";
+import { basename, isAbsolute, relative } from "node:path";
 import { Catalog } from "./catalog.mjs";
 import { transitionPreset } from "./domain.mjs";
 import { KompleteBrowser } from "./komplete-browser.mjs";
 import { ManifestStore } from "./manifest-store.mjs";
+import { serumNksName } from "./serum-nks-name.mjs";
+export { serumNksName } from "./serum-nks-name.mjs";
 
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
-
-export function serumNksName(record) {
-  const withoutExtension = record.sourceRelativePath.slice(0, -extname(record.sourceRelativePath).length);
-  const safePath = withoutExtension.split("/")
-    .map(part => part.replace(/[<>:"\\|?*\u0000-\u001f]/g, "-").trim()).join(" - ");
-  return `CAVI Serum2 - ${safePath} - ${record.id.split(":").at(-1).slice(0, 8)}`;
-}
 
 function inside(root, file) {
   const remainder = relative(root, file);
