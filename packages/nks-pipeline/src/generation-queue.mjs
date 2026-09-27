@@ -12,6 +12,15 @@ function candidatesFor(database, productSlug) {
 
 const isUserSource = record => record.sourceRelativePath.split("/")
   .some(part => part.toLowerCase() === "user");
+const digest = value => typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
+
+function hasPilotValidation(record) {
+  if (record.state !== "validated") return false;
+  const evidence = record.evidence?.findLast(item => item.state === "validated");
+  return evidence?.kind === "operator_reported_recall_controller_verified" &&
+    digest(evidence.reportSha256) && evidence.controllerControlCount >= 8 &&
+    digest(evidence.recall?.evidence?.sha256) && digest(evidence.controller?.evidence?.sha256);
+}
 
 function serumPilotState(database) {
   const records = database.prepare(`SELECT json FROM presets WHERE product_slug = ?
@@ -22,8 +31,7 @@ function serumPilotState(database) {
   const factory = records.filter(record => !isUserSource(record));
   const factoryIds = new Set(factory.map(record => record.id));
   const pilotIds = new Set(factory.length ? buildSerumPilot(factory).jobs.map(job => job.id) : []);
-  const validated = factory.filter(record => pilotIds.has(record.id) && record.state === "validated" &&
-    record.evidence?.some(item => item.state === "validated")).length;
+  const validated = factory.filter(record => pilotIds.has(record.id) && hasPilotValidation(record)).length;
   const gateOpen = pilotIds.size > 0 && validated === pilotIds.size;
   const queueable = factory.filter(record => record.state === "discovered" &&
     (gateOpen || pilotIds.has(record.id))).length;

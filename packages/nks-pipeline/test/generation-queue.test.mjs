@@ -84,6 +84,12 @@ test("Serum queue cannot enqueue outside the deterministic pilot until every pil
   assert.equal(queue.enqueue("serum-2", ["serum-2:00"]), 1);
   for (const record of records.filter(({ id }) => id !== outside && !["serum-2:25", "serum-2:26", "serum-2:27", "serum-2:28"].includes(id)))
     catalog.upsert({ ...record, state: "validated", evidence: [{ state: "validated" }] });
+  assert.equal(GenerationQueue.inspect(path, "serum-2").pilot.gateOpen, false);
+  for (const record of records.filter(({ id }) => id !== outside && !["serum-2:25", "serum-2:26", "serum-2:27", "serum-2:28"].includes(id)))
+    catalog.upsert({ ...record, state: "validated", evidence: [{ state: "validated",
+      kind: "operator_reported_recall_controller_verified", reportSha256: "a".repeat(64),
+      controllerControlCount: 8, recall: { evidence: { sha256: "b".repeat(64) } },
+      controller: { evidence: { sha256: "c".repeat(64) } } }] });
   assert.deepEqual(GenerationQueue.inspect(path, "serum-2").pilot,
     { total: 25, validated: 25, gateOpen: true, queueable: 5 });
   assert.equal(GenerationQueue.inspectSelection(path, "serum-2", [outside]).eligible, 1);
@@ -99,7 +105,9 @@ test("Serum queue never treats User-source presets as factory jobs", async () =>
     author: "Xfer Records", state: "discovered", evidence: [] };
   catalog.upsert({ ...base, id: "serum-2:factory", name: "Factory",
     sourcePath: "/factory/Factory/Bass/Factory.fxp", sourceRelativePath: "Factory/Bass/Factory.fxp",
-    sourceFingerprint: "sha256:factory", state: "validated", evidence: [{ state: "validated" }] });
+    sourceFingerprint: "sha256:factory", state: "validated", evidence: [{ state: "validated",
+      kind: "operator_reported_recall_controller_verified", reportSha256: "a".repeat(64), controllerControlCount: 8,
+      recall: { evidence: { sha256: "b".repeat(64) } }, controller: { evidence: { sha256: "c".repeat(64) } } }] });
   catalog.upsert({ ...base, id: "serum-2:user", name: "Personal",
     sourcePath: "/factory/User/Personal.fxp", sourceRelativePath: "User/Personal.fxp",
     sourceFingerprint: "sha256:user" });

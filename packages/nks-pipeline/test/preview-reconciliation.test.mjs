@@ -95,6 +95,18 @@ test("preview reconciliation CLI defaults to dry run and advances on explicit ap
   assert.equal((await ManifestStore.open(input.manifestPath)).get(input.record.id).state, "previewed");
 });
 
+test("root preview reconciliation command reaches the pipeline CLI", async () => {
+  const input = await fixture();
+  const root = new URL("../../..", import.meta.url).pathname;
+  const stdout = execFileSync("npm", ["run", "catalog:reconcile-preview", "--",
+    "--manifest", input.manifestPath, "--catalog", input.catalogPath,
+    "--preset-id", input.record.id, "--preview", input.previewPath,
+    "--sha256", input.result.sha256, "--capture-report", input.captureReportPath],
+  { cwd: root, encoding: "utf8" });
+  assert.match(stdout, /"dryRun":true/);
+  assert.equal((await ManifestStore.open(input.manifestPath)).get(input.record.id).state, "nks_saved");
+});
+
 test("preview reconciliation refuses divergent catalog evidence", async () => {
   const input = await fixture();
   const catalog = Catalog.open(input.catalogPath);

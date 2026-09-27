@@ -54,6 +54,8 @@
     "cli": "node apps/ableton-mcp/src/cli.mjs",
     "catalog:inventory": "node packages/nks-pipeline/scripts/inventory-catalog.mjs",
     "catalog:reconcile-serum-saved": "node packages/nks-pipeline/scripts/reconcile-serum-saved.mjs",
+    "catalog:reconcile-preview": "node packages/nks-pipeline/scripts/reconcile-preview.mjs",
+    "catalog:reconcile-serum-validation": "node packages/nks-pipeline/scripts/reconcile-serum-validation.mjs",
     "catalog:preview": "node packages/nks-pipeline/scripts/process-preview.mjs",
     "catalog:serum-pilot": "node packages/nks-pipeline/scripts/build-serum-pilot.mjs",
     "test": "npm --workspace @cavi-ai/nks-pipeline test && npm --workspace @cavi-ai/ableton-mcp-core test && python3 -m unittest discover -s 'ableton/Remote Scripts/CaviMcpBridge/tests' && npm run docs:test",
