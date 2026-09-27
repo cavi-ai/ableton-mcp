@@ -89,6 +89,31 @@ test("cross-root Live search joins private metadata by exact URI", async () => {
   } finally { library.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test("subtree Live search optionally joins private tags without sending metadata options to Live", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "browser-subtree-metadata-"));
+  const library = new BrowserMetadataLibrary({ path: join(directory, "metadata.sqlite") });
+  const calls = [];
+  const service = new ToolService({ browserMetadata: library, bridge: { async request(method, params) {
+    calls.push({ method, params });
+    return { stateVersion: 4, root: "plugins", path: ["VST3"], query: "Serum",
+      results: [{ path: ["VST3", "Xfer", "Serum"], uri: "plugin:serum-vst3",
+        name: "Serum", loadable: true, folder: false }] };
+  } } });
+  try {
+    library.set({ root: "plugins", path: ["VST3", "Xfer", "Serum"], uri: "plugin:serum-vst3" }, 0,
+      { favorite: true, tags: ["lead"] });
+    const args = { root: "plugins", path: ["VST3"], query: "Serum", includeMetadata: true };
+    const result = await service.call("search_browser_items", args);
+    assert.deepEqual(result.results[0].metadata, { favorite: true, tags: ["lead"], revision: 1 });
+    assert.equal(result.metadataSource, "private_mcp");
+    assert.equal(result.nativeLiveCollectionsModified, false);
+    assert.equal(calls[0].params.includeMetadata, undefined);
+    const plain = await service.call("search_browser_items", { ...args, includeMetadata: false });
+    assert.equal(plain.results[0].metadata, undefined);
+    await assert.rejects(() => service.call("search_browser_items", { ...args, includeMetadata: "yes" }), /includeMetadata/);
+  } finally { library.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test("local Splice search includes private tags and favorites by exact file identity", async () => {
   const directory = await mkdtemp(join(tmpdir(), "splice-search-metadata-"));
   const library = new BrowserMetadataLibrary({ path: join(directory, "metadata.sqlite") });

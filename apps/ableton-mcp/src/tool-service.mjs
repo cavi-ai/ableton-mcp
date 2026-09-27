@@ -747,7 +747,16 @@ export class ToolService {
     if (name === "get_browser_items" || name === "get_factory_browser_items") {
       return this.bridge.request(name, normalizeBrowserPage(args));
     }
-    if (name === "search_browser_items") return this.bridge.request(name, normalizeBrowserSearch(args));
+    if (name === "search_browser_items") {
+      if (args.includeMetadata !== undefined && typeof args.includeMetadata !== "boolean") throw new Error("includeMetadata must be boolean");
+      const observed = await this.bridge.request(name, normalizeBrowserSearch(args));
+      if (!args.includeMetadata) return observed;
+      if (observed.root !== args.root || !Array.isArray(observed.results)) throw new Error("invalid browser search observation");
+      const library = this.#browserMetadataLibrary();
+      return { ...observed, results: observed.results.map(item => ({ ...item,
+        metadata: typeof item.uri === "string" && item.uri ? library.get({ ...item, root: observed.root }) : null })),
+        metadataSource: "private_mcp", nativeLiveCollectionsModified: false };
+    }
     if (name === "get_plugin_integration_context") {
       const identity = await this.#observeDevice(args);
       const { device } = identity;
