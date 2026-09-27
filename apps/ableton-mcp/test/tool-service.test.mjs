@@ -1281,6 +1281,34 @@ test("device chain snapshots capture and validate nested rack topology", async (
   }), /topology mismatch/);
 });
 
+test("device chain snapshots preserve rack mixer and note routing with native preflight", async () => {
+  const observed = { stateVersion: 9, trackId: "track-0", devices: [{
+    id: "track-0:device-0", name: "Drum Rack", className: "InstrumentGroupDevice", type: "instrument",
+    parameters: [], chains: [{ name: "Kick", devices: [],
+      mixer: { volume: { value: 0.4, min: 0, max: 1, enabled: true }, pan: { value: 0, min: -1, max: 1, enabled: true },
+        sends: [{ index: 0, value: 0.3, min: 0, max: 1, enabled: true }], mute: false, solo: false },
+      noteRouting: { inputNote: 36, outputNote: 36 } }], returnChains: []
+  }] };
+  const service = new ToolService({ bridge: { async request(method) {
+    if (method === "get_device_chain_snapshot") return structuredClone(observed);
+    throw new Error(method);
+  } } });
+  const captured = await service.call("capture_device_chain_snapshot", { trackId: "track-0" });
+  assert.equal(captured.snapshot.format, "cavi-device-chain-v3");
+  assert.equal(captured.snapshot.devices[0].chains[0].mixer.volume, 0.4);
+  validateToolArguments("recall_device_chain_snapshot", { trackId: "track-0", expectedStateVersion: 9,
+    snapshot: captured.snapshot });
+  const target = structuredClone(captured.snapshot);
+  target.devices[0].chains[0].mixer.volume = 0.6;
+  target.devices[0].chains[0].noteRouting.inputNote = 38;
+  const dry = await service.call("recall_device_chain_snapshot", { trackId: "track-0", expectedStateVersion: 9,
+    snapshot: target });
+  assert.equal(dry.plan.target.devices[0].chains[0].noteRouting.inputNote, 38);
+  target.devices[0].chains[0].mixer.volume = 2;
+  await assert.rejects(() => service.call("recall_device_chain_snapshot", { trackId: "track-0",
+    expectedStateVersion: 9, snapshot: target }), /native range/);
+});
+
 test("named device-chain capture can be loaded for guarded recall", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cavi-chain-save-"));
   try {
