@@ -4,6 +4,7 @@ import { realpath, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { analyzeSpectrum } from "./audio-spectrum.mjs";
 import { estimateMonophonicPitch } from "./audio-pitch.mjs";
+import { segmentPitchEvents } from "./audio-pitch-events.mjs";
 import { inspectSpectralPersistence } from "./audio-resonance.mjs";
 import { measureTargetNoteDeviation } from "./audio-tuning.mjs";
 import { detectSourceTransients } from "./audio-transients.mjs";
@@ -11,12 +12,13 @@ import { detectSourceTransients } from "./audio-transients.mjs";
 const run = promisify(execFile);
 const limits = { timeout: 30000, maxBuffer: 2 * 1024 * 1024 };
 
-export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationSeconds = 10, includeSpectrum = false, includePitch = false, includeSpectrogram = false, includeWaveform = false, includeTransients = false, includeResonanceCandidates = false, targetMidiNote, channelIndex = 0 } = {}) {
+export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationSeconds = 10, includeSpectrum = false, includePitch = false, includePitchEvents = false, includeSpectrogram = false, includeWaveform = false, includeTransients = false, includeResonanceCandidates = false, targetMidiNote, channelIndex = 0 } = {}) {
   if (typeof sourcePath !== "string" || !isAbsolute(sourcePath)) throw new Error("source must be an absolute local file path");
   if (!Number.isFinite(startSeconds) || startSeconds < 0) throw new Error("startSeconds must be finite and nonnegative");
   if (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || durationSeconds > 60) throw new Error("durationSeconds must be greater than zero and at most 60");
   if (typeof includeSpectrum !== "boolean") throw new Error("includeSpectrum must be boolean");
   if (typeof includePitch !== "boolean") throw new Error("includePitch must be boolean");
+  if (typeof includePitchEvents !== "boolean") throw new Error("includePitchEvents must be boolean");
   if (typeof includeSpectrogram !== "boolean") throw new Error("includeSpectrogram must be boolean");
   if (typeof includeWaveform !== "boolean") throw new Error("includeWaveform must be boolean");
   if (typeof includeTransients !== "boolean") throw new Error("includeTransients must be boolean");
@@ -50,7 +52,7 @@ export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationS
       limitation: "Single-frame spectral peaks, not fundamental or resonance classification." };
   }
   let monophonicPitch;
-  if (includePitch || targetMidiNote !== undefined) {
+  if (includePitch || includePitchEvents || targetMidiNote !== undefined) {
     if (windowSeconds < 4096 / 16000) throw new Error("pitch analysis requires a 0.256-second source window");
     const decoded = await run("ffmpeg", ["-nostdin", "-v", "error", "-protocol_whitelist", "file,pipe", "-ss", String(startSeconds), "-i", path, "-t", String(windowSeconds), "-map", "0:a:0", "-af", channelFilter, "-ar", "16000", "-c:a", "pcm_f32le", "-f", "f32le", "pipe:1"], { ...limits, maxBuffer: 4 * 1024 * 1024, encoding: "buffer" });
     if (decoded.stdout.length < 4096 * 4) throw new Error("pitch analysis requires a full 4096-sample frame");
@@ -138,5 +140,5 @@ export async function analyzeAudioFile(sourcePath, { startSeconds = 0, durationS
     window: { startSeconds, durationSeconds: windowSeconds },
     integratedLufs: finite(measured.input_i), truePeakDbtp: finite(measured.input_tp),
     loudnessRangeLu: finite(measured.input_lra), ...(spectrum ? { spectrum } : {}),
-    ...(monophonicPitch ? { monophonicPitch } : {}), ...(targetMidiNote !== undefined ? { tuningMeasurement: { ...measureTargetNoteDeviation(monophonicPitch.frames, targetMidiNote), channelIndex } } : {}), ...(spectrogram && includeSpectrogram ? { spectrogram } : {}), ...(resonanceCandidates ? { resonanceCandidates } : {}), ...(waveform ? { waveform } : {}), ...(transients ? { transients } : {}) };
+    ...(monophonicPitch ? { monophonicPitch } : {}), ...(includePitchEvents ? { pitchEvents: { ...segmentPitchEvents(monophonicPitch.frames), channelIndex } } : {}), ...(targetMidiNote !== undefined ? { tuningMeasurement: { ...measureTargetNoteDeviation(monophonicPitch.frames, targetMidiNote), channelIndex } } : {}), ...(spectrogram && includeSpectrogram ? { spectrogram } : {}), ...(resonanceCandidates ? { resonanceCandidates } : {}), ...(waveform ? { waveform } : {}), ...(transients ? { transients } : {}) };
 }

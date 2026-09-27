@@ -75,11 +75,12 @@ test("pitch analysis selects the requested source channel and rejects absent cha
       return { stateVersion: 4, ...target, pitch: { coarse: 2, fine: 10 }, source: { path: sourcePath } };
     } } }));
     const clipAnalysis = await clipRoute({ id: 3, method: "tools/call", params: { name: "analyze_audio_clip",
-      arguments: { trackId: "track-1", clipId: "track-1:clip-0", targetMidiNote: 69, includeResonanceCandidates: true, channelIndex: 1 } } });
+      arguments: { trackId: "track-1", clipId: "track-1:clip-0", targetMidiNote: 69, includePitchEvents: true, includeResonanceCandidates: true, channelIndex: 1 } } });
     assert.equal(clipAnalysis.error, undefined);
     assert.equal(clipReads, 2);
     assert.equal(clipAnalysis.result.structuredContent.measurement.scope, "source_audio");
     assert.equal(clipAnalysis.result.structuredContent.measurement.tuningMeasurement.channelIndex, 1);
+    assert.deepEqual(clipAnalysis.result.structuredContent.measurement.pitchEvents.events.map(event => event.noteName), ["A4"]);
     assert.ok(Math.abs(clipAnalysis.result.structuredContent.measurement.tuningMeasurement.medianCentsFromTarget) < 2);
     assert.equal(clipAnalysis.result.structuredContent.clipPitchAdjustment.eligible, true);
     assert.deepEqual(clipAnalysis.result.structuredContent.clipPitchAdjustment.currentPitch, { coarse: 2, fine: 10 });
@@ -292,7 +293,7 @@ test("pitch analysis reports time-varying notes and unvoiced frames across the s
     const sourcePath = join(directory, "notes.wav");
     await promisify(execFile)("ffmpeg", ["-nostdin", "-v", "error", "-f", "lavfi", "-i",
       "aevalsrc=if(lt(t\\,0.7)\\,0.5*sin(2*PI*440*t)\\,if(lt(t\\,1.3)\\,0\\,0.5*sin(2*PI*880*t))):s=48000:d=2", sourcePath]);
-    const result = await analyzeAudioFile(sourcePath, { includePitch: true });
+    const result = await analyzeAudioFile(sourcePath, { includePitchEvents: true });
     const frames = result.monophonicPitch.frames;
     assert.ok(Array.isArray(frames));
     assert.ok(frames.length > 1 && frames.length <= 64);
@@ -306,6 +307,13 @@ test("pitch analysis reports time-varying notes and unvoiced frames across the s
     assert.ok(frames.every((frame, index) => index === 0 || frame.startSeconds - frames[index - 1].startSeconds <= 0.128001));
     assert.ok(frames[0].harmonicPeaks?.some(peak => peak.harmonicNumber === 1 && Math.abs(peak.estimatedFrequencyHz - 440) < 1));
     assert.ok(frames.at(-1).harmonicPeaks?.some(peak => peak.harmonicNumber === 1 && Math.abs(peak.estimatedFrequencyHz - 880) < 1));
+    assert.deepEqual(result.pitchEvents.events.map(event => event.noteName), ["A4", "A5"]);
+    assert.ok(result.pitchEvents.events[0].endSeconds < result.pitchEvents.events[1].startSeconds);
+    const eventReply = await createRouter(new ToolService({}))({ id: 1, method: "tools/call", params: {
+      name: "analyze_audio_file", arguments: { sourcePath, includePitchEvents: true }
+    } });
+    assert.equal(eventReply.error, undefined);
+    assert.deepEqual(eventReply.result.structuredContent.pitchEvents.events.map(event => event.noteName), ["A4", "A5"]);
     assert.ok(frames.filter(frame => frame.estimate === null).every(frame => Array.isArray(frame.harmonicPeaks) && frame.harmonicPeaks.length === 0));
     const route = createRouter(new ToolService({}));
     const reply = await route({ id: 1, method: "tools/call", params: {
