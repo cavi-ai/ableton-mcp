@@ -31,7 +31,9 @@ async function fixture({ indexedProduct = "Serum 2" } = {}) {
   const manifestPath = join(directory, "manifest.json");
   const catalogPath = join(directory, "catalog.sqlite");
   const runLogPath = join(directory, "run.jsonl");
+  const sourceLoadEvidencePath = join(directory, "source-load-observation.txt");
   const browserPath = join(directory, "komplete.db3");
+  await writeFile(sourceLoadEvidencePath, "Serum loaded BA Gimme without missing-file warning");
   const manifest = await ManifestStore.open(manifestPath);
   await manifest.upsert(record);
   await manifest.flush();
@@ -45,9 +47,12 @@ async function fixture({ indexedProduct = "Serum 2" } = {}) {
   browser.prepare("INSERT INTO v_sound_info VALUES (?, ?, ?, 'nksf')").run(nksName, indexedProduct, nksPath);
   browser.close();
   const run = { id: record.id, state: "nks_saved", sourcePath, expectedDisplayName: record.name,
-    observedDisplayName: record.name, nksName, at: "2026-07-13T18:18:01Z" };
+    observedDisplayName: record.name, nksName, at: "2026-07-13T18:18:01Z",
+    sourceLoad: { missingFiles: [], evidencePath: sourceLoadEvidencePath,
+      evidenceSha256: createHash("sha256").update("Serum loaded BA Gimme without missing-file warning").digest("hex") } };
   await writeFile(runLogPath, `${JSON.stringify(run)}\n`);
-  return { manifestPath, catalogPath, runLogPath, browserPath, userContentRoot: contentRoot, record, sourcePath };
+  return { manifestPath, catalogPath, runLogPath, browserPath, userContentRoot: contentRoot,
+    record, sourcePath, sourceLoadEvidencePath, run };
 }
 
 test("Serum reconciliation dry-runs, then advances only checksum- and index-backed saved state", async () => {
@@ -60,6 +65,8 @@ test("Serum reconciliation dry-runs, then advances only checksum- and index-back
   const saved = (await ManifestStore.open(input.manifestPath)).get(input.record.id);
   assert.equal(saved.state, "nks_saved");
   assert.equal(saved.evidence.at(-1).artifact.sha256.length, 64);
+  assert.deepEqual(saved.evidence.at(-1).sourceLoad.reportedMissingFiles, []);
+  assert.equal(saved.evidence.at(-1).sourceLoad.evidence.sha256, input.run.sourceLoad.evidenceSha256);
   const catalog = Catalog.open(input.catalogPath);
   assert.equal(catalog.get(input.record.id).state, "nks_saved");
   catalog.close();
@@ -75,6 +82,24 @@ test("Serum reconciliation rejects changed sources and unmatched Komplete produc
   const wrongProduct = await fixture({ indexedProduct: "Omnisphere" });
   await assert.rejects(() => reconcileSerumSaved({ ...wrongProduct, apply: true }), /not indexed/);
   assert.equal((await ManifestStore.open(wrongProduct.manifestPath)).get(wrongProduct.record.id).state, "discovered");
+});
+
+test("Serum reconciliation refuses an NKS save made with missing source assets", async () => {
+  const input = await fixture();
+  await writeFile(input.runLogPath, `${JSON.stringify({ ...input.run,
+    sourceLoad: { ...input.run.sourceLoad, missingFiles: ["Alien Landscape_E3.wav"] } })}\n`);
+  await assert.rejects(() => reconcileSerumSaved({ ...input, apply: true }), /missing source assets/);
+  assert.equal((await ManifestStore.open(input.manifestPath)).get(input.record.id).state, "discovered");
+});
+
+test("Serum reconciliation requires a current source-load observation", async () => {
+  const missing = await fixture();
+  await writeFile(missing.runLogPath, `${JSON.stringify({ ...missing.run, sourceLoad: undefined })}\n`);
+  await assert.rejects(() => reconcileSerumSaved({ ...missing, apply: true }), /missing source assets/);
+  const changed = await fixture();
+  await writeFile(changed.sourceLoadEvidencePath, "changed observation");
+  await assert.rejects(() => reconcileSerumSaved({ ...changed, apply: true }), /source-load observation checksum mismatch/);
+  assert.equal((await ManifestStore.open(changed.manifestPath)).get(changed.record.id).state, "discovered");
 });
 
 test("Serum reconciliation CLI defaults to a non-mutating dry run", async () => {
