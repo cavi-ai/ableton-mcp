@@ -40,6 +40,11 @@ const bin = path.join(consumer, "node_modules/.bin/ableton-mcp");
 const installed = path.join(consumer, "node_modules/@cavi-ai/ableton-mcp");
 const help = execFileSync(bin, ["help"], { encoding: "utf8" });
 assert.match(help, /"serve"/u);
+const previewPlan = JSON.parse(execFileSync(process.execPath,
+  [path.join(installed, "packages/nks-pipeline/scripts/process-preview.mjs"),
+    "--raw", path.join(work, "raw.wav"), "--out", path.join(work, "preview.wav")], { encoding: "utf8" }));
+assert.equal(previewPlan.dryRun, true);
+assert.equal(existsSync(path.join(work, "preview.wav")), false);
 
 const listing = await exchange(bin, ["serve"], { ABLETON_MCP_BRIDGE_SOCKET: path.join(work, "absent.sock") }, [
   { id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "package-e2e", version: "0" } } },

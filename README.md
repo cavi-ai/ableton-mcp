@@ -82,7 +82,7 @@ It publishes 202 tools, 9 concrete resources, 13 resource templates and 5 prompt
 
 ## Security
 
-The bridge listens on a Unix domain socket and opens no TCP port. Mutations require an observed state version, return a dry-run plan by default, and execute only with a 60-second, single-use token bound to the plan's hash. See the [security model](docs/ableton-mcp/source/pages/security/model.md) and [SECURITY.md](SECURITY.md).
+The bridge listens on a Unix domain socket and opens no TCP port. Live Set mutations require an observed state version, return a dry-run plan by default, and execute only with a 60-second, single-use token bound to the plan's hash. See the [security model](docs/ableton-mcp/source/pages/security/model.md) and [SECURITY.md](SECURITY.md).
 
 ## Tests
 
