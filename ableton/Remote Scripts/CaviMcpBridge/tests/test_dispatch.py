@@ -3487,12 +3487,15 @@ class DispatchTest(unittest.TestCase):
         }}, 3)
         self.assertEqual(created_track["track"], {"id": "track-1", "name": "Bass", "type": "midi"})
         self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
+        before_scenes = dispatch_request(song, {"method": "list_scenes"}, 4)["scenes"]
         created_scene = dispatch_request(song, {"method": "create_scene", "params": {
-            "index": 0, "name": "Intro"
+            "index": 0, "name": "Intro", "before": {
+                "count": len(before_scenes), "previous": None, "next": before_scenes[0]}
         }}, 4)
         self.assertEqual(created_scene["scene"]["id"], "scene-0")
         self.assertEqual(created_scene["scene"]["name"], "Intro")
         self.assertEqual(created_scene["scene"]["launchQuantization"]["value"], 0)
+        self.assertEqual(song.undo_boundaries, ["begin", "end", "begin", "end"])
         renamed = dispatch_request(song, {"method": "rename_session_object", "params": {
             "target": {"targetType": "clip", "trackId": "track-0", "targetId": "track-0:clip-0",
                        "previousName": "Loop", "name": "Hook"}
@@ -3524,6 +3527,17 @@ class DispatchTest(unittest.TestCase):
                     "next": before_tracks[1] if len(original) > 1 else None}}}, 3)
         self.assertEqual(song.tracks, original)
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
+    def test_create_scene_rejects_changed_musical_context_before_insertion(self):
+        song = Song()
+        original = dispatch_request(song, {"method": "list_scenes"}, 3)["scenes"]
+        before = {"count": len(original), "previous": None, "next": original[0]}
+        song.scenes[0].name = "Changed"
+        with self.assertRaisesRegex(ValueError, "scene insertion context changed"):
+            dispatch_request(song, {"method": "create_scene", "params": {
+                "index": 0, "name": "Intro", "before": before}}, 3)
+        self.assertEqual(len(song.scenes), len(original))
+        self.assertEqual(song.undo_boundaries, [])
 
     def test_session_duplicate_and_delete_return_exact_observed_state(self):
         song = Song()

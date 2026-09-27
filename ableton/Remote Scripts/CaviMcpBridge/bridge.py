@@ -3595,9 +3595,33 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "list_scenes":
         return {"stateVersion": state_version, "scenes": [_scene_record(scene, index) for index, scene in enumerate(song.scenes)]}
     if method == "create_scene":
-        index = int(params["index"])
-        song.create_scene(index)
-        song.scenes[index].name = params["name"]
+        index, name = params.get("index"), params.get("name")
+        if type(index) is not int or not 0 <= index <= len(song.scenes) or \
+                not isinstance(name, str) or not name.strip():
+            raise ValueError("invalid scene creation request")
+        current = list(song.scenes)
+        context = {"count": len(current),
+                   "previous": _scene_record(current[index - 1], index - 1) if index else None,
+                   "next": _scene_record(current[index], index) if index < len(current) else None}
+        if params.get("before") != context:
+            raise ValueError("scene insertion context changed")
+        with _undo_step(song):
+            try:
+                song.create_scene(index)
+                if len(song.scenes) != len(current) + 1 or list(song.scenes[:index]) != current[:index] or \
+                        list(song.scenes[index + 1:]) != current[index:]:
+                    raise RuntimeError("Live did not insert exactly one scene at the requested index")
+                song.scenes[index].name = name
+                if song.scenes[index].name != name:
+                    raise RuntimeError("Live did not create the requested scene")
+            except Exception as error:
+                if len(song.scenes) == len(current) + 1 and list(song.scenes[:index]) == current[:index] and \
+                        list(song.scenes[index + 1:]) == current[index:]:
+                    try:
+                        song.delete_scene(index)
+                    except Exception as rollback_error:
+                        raise RuntimeError(f"scene creation failed: {error}; rollback failed: {rollback_error}; use Live undo") from error
+                raise
         return {"stateVersion": state_version + 1, "scene": _scene_record(song.scenes[index], index)}
     if method == "set_scene_launch_quantization":
         if params.get("expectedStateVersion") != state_version:
