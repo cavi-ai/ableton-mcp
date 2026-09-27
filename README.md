@@ -46,7 +46,7 @@ npm run cli -- call list_devices --args '{"trackId":"track-0"}' --json
 
 To try client wiring without Live, run `ABLETON_MCP_FIXTURE=1 npm start`.
 
-For a smaller initial tool catalog, set `ABLETON_MCP_TOOL_PROFILE=core` in the MCP server's environment. It advertises 59 common tools instead of all 202. Use the default `all` profile when an agent needs the complete MIDI, audio, rack, or snapshot toolset; restart the server after changing profiles. The CLI's direct `call` command remains independent of the discovery profile.
+For a smaller initial tool catalog, set `ABLETON_MCP_TOOL_PROFILE=core` in the MCP server's environment. It advertises 59 common tools instead of the full catalog. Use the default `all` profile when an agent needs the complete MIDI, audio, rack, or snapshot toolset; restart the server after changing profiles. The CLI's direct `call` command remains independent of the discovery profile.
 
 ## What it does
 
