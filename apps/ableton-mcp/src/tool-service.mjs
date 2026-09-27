@@ -279,7 +279,15 @@ export class ToolService {
   }
 
   async call(name, args = {}) {
-    if (name === "search_local_splice_samples") return searchLocalSpliceSamples(args);
+    if (name === "search_local_splice_samples") {
+      if (args.includeMetadata !== undefined && typeof args.includeMetadata !== "boolean") throw new Error("includeMetadata must be boolean");
+      const observed = await searchLocalSpliceSamples(args);
+      if (!args.includeMetadata) return observed;
+      const library = this.#browserMetadataLibrary();
+      return { ...observed, samples: observed.samples.map((sample) => ({ ...sample,
+        metadata: library.get({ root: "local_splice", path: [observed.rootPath, sample.relativePath], uri: sample.sourcePath }) })),
+        metadataSource: "private_mcp" };
+    }
     if (name === "capture_device_chain_snapshot") return this.#captureDeviceChainSnapshot(args);
     if (name === "recall_device_chain_snapshot") return this.#recallDeviceChainSnapshot(args);
     if (name === "capture_track_state_snapshot") return this.#captureTrackStateSnapshot(args);

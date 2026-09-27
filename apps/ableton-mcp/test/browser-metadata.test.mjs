@@ -89,6 +89,23 @@ test("cross-root Live search joins private metadata by exact URI", async () => {
   } finally { library.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test("local Splice search includes private tags and favorites by exact file identity", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "splice-search-metadata-"));
+  const library = new BrowserMetadataLibrary({ path: join(directory, "metadata.sqlite") });
+  const sample = join(directory, "Kick.wav");
+  try {
+    await writeFile(sample, "audio");
+    library.set({ root: "local_splice", path: [await realpath(directory), "Kick.wav"], uri: await realpath(sample) }, 0,
+      { favorite: true, tags: ["drums"] });
+    const service = new ToolService({ browserMetadata: library });
+    const result = await service.call("search_local_splice_samples", {
+      rootPath: directory, query: "kick", includeMetadata: true,
+    });
+    assert.deepEqual(result.samples[0].metadata, { favorite: true, tags: ["drums"], revision: 1 });
+    assert.equal(result.metadataSource, "private_mcp");
+  } finally { library.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test("private tags and favorites bind to an observed local audio sample without Live", async () => {
   const directory = await mkdtemp(join(tmpdir(), "local-sample-metadata-"));
   const library = new BrowserMetadataLibrary({ path: join(directory, "metadata.sqlite") });
