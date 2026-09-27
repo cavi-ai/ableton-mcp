@@ -48,12 +48,21 @@ assert.equal(existsSync(path.join(work, "preview.wav")), false);
 const pilotManifest = path.join(work, "pilot-manifest.json");
 writeFileSync(pilotManifest, JSON.stringify({ records: [{ id: "serum-2:0123456789abcdef01234567",
   productSlug: "serum-2", name: "Bass", sourcePath: "/factory/Bass.fxp",
-  sourceRelativePath: "Bass/Bass.fxp", sourceFingerprint: "sha256:abc", state: "discovered" }] }));
+  sourceRelativePath: "Bass/Bass.fxp", sourceFingerprint: "sha256:abc", state: "discovered" },
+  { id: "omnisphere:0123456789abcdef01234567", productSlug: "omnisphere", name: "Warm Pad",
+    bank: "Factory", subBank: "Pads + Strings", sourceRelativePath: "Factory.db/Warm Pad.prt_omn",
+    sourceContainerPath: "/factory/Factory.db", sourceEntryName: "Pads + Strings/Warm Pad.prt_omn",
+    sourceFingerprint: "sha256:def", state: "discovered" }] }));
 const pilotPlan = JSON.parse(execFileSync(process.execPath,
   [path.join(installed, "packages/nks-pipeline/scripts/build-serum-pilot.mjs"),
     "--manifest", pilotManifest, "--out", path.join(work, "pilot.json")], { encoding: "utf8" }));
 assert.equal(pilotPlan.dryRun, true);
 assert.equal(pilotPlan.pilotSize, 1);
+const omnispherePilotPlan = JSON.parse(execFileSync(process.execPath,
+  [path.join(installed, "packages/nks-pipeline/scripts/build-omnisphere-pilot.mjs"),
+    "--manifest", pilotManifest, "--out", path.join(work, "omnisphere-pilot.json")], { encoding: "utf8" }));
+assert.equal(omnispherePilotPlan.dryRun, true);
+assert.equal(omnispherePilotPlan.pilotSize, 1);
 
 const listing = await exchange(bin, ["serve"], { ABLETON_MCP_BRIDGE_SOCKET: path.join(work, "absent.sock") }, [
   { id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "package-e2e", version: "0" } } },

@@ -41,6 +41,8 @@
     "packages/nks-pipeline/src/serum-pilot.mjs",
     "packages/nks-pipeline/src/serum-nks-name.mjs",
     "packages/nks-pipeline/scripts/build-serum-pilot.mjs",
+    "packages/nks-pipeline/src/omnisphere-pilot.mjs",
+    "packages/nks-pipeline/scripts/build-omnisphere-pilot.mjs",
     "LICENSE",
     "README.md",
     "docs/ableton-mcp/source/pages"
@@ -58,6 +60,7 @@
     "catalog:reconcile-serum-validation": "node packages/nks-pipeline/scripts/reconcile-serum-validation.mjs",
     "catalog:preview": "node packages/nks-pipeline/scripts/process-preview.mjs",
     "catalog:serum-pilot": "node packages/nks-pipeline/scripts/build-serum-pilot.mjs",
+    "catalog:omnisphere-pilot": "node packages/nks-pipeline/scripts/build-omnisphere-pilot.mjs",
     "test": "npm --workspace @cavi-ai/nks-pipeline test && npm --workspace @cavi-ai/ableton-mcp-core test && python3 -m unittest discover -s 'ableton/Remote Scripts/CaviMcpBridge/tests' && npm run docs:test",
     "test:mcp": "npm --workspace @cavi-ai/ableton-mcp-core test",
     "eval:core": "ABLETON_MCP_TOOL_PROFILE=core MCPEVAL_HOME=.tmp/mcpeval mcpeval probe --server ableton-mcp-core --manifest evals/core.manifest.json -- node apps/ableton-mcp/src/cli.mjs serve",

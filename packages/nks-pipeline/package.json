@@ -8,6 +8,7 @@
     "catalog:reconcile-serum-saved": "node scripts/reconcile-serum-saved.mjs",
     "catalog:reconcile-preview": "node scripts/reconcile-preview.mjs",
     "catalog:reconcile-serum-validation": "node scripts/reconcile-serum-validation.mjs",
+    "catalog:omnisphere-pilot": "node scripts/build-omnisphere-pilot.mjs",
     "artwork:matrix": "node scripts/build-artwork-matrix.mjs",
     "artwork:render": "node scripts/render-artwork-derivatives.mjs",
     "artwork:contact-sheets": "node scripts/build-artwork-contact-sheets.mjs",
