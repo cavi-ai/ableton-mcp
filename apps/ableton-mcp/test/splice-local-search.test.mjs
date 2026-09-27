@@ -21,6 +21,22 @@ test("local Splice search finds only audio assets under the selected root", asyn
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("local Splice search finds samples by pack folder name", async () => {
+  const root = await mkdtemp(join(tmpdir(), "splice-pack-search-"));
+  try {
+    await mkdir(join(root, "House Essentials"));
+    await mkdir(join(root, "Trap Essentials"));
+    await writeFile(join(root, "House Essentials", "Kick.wav"), "audio");
+    await writeFile(join(root, "House Essentials", "Hat.wav"), "audio");
+    await writeFile(join(root, "Trap Essentials", "Kick.wav"), "audio");
+    const result = await new ToolService({}).call("search_local_splice_samples", {
+      rootPath: root, query: "house essentials", maxDepth: 2, limit: 10,
+    });
+    assert.deepEqual(result.samples.map(sample => sample.relativePath),
+      ["House Essentials/Hat.wav", "House Essentials/Kick.wav"]);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("configured local Splice roots report canonical available and missing folders", async () => {
   const root = await mkdtemp(join(tmpdir(), "splice-root-"));
   try {

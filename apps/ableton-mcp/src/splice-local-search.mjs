@@ -67,8 +67,9 @@ export async function searchLocalSpliceSamples({ rootPath, query, maxDepth = 8, 
       const candidate = join(directory, entry.name);
       if (entry.isDirectory()) {
         if (depth < maxDepth) await visit(candidate, depth + 1);
-      } else if (entry.isFile() && AUDIO_EXTENSIONS.has(extname(entry.name).toLowerCase())
-          && entry.name.toLocaleLowerCase().includes(needle)) {
+      } else if (entry.isFile() && AUDIO_EXTENSIONS.has(extname(entry.name).toLowerCase())) {
+        const relativeCandidate = relative(root, candidate);
+        if (!relativeCandidate.toLocaleLowerCase().includes(needle)) continue;
         const sourcePath = await realpath(candidate);
         const childPath = relative(root, sourcePath);
         if (childPath.startsWith(`..${sep}`) || childPath === ".." || isAbsolute(childPath)) continue;
