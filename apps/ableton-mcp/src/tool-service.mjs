@@ -1063,6 +1063,30 @@ export class ToolService {
         beforeTargetParameters: target.parameters,
         warning: "Live may apply its default mapping range. Inspect the returned mapping and parameter behavior after applying; native undo is the recovery path." }, args);
     }
+    if (name === "set_rack_macro_mapping_edge") {
+      requireExpectedState(args);
+      const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, { ...observed, deviceId: observed.device?.id });
+      const rack = observed.device;
+      if (rack?.id !== args.deviceId || !rack.canHaveChains || !Array.isArray(rack.rackMacros?.mappings)) {
+        throw new Error("rack does not expose native macro mappings");
+      }
+      if (!Number.isSafeInteger(args.macroIndex) || args.macroIndex < 0 || args.macroIndex >= rack.rackMacros.visibleCount) {
+        throw new Error("macro index is outside the visible range");
+      }
+      const mappings = rack.rackMacros.mappings.filter(mapping => mapping.macroIndex === args.macroIndex);
+      if (mappings.length !== 1) throw new Error("range editing requires exactly one mapping on this macro");
+      const mapping = mappings[0];
+      if (mapping.parameterQuantized) throw new Error("quantized mapping range semantics are unavailable");
+      if (args.edge !== "min" && args.edge !== "max") throw new Error("mapping edge must be min or max");
+      if (!Number.isFinite(args.value) || args.value < mapping.parameterMin || args.value > mapping.parameterMax) {
+        throw new Error("mapping edge is outside the native parameter range");
+      }
+      return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+        macroIndex: args.macroIndex, edge: args.edge, value: args.value,
+        expectedStateVersion: args.expectedStateVersion, beforeDevice: rack,
+        warning: "This changes one endpoint of the only observed mapping on the macro. Reversed ranges are possible; inspect the returned range and parameter behavior. Live undo is the recovery path." }, args);
+    }
     if (name === "store_rack_macro_variation") {
       requireExpectedState(args);
       const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });

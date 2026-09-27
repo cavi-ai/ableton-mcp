@@ -2,6 +2,32 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ToolService } from "../src/tool-service.mjs";
 
+test("mapping edge plans bind a single native target and reject ambiguous macros", async () => {
+  const deviceId = "track-0:device-0";
+  const mapping = { macroIndex: 2, targetPath: "Kick/Filter Freq", parameterName: "Cutoff",
+    parameterOriginalName: "Filter Freq", parameterMin: 0, parameterMax: 1,
+    parameterQuantized: false, min: 0.1, max: 0.9, minDisplay: "100 Hz", maxDisplay: "900 Hz" };
+  const rack = { id: deviceId, canHaveChains: true, rackMacros: {
+    hasMappings: true, visibleCount: 8, variationCount: 0, selectedVariationIndex: -1,
+    mappings: [mapping] }, chains: [], returnChains: [] };
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
+    assert.equal(method, "set_rack_macro_mapping_edge");
+    assert.deepEqual(params.beforeDevice, rack);
+    return { stateVersion: 5, trackId: "track-0", device: { ...rack, rackMacros: { ...rack.rackMacros,
+      mappings: [{ ...mapping, min: 0.25 }] } } };
+  } } });
+  const args = { trackId: "track-0", deviceId, expectedStateVersion: 4,
+    macroIndex: 2, edge: "min", value: 0.25 };
+  const dry = await service.call("set_rack_macro_mapping_edge", args);
+  assert.equal(dry.plan.beforeDevice.rackMacros.mappings[0].min, 0.1);
+  const applied = await service.call("set_rack_macro_mapping_edge", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(applied.observed.device.rackMacros.mappings[0].min, 0.25);
+  await assert.rejects(() => service.call("set_rack_macro_mapping_edge", { ...args, value: 1.1 }), /native parameter range/);
+  await assert.rejects(() => service.call("set_rack_macro_mapping_edge", { ...args, macroIndex: 3 }), /exactly one mapping/);
+});
+
 test("macro mapping binds one exact rack descendant and parameter snapshot", async () => {
   const deviceId = "track-0:device-0";
   const targetDeviceId = `${deviceId}/chain-0/device-0`;

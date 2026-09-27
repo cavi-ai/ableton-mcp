@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 205 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 206 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (89)
 
@@ -98,7 +98,7 @@ The server publishes 205 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search downloaded Splice audio assets by filename or pack/category folder under an explicit local directory in stable relative-path order. Offset and nextOffset page through matching files. Optional private MCP tags/favorites join by exact local identity. Read-only; not cloud catalog search, download, or sync. Returns exact local source paths for analyze_audio_file. | `rootPath`, `query` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (102)
+## Mutations (103)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -187,6 +187,7 @@ The server publishes 205 tools. Mutations of the Live Set require `expectedState
 | `set_preset_metadata` | Plan or update user tags and favorite state for one preset with an exact revision guard. | `expectedMetadataRevision`, `presetId` |
 | `set_rack_chain_mixer` | Plan or apply exact rack-chain volume, pan, mute, solo, and send levels using native ranges and guarded hierarchy state. | `expectedStateVersion`, `trackId`, `deviceId`, `chainId` |
 | `set_rack_chain_note_routing` | Plan or reassign a Drum Rack chain to a MIDI pad note and optionally change its instrument output note. Occupied destinations layer chains rather than replace sounds. | `expectedStateVersion`, `trackId`, `deviceId`, `chainId` |
+| `set_rack_macro_mapping_edge` | Plan or change one native min or max endpoint of a rack macro with exactly one observed nonquantized mapping. Value is in the target parameter's native range. Rechecks the full rack snapshot and reads back the result; reversed ranges are possible. | `expectedStateVersion`, `trackId`, `deviceId`, `macroIndex`, `edge`, `value` |
 | `set_return_mixer` | Plan or apply return-bus volume, pan, mute, or solo changes. The native write rechecks the complete signed Return state and groups changes in one undo step with rollback on failure. | `expectedStateVersion`, `returnTrackId` |
 | `set_scene_launch_quantization` | Plan or apply a guarded per-scene clip-launch quantization override from list_scenes. The global setting stays in song musical context; only the selected scene changes. | `expectedStateVersion`, `sceneId`, `launchQuantization` |
 | `set_scene_musical_context` | Plan or set an exact Session scene tempo and/or time-signature override. Disabled overrides inherit the song context; enabled overrides take effect when the scene is launched. | `expectedStateVersion`, `sceneId` |

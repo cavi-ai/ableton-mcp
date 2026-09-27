@@ -2535,6 +2535,7 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(observed["rackMacros"].get("mappings"), [{
             "macroIndex": 2, "targetPath": "Kick/Filter Freq",
             "parameterName": "Cutoff", "parameterOriginalName": "Filter Freq",
+            "parameterMin": 0.0, "parameterMax": 1.0, "parameterQuantized": False,
             "min": 0.1, "max": 0.9, "minDisplay": "100 Hz", "maxDisplay": "900 Hz"
         }])
 
@@ -2615,6 +2616,45 @@ class DispatchTest(unittest.TestCase):
                 "trackId": "track-0", "deviceId": rack_id, "beforeDevice": before,
                 "targetDeviceId": target_id, "beforeTargetParameters": target,
                 "parameterId": "parameter-0", "macroIndex": 2}}, 4)
+
+    def test_set_rack_macro_mapping_edge_rechecks_single_mapping_and_reads_native_range(self):
+        song = Song()
+        rack = DrumRack()
+        rack.visible_macro_count = 8
+        rack.has_macro_mappings = True
+        rack.variation_count = 0
+        rack.selected_variation_index = -1
+        parameter = rack.chains[0].devices[0].parameters[0]
+        mapping = SimpleNamespace(index=2, path="Kick/Filter Freq", parameter=parameter,
+                                  mapping_min=0.1, mapping_max=0.9,
+                                  mapping_min_string="100 Hz", mapping_max_string="900 Hz")
+        rack.macro_mappings = [mapping]
+        rack.set_mapping_min = lambda index, value: setattr(mapping, "mapping_min", value)
+        rack.set_mapping_max = lambda index, value: setattr(mapping, "mapping_max", value)
+        song.tracks[0].devices = [rack]
+        rack_id = "track-0:device-0"
+        before = dispatch_request(song, {"method": "get_device_hierarchy", "params": {
+            "trackId": "track-0", "deviceId": rack_id}}, 3)["device"]
+        request = {"trackId": "track-0", "deviceId": rack_id, "beforeDevice": before,
+                   "macroIndex": 2, "edge": "min", "value": 0.25}
+        result = dispatch_request(song, {"method": "set_rack_macro_mapping_edge", "params": request}, 3)
+        self.assertEqual(result["device"]["rackMacros"]["mappings"][0]["min"], 0.25)
+        self.assertEqual(result["stateVersion"], 4)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+        with self.assertRaisesRegex(ValueError, "rack state changed"):
+            dispatch_request(song, {"method": "set_rack_macro_mapping_edge", "params": request}, 4)
+        maximum = dispatch_request(song, {"method": "set_rack_macro_mapping_edge", "params": {
+            **request, "beforeDevice": result["device"], "edge": "max", "value": 0.75}}, 4)
+        self.assertEqual(maximum["device"]["rackMacros"]["mappings"][0]["max"], 0.75)
+        rack.macro_mappings.append(SimpleNamespace(index=2, path="Snare/Filter Freq", parameter=Parameter(),
+                                                   mapping_min=0, mapping_max=1,
+                                                   mapping_min_string="0 Hz", mapping_max_string="1000 Hz"))
+        multi = dispatch_request(song, {"method": "get_device_hierarchy", "params": {
+            "trackId": "track-0", "deviceId": rack_id}}, 4)["device"]
+        with self.assertRaisesRegex(ValueError, "exactly one mapping"):
+            dispatch_request(song, {"method": "set_rack_macro_mapping_edge", "params": {
+                **request, "beforeDevice": multi}}, 4)
+        self.assertEqual(mapping.mapping_min, 0.25)
 
     def test_store_rack_macro_variation_rechecks_parameters_and_reads_count(self):
         song = Song()

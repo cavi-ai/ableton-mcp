@@ -969,6 +969,9 @@ def _device_tree(device, device_id):
                 "macroIndex": int(mapping.index), "targetPath": str(mapping.path),
                 "parameterName": str(mapping.parameter.name),
                 "parameterOriginalName": str(mapping.parameter.original_name),
+                "parameterMin": float(mapping.parameter.min),
+                "parameterMax": float(mapping.parameter.max),
+                "parameterQuantized": bool(mapping.parameter.is_quantized),
                 "min": float(mapping.mapping_min), "max": float(mapping.mapping_max),
                 "minDisplay": str(mapping.mapping_min_string),
                 "maxDisplay": str(mapping.mapping_max_string),
@@ -5073,6 +5076,39 @@ def dispatch_request(song, request, state_version, application=None):
             song.end_undo_step()
         if not any(mapping.index == macro_index and mapping.parameter == parameter for mapping in rack.macro_mappings):
             raise RuntimeError("native mapping was not observed; inspect the rack before retrying")
+        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                "device": _device_tree(rack, rack_id)}
+    if method == "set_rack_macro_mapping_edge":
+        rack_id = params["deviceId"]
+        _, _, rack = _device(song, params["trackId"], rack_id)
+        if not rack.can_have_chains or _device_tree(rack, rack_id) != params["beforeDevice"]:
+            raise ValueError("rack state changed")
+        macro_index = params["macroIndex"]
+        if type(macro_index) is not int or not 0 <= macro_index < rack.visible_macro_count:
+            raise ValueError("macro index is outside the visible range")
+        if not hasattr(rack, "macro_mappings"):
+            raise ValueError("native rack macro mappings are unavailable")
+        mappings = [mapping for mapping in rack.macro_mappings if mapping.index == macro_index]
+        if len(mappings) != 1:
+            raise ValueError("range editing requires exactly one mapping on this macro")
+        mapping = mappings[0]
+        if mapping.parameter.is_quantized:
+            raise ValueError("quantized mapping range semantics are unavailable")
+        value = params["value"]
+        if type(value) not in (int, float) or not math.isfinite(value) or not mapping.parameter.min <= value <= mapping.parameter.max:
+            raise ValueError("mapping edge is outside the native parameter range")
+        edge = params["edge"]
+        native = getattr(rack, "set_mapping_min" if edge == "min" else "set_mapping_max", None)
+        if edge not in ("min", "max") or not callable(native):
+            raise ValueError("native mapping edge setter is unavailable")
+        song.begin_undo_step()
+        try:
+            native(macro_index, value)
+        finally:
+            song.end_undo_step()
+        actual = mapping.mapping_min if edge == "min" else mapping.mapping_max
+        if not math.isclose(actual, value, rel_tol=0, abs_tol=1e-6):
+            raise RuntimeError("native mapping range did not match the request; inspect the rack before retrying")
         return {"stateVersion": state_version + 1, "trackId": params["trackId"],
                 "device": _device_tree(rack, rack_id)}
     if method == "adjust_rack_macro_count":
