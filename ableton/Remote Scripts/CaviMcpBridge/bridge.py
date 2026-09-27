@@ -733,17 +733,17 @@ class _BrowserRootCollection:
         self.children = items
 
 
+BROWSER_ROOTS = (
+    "audio_effects", "clips", "current_project", "drums", "instruments",
+    "legacy_libraries", "max_for_live", "midi_effects", "packs", "plugins", "samples", "sounds",
+    "user_folders", "user_library",
+)
+
+
 def _browser_item(application, root, path):
-    roots = {
-        name: name for name in (
-            "audio_effects", "clips", "current_project", "drums", "hotswap_target", "instruments",
-            "legacy_libraries", "max_for_live", "midi_effects", "packs", "plugins", "samples", "sounds",
-            "user_folders", "user_library",
-        )
-    }
-    if root not in roots:
+    if root not in BROWSER_ROOTS and root != "hotswap_target":
         raise ValueError("unknown Live browser root")
-    item = getattr(application.browser, roots[root])
+    item = getattr(application.browser, root)
     if root == "user_folders" and not hasattr(item, "children"):
         item = _BrowserRootCollection("User Folders", item)
     for name in path:
@@ -2707,6 +2707,17 @@ def dispatch_request(song, request, state_version, application=None):
             track.current_output_routing = name
             routes.append(_track_routing(song, track_id, state_version + 1))
         return {"stateVersion": state_version + 1, "busTrackId": params["busTrackId"], "routes": routes}
+    if method == "list_browser_roots":
+        roots = []
+        for root in BROWSER_ROOTS:
+            try:
+                item = _browser_item(application, root, [])
+            except (AttributeError, RuntimeError):
+                roots.append({"root": root, "available": False, "item": None, "totalChildren": None})
+            else:
+                roots.append({"root": root, "available": True,
+                              "item": _browser_item_record(item), "totalChildren": len(item.children)})
+        return {"stateVersion": state_version, "roots": roots}
     if method in ("get_browser_items", "get_factory_browser_items"):
         item = _browser_item(application, params["root"], params.get("path", []))
         children = item.children

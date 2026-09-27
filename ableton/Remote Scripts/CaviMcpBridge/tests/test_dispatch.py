@@ -495,6 +495,16 @@ class Application:
 
 
 class DispatchTest(unittest.TestCase):
+    def test_browser_roots_report_available_and_unavailable_locations(self):
+        result = dispatch_request(Song(), {"method": "list_browser_roots", "params": {}}, 3, Application())
+        roots = {item["root"]: item for item in result["roots"]}
+        self.assertEqual(result["stateVersion"], 3)
+        self.assertEqual(roots["plugins"]["item"]["name"], "Plug-ins")
+        self.assertEqual(roots["plugins"]["totalChildren"], 1)
+        self.assertEqual(roots["user_folders"]["totalChildren"], 1)
+        self.assertFalse(roots["packs"]["available"])
+        self.assertIsNone(roots["packs"]["item"])
+
     def test_audio_inspection_exposes_loaded_source_for_analysis(self):
         song = Song()
         clip = song.tracks[0].clip_slots[2].clip

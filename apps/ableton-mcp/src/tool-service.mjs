@@ -526,6 +526,7 @@ export class ToolService {
       return { roots, deepIntegrationVerified: false,
         limitation: "Paged top-level factory browser observations, not an atomic inventory or exhaustive preset/Pack/third-party catalog. Profile matches use browser names; verify native class identity and actual controls after loading. A profile or loadable item does not prove save/recall, modulation, signal flow, or complete device integration." };
     }
+    if (name === "list_browser_roots") return this.bridge.request(name, {});
     if (name === "get_browser_items" || name === "get_factory_browser_items") {
       return this.bridge.request(name, normalizeBrowserPage(args));
     }

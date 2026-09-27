@@ -565,6 +565,17 @@ test("Live browser exposes plug-ins and user content through canonical guarded t
   ]);
 });
 
+test("browser root inventory forwards one read-only native request", async () => {
+  const calls = [];
+  const observed = { stateVersion: 7, roots: [{ root: "plugins", available: true, totalChildren: 2 }] };
+  const service = new ToolService({ bridge: { async request(method, params) {
+    calls.push({ method, params });
+    return observed;
+  } } });
+  assert.deepEqual(await service.call("list_browser_roots", {}), observed);
+  assert.deepEqual(calls, [{ method: "list_browser_roots", params: {} }]);
+});
+
 test("browser loading accepts guarded Return and Main device owners", async () => {
   const { service, calls } = fixture();
   for (const trackId of ["return-0", "master"]) {

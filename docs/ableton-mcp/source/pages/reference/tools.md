@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 190 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 191 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (82)
+## Read-only (83)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -53,6 +53,7 @@ The server publishes 190 tools. Mutations of the Live Set require `expectedState
 | `inspect_producer_chain` | Read the devices on one exact track and compare their factory profiles and order with a named producer-chain blueprint. No devices are loaded or changed. | `target`, `trackId` |
 | `list_arrangement_clips` | Read timeline clip IDs, types, and start/end positions in beats for one track. | `trackId` |
 | `list_arrangement_cue_points` | List Arrangement cue points with stable IDs and beat positions. | none |
+| `list_browser_roots` | List Live's general browser roots with observed availability and immediate child counts. Read-only; this is not Splice cloud search or a filesystem inventory. | none |
 | `list_clips` | List clip slots and clips on one exact track, including arm/freeze recording readiness and native one-shot launch quantization choices. | `trackId` |
 | `list_device_parameters` | List exact live parameter IDs, values, bounds, labels, and quantized choices. | `trackId`, `deviceId` |
 | `list_devices` | List loaded devices on one exact ordinary, Return, or Main track. | `trackId` |
