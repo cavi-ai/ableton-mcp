@@ -65,6 +65,8 @@ test("pitch analysis selects the requested source channel and rejects absent cha
     assert.equal(tuning.result.structuredContent.tuningMeasurement.channelIndex, 1);
     assert.ok(Math.abs(tuning.result.structuredContent.tuningMeasurement.medianCentsFromTarget) < 2);
     assert.equal(tuning.result.structuredContent.tuningMeasurement.measuredFrameFraction, 1);
+    assert.equal(tuning.result.structuredContent.tuningMeasurement.wholeClipTuningProposal.eligible, true);
+    assert.deepEqual(tuning.result.structuredContent.tuningMeasurement.wholeClipTuningProposal.pitchOffset, { coarse: 0, fine: 0 });
     let clipReads = 0;
     const clipRoute = createRouter(new ToolService({ bridge: { async request(method, target) {
       assert.equal(method, "get_audio_clip_state");

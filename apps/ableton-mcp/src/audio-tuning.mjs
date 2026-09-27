@@ -16,8 +16,22 @@ export function measureTargetNoteDeviation(frames, targetMidiNote) {
       frequencyHz: frequencyHz ?? null, centsFromTarget: frequencyHz == null ? null : 1200 * Math.log2(frequencyHz / targetFrequencyHz) };
   });
   const cents = measured.flatMap(frame => frame.centsFromTarget === null ? [] : [frame.centsFromTarget]);
+  const center = median(cents);
+  const measuredFrameFraction = cents.length / measured.length;
+  const maximumSpreadCents = center === null ? null : Math.max(...cents.map(value => Math.abs(value - center)));
+  const shiftCents = center === null ? null : Math.round(-center) || 0;
+  const coarse = shiftCents === null ? null : Math.round(shiftCents / 100);
+  const fine = shiftCents === null ? null : shiftCents - coarse * 100;
+  const eligible = cents.length >= 4 && measuredFrameFraction >= .8 && maximumSpreadCents <= 25 &&
+    coarse >= -48 && coarse <= 48 && fine >= -50 && fine <= 50;
+  const reason = eligible ? "stable_monophonic_source_window" : cents.length < 4 ? "insufficient_voiced_frames" :
+    measuredFrameFraction < .8 ? "insufficient_voiced_fraction" : maximumSpreadCents > 25 ?
+      "variable_pitch_or_unreliable_estimates" : "offset_outside_clip_range";
   return { targetMidiNote, targetFrequencyHz, referenceA4Hz: 440, pitchCorrectionApplied: false, frames: measured,
-    measuredFrames: cents.length, totalFrames: measured.length, measuredFrameFraction: cents.length / measured.length,
-    medianCentsFromTarget: median(cents), medianAbsoluteCentsFromTarget: median(cents.map(Math.abs)),
+    measuredFrames: cents.length, totalFrames: measured.length, measuredFrameFraction,
+    medianCentsFromTarget: center, medianAbsoluteCentsFromTarget: median(cents.map(Math.abs)),
+    wholeClipTuningProposal: { eligible, reason, maximumSpreadCents,
+      pitchOffset: eligible ? { coarse, fine } : null,
+      limitation: "Review-only offset relative to untransposed source audio for one target note and selected analysis window. Do not apply blindly to an already-transposed clip. Whole-clip pitch offsets cannot correct changing notes, vocal intonation, or different source windows; inspect the full material and current clip pitch before a guarded edit." },
     limitation: "Deviation against one explicitly selected equal-tempered note at A4=440 Hz. Not melody/scale inference, pitch correction, or vocal quality grading. Octave deviations are not folded. Unreliable periodicity remains null. Overlapping-frame statistics are not duration-weighted or temporal coverage estimates; transitions and vibrato can affect measurements." };
 }

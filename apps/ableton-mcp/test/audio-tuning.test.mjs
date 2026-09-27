@@ -21,3 +21,19 @@ test("unvoiced tuning measurements remain unavailable rather than zero", () => {
   assert.equal(result.medianAbsoluteCentsFromTarget, null);
   assert.equal(result.measuredFrameFraction, 0);
 });
+
+test("stable monophonic source proposes a bounded whole-clip shift only", () => {
+  const frames = Array.from({ length: 5 }, (_, index) => ({ startSeconds: index * .128,
+    endSeconds: index * .128 + .256, estimate: { frequencyHz: 440 * 2 ** (125 / 1200) } }));
+  const result = measureTargetNoteDeviation(frames, 69);
+  assert.equal(result.wholeClipTuningProposal.eligible, true);
+  assert.deepEqual(result.wholeClipTuningProposal.pitchOffset, { coarse: -1, fine: -25 });
+  assert.equal(result.pitchCorrectionApplied, false);
+  const moving = measureTargetNoteDeviation(frames.map((frame, index) => ({ ...frame,
+    estimate: { frequencyHz: 440 * 2 ** ((index % 2 ? 200 : 0) / 1200) } })), 69);
+  assert.equal(moving.wholeClipTuningProposal.eligible, false);
+  assert.equal(moving.wholeClipTuningProposal.pitchOffset, null);
+  const sparse = measureTargetNoteDeviation(frames.map((frame, index) => ({ ...frame,
+    estimate: index === 0 ? frame.estimate : null })), 69);
+  assert.equal(sparse.wholeClipTuningProposal.eligible, false);
+});
