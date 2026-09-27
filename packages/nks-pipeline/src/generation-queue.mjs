@@ -39,7 +39,10 @@ function pilotState(database, productSlug) {
   const gateOpen = pilotIds.size > 0 && validated === pilotIds.size;
   const queueable = factory.filter(record => record.state === "discovered" &&
     (gateOpen || pilotIds.has(record.id))).length;
-  return { pilotIds, factoryIds, status: { total: pilotIds.size, validated, gateOpen, queueable } };
+  const remainingPilotPresetIds = factory.filter(record => pilotIds.has(record.id) &&
+    record.state === "discovered").map(record => record.id).sort();
+  return { pilotIds, factoryIds, status: { total: pilotIds.size, validated, gateOpen, queueable,
+    remainingPilotPresetIds } };
 }
 
 function selectedCandidates(database, productSlug, presetIds) {

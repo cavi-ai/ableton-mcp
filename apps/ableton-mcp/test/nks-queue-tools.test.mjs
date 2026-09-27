@@ -97,7 +97,9 @@ test("MCP Omnisphere queue status and enqueue enforce the source-derived pilot",
   }
   const service = new ToolService({ catalog, generationQueuePath: path });
   assert.deepEqual((await service.call("get_nks_generation_status", { productSlug: "omnisphere" })).pilot,
-    { total: 25, validated: 0, gateOpen: false, queueable: 25 });
+    { total: 25, validated: 0, gateOpen: false, queueable: 25,
+      remainingPilotPresetIds: [...Array.from({ length: 24 }, (_, index) => index), 29].map(index =>
+        `omnisphere:${String(index).padStart(2, "0")}`) });
   await assert.rejects(service.call("enqueue_nks_generation_jobs",
     { productSlug: "omnisphere", presetIds: ["omnisphere:24"] }), /pilot/);
   const planned = await service.call("enqueue_nks_generation_jobs",
