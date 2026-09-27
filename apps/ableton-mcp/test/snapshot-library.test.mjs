@@ -48,3 +48,17 @@ test("device-chain library persists chain snapshots without accepting track snap
     await assert.rejects(() => library.save("wrong-kind", { format: "cavi-track-state-v2" }), /invalid.*snapshot format/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
+
+test("snapshot library lists only regular named captures in stable order", async () => {
+  const directory = await mkdtemp(`${tmpdir()}/cavi-snapshot-list-test-`);
+  try {
+    const library = new SnapshotLibrary({ directory: `${directory}/captures` });
+    assert.deepEqual(await library.list(), []);
+    await library.save("zeta", { format: "cavi-track-state-v1" });
+    await library.save("alpha", { format: "cavi-track-state-v1" });
+    await symlink(`${directory}/captures/alpha.json`, `${directory}/captures/link.json`);
+    await writeFile(`${directory}/captures/notes.txt`, "not a capture");
+    await writeFile(`${directory}/captures/UPPER.JSON`, "not a loadable capture name");
+    assert.deepEqual(await library.list(), ["alpha", "zeta"]);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});

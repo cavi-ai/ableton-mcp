@@ -433,6 +433,12 @@ export class ToolService {
       const { snapshot, ...entry } = await this.midiFeelLibrary.load(args.name);
       return { ...entry, template: snapshot };
     }
+    if (name === "list_saved_snapshots") {
+      const library = { track: this.snapshotLibrary, "device-chain": this.deviceChainLibrary,
+        "midi-feel": this.midiFeelLibrary }[args.kind];
+      if (!library) throw new Error("requested snapshot library is not configured");
+      return { kind: args.kind, names: await library.list() };
+    }
     if (name === "apply_midi_feel_template") {
       requireExpectedState(args);
       const target = { trackId: args.trackId, clipId: args.clipId };

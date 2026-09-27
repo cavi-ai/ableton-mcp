@@ -1,4 +1,4 @@
-import { mkdir, open, readFile, lstat, unlink } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, lstat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
 function snapshotPath(directory, name) {
@@ -42,5 +42,17 @@ export class SnapshotLibrary {
     const snapshot = JSON.parse(await readFile(path, "utf8"));
     if (!this.formats.has(snapshot?.format)) throw new Error("invalid snapshot format");
     return { name, path, snapshot };
+  }
+
+  async list() {
+    let entries;
+    try { entries = await readdir(this.directory, { withFileTypes: true }); }
+    catch (error) {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    }
+    return entries.filter(entry => entry.isFile() && /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.json$/.test(entry.name))
+      .map(entry => entry.name.slice(0, -5)).filter(name => name !== "." && name !== "..")
+      .sort((a, b) => a.localeCompare(b, "en"));
   }
 }

@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 211 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 212 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (91)
+## Read-only (92)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -65,6 +65,7 @@ The server publishes 211 tools. Mutations of the Live Set require `expectedState
 | `list_live_scales` | List Ableton Live 12 scale names with semitone intervals and musical families for exact scale selection. Read-only. | none |
 | `list_local_splice_roots` | List explicitly configured downloaded Splice folders, their canonical local paths, and availability. Does not discover Splice cloud assets or download files. | none |
 | `list_producer_chain_blueprints` | List deterministic producer starting points for ordered track, bus, return, mastering, and layered-instrument chains. | none |
+| `list_saved_snapshots` | List names of regular local capture files in the private track, device-chain, or MIDI-feel library. Does not validate capture contents or change Live; load a name to inspect its format and contents. | `kind` |
 | `list_scenes` | List stable Session scene identities, names, and per-scene launch quantization. | none |
 | `list_tracks` | List stable Ableton track identities, mixer state, and existing group hierarchy. | none |
 | `load_device_chain_snapshot` | Read a named local device-chain snapshot for review and guarded recall onto an already compatible track, Return, or Main device owner. Does not mutate Live. | `name` |

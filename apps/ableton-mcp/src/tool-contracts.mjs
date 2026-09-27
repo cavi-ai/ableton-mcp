@@ -348,6 +348,7 @@ const envelopePoint = object({
 
 const contracts = {
   capture_device_chain_snapshot: { description: "Capture ordered devices, nested rack topology, exposed parameters, Return or master mixer, available master output channel, chain mixer, Drum Rack note routing and populated pad mute/solo as persistable JSON. Not a native rack or preset; excludes hidden plugin state, samples, automation, and mappings.", inputSchema: object({ trackId: ids.deviceOwnerId }, ["trackId"]) },
+  list_saved_snapshots: { description: "List names of regular local capture files in the private track, device-chain, or MIDI-feel library. Does not validate capture contents or change Live; load a name to inspect its format and contents.", inputSchema: object({ kind: { type: "string", enum: ["track", "device-chain", "midi-feel"] } }, ["kind"]) },
   save_device_chain_snapshot: { description: "Capture a device chain including Return or master mixer, available master output channel, exposed rack-chain controls and populated Drum Rack pad mute/solo into the private named local chain library. Never overwrites. Does not save hidden plugin state, samples, automation, or mappings.", inputSchema: object({ trackId: ids.deviceOwnerId, name: string("New local chain snapshot name; letters, numbers, dot, underscore and hyphen only.") }, ["trackId", "name"]) },
   load_device_chain_snapshot: { description: "Read a named local device-chain snapshot for review and guarded recall onto an already compatible track, Return, or Main device owner. Does not mutate Live.", inputSchema: object({ name: string("Exact saved chain snapshot name.") }, ["name"]) },
   recall_device_chain_snapshot: { description: "Plan or recall Return or master mixer, available master output channel, exposed device parameters, rack-chain mixer, Drum Rack note routing and populated pad mute/solo onto exactly compatible topology in one guarded Live undo step. Legacy v1-v5 captures remain supported. Does not create, delete, or load devices or restore hidden plugin state.", inputSchema: guarded({ trackId: ids.deviceOwnerId, snapshot: deviceChainSnapshot }, ["trackId", "snapshot"]) },
@@ -618,7 +619,7 @@ const readOnlyTools = new Set([
   "get_factory_browser_items", "list_browser_roots", "get_browser_items", "search_browser_items", "search_browser_roots",
   "list_local_splice_roots", "search_local_splice_samples", "get_device_hierarchy",
   "get_clip_parameter_envelope", "list_devices", "list_device_parameters",
-  "capture_device_parameter_snapshot", "capture_device_chain_snapshot", "load_device_chain_snapshot",
+  "capture_device_parameter_snapshot", "capture_device_chain_snapshot", "list_saved_snapshots", "load_device_chain_snapshot",
   "capture_track_state_snapshot", "load_track_state_snapshot",
   "get_track_midi_routing", "get_track_freeze_state"
 ]);

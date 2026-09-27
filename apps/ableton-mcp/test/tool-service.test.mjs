@@ -1688,6 +1688,22 @@ test("named MIDI feel templates persist from an exact source clip without overwr
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+test("saved capture discovery selects the requested private library without Live", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cavi-capture-discovery-test-"));
+  try {
+    const snapshotLibrary = new SnapshotLibrary({ directory: join(directory, "tracks") });
+    const deviceChainLibrary = new SnapshotLibrary({ directory: join(directory, "chains"), formats: ["cavi-device-chain-v1"] });
+    const midiFeelLibrary = new SnapshotLibrary({ directory: join(directory, "feel"), formats: ["cavi-midi-feel-v1"] });
+    await snapshotLibrary.save("bass", { format: "cavi-track-state-v1" });
+    await deviceChainLibrary.save("master", { format: "cavi-device-chain-v1" });
+    await midiFeelLibrary.save("swing", { format: "cavi-midi-feel-v1" });
+    const service = new ToolService({ snapshotLibrary, deviceChainLibrary, midiFeelLibrary });
+    assert.deepEqual(await service.call("list_saved_snapshots", { kind: "track" }), { kind: "track", names: ["bass"] });
+    assert.deepEqual(await service.call("list_saved_snapshots", { kind: "device-chain" }), { kind: "device-chain", names: ["master"] });
+    assert.deepEqual(await service.call("list_saved_snapshots", { kind: "midi-feel" }), { kind: "midi-feel", names: ["swing"] });
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("quantization targets absolute note ends independently of starts", async () => {
   for (const [target, wantStart, wantDuration] of [["end", 0.1, 0.65], ["both", 0, 0.75]]) {
     const { service } = fixture({ extendedNotes: [{ noteId: 7, pitch: 60, start: 0.1, duration: 0.6, velocity: 100,
