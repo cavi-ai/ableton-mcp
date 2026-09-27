@@ -2517,6 +2517,27 @@ class DispatchTest(unittest.TestCase):
         })
         self.assertNotIn("rackMacros", observed["chains"][0]["devices"][0])
 
+    def test_device_hierarchy_reports_native_macro_mapping_targets_and_ranges(self):
+        song = Song()
+        rack = DrumRack()
+        rack.has_macro_mappings = True
+        rack.visible_macro_count = 8
+        rack.variation_count = 0
+        rack.selected_variation_index = -1
+        target_parameter = rack.chains[0].devices[0].parameters[0]
+        rack.macro_mappings = [SimpleNamespace(index=2, parameter=target_parameter,
+                                               path="Kick/Filter Freq", mapping_min=0.1,
+                                               mapping_max=0.9, mapping_min_string="100 Hz",
+                                               mapping_max_string="900 Hz")]
+        song.tracks[0].devices = [rack]
+        observed = dispatch_request(song, {"method": "get_device_hierarchy", "params": {
+            "trackId": "track-0", "deviceId": "track-0:device-0"}}, 3)["device"]
+        self.assertEqual(observed["rackMacros"].get("mappings"), [{
+            "macroIndex": 2, "targetPath": "Kick/Filter Freq",
+            "parameterName": "Cutoff", "parameterOriginalName": "Filter Freq",
+            "min": 0.1, "max": 0.9, "minDisplay": "100 Hz", "maxDisplay": "900 Hz"
+        }])
+
     def test_rack_macro_adjustment_rechecks_rack_and_reads_native_count(self):
         song = Song()
         rack = DrumRack()

@@ -964,6 +964,15 @@ def _device_tree(device, device_id):
             "variationCount": int(device.variation_count),
             "selectedVariationIndex": int(device.selected_variation_index),
         }
+        if hasattr(device, "macro_mappings"):
+            record["rackMacros"]["mappings"] = [{
+                "macroIndex": int(mapping.index), "targetPath": str(mapping.path),
+                "parameterName": str(mapping.parameter.name),
+                "parameterOriginalName": str(mapping.parameter.original_name),
+                "min": float(mapping.mapping_min), "max": float(mapping.mapping_max),
+                "minDisplay": str(mapping.mapping_min_string),
+                "maxDisplay": str(mapping.mapping_max_string),
+            } for mapping in device.macro_mappings]
     chains = []
     chain_ids = []
     if device.can_have_chains:
