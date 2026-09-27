@@ -2569,6 +2569,53 @@ class DispatchTest(unittest.TestCase):
                 "action": "remove"}}, 4)
         self.assertEqual(rack.visible_macro_count, 10)
 
+    def test_map_rack_macro_rechecks_exact_descendant_parameter_and_observes_mapping(self):
+        song = Song()
+        rack = DrumRack()
+        rack.visible_macro_count = 8
+        rack.has_macro_mappings = False
+        rack.variation_count = 0
+        rack.selected_variation_index = -1
+        rack.macro_mappings = []
+        def macro_map(index, parameter):
+            rack.macro_mappings.append(SimpleNamespace(
+                index=index, path="Kick/Filter Freq", parameter=parameter,
+                mapping_min=parameter.min, mapping_max=parameter.max,
+                mapping_min_string="0 Hz", mapping_max_string="1000 Hz"))
+            rack.has_macro_mappings = True
+        rack.macro_map = macro_map
+        song.tracks[0].devices = [rack]
+        rack_id = "track-0:device-0"
+        target_id = rack_id + "/chain-0/device-0"
+        before = dispatch_request(song, {"method": "get_device_hierarchy", "params": {
+            "trackId": "track-0", "deviceId": rack_id}}, 3)["device"]
+        target = dispatch_request(song, {"method": "list_device_parameters", "params": {
+            "trackId": "track-0", "deviceId": target_id}}, 3)["parameters"]
+        request = {"trackId": "track-0", "deviceId": rack_id, "beforeDevice": before,
+                   "targetDeviceId": target_id, "beforeTargetParameters": target,
+                   "parameterId": "parameter-0", "macroIndex": 2}
+        with self.assertRaisesRegex(ValueError, "descendant"):
+            dispatch_request(song, {"method": "map_rack_macro_to_parameter", "params": {
+                **request, "targetDeviceId": rack_id}}, 3)
+        with self.assertRaisesRegex(ValueError, "macro index"):
+            dispatch_request(song, {"method": "map_rack_macro_to_parameter", "params": {
+                **request, "macroIndex": 8}}, 3)
+        with self.assertRaisesRegex(ValueError, "parameter state changed"):
+            dispatch_request(song, {"method": "map_rack_macro_to_parameter", "params": {
+                **request, "beforeTargetParameters": [{**target[0], "value": 0.9}, *target[1:]]}}, 3)
+        self.assertEqual(rack.macro_mappings, [])
+        result = dispatch_request(song, {"method": "map_rack_macro_to_parameter", "params": {
+            **request}}, 3)
+        self.assertEqual(result["device"]["rackMacros"]["mappings"][0]["macroIndex"], 2)
+        self.assertEqual(result["device"]["rackMacros"]["mappings"][0]["parameterOriginalName"], "Filter Freq")
+        self.assertEqual(result["stateVersion"], 4)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+        with self.assertRaisesRegex(ValueError, "rack state changed"):
+            dispatch_request(song, {"method": "map_rack_macro_to_parameter", "params": {
+                "trackId": "track-0", "deviceId": rack_id, "beforeDevice": before,
+                "targetDeviceId": target_id, "beforeTargetParameters": target,
+                "parameterId": "parameter-0", "macroIndex": 2}}, 4)
+
     def test_store_rack_macro_variation_rechecks_parameters_and_reads_count(self):
         song = Song()
         rack = DrumRack()

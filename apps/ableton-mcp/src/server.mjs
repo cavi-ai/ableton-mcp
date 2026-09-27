@@ -170,6 +170,7 @@ const toolNames = [
   "get_device_hierarchy",
   "create_rack_chain",
   "adjust_rack_macro_count",
+  "map_rack_macro_to_parameter",
   "store_rack_macro_variation",
   "recall_rack_macro_variation",
   "delete_rack_macro_variation",

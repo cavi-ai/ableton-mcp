@@ -1036,6 +1036,33 @@ export class ToolService {
         expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, action: args.action,
         warning: "Live chooses the size of each native adjustment; inspect the returned visibleCount. Removing an unmapped visible macro may still change controller layout." }, args);
     }
+    if (name === "map_rack_macro_to_parameter") {
+      requireExpectedState(args);
+      const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, { ...observed, deviceId: observed.device?.id });
+      const rack = observed.device;
+      if (rack?.id !== args.deviceId || !rack.canHaveChains || !rack.rackMacros || !Array.isArray(rack.rackMacros.mappings)) {
+        throw new Error("rack does not expose native macro mappings");
+      }
+      const descendants = (device) => (device.chains ?? []).concat(device.returnChains ?? [])
+        .flatMap(chain => (chain.devices ?? []).flatMap(child => [child, ...descendants(child)]));
+      if (typeof args.targetDeviceId !== "string" || !descendants(rack).some(device => device.id === args.targetDeviceId)) {
+        throw new Error("target must be an exact descendant of the rack");
+      }
+      if (!Number.isSafeInteger(args.macroIndex) || args.macroIndex < 0 || args.macroIndex >= rack.rackMacros.visibleCount) {
+        throw new Error("macro index is outside the visible range");
+      }
+      const target = await this.bridge.request("list_device_parameters", { trackId: args.trackId, deviceId: args.targetDeviceId });
+      assertExpectedState({ ...args, deviceId: args.targetDeviceId }, target);
+      if (target.deviceId !== args.targetDeviceId || !Array.isArray(target.parameters)) throw new Error("target parameter identity mismatch");
+      const parameter = target.parameters.find(item => item.id === args.parameterId);
+      if (!parameter || !parameter.enabled) throw new Error("target parameter is unavailable or disabled");
+      return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+        targetDeviceId: args.targetDeviceId, parameterId: args.parameterId, macroIndex: args.macroIndex,
+        expectedStateVersion: args.expectedStateVersion, beforeDevice: rack,
+        beforeTargetParameters: target.parameters,
+        warning: "Live may apply its default mapping range. Inspect the returned mapping and parameter behavior after applying; native undo is the recovery path." }, args);
+    }
     if (name === "store_rack_macro_variation") {
       requireExpectedState(args);
       const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });

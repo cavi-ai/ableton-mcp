@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 204 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 205 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (89)
 
@@ -98,7 +98,7 @@ The server publishes 204 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search downloaded Splice audio assets by filename or pack/category folder under an explicit local directory in stable relative-path order. Offset and nextOffset page through matching files. Optional private MCP tags/favorites join by exact local identity. Read-only; not cloud catalog search, download, or sync. Returns exact local source paths for analyze_audio_file. | `rootPath`, `query` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (101)
+## Mutations (102)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -148,6 +148,7 @@ The server publishes 204 tools. Mutations of the Live Set require `expectedState
 | `launch_scene` | Plan or launch one exact Session scene. Optional forceLegato launches all scene clips immediately in Legato, overriding their clip launch modes. | `expectedStateVersion`, `sceneId` |
 | `load_browser_item` | Plan or load one exact Live browser item onto a guarded ordinary, Return, or Main track. | `expectedStateVersion`, `trackId`, `root`, `path` |
 | `load_factory_browser_item` | Plan or load one exact factory browser item onto a guarded ordinary, Return, or Main track. | `expectedStateVersion`, `trackId`, `root`, `path` |
+| `map_rack_macro_to_parameter` | Plan or create one native macro mapping to an exact descendant device parameter. Rechecks rack and target-parameter snapshots at the native boundary, then reads back the observed mapping. Live chooses the default mapping range; inspect the result. | `expectedStateVersion`, `trackId`, `deviceId`, `targetDeviceId`, `parameterId`, `macroIndex` |
 | `move_arrangement_clip` | Plan or move one exact Arrangement clip to a new beat position, preserving its span with staged copies, rollback, and an isolated undo step. Rejects collisions with other clips; self-overlap is supported. | `expectedStateVersion`, `trackId`, `clipId`, `startBeats` |
 | `move_audio_warp_marker` | Plan or apply movement of an exact audio warp marker to a target beat. Preserves sample position; rejects neighbor crossing and the hidden terminal marker. | `expectedStateVersion`, `trackId`, `clipId`, `beatTime`, `targetBeatTime` |
 | `move_device` | Plan or reorder one exact device within its current ordinary, Return, Main, or rack chain. Live may choose the nearest valid position; read actualPosition and the new device ID from the result. | `expectedStateVersion`, `trackId`, `deviceId`, `targetPosition` |

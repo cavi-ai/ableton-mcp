@@ -5037,6 +5037,44 @@ def dispatch_request(song, request, state_version, application=None):
             "stateVersion": state_version, "trackId": params["trackId"],
             "device": _device_tree(device, params["deviceId"]),
         }
+    if method == "map_rack_macro_to_parameter":
+        rack_id = params["deviceId"]
+        _, _, rack = _device(song, params["trackId"], rack_id)
+        if not rack.can_have_chains or _device_tree(rack, rack_id) != params["beforeDevice"]:
+            raise ValueError("rack state changed")
+        target_id = params["targetDeviceId"]
+        if not isinstance(target_id, str) or not target_id.startswith(rack_id + "/"):
+            raise ValueError("target must be a descendant of the rack")
+        _, _, target = _device(song, params["trackId"], target_id)
+        current_parameters = [_parameter_record(parameter, index, include_native_choice_labels=True)
+                              for index, parameter in enumerate(target.parameters)]
+        if current_parameters != params["beforeTargetParameters"]:
+            raise ValueError("target parameter state changed")
+        parameter_id = params["parameterId"]
+        if not isinstance(parameter_id, str) or not parameter_id.startswith("parameter-"):
+            raise ValueError("invalid parameter ID")
+        suffix = parameter_id.removeprefix("parameter-")
+        if not suffix.isascii() or not suffix.isdigit() or str(int(suffix)) != suffix or int(suffix) >= len(target.parameters):
+            raise ValueError("unknown parameter ID")
+        parameter = target.parameters[int(suffix)]
+        if not parameter.is_enabled:
+            raise ValueError("target parameter is not enabled")
+        macro_index = params["macroIndex"]
+        if type(macro_index) is not int or not 0 <= macro_index < rack.visible_macro_count:
+            raise ValueError("macro index is outside the visible range")
+        if not hasattr(rack, "macro_mappings") or not callable(getattr(rack, "macro_map", None)):
+            raise ValueError("native rack macro mapping is unavailable")
+        if any(mapping.index == macro_index and mapping.parameter == parameter for mapping in rack.macro_mappings):
+            raise ValueError("target parameter is already mapped to this macro")
+        song.begin_undo_step()
+        try:
+            rack.macro_map(macro_index, parameter)
+        finally:
+            song.end_undo_step()
+        if not any(mapping.index == macro_index and mapping.parameter == parameter for mapping in rack.macro_mappings):
+            raise RuntimeError("native mapping was not observed; inspect the rack before retrying")
+        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                "device": _device_tree(rack, rack_id)}
     if method == "adjust_rack_macro_count":
         _, _, device = _device(song, params["trackId"], params["deviceId"])
         if not device.can_have_chains or _device_tree(device, params["deviceId"]) != params["beforeDevice"]:

@@ -2,6 +2,38 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ToolService } from "../src/tool-service.mjs";
 
+test("macro mapping binds one exact rack descendant and parameter snapshot", async () => {
+  const deviceId = "track-0:device-0";
+  const targetDeviceId = `${deviceId}/chain-0/device-0`;
+  const rack = { id: deviceId, canHaveChains: true, rackMacros: {
+    hasMappings: false, visibleCount: 8, variationCount: 0, selectedVariationIndex: -1, mappings: []
+  }, chains: [{ id: `${deviceId}/chain-0`, devices: [{ id: targetDeviceId }] }], returnChains: [] };
+  const parameters = [{ id: "parameter-0", name: "Cutoff", originalName: "Filter Freq",
+    min: 0, max: 1, value: 0.4, displayValue: "400 Hz", enabled: true, quantized: false, valueItems: [] }];
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
+    if (method === "list_device_parameters") return { stateVersion: 4, trackId: "track-0",
+      deviceId: targetDeviceId, parameters, nameAmbiguities: [] };
+    assert.equal(method, "map_rack_macro_to_parameter");
+    assert.deepEqual(params.beforeDevice, rack);
+    assert.deepEqual(params.beforeTargetParameters, parameters);
+    return { stateVersion: 5, trackId: "track-0", device: { ...rack, rackMacros: { ...rack.rackMacros,
+      hasMappings: true, mappings: [{ macroIndex: 2, parameterOriginalName: "Filter Freq" }] } } };
+  } } });
+  const args = { trackId: "track-0", deviceId, targetDeviceId, parameterId: "parameter-0",
+    macroIndex: 2, expectedStateVersion: 4 };
+  const dry = await service.call("map_rack_macro_to_parameter", args);
+  assert.equal(dry.plan.targetDeviceId, targetDeviceId);
+  assert.equal(dry.plan.macroIndex, 2);
+  const applied = await service.call("map_rack_macro_to_parameter", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(applied.observed.device.rackMacros.mappings[0].macroIndex, 2);
+  await assert.rejects(() => service.call("map_rack_macro_to_parameter", {
+    ...args, targetDeviceId: "track-0:device-1" }), /descendant/);
+  await assert.rejects(() => service.call("map_rack_macro_to_parameter", {
+    ...args, macroIndex: 8 }), /macro index/);
+});
+
 test("rack macro count adjustment binds observed rack and requires confirmation", async () => {
   const deviceId = "track-0:device-0";
   const rack = { id: deviceId, canHaveChains: true, rackMacros: {
