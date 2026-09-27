@@ -552,6 +552,7 @@ class DispatchTest(unittest.TestCase):
 
     def test_unwarped_session_duration_is_seconds_not_beats(self):
         song = Song()
+        song.tracks[0].arrangement_clips = []
         clip = song.tracks[0].clip_slots[2].clip
         clip.warping = False
         clip.looping = False
@@ -572,7 +573,8 @@ class DispatchTest(unittest.TestCase):
         self.assertIsNone(loop_record["lengthBeats"])
         with self.assertRaisesRegex(ValueError, "tempo-map"):
             dispatch_request(song, {"method": "place_session_clip_in_arrangement", "params": {
-                "trackId": "track-0", "clipId": "track-0:clip-2", "startBeats": 8
+                "trackId": "track-0", "clipId": "track-0:clip-2", "startBeats": 8,
+                "source": loop_record, "beforeArrangement": [], "endBeats": None
             }}, 3)
 
     def test_track_listing_does_not_read_arm_on_non_armable_tracks(self):
@@ -1452,16 +1454,65 @@ class DispatchTest(unittest.TestCase):
         boundaries = []
         song.begin_undo_step = lambda: boundaries.append("begin")
         song.end_undo_step = lambda: boundaries.append("end")
-        boundaries = []
-        song.begin_undo_step = lambda: boundaries.append("begin")
-        song.end_undo_step = lambda: boundaries.append("end")
-        params = {"trackId": "track-0", "clipId": "track-0:clip-0", "startBeats": 8.0}
+        params = {"trackId": "track-0", "clipId": "track-0:clip-0", "startBeats": 8.0,
+                  "endBeats": 12.0,
+                  "source": dispatch_request(song, {"method": "list_clips", "params": {"trackId": "track-0"}}, 3)["clips"][0],
+                  "beforeArrangement": []}
         result = dispatch_request(song, {"method": "place_session_clip_in_arrangement", "params": params}, 3)
         self.assertEqual(result["placedClip"]["startBeats"], 8.0)
         self.assertEqual(result["placedClip"]["endBeats"], 12.0)
-        with self.assertRaisesRegex(ValueError, "overlap"):
+        self.assertEqual(boundaries, ["begin", "end"])
+        with self.assertRaisesRegex(ValueError, "Arrangement changed"):
             dispatch_request(song, {"method": "place_session_clip_in_arrangement", "params": {**params, "startBeats": 10.0}}, 4)
         self.assertEqual(len(track.arrangement_clips), 1)
+
+    def test_session_clip_placement_rechecks_signed_source_and_timeline_before_copy(self):
+        song = Song()
+        track = song.tracks[0]
+        track.arrangement_clips = []
+        copies = []
+        def duplicate(clip, start):
+            placed = SimpleNamespace(name=clip.name, start_time=start, end_time=start + clip.length,
+                                     is_audio_clip=False)
+            copies.append((clip, start))
+            track.arrangement_clips.append(placed)
+            return placed
+        track.duplicate_clip_to_arrangement = duplicate
+        source = dispatch_request(song, {"method": "list_clips", "params": {"trackId": "track-0"}}, 3)["clips"][0]
+        params = {"trackId": "track-0", "clipId": source["id"], "startBeats": 8.0, "endBeats": 12.0,
+                  "source": source, "beforeArrangement": []}
+        track.clip_slots[0].clip.name = "Changed after planning"
+        with self.assertRaisesRegex(ValueError, "source clip changed"):
+            dispatch_request(song, {"method": "place_session_clip_in_arrangement", "params": params}, 3)
+        self.assertEqual(copies, [])
+        track.clip_slots[0].clip.name = source["name"]
+        track.arrangement_clips = [SimpleNamespace(name="New", start_time=16.0, end_time=20.0,
+                                                  is_audio_clip=False)]
+        with self.assertRaisesRegex(ValueError, "Arrangement changed"):
+            dispatch_request(song, {"method": "place_session_clip_in_arrangement", "params": params}, 3)
+        self.assertEqual(copies, [])
+
+    def test_session_clip_placement_rolls_back_wrong_native_interval(self):
+        song = Song()
+        track = song.tracks[0]
+        track.arrangement_clips = []
+        boundaries = []
+        song.begin_undo_step = lambda: boundaries.append("begin")
+        song.end_undo_step = lambda: boundaries.append("end")
+        def duplicate(clip, start):
+            placed = SimpleNamespace(name=clip.name, start_time=start, end_time=start + 3.0,
+                                     is_audio_clip=False)
+            track.arrangement_clips.append(placed)
+            return placed
+        track.duplicate_clip_to_arrangement = duplicate
+        track.delete_clip = lambda clip: track.arrangement_clips.remove(clip)
+        source = dispatch_request(song, {"method": "list_clips", "params": {"trackId": "track-0"}}, 3)["clips"][0]
+        with self.assertRaisesRegex(ValueError, "placed clip interval"):
+            dispatch_request(song, {"method": "place_session_clip_in_arrangement", "params": {
+                "trackId": "track-0", "clipId": source["id"], "startBeats": 8.0, "endBeats": 12.0,
+                "source": source, "beforeArrangement": []}}, 3)
+        self.assertEqual(track.arrangement_clips, [])
+        self.assertEqual(boundaries, ["begin", "end"])
 
     def test_arrangement_deletion_checks_identity_and_preserves_other_clips(self):
         song = Song()

@@ -3943,15 +3943,41 @@ def dispatch_request(song, request, state_version, application=None):
         track, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
         if not slot.has_clip:
             raise ValueError("source clip is empty")
+        current_source = next(clip for clip in _clip_list(song, params["trackId"], state_version)["clips"]
+                              if clip["id"] == params["clipId"])
+        if params.get("source") != current_source:
+            raise ValueError("source clip changed after planning")
+        if params.get("beforeArrangement") != _arrangement_clips(song, params["trackId"], state_version)["clips"]:
+            raise ValueError("Arrangement changed after planning")
         if getattr(slot.clip, "is_audio_clip", False) and not slot.clip.warping:
             raise ValueError("unwarped placement requires tempo-map duration conversion")
         start = float(params["startBeats"])
         end = start + float(slot.clip.length)
         if not math.isfinite(start) or start < 0 or not math.isfinite(end) or end <= start:
             raise ValueError("startBeats and source length must define a finite positive interval")
+        if params.get("endBeats") != end:
+            raise ValueError("placement end changed after planning")
         if any(start < clip.end_time and end > clip.start_time for clip in track.arrangement_clips):
             raise ValueError("placement would overlap existing Arrangement clips")
-        placed = track.duplicate_clip_to_arrangement(slot.clip, start)
+        placed = None
+        song.begin_undo_step()
+        try:
+            placed = track.duplicate_clip_to_arrangement(slot.clip, start)
+            if not (math.isclose(float(placed.start_time), start, rel_tol=0.0, abs_tol=1e-8)
+                    and math.isclose(float(placed.end_time), end, rel_tol=0.0, abs_tol=1e-8)):
+                raise ValueError("Live changed the placed clip interval")
+            if any(other is not placed and start < other.end_time and end > other.start_time
+                   for other in track.arrangement_clips):
+                raise ValueError("placed clip overlaps another Arrangement clip")
+        except Exception as error:
+            if placed is not None:
+                try:
+                    track.delete_clip(placed)
+                except Exception as rollback_error:
+                    raise RuntimeError(f"placement failed: {error}; rollback failed: {rollback_error}; use Live undo") from error
+            raise
+        finally:
+            song.end_undo_step()
         result = _arrangement_clips(song, params["trackId"], state_version + 1)
         index = next(index for index, clip in enumerate(track.arrangement_clips) if clip == placed)
         result["placedClip"] = _arrangement_clip_record(placed, params["trackId"], index)
