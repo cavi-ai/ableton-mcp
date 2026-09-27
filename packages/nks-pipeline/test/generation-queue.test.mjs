@@ -79,7 +79,8 @@ test("Serum queue cannot enqueue outside the deterministic pilot until every pil
   const outside = "serum-2:24";
   assert.deepEqual(GenerationQueue.inspect(path, "serum-2").pilot,
     { total: 25, validated: 0, gateOpen: false, queueable: 25,
-      remainingPilotPresetIds: [...records.slice(0, 24), records[29]].map(record => record.id) });
+      remainingPilotPresetIds: [...records.slice(0, 24), records[29]].map(record => record.id),
+      unqueuedPilotPresetIds: [...records.slice(0, 24), records[29]].map(record => record.id) });
   assert.throws(() => GenerationQueue.inspectSelection(path, "serum-2", [outside]), /pilot/);
   const queue = GenerationQueue.open(path);
   assert.throws(() => queue.enqueue("serum-2", [outside]), /pilot/);
@@ -92,6 +93,8 @@ test("Serum queue cannot enqueue outside the deterministic pilot until every pil
   assert.equal(queue.claim("worker-a", null, 1000), undefined);
   queue.database.prepare("DELETE FROM nks_generation_jobs WHERE preset_id = ?").run(outside);
   assert.equal(queue.enqueue("serum-2", ["serum-2:00"]), 1);
+  assert.deepEqual(GenerationQueue.inspect(path, "serum-2").pilot.unqueuedPilotPresetIds,
+    [...records.slice(1, 24), records[29]].map(record => record.id));
   for (const record of records.filter(({ id }) => id !== outside && !["serum-2:25", "serum-2:26", "serum-2:27", "serum-2:28"].includes(id)))
     catalog.upsert({ ...record, state: "validated", evidence: [{ state: "validated" }] });
   assert.equal(GenerationQueue.inspect(path, "serum-2").pilot.gateOpen, false);
@@ -101,7 +104,8 @@ test("Serum queue cannot enqueue outside the deterministic pilot until every pil
       controllerControlCount: 8, recall: { evidence: { sha256: "b".repeat(64) } },
       controller: { evidence: { sha256: "c".repeat(64) } } }] });
   assert.deepEqual(GenerationQueue.inspect(path, "serum-2").pilot,
-    { total: 25, validated: 25, gateOpen: true, queueable: 5, remainingPilotPresetIds: [] });
+    { total: 25, validated: 25, gateOpen: true, queueable: 5, remainingPilotPresetIds: [],
+      unqueuedPilotPresetIds: [] });
   assert.equal(GenerationQueue.inspectSelection(path, "serum-2", [outside]).eligible, 1);
   assert.equal(queue.enqueue("serum-2", [outside]), 1);
   assert.equal(queue.claim("worker-a", "serum-2", 1001).presetId, outside);
@@ -154,7 +158,8 @@ test("Omnisphere queue limits legacy and new jobs to its source-derived pilot un
   const outside = "omnisphere:24";
   assert.deepEqual(GenerationQueue.inspect(path, "omnisphere").pilot,
     { total: 25, validated: 0, gateOpen: false, queueable: 25,
-      remainingPilotPresetIds: [...records.slice(0, 24), records[29]].map(record => record.id) });
+      remainingPilotPresetIds: [...records.slice(0, 24), records[29]].map(record => record.id),
+      unqueuedPilotPresetIds: [...records.slice(0, 24), records[29]].map(record => record.id) });
   assert.throws(() => GenerationQueue.inspectSelection(path, "omnisphere", [outside]), /pilot/);
   assert.throws(() => GenerationQueue.inspectSelection(path, "omnisphere", [user.id]), /User.*factory/);
   const queue = GenerationQueue.open(path);
@@ -171,7 +176,8 @@ test("Omnisphere queue limits legacy and new jobs to its source-derived pilot un
       controllerControlCount: 8, recall: { evidence: { sha256: "b".repeat(64) } },
       controller: { evidence: { sha256: "c".repeat(64) } } }] });
   assert.deepEqual(GenerationQueue.inspect(path, "omnisphere").pilot,
-    { total: 25, validated: 25, gateOpen: true, queueable: 5, remainingPilotPresetIds: [] });
+    { total: 25, validated: 25, gateOpen: true, queueable: 5, remainingPilotPresetIds: [],
+      unqueuedPilotPresetIds: [] });
   assert.equal(queue.enqueue("omnisphere", [outside]), 1);
   assert.throws(() => queue.enqueue("omnisphere", [user.id]), /User.*factory/);
   assert.equal(queue.claim("worker-a", "omnisphere", 1001).presetId, outside);

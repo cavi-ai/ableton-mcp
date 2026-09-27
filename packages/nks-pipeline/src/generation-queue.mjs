@@ -41,8 +41,14 @@ function pilotState(database, productSlug) {
     (gateOpen || pilotIds.has(record.id))).length;
   const remainingPilotPresetIds = factory.filter(record => pilotIds.has(record.id) &&
     record.state === "discovered").map(record => record.id).sort();
+  const hasJobs = database.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table'
+    AND name = 'nks_generation_jobs'`).get();
+  const queuedIds = hasJobs ? new Set(database.prepare(`SELECT j.preset_id AS id
+    FROM nks_generation_jobs j JOIN presets p ON p.id = j.preset_id
+    WHERE p.product_slug = ?`).all(productSlug).map(row => row.id)) : new Set();
+  const unqueuedPilotPresetIds = remainingPilotPresetIds.filter(id => !queuedIds.has(id));
   return { pilotIds, factoryIds, status: { total: pilotIds.size, validated, gateOpen, queueable,
-    remainingPilotPresetIds } };
+    remainingPilotPresetIds, unqueuedPilotPresetIds } };
 }
 
 function selectedCandidates(database, productSlug, presetIds) {

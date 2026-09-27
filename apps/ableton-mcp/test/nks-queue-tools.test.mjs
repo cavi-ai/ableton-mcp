@@ -36,6 +36,7 @@ test("NKS queue status is read-only and enqueue needs a current single-use confi
     confirmationToken: plan.confirmation.token, planHash: plan.confirmation.planHash });
   assert.equal(applied.enqueued, 1);
   assert.deepEqual((await service.call("get_nks_generation_status", { productSlug: "serum-2" })).jobs, { pending: 1 });
+  assert.deepEqual((await service.call("get_nks_generation_status", { productSlug: "serum-2" })).pilot.unqueuedPilotPresetIds, []);
   await assert.rejects(service.call("enqueue_nks_generation_jobs", { ...selection, dryRun: false,
     confirmationToken: plan.confirmation.token, planHash: plan.confirmation.planHash }), /confirmation/);
 });
@@ -99,6 +100,8 @@ test("MCP Omnisphere queue status and enqueue enforce the source-derived pilot",
   assert.deepEqual((await service.call("get_nks_generation_status", { productSlug: "omnisphere" })).pilot,
     { total: 25, validated: 0, gateOpen: false, queueable: 25,
       remainingPilotPresetIds: [...Array.from({ length: 24 }, (_, index) => index), 29].map(index =>
+        `omnisphere:${String(index).padStart(2, "0")}`),
+      unqueuedPilotPresetIds: [...Array.from({ length: 24 }, (_, index) => index), 29].map(index =>
         `omnisphere:${String(index).padStart(2, "0")}`) });
   await assert.rejects(service.call("enqueue_nks_generation_jobs",
     { productSlug: "omnisphere", presetIds: ["omnisphere:24"] }), /pilot/);
