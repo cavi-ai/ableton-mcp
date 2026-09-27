@@ -1,9 +1,29 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { verifyProducerChain } from "../src/producer-chain-knowledge.mjs";
+import { getProducerChainBlueprint, verifyProducerChain } from "../src/producer-chain-knowledge.mjs";
 import { ToolService } from "../src/tool-service.mjs";
 
 const device = (id, className, name) => ({ id, className, name, type: "audio_effect", active: true });
+
+test("vocal blueprint treats Auto Shift as optional early pitch correction", () => {
+  const blueprint = getProducerChainBlueprint("vocals");
+  const correction = blueprint.stages.find(stage => stage.profileId === "auto-shift");
+  assert.equal(correction?.optional, true);
+  assert.equal(correction?.root, "audio_effects");
+  assert.deepEqual(correction?.path, ["Auto Shift"]);
+  assert.ok(correction.order < blueprint.stages.find(stage => stage.profileId === "compressor").order);
+  const withoutCorrection = verifyProducerChain("vocals", [
+    device("utility", "Utility", "Utility"), device("eq", "Eq8", "EQ Eight"),
+    device("compressor", "Compressor", "Compressor")
+  ]);
+  assert.equal(withoutCorrection.matchesRequiredOrder, true);
+  assert.ok(withoutCorrection.optionalOmitted.some(stage => stage.profileId === "auto-shift"));
+  const withCorrection = verifyProducerChain("vocals", [
+    device("utility", "Utility", "Utility"), device("tuner", "PluginDevice", "Auto Shift"),
+    device("eq", "Eq8", "EQ Eight"), device("compressor", "Compressor", "Compressor")
+  ]);
+  assert.equal(withCorrection.matchesRequiredOrder, true);
+});
 
 test("producer-chain verification distinguishes complete order from misplaced and missing stages", () => {
   const ordered = [

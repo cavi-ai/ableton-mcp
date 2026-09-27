@@ -22,6 +22,7 @@ const blueprints = [
   ])),
   chain("vocals", "Corrective vocal chain with controlled dynamics, sibilance-safe tone and optional ambience sends.", ordered([
     fx("utility", "Utility", "gain", "Set recording gain and polarity before processing."),
+    fx("auto-shift", "Auto Shift", "optional-pitch-correction", "For a monophonic source needing correction, match Root and Scale to the measured performance and song, then audition Strength, Smooth and formant artifacts. This does not tune a vocal automatically.", true),
     fx("eq-eight", "EQ Eight", "corrective-eq", "Remove rumble and reduce persistent resonant buildup."),
     fx("compressor", "Compressor", "leveling", "Control phrase dynamics before additive color."),
     fx("saturator", "Saturator", "color", "Add density and harmonics at conservative drive.", true),
