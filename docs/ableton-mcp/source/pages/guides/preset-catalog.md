@@ -35,6 +35,8 @@ An existing Serum Save As run can be reconciled with `npm run catalog:reconcile-
 
 After capturing a 12-second preset phrase as WAV in Live, normalize and validate that capture with `npm run catalog:preview -- --raw /absolute/raw.wav --out /absolute/preview.wav --apply`. Omit `--apply` to inspect the intended paths without reading or writing audio. Successful processing reports measured duration, sample rate, bit depth, LUFS, true peak, and SHA-256; it never overwrites an existing output. This command does not render in Live, create NKS files, or advance catalog lifecycle state.
 
+For a preset already verified as `nks_saved`, run `npm run catalog:reconcile-preview -- --manifest /absolute/manifest.json --catalog /absolute/catalog.sqlite --preset-id <id> --preview /absolute/preview.wav --sha256 <digest>` to inspect the lifecycle change. Add `--apply` to record `previewed` after re-measuring the WAV and checking its checksum, unchanged factory source, and matching saved-NKS evidence. This does not establish Komplete recall, controller mappings, or final validation.
+
 A preset the run no longer finds on disk is flagged `missing: true` and counted as `missing`. Its catalog row, tags, favorite state and artwork stay in place. `search_presets` and the product counts skip it, and `get_preset` still returns it with the flag. When the file is back on the next run, the flag is cleared and the preset returns to search with its tags. A misconfigured or empty `factoryRoots` therefore hides presets rather than deleting your metadata. Fix the path and run the inventory again.
 
 Vendor presets stay on your machine. The repository ignores `reports/`, and nothing is uploaded.

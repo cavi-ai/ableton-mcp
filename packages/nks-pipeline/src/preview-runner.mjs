@@ -70,6 +70,13 @@ async function sha256(path) {
   return hash.digest("hex");
 }
 
+export async function inspectPreview(path, timeoutMs = 120000) {
+  const { measurement } = await measure(path, timeoutMs);
+  const validation = validatePreviewMeasurement(measurement);
+  if (!validation.ok) throw new Error(`preview rejected: ${validation.findings.join(", ")}`);
+  return { path, measurement, sha256: await sha256(path) };
+}
+
 export async function runPreview({ rawPath, finalPath, timeoutMs = 120000 }) {
   if (typeof rawPath !== "string" || !rawPath || typeof finalPath !== "string" || !finalPath)
     throw new Error("rawPath and finalPath are required");

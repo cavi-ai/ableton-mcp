@@ -6,6 +6,7 @@
     "test": "node --test test/*.test.mjs",
     "catalog:inventory": "node scripts/inventory-catalog.mjs",
     "catalog:reconcile-serum-saved": "node scripts/reconcile-serum-saved.mjs",
+    "catalog:reconcile-preview": "node scripts/reconcile-preview.mjs",
     "artwork:matrix": "node scripts/build-artwork-matrix.mjs",
     "artwork:render": "node scripts/render-artwork-derivatives.mjs",
     "artwork:contact-sheets": "node scripts/build-artwork-contact-sheets.mjs",
