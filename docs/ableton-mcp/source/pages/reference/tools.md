@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 195 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 197 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (86)
+## Read-only (87)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -35,6 +35,7 @@ The server publishes 195 tools. Mutations of the Live Set require `expectedState
 | `get_looper_performance_context` | Read one native snapshot of a loaded Looper's State, Quantization, Monitor, Song Control, Tempo Control, all exposed parameters, global clip-launch quantization, track input/output routing, monitoring, and transport. Read-only; source readiness and audible outcome are not inferred. | `trackId`, `deviceId` |
 | `get_midi_clip_notes` | Read standard MIDI notes from one exact Session or Arrangement MIDI clip; Arrangement responses include timeline identity. | `trackId`, `clipId` |
 | `get_midi_clip_notes_extended` | Read stable note IDs, probability, release velocity, deviation, and other per-note fields from one exact Session or Arrangement MIDI clip; Arrangement responses include timeline identity. | `trackId`, `clipId` |
+| `get_nks_generation_status` | Read eligible discovered preset count and durable generation job counts for one product. Does not create a queue or contact Live. | `productSlug` |
 | `get_plugin_integration_context` | Read product-aware integration state for a loaded supported third-party synth: Serum 2, Omnisphere, or VPS Avenger. Reports installed Live browser variants, preferred VST3 candidate, exact configured and writable parameter IDs, source-inventory versus validated NKS lifecycle counts when available, product-specific preset-browser navigation, and explicit hidden-state/preset-recall boundaries. Read-only. | `trackId`, `deviceId` |
 | `get_preset` | Read one exact NKS preset catalog record. | `presetId` |
 | `get_preset_metadata` | Read user tags, favorite state, and revision for one preset. | `presetId` |
@@ -95,7 +96,7 @@ The server publishes 195 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search downloaded Splice audio assets under an explicit local directory in stable relative-path order. Offset and nextOffset page through matching files. Optional private MCP tags/favorites join by exact local identity. Read-only; not cloud catalog search, download, or sync. Returns exact local source paths for analyze_audio_file. | `rootPath`, `query` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (97)
+## Mutations (98)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -136,6 +137,7 @@ The server publishes 195 tools. Mutations of the Live Set require `expectedState
 | `duplicate_clip_loop` | Plan or duplicate the current loop region of one exact clip. | `expectedStateVersion`, `trackId`, `clipId` |
 | `duplicate_session_object` | Plan or duplicate an exact track, Session scene, or clip, optionally naming a duplicated track. | `expectedStateVersion`, `targetType`, `targetId` |
 | `edit_drum_pattern_clip` | Plan or apply guarded replacement of selected drum lanes and bars in an existing MIDI clip. Preserves unrelated notes and verifies the complete native note set. | `expectedStateVersion`, `trackId`, `clipId`, `grid`, `startBar`, `bars`, `lanes` |
+| `enqueue_nks_generation_jobs` | Plan or enqueue eligible discovered presets for NKS generation using a single-use confirmation. Does not generate or mark any preset saved. | `productSlug` |
 | `humanize_midi_notes` | Plan or apply guarded deterministic MIDI timing and velocity humanization with exact clip, grid, and complete native note readback. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `seed`, `gridBeats`, `maxTimingOffsetBeats`, `maxVelocityOffset` |
 | `jump_to_arrangement_cue_point` | Plan or move the playhead to one exact Arrangement cue point. | `expectedStateVersion`, `cuePointId` |
 | `launch_clip` | Plan or launch one exact Session clip slot. On an empty armed slot, optional recordLengthBeats requests fixed-length recording; launchQuantization is a one-shot override and does not change stored clip settings. The immediate response does not prove recording completed. | `expectedStateVersion`, `trackId`, `clipId` |

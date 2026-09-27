@@ -35,6 +35,7 @@
     "ableton/Remote Scripts/CaviMcpBridge/capabilities.json",
     "ableton/Remote Scripts/CaviMcpBridge/protocol.py",
     "packages/nks-pipeline/src/catalog.mjs",
+    "packages/nks-pipeline/src/generation-queue.mjs",
     "LICENSE",
     "README.md",
     "docs/ableton-mcp/source/pages"

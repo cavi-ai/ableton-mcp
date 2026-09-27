@@ -7,6 +7,7 @@ import { listConfiguredSpliceRoots, observeLocalSpliceSample, searchLocalSpliceS
 import { inspectGroovePostconditions } from "./groove-workflow.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { CatalogService } from "./catalog-service.mjs";
+import { GenerationQueue } from "../../../packages/nks-pipeline/src/generation-queue.mjs";
 import { getFactoryDeviceProfile, groupDeviceParameters, listFactoryDeviceProfiles } from "./factory-device-knowledge.mjs";
 import { collectFactoryDeviceProfileIds, collectPluginProfileIds, getProducerChainBlueprint, listProducerChainBlueprints, verifyProducerChain } from "./producer-chain-knowledge.mjs";
 import { getPluginIntegrationProfile } from "./plugin-integrations.mjs";
@@ -270,13 +271,14 @@ function normalizeBrowserSearch(args) {
 }
 
 export class ToolService {
-  constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, browserMetadata, spliceRoots = [] }) {
+  constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, browserMetadata, spliceRoots = [], generationQueuePath }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
     this.snapshotLibrary = snapshotLibrary;
     this.browserMetadata = browserMetadata;
     this.spliceRoots = spliceRoots;
+    this.generationQueuePath = generationQueuePath;
   }
 
   async call(name, args = {}) {
@@ -322,6 +324,8 @@ export class ToolService {
     if (name === "search_presets") {
       return { presets: this.catalog.search(args) };
     }
+    if (name === "get_nks_generation_status") return this.#nksGenerationStatus(args);
+    if (name === "enqueue_nks_generation_jobs") return this.#enqueueNksGenerationJobs(args);
     if (name === "get_preset") return { preset: this.catalog.get(args.presetId) };
     if (name === "get_preset_metadata") return { presetId: args.presetId, metadata: this.catalog.metadata(args.presetId) };
     if (name === "set_preset_metadata") return this.#setPresetMetadata(args);
@@ -1891,6 +1895,25 @@ export class ToolService {
     const currentHash = hashPlan(plan);
     if (args.planHash !== undefined && args.planHash !== currentHash) throw new Error("confirmation plan hash mismatch: observed plan changed");
     return this.confirmations.consume(args.confirmationToken, currentHash);
+  }
+
+  #nksGenerationStatus(args) {
+    if (!this.generationQueuePath) throw new Error("preset catalog is not configured");
+    return GenerationQueue.inspect(this.generationQueuePath, args.productSlug);
+  }
+
+  #enqueueNksGenerationJobs(args) {
+    const { productSlug, eligible, fingerprint } = this.#nksGenerationStatus(args);
+    const plan = { method: "enqueue_nks_generation_jobs", productSlug, eligible, fingerprint };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    this.#consumeConfirmation(plan, args);
+    const queue = GenerationQueue.open(this.generationQueuePath);
+    try {
+      const enqueued = queue.enqueue(productSlug, fingerprint);
+      return { dryRun: false, enqueued, jobs: GenerationQueue.inspect(this.generationQueuePath, productSlug).jobs };
+    } finally {
+      queue.close();
+    }
   }
 
   async #confirmedMutation(plan, args) {

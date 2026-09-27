@@ -1,6 +1,32 @@
 import { DatabaseSync } from "node:sqlite";
+import { createHash } from "node:crypto";
+
+function candidatesFor(database, productSlug) {
+  const candidates = database.prepare(`SELECT id, source_fingerprint AS fingerprint FROM presets
+    WHERE product_slug = ? AND state = 'discovered'
+      AND COALESCE(json_extract(json, '$.missing'), 0) = 0 ORDER BY id`).all(productSlug);
+  return { eligible: candidates.length,
+    fingerprint: createHash("sha256").update(JSON.stringify(candidates)).digest("hex") };
+}
 
 export class GenerationQueue {
+  static inspect(path, productSlug) {
+    if (typeof productSlug !== "string" || !productSlug.trim()) throw new Error("productSlug is required");
+    const database = new DatabaseSync(path, { readOnly: true });
+    try {
+      const { eligible, fingerprint } = candidatesFor(database, productSlug);
+      const initialized = Boolean(database.prepare(`SELECT 1 FROM sqlite_master
+        WHERE type = 'table' AND name = 'nks_generation_jobs'`).get());
+      const jobs = initialized ? Object.fromEntries(database.prepare(`SELECT j.status, count(*) AS count
+        FROM nks_generation_jobs j JOIN presets p ON p.id = j.preset_id
+        WHERE p.product_slug = ? GROUP BY j.status ORDER BY j.status`).all(productSlug)
+        .map(({ status, count }) => [status, count])) : {};
+      return { productSlug, eligible, fingerprint, initialized, jobs };
+    } finally {
+      database.close();
+    }
+  }
+
   static open(path, options) {
     return new GenerationQueue(new DatabaseSync(path), options);
   }
@@ -45,15 +71,19 @@ export class GenerationQueue {
     }
   }
 
-  enqueue(productSlug) {
+  enqueue(productSlug, expectedFingerprint) {
     if (typeof productSlug !== "string" || !productSlug) throw new Error("productSlug is required");
-    return this.#transaction(() => this.database.prepare(`INSERT INTO nks_generation_jobs
+    return this.#transaction(() => {
+      if (expectedFingerprint !== undefined && candidatesFor(this.database, productSlug).fingerprint !== expectedFingerprint)
+        throw new Error("confirmation plan hash mismatch: catalog candidates changed");
+      return this.database.prepare(`INSERT INTO nks_generation_jobs
       (preset_id, source_fingerprint, status, attempts)
       SELECT id, source_fingerprint, 'pending', 0 FROM presets
       WHERE product_slug = ? AND state = 'discovered' AND COALESCE(json_extract(json, '$.missing'), 0) = 0
       ON CONFLICT(preset_id) DO UPDATE SET source_fingerprint = excluded.source_fingerprint,
         status = 'pending', attempts = 0, worker_id = NULL, lease_expires_at = NULL, last_error = NULL
-      WHERE nks_generation_jobs.source_fingerprint != excluded.source_fingerprint`).run(productSlug).changes);
+      WHERE nks_generation_jobs.source_fingerprint != excluded.source_fingerprint`).run(productSlug).changes;
+    });
   }
 
   get(presetId) {

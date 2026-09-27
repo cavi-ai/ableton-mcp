@@ -28,7 +28,7 @@ export function createConfiguredService(environment = process.env, { persistentC
   let browserLibrary;
   const browserMetadata = () => (browserLibrary ??= new BrowserMetadataLibrary({ path: browserMetadataPath }));
   return {
-    service: new ToolService({ bridge, catalog, confirmations, spliceRoots,
+    service: new ToolService({ bridge, catalog, confirmations, spliceRoots, generationQueuePath: catalogPath,
       snapshotLibrary: new SnapshotLibrary({ directory: snapshotDirectory }), browserMetadata }),
     close: () => { browserLibrary?.close(); catalog.close(); }
   };
