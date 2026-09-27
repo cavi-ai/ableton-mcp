@@ -2886,10 +2886,21 @@ export class ToolService {
       trackId: args.trackId, clipId: args.clipId
     });
     assertExpectedState(args, observed);
+    const clipTiming = await this.bridge.request("get_clip_timing", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    assertExpectedState(args, clipTiming);
+    const refreshed = await this.bridge.request("get_midi_clip_notes_extended", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    if (JSON.stringify(observed) !== JSON.stringify(refreshed) || observed.trackId !== args.trackId ||
+        observed.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
+      throw new Error("MIDI clip changed during transform planning; retry");
     const transformed = transformMidiNotes(observed, args.noteIds, args.operation);
     const plan = {
       method: "transform_midi_notes", trackId: args.trackId, clipId: args.clipId,
       expectedStateVersion: args.expectedStateVersion, operation: args.operation,
+      before: observed, clipTiming,
       changes: transformed.changes, newNotes: transformed.newNotes
     };
     if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };

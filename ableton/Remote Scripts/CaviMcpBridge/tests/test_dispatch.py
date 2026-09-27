@@ -3983,10 +3983,13 @@ class DispatchTest(unittest.TestCase):
         clip = song.tracks[0].clip_slots[0].clip
         clip.extended_notes = [MidiNote()]
         params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": params}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": params}, 3)
 
         changed = dispatch_request(song, {"method": "transform_midi_notes", "params": {
-            **params,
-            "changes": [{"noteId": 7, "start": 0.25, "duration": 0.75}],
+            **params, "expectedStateVersion": 3, "operation": {"type": "duplicate"},
+            "before": before, "clipTiming": timing,
+            "changes": [{"noteId": 7, "previous": before["notes"][0], "start": 0.25, "duration": 0.75}],
             "newNotes": [{"sourceNoteId": 7, "pitch": 60, "start": 2.0, "duration": 0.75,
                           "velocity": 100, "velocityDeviation": 0, "releaseVelocity": 64,
                           "probability": 1.0, "mute": False}]
@@ -3997,14 +4000,38 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(changed["addedNoteIds"], [100])
         self.assertEqual(changed["stateVersion"], 4)
 
+        after = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": params}, 4)
+        after_timing = dispatch_request(song, {"method": "get_clip_timing", "params": params}, 4)
         duplicate_only = dispatch_request(song, {"method": "transform_midi_notes", "params": {
-            **params, "changes": [],
+            **params, "expectedStateVersion": 4, "operation": {"type": "duplicate"},
+            "before": after, "clipTiming": after_timing, "changes": [],
             "newNotes": [{"sourceNoteId": 7, "pitch": 60, "start": 3.0, "duration": 0.5,
                           "velocity": 100, "velocityDeviation": 0, "releaseVelocity": 64,
                           "probability": 1.0, "mute": False}]
         }}, 4)
         self.assertEqual(duplicate_only["addedNoteIds"], [101])
         self.assertEqual([note["noteId"] for note in duplicate_only["notes"]], [7, 100, 101])
+
+    def test_basic_midi_transform_rejects_changed_clip_before_writing(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        clip.extended_notes = [MidiNote()]
+        target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+        request = {**target, "expectedStateVersion": 3, "operation": {"type": "quantize", "gridBeats": 0.25},
+                   "before": before, "clipTiming": timing,
+                   "changes": [{"noteId": 7, "previous": before["notes"][0], "start": 0.25}],
+                   "newNotes": []}
+        clip.extended_notes[0].velocity = 80
+        with self.assertRaisesRegex(ValueError, "MIDI clip changed"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": request}, 3)
+        self.assertEqual(clip.extended_notes[0].start_time, before["notes"][0]["start"])
+        self.assertEqual(song.undo_boundaries, [])
+        with self.assertRaisesRegex(ValueError, "unsupported MIDI transform operation"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": {
+                **request, "operation": "unrecognized", "before": before,
+            }}, 3)
 
     def test_guarded_gate_pattern_applies_duration_and_preserves_complete_note_state(self):
         song = Song()

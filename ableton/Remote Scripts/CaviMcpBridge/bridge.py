@@ -4189,6 +4189,24 @@ def dispatch_request(song, request, state_version, application=None):
         clip, timeline = _midi_clip(song, params["trackId"], params["clipId"])
         location = "arrangement" if timeline is not None else "session"
         if method in ("set_midi_note_properties", "transform_midi_notes"):
+            guarded_basic = (method == "transform_midi_notes" and
+                             isinstance(params.get("operation"), dict) and
+                             params["operation"].get("type") in ("quantize", "legato", "duplicate"))
+            if guarded_basic:
+                if params.get("expectedStateVersion") != state_version:
+                    raise ValueError("MIDI clip state version changed")
+                if params.get("clipTiming") != _clip_timing(song, params["trackId"], params["clipId"], state_version):
+                    raise ValueError("MIDI clip timing changed")
+                basic_current = {"stateVersion": state_version, "trackId": params["trackId"],
+                                 "clipId": params["clipId"], "location": location, "timeline": timeline,
+                                 "lengthBeats": float(clip.length),
+                                 "notes": [_midi_note_record(note) for note in clip.get_all_notes_extended()]}
+                if params.get("before") != basic_current:
+                    raise ValueError("MIDI clip changed since observation")
+                basic_notes = {note["noteId"]: note for note in basic_current["notes"]}
+                for change in params["changes"]:
+                    if basic_notes.get(change.get("noteId")) != change.get("previous"):
+                        raise ValueError("MIDI transform target changed since observation")
             guarded_variation = method == "transform_midi_notes" and params.get("operation") == "apply_drum_variation"
             guarded_humanization = method == "transform_midi_notes" and params.get("operation") == "apply_midi_humanization"
             guarded_velocity = method == "transform_midi_notes" and params.get("operation") == "apply_midi_velocity_curve"
@@ -4203,6 +4221,8 @@ def dispatch_request(song, request, state_version, application=None):
             guarded_diatonic = method == "transform_midi_notes" and params.get("operation") == "apply_midi_diatonic_transposition"
             guarded_remapping = method == "transform_midi_notes" and params.get("operation") == "apply_midi_scale_chord_remapping"
             guarded_transform = guarded_variation or guarded_humanization or guarded_velocity or guarded_gate or guarded_probability or guarded_strum or guarded_inversion or guarded_drop or guarded_leading or guarded_arpeggiation or guarded_transposition or guarded_diatonic or guarded_remapping
+            if method == "transform_midi_notes" and not (guarded_basic or guarded_transform):
+                raise ValueError("unsupported MIDI transform operation")
             if guarded_transform:
                 if params.get("expectedStateVersion") != state_version:
                     raise ValueError("MIDI clip state version changed")

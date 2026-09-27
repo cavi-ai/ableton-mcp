@@ -1643,6 +1643,8 @@ test("MIDI note transforms sign hand-derived quantize and legato changes", async
       velocityDeviation: 0, releaseVelocity: 64, probability: 1, mute: false },
     start: 0.05, duration: 0.55
   }]);
+  assert.equal(quantize.plan.before.notes[0].noteId, 7);
+  assert.equal(quantize.plan.clipTiming.loop.endBeats, 4);
   assert.equal(calls.at(-1).method, "get_midi_clip_notes_extended");
 
   const { service: legatoService } = fixture({ extendedNotes: [
