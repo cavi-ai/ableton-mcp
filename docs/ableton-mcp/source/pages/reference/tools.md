@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 206 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 207 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (89)
 
@@ -98,7 +98,7 @@ The server publishes 206 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search downloaded Splice audio assets by filename or pack/category folder under an explicit local directory in stable relative-path order. Offset and nextOffset page through matching files. Optional private MCP tags/favorites join by exact local identity. Read-only; not cloud catalog search, download, or sync. Returns exact local source paths for analyze_audio_file. | `rootPath`, `query` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (103)
+## Mutations (104)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -164,6 +164,7 @@ The server publishes 206 tools. Mutations of the Live Set require `expectedState
 | `redo` | Plan or apply one guarded Ableton redo operation. | `expectedStateVersion` |
 | `rename_arrangement_cue_point` | Plan or rename one exact Arrangement cue point. | `expectedStateVersion`, `cuePointId`, `name` |
 | `rename_rack_chain` | Plan or rename an exact rack chain with a guarded hierarchy snapshot. For return chains, name is a raw label; Live adds the return letter prefix. Use observed name for display, not verbatim restoration. | `expectedStateVersion`, `trackId`, `deviceId`, `chainId`, `name` |
+| `rename_rack_macro` | Plan or rename one exact rack macro when Live exposes an unambiguous macro parameter layout and name readback. Rechecks the full rack snapshot and confirms the observed name after the native write. | `expectedStateVersion`, `trackId`, `deviceId`, `macroIndex`, `name` |
 | `rename_session_object` | Plan or rename an exact track, Return Track, scene, or Session clip. Return names are raw labels; Live prefixes the displayed bus letter. | `expectedStateVersion`, `targetType`, `targetId`, `name` |
 | `route_tracks_to_bus` | Plan or route existing tracks to one exact existing group bus using Live's available routing choices. | `expectedStateVersion`, `trackIds`, `busTrackId` |
 | `route_tracks_to_return_bus` | Plan or route existing tracks to one exact Return bus using matching sends and Sends Only outputs. Prevalidates all sources; Live applies one undo step but runtime failures can interrupt it. | `expectedStateVersion`, `trackIds`, `returnTrackId`, `sendValue` |

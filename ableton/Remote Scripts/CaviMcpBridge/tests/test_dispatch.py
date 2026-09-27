@@ -2656,6 +2656,54 @@ class DispatchTest(unittest.TestCase):
                 **request, "beforeDevice": multi}}, 4)
         self.assertEqual(mapping.mapping_min, 0.25)
 
+    def test_rack_hierarchy_reports_macro_names_only_when_native_parameter_layout_matches(self):
+        song = Song()
+        rack = DrumRack()
+        rack.visible_macro_count = 2
+        rack.has_macro_mappings = False
+        rack.variation_count = 0
+        rack.selected_variation_index = -1
+        rack.parameters = [Parameter(), Parameter(), Parameter()]
+        rack.parameters[1].original_name = "Macro 1"
+        rack.parameters[1].name = "Low End"
+        rack.parameters[2].original_name = "Macro 2"
+        rack.parameters[2].name = "Crunch"
+        song.tracks[0].devices = [rack]
+        observed = dispatch_request(song, {"method": "get_device_hierarchy", "params": {
+            "trackId": "track-0", "deviceId": "track-0:device-0"}}, 3)["device"]
+        self.assertEqual(observed["rackMacros"]["controls"], [
+            {"macroIndex": 0, "name": "Low End"}, {"macroIndex": 1, "name": "Crunch"}])
+        rack.parameters[2].original_name = "Unknown"
+        observed = dispatch_request(song, {"method": "get_device_hierarchy", "params": {
+            "trackId": "track-0", "deviceId": "track-0:device-0"}}, 3)["device"]
+        self.assertNotIn("controls", observed["rackMacros"])
+
+    def test_rename_rack_macro_requires_observed_control_and_reads_new_name(self):
+        song = Song()
+        rack = DrumRack()
+        rack.visible_macro_count = 2
+        rack.has_macro_mappings = False
+        rack.variation_count = 0
+        rack.selected_variation_index = -1
+        rack.parameters = [Parameter(), Parameter(), Parameter()]
+        rack.parameters[1].original_name = "Macro 1"
+        rack.parameters[1].name = "Macro 1"
+        rack.parameters[2].original_name = "Macro 2"
+        rack.parameters[2].name = "Macro 2"
+        rack.rename_macro = lambda index, name: setattr(rack.parameters[index + 1], "name", name)
+        song.tracks[0].devices = [rack]
+        rack_id = "track-0:device-0"
+        before = dispatch_request(song, {"method": "get_device_hierarchy", "params": {
+            "trackId": "track-0", "deviceId": rack_id}}, 3)["device"]
+        request = {"trackId": "track-0", "deviceId": rack_id, "beforeDevice": before,
+                   "macroIndex": 1, "name": "Drive"}
+        result = dispatch_request(song, {"method": "rename_rack_macro", "params": request}, 3)
+        self.assertEqual(result["device"]["rackMacros"]["controls"][1]["name"], "Drive")
+        self.assertEqual(result["stateVersion"], 4)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+        with self.assertRaisesRegex(ValueError, "rack state changed"):
+            dispatch_request(song, {"method": "rename_rack_macro", "params": request}, 4)
+
     def test_store_rack_macro_variation_rechecks_parameters_and_reads_count(self):
         song = Song()
         rack = DrumRack()

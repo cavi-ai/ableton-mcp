@@ -2,6 +2,29 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ToolService } from "../src/tool-service.mjs";
 
+test("macro rename plans an observed control name and requires confirmation", async () => {
+  const deviceId = "track-0:device-0";
+  const rack = { id: deviceId, canHaveChains: true, rackMacros: {
+    hasMappings: false, visibleCount: 2, variationCount: 0, selectedVariationIndex: -1,
+    controls: [{ macroIndex: 0, name: "Macro 1" }, { macroIndex: 1, name: "Macro 2" }]
+  }, chains: [], returnChains: [] };
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
+    assert.equal(method, "rename_rack_macro");
+    assert.deepEqual(params.beforeDevice, rack);
+    return { stateVersion: 5, trackId: "track-0", device: { ...rack, rackMacros: { ...rack.rackMacros,
+      controls: [rack.rackMacros.controls[0], { macroIndex: 1, name: "Drive" }] } } };
+  } } });
+  const args = { trackId: "track-0", deviceId, macroIndex: 1, name: "Drive", expectedStateVersion: 4 };
+  const dry = await service.call("rename_rack_macro", args);
+  assert.equal(dry.plan.beforeDevice.rackMacros.controls[1].name, "Macro 2");
+  const applied = await service.call("rename_rack_macro", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(applied.observed.device.rackMacros.controls[1].name, "Drive");
+  await assert.rejects(() => service.call("rename_rack_macro", { ...args, macroIndex: 2 }), /macro name readback/);
+  await assert.rejects(() => service.call("rename_rack_macro", { ...args, name: " " }), /macro name/);
+});
+
 test("mapping edge plans bind a single native target and reject ambiguous macros", async () => {
   const deviceId = "track-0:device-0";
   const mapping = { macroIndex: 2, targetPath: "Kick/Filter Freq", parameterName: "Cutoff",

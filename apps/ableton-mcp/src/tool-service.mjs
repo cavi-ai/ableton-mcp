@@ -1087,6 +1087,20 @@ export class ToolService {
         expectedStateVersion: args.expectedStateVersion, beforeDevice: rack,
         warning: "This changes one endpoint of the only observed mapping on the macro. Reversed ranges are possible; inspect the returned range and parameter behavior. Live undo is the recovery path." }, args);
     }
+    if (name === "rename_rack_macro") {
+      requireExpectedState(args);
+      const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, { ...observed, deviceId: observed.device?.id });
+      const rack = observed.device;
+      if (rack?.id !== args.deviceId || !rack.canHaveChains || !Array.isArray(rack.rackMacros?.controls) ||
+          !Number.isSafeInteger(args.macroIndex) || rack.rackMacros.controls[args.macroIndex]?.macroIndex !== args.macroIndex) {
+        throw new Error("macro name readback is unavailable for this index");
+      }
+      if (typeof args.name !== "string" || !args.name.trim()) throw new Error("macro name must not be empty");
+      return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+        macroIndex: args.macroIndex, name: args.name,
+        expectedStateVersion: args.expectedStateVersion, beforeDevice: rack }, args);
+    }
     if (name === "store_rack_macro_variation") {
       requireExpectedState(args);
       const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });

@@ -964,6 +964,16 @@ def _device_tree(device, device_id):
             "variationCount": int(device.variation_count),
             "selectedVariationIndex": int(device.selected_variation_index),
         }
+        count = int(device.visible_macro_count)
+        parameters = device.parameters
+        if len(parameters) > count and all(
+            parameters[index + 1].original_name == f"Macro {index + 1}"
+            for index in range(count)
+        ):
+            record["rackMacros"]["controls"] = [
+                {"macroIndex": index, "name": str(parameters[index + 1].name)}
+                for index in range(count)
+            ]
         if hasattr(device, "macro_mappings"):
             record["rackMacros"]["mappings"] = [{
                 "macroIndex": int(mapping.index), "targetPath": str(mapping.path),
@@ -5111,6 +5121,32 @@ def dispatch_request(song, request, state_version, application=None):
             raise RuntimeError("native mapping range did not match the request; inspect the rack before retrying")
         return {"stateVersion": state_version + 1, "trackId": params["trackId"],
                 "device": _device_tree(rack, rack_id)}
+    if method == "rename_rack_macro":
+        rack_id = params["deviceId"]
+        _, _, rack = _device(song, params["trackId"], rack_id)
+        before = _device_tree(rack, rack_id)
+        if not rack.can_have_chains or before != params["beforeDevice"]:
+            raise ValueError("rack state changed")
+        macro_index, name = params["macroIndex"], params["name"]
+        controls = before.get("rackMacros", {}).get("controls")
+        if (type(macro_index) is not int or not isinstance(controls, list) or
+                not 0 <= macro_index < len(controls) or controls[macro_index]["macroIndex"] != macro_index):
+            raise ValueError("macro name readback is unavailable for this index")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("macro name must not be empty")
+        native = getattr(rack, "rename_macro", None)
+        if not callable(native):
+            raise ValueError("native macro rename is unavailable")
+        song.begin_undo_step()
+        try:
+            native(macro_index, name)
+        finally:
+            song.end_undo_step()
+        after = _device_tree(rack, rack_id)
+        controls_after = after.get("rackMacros", {}).get("controls", [])
+        if len(controls_after) <= macro_index or controls_after[macro_index]["name"] != name:
+            raise RuntimeError("native macro name did not match the request; inspect the rack before retrying")
+        return {"stateVersion": state_version + 1, "trackId": params["trackId"], "device": after}
     if method == "adjust_rack_macro_count":
         _, _, device = _device(song, params["trackId"], params["deviceId"])
         if not device.can_have_chains or _device_tree(device, params["deviceId"]) != params["beforeDevice"]:

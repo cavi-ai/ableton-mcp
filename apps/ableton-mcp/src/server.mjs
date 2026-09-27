@@ -172,6 +172,7 @@ const toolNames = [
   "adjust_rack_macro_count",
   "map_rack_macro_to_parameter",
   "set_rack_macro_mapping_edge",
+  "rename_rack_macro",
   "store_rack_macro_variation",
   "recall_rack_macro_variation",
   "delete_rack_macro_variation",
