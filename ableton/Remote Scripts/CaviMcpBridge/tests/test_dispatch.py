@@ -3689,6 +3689,22 @@ class DispatchTest(unittest.TestCase):
         }])
         self.assertEqual(song.tracks[0].devices[0].parameters[0].value, 0.8)
 
+    def test_parameter_write_rejects_stale_observation_before_mutating(self):
+        song = Song()
+        target = song.tracks[0].devices[0].parameters[0]
+        params = {"trackId": "track-0", "deviceId": "track-0:device-0",
+                  "expectedStateVersion": 4,
+                  "changes": [{"id": "parameter-0", "previousValue": 0.1, "value": 0.8}]}
+        with self.assertRaisesRegex(ValueError, "parameter.*changed"):
+            dispatch_request(song, {"method": "set_device_parameters", "params": params}, 4)
+        self.assertEqual(target.value, 0.4)
+        params["changes"][0]["previousValue"] = 0.4
+        with self.assertRaisesRegex(ValueError, "state version changed"):
+            dispatch_request(song, {"method": "set_device_parameters", "params": params}, 5)
+        self.assertEqual(target.value, 0.4)
+        result = dispatch_request(song, {"method": "set_device_parameters", "params": params}, 4)
+        self.assertEqual(result["observedChanges"][0]["value"], 0.8)
+
     def test_core_production_controls_return_observed_state(self):
         song = Song()
         self.assertEqual(dispatch_request(song, {"method": "list_scenes"}, 1)["scenes"][0]["name"], "Verse")

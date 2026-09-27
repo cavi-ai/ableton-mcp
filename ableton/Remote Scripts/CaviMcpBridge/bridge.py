@@ -5360,6 +5360,9 @@ def dispatch_request(song, request, state_version, application=None):
                 "parameters": parameters, "nameAmbiguities": ambiguities}
     if method == "set_device_parameters":
         _, _, device = _device(song, params["trackId"], params["deviceId"])
+        if ("expectedStateVersion" in params and
+                params["expectedStateVersion"] != state_version):
+            raise ValueError("parameter state version changed before write")
         if "beforeDevice" in params or "beforeParameters" in params:
             current_parameters = [_parameter_record(p, i) for i, p in enumerate(device.parameters)]
             if (_device_tree(device, params["deviceId"]) != params.get("beforeDevice") or
@@ -5369,8 +5372,15 @@ def dispatch_request(song, request, state_version, application=None):
         # since changing a mode may disable a later control during execution.
         for change in params["changes"]:
             index = int(change["id"].removeprefix("parameter-"))
-            if not device.parameters[index].is_enabled:
+            parameter = device.parameters[index]
+            if not parameter.is_enabled:
                 raise ValueError("parameter is disabled")
+            if ("previousValue" in change and
+                    float(parameter.value) != float(change["previousValue"])):
+                raise ValueError("parameter value changed before write")
+            if ("originalName" in change and
+                    parameter.original_name != change["originalName"]):
+                raise ValueError("parameter identity changed before write")
         observed = []
         for change in params["changes"]:
             index = int(change["id"].removeprefix("parameter-"))

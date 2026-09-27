@@ -14,7 +14,8 @@ function fixture() {
     if (method === 'set_device_parameters') {
       for (const change of args.changes) state.parameters.find(p => p.id === change.id).value = change.value;
       state.stateVersion++;
-      return structuredClone(state);
+      return { stateVersion: state.stateVersion, trackId: state.trackId, deviceId: state.deviceId,
+        observedChanges: args.changes.map(change => structuredClone(state.parameters.find(p => p.id === change.id))) };
     }
     throw new Error(method);
   } } });

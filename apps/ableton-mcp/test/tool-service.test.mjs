@@ -2363,6 +2363,24 @@ test("parameter mutation defaults to dry-run, clamps, confirms once, and returns
   await assert.rejects(() => service.call("set_device_parameters", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash }), /unknown/);
 });
 
+test("parameter mutation reports native readback mismatch instead of success", async () => {
+  const { service } = fixture();
+  const args = { trackId: "t1", deviceId: "d1", expectedStateVersion: 4,
+    changes: [{ id: "cutoff", value: 0.75 }] };
+  const dry = await service.call("set_device_parameters", args);
+  service.bridge.request = async (method, params) => {
+    if (method === "list_device_parameters") return { stateVersion: 4, trackId: "t1", deviceId: "d1",
+      parameters: [{ id: "cutoff", name: "Cutoff", originalName: "Filter Freq", min: 0, max: 1,
+        value: 0.4, displayValue: "400 Hz", enabled: true, quantized: false, valueItems: [] }] };
+    if (method === "set_device_parameters") return { stateVersion: 5, trackId: "t1", deviceId: "d1",
+      observedChanges: [{ id: "cutoff", value: 0.5 }] };
+    throw new Error(method);
+  };
+  await assert.rejects(service.call("set_device_parameters", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash }),
+  /readback mismatch.*may have applied/i);
+});
+
 test("Looper Record and Overdub plans disclose recorded-content risk and do not promise parameter rollback", async () => {
   for (const [value, label] of [[1, "Record"], [3, "Overdub"]]) {
     const service = new ToolService({ bridge: { async request(method, params) {

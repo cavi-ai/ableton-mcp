@@ -1621,6 +1621,14 @@ export class ToolService {
     }
     this.#consumeConfirmation(plan, args);
     const result = await this.bridge.request("set_device_parameters", plan);
+    if (result.stateVersion !== args.expectedStateVersion + 1 || result.trackId !== args.trackId ||
+        result.deviceId !== args.deviceId || !Array.isArray(result.observedChanges) ||
+        result.observedChanges.length !== changes.length ||
+        changes.some((change, index) => result.observedChanges[index]?.id !== change.id ||
+          !Number.isFinite(result.observedChanges[index]?.value) ||
+          Math.abs(result.observedChanges[index].value - change.value) > 1e-6)) {
+      throw new Error("parameter readback mismatch; write may have applied; re-read device parameters before retrying");
+    }
     return {
       dryRun: false,
       requested: plan,
