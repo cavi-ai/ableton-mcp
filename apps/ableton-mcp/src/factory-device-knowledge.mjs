@@ -31,7 +31,16 @@ const profiles = [
     "Glide Mode/Time and related Time < Key are pitch-transition controls. Read native enabled state and displayValue for physical units; a grouped control does not prove a modulation assignment or hidden sample state."] },
   { id: "drum-rack", name: "Drum Rack", type: "instrument", family: "rack", match: ["drum rack", "drumgroupdevice"], roles: { ...globalRoles, macro: ["macro"], chain: ["chain", "selector"], mix: ["volume", "pan", "send"] } },
   { id: "analog", name: "Analog", type: "instrument", family: "synthesizer", match: ["analog", "ultraanalog"], roles: { ...globalRoles, oscillator: ["osc", "shape", "octave", "semitone", "detune"], filter: ["filter", "freq", "resonance"], modulation: ["lfo", "envelope"], amplitude: ["amp", "volume", "attack", "decay", "sustain", "release"] } },
-  { id: "drift", name: "Drift", type: "instrument", family: "synthesizer", match: ["drift"], roles: { ...globalRoles, oscillator: ["osc", "shape", "wave", "octave", "detune"], filter: ["filter", "freq", "resonance"], modulation: ["lfo", "envelope", "mod"], amplitude: ["amp", "volume", "attack", "decay", "sustain", "release"] } },
+  { id: "drift", name: "Drift", type: "instrument", family: "synthesizer", match: ["drift"], roles: {
+    global: ["device on"], filterRouting: [/^osc [12] flt on/, /^noise flt on/],
+    filterModulation: [/^lp mod amt /], filter: [/^lp /, /^hp /, /^key > lpf/],
+    lfo: [/^lfo /], oscillatorRetrigger: [/^osc retrig on/],
+    oscillator1: [/^osc 1 /], oscillator2: [/^osc 2 /], noise: [/^noise /],
+    pitch: [/^pitch mod amt /, /^transpose/, /^note pitch bend on/, /^glide time/, /^legato on/],
+    ampEnvelope: [/^env 1 /], cyclicEnvelope: [/^cyc env /, /^env 2 cyc on/], modEnvelope: [/^env 2 /],
+    modulationMatrix: [/^mod matrix amt /], voice: [/^poly voice depth/, /^spread/, /^strength/, /^thickness/, /^drift/],
+    amplitude: [/^vel > vol/, /^volume/]
+  }, notes: ["Env 1 is the amplitude ADSR, while Env 2 and the cyclic envelope are separate modulation stages. Env 2 Cyc On selects between the latter behaviors; do not treat all envelope controls as one ADSR.", "Osc 1, Osc 2 and Noise each have independent gain and enable controls. Their filter-routing switches are separate from the low-pass/high-pass settings and filter modulation depths.", "LFO Wave belongs to the LFO, not an oscillator. Read native displayValue and enabled state for free, ratio, time and synchronized timing; raw values are not automatically Hz, seconds or beat divisions.", "Pitch modulation amounts, note pitch-bend enable, legato, glide and transpose affect distinct pitch behaviors. Poly Voice Depth, Spread, Strength, Thickness and Drift are grouped as voice-character controls, not guaranteed modulation destinations."] },
   { id: "operator", name: "Operator", type: "instrument", family: "fm-synthesizer", match: ["operator"], roles: {
     global: ["device on"], algorithm: ["algorithm"],
     oscillatorAEnvelope: [/^ae /], oscillatorBEnvelope: [/^be /], oscillatorCEnvelope: [/^ce /], oscillatorDEnvelope: [/^de /],
