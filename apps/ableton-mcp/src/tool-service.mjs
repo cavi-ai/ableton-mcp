@@ -42,6 +42,50 @@ function requireExpectedState(args) {
   }
 }
 
+function persistedChainDevice(device, nested) {
+  const record = { name: device.name, className: device.className, type: device.type,
+    parameters: device.parameters.map(p => ({ originalName: p.originalName, min: p.min, max: p.max,
+      quantized: p.quantized, valueItems: p.valueItems, value: p.value })) };
+  if (nested) for (const key of ["chains", "returnChains"]) {
+    if (Array.isArray(device[key])) record[key] = device[key].map(chain => ({
+      name: chain.name, devices: chain.devices.map(child => persistedChainDevice(child, true)) }));
+  }
+  return record;
+}
+
+function persistedChainSnapshot(devices, format) {
+  return { format, devices: devices.map(device => persistedChainDevice(device, format === "cavi-device-chain-v2")) };
+}
+
+function validateChainDevice(saved, native, nested) {
+  if (saved.className !== native.className || saved.type !== native.type ||
+      typeof saved.name !== "string" || !saved.name.trim() ||
+      !Array.isArray(saved.parameters) || saved.parameters.length !== native.parameters.length) {
+    throw new Error("device chain topology mismatch");
+  }
+  saved.parameters.forEach((parameter, index) => {
+    const current = native.parameters[index];
+    for (const field of ["originalName", "min", "max", "quantized", "valueItems"]) {
+      if (JSON.stringify(parameter[field]) !== JSON.stringify(current[field])) throw new Error("device parameter layout mismatch");
+    }
+    if (!Number.isFinite(parameter.value) || parameter.value < current.min || parameter.value > current.max ||
+        (current.quantized && !Number.isInteger(parameter.value))) throw new Error("device parameter value outside native range");
+    if (parameter.value !== current.value && !current.enabled) throw new Error(`parameter ${current.id} is disabled`);
+  });
+  if (nested) for (const key of ["chains", "returnChains"]) {
+    if (native[key] === undefined && saved[key] === undefined) continue;
+    if (!Array.isArray(native[key]) || !Array.isArray(saved[key]) || native[key].length !== saved[key].length) {
+      throw new Error("device chain topology mismatch");
+    }
+    saved[key].forEach((chain, index) => {
+      const current = native[key][index];
+      if (typeof chain.name !== "string" || !chain.name.trim() || !Array.isArray(chain.devices) ||
+          chain.devices.length !== current.devices.length) throw new Error("device chain topology mismatch");
+      chain.devices.forEach((child, childIndex) => validateChainDevice(child, current.devices[childIndex], true));
+    });
+  }
+}
+
 function normalizeChoice(value, field, choices) {
   const choice = typeof value === "string"
     ? choices.find((item) => item.name === value)
@@ -1086,42 +1130,23 @@ export class ToolService {
   async #captureDeviceChainSnapshot(args) {
     const observed = await this.bridge.request("get_device_chain_snapshot", { trackId: args.trackId });
     if (observed.trackId !== args.trackId || !Array.isArray(observed.devices)) throw new Error("device chain snapshot target mismatch");
+    const format = observed.devices.some(device => Array.isArray(device.chains)) ? "cavi-device-chain-v2" : "cavi-device-chain-v1";
     return { trackId: args.trackId, stateVersion: observed.stateVersion,
-      snapshot: { format: "cavi-device-chain-v1", devices: observed.devices.map(device => ({
-        name: device.name, className: device.className, type: device.type,
-        parameters: device.parameters.map(p => ({ originalName: p.originalName, min: p.min, max: p.max,
-          quantized: p.quantized, valueItems: p.valueItems, value: p.value }))
-      })) },
-      limitation: "Exact current topology and exposed parameters only. Not a native rack or plug-in preset; excludes hidden state, samples, automation, nested devices, and mappings."
+      snapshot: persistedChainSnapshot(observed.devices, format),
+      limitation: "Exact current topology and exposed parameters only. Not a native rack or plug-in preset; excludes hidden state, samples, automation, pad assignments, and mappings."
     };
   }
 
   async #recallDeviceChainSnapshot(args) {
     requireExpectedState(args);
-    if (args.snapshot?.format !== "cavi-device-chain-v1" || !Array.isArray(args.snapshot.devices)) throw new Error("invalid device chain snapshot format");
+    if (!["cavi-device-chain-v1", "cavi-device-chain-v2"].includes(args.snapshot?.format) || !Array.isArray(args.snapshot.devices)) throw new Error("invalid device chain snapshot format");
     const before = await this.bridge.request("get_device_chain_snapshot", { trackId: args.trackId });
     assertExpectedState(args, before);
     if (before.trackId !== args.trackId || before.devices.length !== args.snapshot.devices.length) throw new Error("device chain topology mismatch");
-    args.snapshot.devices.forEach((savedDevice, deviceIndex) => {
-      const nativeDevice = before.devices[deviceIndex];
-      if (savedDevice.className !== nativeDevice.className || savedDevice.type !== nativeDevice.type ||
-          !Array.isArray(savedDevice.parameters) || savedDevice.parameters.length !== nativeDevice.parameters.length) throw new Error("device chain topology mismatch");
-      savedDevice.parameters.forEach((saved, parameterIndex) => {
-        const native = nativeDevice.parameters[parameterIndex];
-        for (const field of ["originalName", "min", "max", "quantized", "valueItems"]) {
-          if (JSON.stringify(saved[field]) !== JSON.stringify(native[field])) throw new Error("device parameter layout mismatch");
-        }
-        if (!Number.isFinite(saved.value) || saved.value < native.min || saved.value > native.max ||
-            (native.quantized && !Number.isInteger(saved.value))) throw new Error("device parameter value outside native range");
-        if (saved.value !== native.value && !native.enabled) throw new Error(`parameter ${native.id} is disabled`);
-      });
-    });
+    if (args.snapshot.format === "cavi-device-chain-v2" && !before.devices.some(device => Array.isArray(device.chains))) throw new Error("device chain topology mismatch");
+    args.snapshot.devices.forEach((saved, index) => validateChainDevice(saved, before.devices[index], args.snapshot.format === "cavi-device-chain-v2"));
     const target = structuredClone(args.snapshot);
-    const current = { format: "cavi-device-chain-v1", devices: before.devices.map(device => ({
-      name: device.name, className: device.className, type: device.type,
-      parameters: device.parameters.map(p => ({ originalName: p.originalName, min: p.min, max: p.max,
-        quantized: p.quantized, valueItems: p.valueItems, value: p.value }))
-    })) };
+    const current = persistedChainSnapshot(before.devices, args.snapshot.format);
     if (JSON.stringify(current) === JSON.stringify(target)) throw new Error("snapshot already matches; no device chain changes required");
     const plan = { method: "set_device_chain_snapshot", trackId: args.trackId,
       expectedStateVersion: args.expectedStateVersion, before, target };

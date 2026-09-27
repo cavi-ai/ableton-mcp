@@ -677,22 +677,40 @@ def _device_chain_snapshot(song, owner_id, state_version):
     owner_id, owner = _device_owner(song, owner_id)
     return {
         "stateVersion": state_version, "trackId": owner_id,
-        "devices": [{**_device_record(device, f"{owner_id}:device-{index}"),
-                     "parameters": [_parameter_record(parameter, parameter_index)
-                                    for parameter_index, parameter in enumerate(device.parameters)]}
+        "devices": [_snapshot_device(device, f"{owner_id}:device-{index}")
                     for index, device in enumerate(owner.devices)],
     }
 
 
+def _snapshot_device(device, device_id):
+    record = {**_device_record(device, device_id),
+              "parameters": [_parameter_record(parameter, index)
+                             for index, parameter in enumerate(device.parameters)]}
+    if device.can_have_chains:
+        for key, chains in (("chains", device.chains), ("returnChains", getattr(device, "return_chains", ()))):
+            prefix = "chain" if key == "chains" else "return-chain"
+            record[key] = [{"name": chain.name,
+                            "devices": [_snapshot_device(child, f"{device_id}/{prefix}-{chain_index}/device-{child_index}")
+                                        for child_index, child in enumerate(chain.devices)]}
+                           for chain_index, chain in enumerate(chains)]
+    return record
+
+
 def _persisted_device_chain(record):
+    def persisted_device(device):
+        result = {"name": device["name"], "className": device["className"], "type": device["type"],
+                  "parameters": [{"originalName": parameter["originalName"], "min": parameter["min"],
+                                  "max": parameter["max"], "quantized": parameter["quantized"],
+                                  "valueItems": parameter["valueItems"], "value": parameter["value"]}
+                                 for parameter in device["parameters"]]}
+        for key in ("chains", "returnChains"):
+            if key in device:
+                result[key] = [{"name": chain["name"], "devices": [persisted_device(child) for child in chain["devices"]]}
+                               for chain in device[key]]
+        return result
     return {
-        "format": "cavi-device-chain-v1",
-        "devices": [{"name": device["name"], "className": device["className"], "type": device["type"],
-                     "parameters": [{"originalName": parameter["originalName"], "min": parameter["min"],
-                                     "max": parameter["max"], "quantized": parameter["quantized"],
-                                     "valueItems": parameter["valueItems"], "value": parameter["value"]}
-                                    for parameter in device["parameters"]]}
-                    for device in record["devices"]],
+        "format": "cavi-device-chain-v2" if any("chains" in device for device in record["devices"]) else "cavi-device-chain-v1",
+        "devices": [persisted_device(device) for device in record["devices"]],
     }
 
 
@@ -3171,13 +3189,17 @@ def dispatch_request(song, request, state_version, application=None):
         if current != params["before"]:
             raise ValueError("device chain changed after planning")
         target = params["target"]
-        if target.get("format") != "cavi-device-chain-v1" or len(target.get("devices", ())) != len(current["devices"]):
+        format_name = target.get("format")
+        if format_name not in ("cavi-device-chain-v1", "cavi-device-chain-v2") or not isinstance(target.get("devices"), list) or len(target["devices"]) != len(current["devices"]):
             raise ValueError("device chain topology mismatch")
-        for saved_device, native_device in zip(target["devices"], current["devices"]):
+        if format_name == "cavi-device-chain-v2" and not any("chains" in device for device in current["devices"]):
+            raise ValueError("device chain topology mismatch")
+        def validate_device(saved_device, native_device):
             if (saved_device.get("className") != native_device["className"] or
                     saved_device.get("type") != native_device["type"] or
                     not isinstance(saved_device.get("name"), str) or not saved_device["name"].strip() or
-                    len(saved_device.get("parameters", ())) != len(native_device["parameters"])):
+                    not isinstance(saved_device.get("parameters"), list) or
+                    len(saved_device["parameters"]) != len(native_device["parameters"])):
                 raise ValueError("device chain topology mismatch")
             for saved, native in zip(saved_device["parameters"], native_device["parameters"]):
                 if any(saved.get(field) != native[field] for field in ("originalName", "min", "max", "quantized", "valueItems")):
@@ -3188,6 +3210,23 @@ def dispatch_request(song, request, state_version, application=None):
                     raise ValueError("device parameter value outside native range")
                 if value != native["value"] and not native["enabled"]:
                     raise ValueError(f"parameter {native['id']} is disabled")
+            if format_name == "cavi-device-chain-v2":
+                for key in ("chains", "returnChains"):
+                    native_chains = native_device.get(key)
+                    saved_chains = saved_device.get(key)
+                    if native_chains is None and saved_chains is None:
+                        continue
+                    if not isinstance(saved_chains, list) or native_chains is None or len(saved_chains) != len(native_chains):
+                        raise ValueError("device chain topology mismatch")
+                    for saved_chain, native_chain in zip(saved_chains, native_chains):
+                        if (not isinstance(saved_chain.get("name"), str) or not saved_chain["name"].strip() or
+                                not isinstance(saved_chain.get("devices"), list) or
+                                len(saved_chain["devices"]) != len(native_chain["devices"])):
+                            raise ValueError("device chain topology mismatch")
+                        for saved_child, native_child in zip(saved_chain["devices"], native_chain["devices"]):
+                            validate_device(saved_child, native_child)
+        for saved_device, native_device in zip(target["devices"], current["devices"]):
+            validate_device(saved_device, native_device)
         writes = []
         def write(target_object, attribute, value):
             previous = getattr(target_object, attribute)
@@ -3196,12 +3235,24 @@ def dispatch_request(song, request, state_version, application=None):
                 setattr(target_object, attribute, value)
         song.begin_undo_step()
         try:
-            for device, saved_device in zip(owner.devices, target["devices"]):
+            def apply_device(device, saved_device):
                 write(device, "name", saved_device["name"])
                 for parameter, saved in zip(device.parameters, saved_device["parameters"]):
                     write(parameter, "value", saved["value"])
+                if format_name == "cavi-device-chain-v2":
+                    for key, native_chains in (("chains", device.chains), ("returnChains", getattr(device, "return_chains", ()))) if device.can_have_chains else ():
+                        for chain, saved_chain in zip(native_chains, saved_device[key]):
+                            write(chain, "name", saved_chain["name"])
+                            for child, saved_child in zip(chain.devices, saved_chain["devices"]):
+                                apply_device(child, saved_child)
+            for device, saved_device in zip(owner.devices, target["devices"]):
+                apply_device(device, saved_device)
             result = _device_chain_snapshot(song, owner_id, state_version + 1)
-            if _persisted_device_chain(result) != target:
+            observed = _persisted_device_chain(result)
+            if format_name == "cavi-device-chain-v1" and observed["format"] == "cavi-device-chain-v2":
+                observed = {"format": format_name, "devices": [{key: device[key] for key in ("name", "className", "type", "parameters")}
+                                                               for device in observed["devices"]]}
+            if observed != target:
                 raise ValueError("Live did not apply the complete device chain snapshot")
         except Exception as error:
             rollback_errors = []

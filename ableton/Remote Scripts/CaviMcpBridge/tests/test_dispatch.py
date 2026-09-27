@@ -3066,6 +3066,44 @@ class DispatchTest(unittest.TestCase):
                 self.assertEqual(owner.devices[0].parameters[0].value, 0.25)
                 self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
 
+    def test_device_chain_snapshot_recalls_nested_rack_devices_and_rejects_changed_chains(self):
+        song = Song()
+        rack = DrumRack()
+        song.tracks[0].devices = [rack]
+        before = dispatch_request(song, {"method": "get_device_chain_snapshot", "params": {"trackId": "track-0"}}, 6)
+        self.assertEqual(before["devices"][0]["chains"][0]["devices"][0]["name"], "Kick")
+        target = _persisted_device_chain(before)
+        self.assertEqual(target["format"], "cavi-device-chain-v2")
+        target["devices"][0]["chains"][0]["devices"][0]["parameters"][0]["value"] = 0.8
+        result = dispatch_request(song, {"method": "set_device_chain_snapshot", "params": {
+            "trackId": "track-0", "before": before, "target": target,
+        }}, 6)
+        self.assertEqual(result["devices"][0]["chains"][0]["devices"][0]["parameters"][0]["value"], 0.8)
+        self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
+        changed = dispatch_request(song, {"method": "get_device_chain_snapshot", "params": {"trackId": "track-0"}}, 7)
+        mismatched = _persisted_device_chain(changed)
+        mismatched["devices"][0]["chains"].append({"name": "Extra", "devices": []})
+        with self.assertRaisesRegex(ValueError, "topology mismatch"):
+            dispatch_request(song, {"method": "set_device_chain_snapshot", "params": {
+                "trackId": "track-0", "before": changed, "target": mismatched,
+            }}, 7)
+
+    def test_legacy_device_chain_snapshot_recalls_top_level_without_touching_nested_rack(self):
+        song = Song()
+        rack = DrumRack()
+        song.tracks[0].devices = [rack]
+        before = dispatch_request(song, {"method": "get_device_chain_snapshot", "params": {"trackId": "track-0"}}, 3)
+        persisted = _persisted_device_chain(before)
+        legacy = {"format": "cavi-device-chain-v1", "devices": [
+            {key: device[key] for key in ("name", "className", "type", "parameters")}
+            for device in persisted["devices"]]}
+        legacy["devices"][0]["name"] = "Legacy Rack Name"
+        dispatch_request(song, {"method": "set_device_chain_snapshot", "params": {
+            "trackId": "track-0", "before": before, "target": legacy,
+        }}, 3)
+        self.assertEqual(rack.name, "Legacy Rack Name")
+        self.assertEqual(rack.chains[0].devices[0].name, "Kick")
+
     def test_clip_resolution_rejects_negative_and_noncanonical_slot_ids(self):
         song = Song()
         song.tracks[0].clip_slots = [song.tracks[0].clip_slots[0]] * 2

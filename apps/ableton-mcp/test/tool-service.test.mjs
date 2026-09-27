@@ -4,6 +4,7 @@ import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ToolService } from "../src/tool-service.mjs";
+import { validateToolArguments } from "../src/tool-validation.mjs";
 
 test("unwarped loop plans preserve seconds and reject incompatible units", async () => {
   const observed = {
@@ -1250,6 +1251,33 @@ test("device chain snapshots capture and recall exact bus topology", async () =>
     confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
   assert.equal(result.observed.devices[0].parameters[0].value, 0.5);
   assert.equal(mutations.length, 1);
+});
+
+test("device chain snapshots capture and validate nested rack topology", async () => {
+  const parameter = { id: "parameter-0", originalName: "Cutoff", min: 0, max: 1,
+    quantized: false, valueItems: [], value: 0.4, enabled: true };
+  const observed = { stateVersion: 9, trackId: "track-0", devices: [
+    { id: "track-0:device-0", name: "Drum Rack", className: "InstrumentGroupDevice", type: "instrument",
+      parameters: [parameter], chains: [{ name: "Kick", devices: [
+        { id: "track-0:device-0/chain-0/device-0", name: "Simpler", className: "OriginalSimpler", type: "instrument",
+          parameters: [parameter] }
+      ] }], returnChains: [] }
+  ] };
+  const service = new ToolService({ bridge: { async request(method) {
+    if (method === "get_device_chain_snapshot") return structuredClone(observed);
+    throw new Error(method);
+  } } });
+  const captured = await service.call("capture_device_chain_snapshot", { trackId: "track-0" });
+  assert.equal(captured.snapshot.format, "cavi-device-chain-v2");
+  assert.equal(captured.snapshot.devices[0].chains[0].devices[0].name, "Simpler");
+  validateToolArguments("recall_device_chain_snapshot", {
+    trackId: "track-0", expectedStateVersion: 9, snapshot: captured.snapshot,
+  });
+  const incompatible = structuredClone(captured.snapshot);
+  incompatible.devices[0].chains[0].devices[0].className = "PluginDevice";
+  await assert.rejects(() => service.call("recall_device_chain_snapshot", {
+    trackId: "track-0", expectedStateVersion: 9, snapshot: incompatible,
+  }), /topology mismatch/);
 });
 
 test("device reordering requires exact state and confirmation", async () => {
