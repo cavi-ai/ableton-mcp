@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, symlink, rm, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ToolService } from "../src/tool-service.mjs";
+import { createRouter } from "../src/server.mjs";
+import { BrowserMetadataLibrary } from "../src/browser-metadata-library.mjs";
 
 test("local Splice search finds only audio assets under the selected root", async () => {
   const root = await mkdtemp(join(tmpdir(), "splice-search-"));
@@ -85,4 +87,113 @@ test("local Splice search pages in stable relative-path order across files and f
     assert.deepEqual(third.samples.map(({ relativePath }) => relativePath), ["b-hit.wav"]);
     assert.equal(third.nextOffset, null);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("local Splice search reports an incomplete scan at its visited-item limit", async () => {
+  const root = await mkdtemp(join(tmpdir(), "splice-bounded-"));
+  try {
+    await writeFile(join(root, "a.wav"), "audio");
+    await writeFile(join(root, "b.wav"), "audio");
+    await writeFile(join(root, "c.wav"), "audio");
+    const service = new ToolService({});
+    const bounded = await service.call("search_local_splice_samples", {
+      rootPath: root, query: "c", maxVisited: 2,
+    });
+    assert.deepEqual(bounded.samples, []);
+    assert.equal(bounded.visited, 2);
+    assert.equal(bounded.truncated, true);
+    assert.equal(bounded.nextOffset, null);
+    const complete = await service.call("search_local_splice_samples", {
+      rootPath: root, query: "c", maxVisited: 3,
+    });
+    assert.deepEqual(complete.samples.map(sample => sample.relativePath), ["c.wav"]);
+    assert.equal(complete.truncated, false);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("MCP accepts the scan limit and returns explicit truncation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "splice-mcp-bounded-"));
+  try {
+    await writeFile(join(root, "a.wav"), "audio");
+    await writeFile(join(root, "b.wav"), "audio");
+    const response = await createRouter(new ToolService({}))({
+      id: 1, method: "tools/call", params: {
+        name: "search_local_splice_samples", arguments: { rootPath: root, query: "b", maxVisited: 1 },
+      },
+    });
+    assert.equal(response.error, undefined);
+    assert.equal(response.result.structuredContent.truncated, true);
+    assert.equal(response.result.structuredContent.visited, 1);
+    assert.deepEqual(response.result.structuredContent.samples, []);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("MCP browses local Splice folders so a truncated search can be narrowed", async () => {
+  const root = await mkdtemp(join(tmpdir(), "splice-browse-"));
+  try {
+    await mkdir(join(root, "Pack A"));
+    await mkdir(join(root, "Pack B"));
+    await writeFile(join(root, "Pack A", "kick.wav"), "audio");
+    await writeFile(join(root, "Pack B", "snare.wav"), "audio");
+    await writeFile(join(root, "notes.txt"), "not audio");
+    const route = createRouter(new ToolService({ spliceRoots: [root] }));
+    const browse = await route({ id: 1, method: "tools/call", params: {
+      name: "browse_local_splice_directory", arguments: { rootPath: root, offset: 1, limit: 1 },
+    } });
+    assert.equal(browse.error, undefined);
+    assert.deepEqual(browse.result.structuredContent.entries, [
+      { name: "Pack B", type: "directory", sourcePath: join(await realpath(root), "Pack B") },
+    ]);
+    assert.equal(browse.result.structuredContent.nextOffset, null);
+    const search = await route({ id: 2, method: "tools/call", params: {
+      name: "search_local_splice_samples", arguments: {
+        rootPath: browse.result.structuredContent.entries[0].sourcePath, query: "snare", maxVisited: 1,
+      },
+    } });
+    assert.deepEqual(search.result.structuredContent.samples.map(sample => sample.relativePath), ["snare.wav"]);
+    assert.equal(search.result.structuredContent.truncated, false);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("MCP folder browsing optionally joins private metadata for audio files", async () => {
+  const root = await mkdtemp(join(tmpdir(), "splice-browse-metadata-"));
+  const pack = join(root, "Pack");
+  const library = new BrowserMetadataLibrary({ path: join(root, "metadata.sqlite") });
+  try {
+    await mkdir(pack);
+    await mkdir(join(pack, "Subfolder"));
+    const sample = join(pack, "Kick.wav");
+    await writeFile(sample, "audio");
+    library.set({ root: "local_splice", path: [await realpath(root), "Pack/Kick.wav"], uri: await realpath(sample) }, 0,
+      { favorite: true, tags: ["drums"] });
+    const route = createRouter(new ToolService({ spliceRoots: [root], browserMetadata: library }));
+    const call = (id, includeMetadata) => route({ id, method: "tools/call", params: {
+      name: "browse_local_splice_directory", arguments: { rootPath: pack, includeMetadata },
+    } });
+    const joined = await call(1, true);
+    assert.equal(joined.error, undefined);
+    assert.deepEqual(joined.result.structuredContent.entries, [
+      { name: "Kick.wav", type: "audio_file", sourcePath: await realpath(sample),
+        metadata: { favorite: true, tags: ["drums"], revision: 1 } },
+      { name: "Subfolder", type: "directory", sourcePath: join(await realpath(pack), "Subfolder") },
+    ]);
+    assert.equal(joined.result.structuredContent.metadataSource, "private_mcp");
+    const plain = await call(2, false);
+    assert.equal(plain.result.structuredContent.entries[0].metadata, undefined);
+  } finally { library.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test("local Splice browsing refuses paths outside configured roots, including symlink escapes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "splice-allowed-"));
+  const outside = await mkdtemp(join(tmpdir(), "splice-outside-"));
+  try {
+    await symlink(outside, join(root, "escape"));
+    const service = new ToolService({ spliceRoots: [root] });
+    await assert.rejects(service.call("browse_local_splice_directory", { rootPath: outside }), /configured Splice root/);
+    await assert.rejects(service.call("browse_local_splice_directory", { rootPath: join(root, "escape") }),
+      /configured Splice root/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
 });

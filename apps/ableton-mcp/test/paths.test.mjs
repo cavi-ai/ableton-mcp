@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { defaultRemoteScriptRoots, resolveRuntimeConfig } from "../src/paths.mjs";
 
 test("macOS discovery includes current Ableton User Library and app-support roots", () => {
@@ -25,6 +27,20 @@ test("configured Splice roots require a JSON array of distinct absolute paths", 
   for (const value of ['"/samples/Splice"', '["relative"]', '["/samples","/samples"]']) {
     assert.throws(() => resolveRuntimeConfig({ ABLETON_MCP_SPLICE_ROOTS: value }), /ABLETON_MCP_SPLICE_ROOTS/);
   }
+});
+
+test("macOS runtime discovers existing local Splice folders unless roots are explicitly configured", () => {
+  const home = mkdtempSync(join(tmpdir(), "splice-home-"));
+  const downloaded = join(home, "Splice", "Sounds");
+  const cache = join(home, "Library", "Splice", "Plug-in", "samples");
+  try {
+    mkdirSync(downloaded, { recursive: true });
+    mkdirSync(cache, { recursive: true });
+    assert.deepEqual(resolveRuntimeConfig({}, { platform: "darwin", home }).spliceRoots,
+      [downloaded, cache]);
+    assert.deepEqual(resolveRuntimeConfig({ ABLETON_MCP_SPLICE_ROOTS: "[]" },
+      { platform: "darwin", home }).spliceRoots, []);
+  } finally { rmSync(home, { recursive: true, force: true }); }
 });
 
 test("server socket default matches the Remote Script default on every platform", async () => {

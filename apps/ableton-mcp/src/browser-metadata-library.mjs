@@ -37,8 +37,18 @@ export class BrowserMetadataLibrary {
       CREATE INDEX IF NOT EXISTS browser_metadata_root ON browser_metadata(root);`);
   }
 
+  #findRow(item) {
+    const key = itemKey(item);
+    const exact = this.database.prepare("SELECT item_key, favorite, tags_json, revision FROM browser_metadata WHERE item_key = ?").get(key);
+    if (exact || item.root !== "local_splice") return exact;
+    const aliases = this.database.prepare(`SELECT item_key, favorite, tags_json, revision FROM browser_metadata
+      WHERE root = 'local_splice' AND uri = ? LIMIT 2`).all(item.uri);
+    if (aliases.length > 1) throw new Error("multiple legacy local Splice metadata records match this file");
+    return aliases[0];
+  }
+
   get(item) {
-    const row = this.database.prepare("SELECT favorite, tags_json, revision FROM browser_metadata WHERE item_key = ?").get(itemKey(item));
+    const row = this.#findRow(item);
     return row ? { favorite: Boolean(row.favorite), tags: JSON.parse(row.tags_json), revision: row.revision } :
       { favorite: false, tags: [], revision: 0 };
   }
@@ -58,6 +68,9 @@ export class BrowserMetadataLibrary {
     this.database.exec("BEGIN IMMEDIATE");
     try {
       const { after } = this.plan(item, expectedRevision, changes);
+      const previous = this.#findRow(item);
+      if (previous && previous.item_key !== itemKey(item))
+        this.database.prepare("DELETE FROM browser_metadata WHERE item_key = ?").run(previous.item_key);
       this.database.prepare(`INSERT INTO browser_metadata (item_key, root, path_json, uri, favorite, tags_json, revision)
         VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(item_key) DO UPDATE SET favorite=excluded.favorite, tags_json=excluded.tags_json, revision=excluded.revision`)

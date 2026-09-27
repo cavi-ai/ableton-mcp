@@ -37,12 +37,13 @@ test("core discovery is bounded and cannot call tools it does not advertise", as
   let calls = 0;
   const route = createRouter({ call: async () => { calls++; return { ok: true }; } }, { toolProfile: "core" });
   const tools = (await route({ id: 1, method: "tools/list" })).result.tools;
-  assert.equal(tools.length, 59);
+  assert.equal(tools.length, 60);
   const names = new Set(tools.map((tool) => tool.name));
   assert.ok(names.has("get_live_state"));
   assert.ok(names.has("list_browser_roots"));
   assert.ok(names.has("search_browser_roots"));
   assert.ok(names.has("list_local_splice_roots"));
+  assert.ok(names.has("browse_local_splice_directory"));
   assert.ok(names.has("set_tempo"));
   assert.ok(names.has("route_tracks_to_return_bus"));
   assert.ok(!names.has("apply_midi_diatonic_chord_quality"));

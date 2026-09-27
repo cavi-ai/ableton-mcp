@@ -2,11 +2,11 @@ import { assertExpectedState } from "./bridge-protocol.mjs";
 import { realpath, stat } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { createHash } from "node:crypto";
-import { isAbsolute } from "node:path";
+import { isAbsolute, relative, sep } from "node:path";
 import { analyzeAudioFile } from "./audio-analysis.mjs";
 import { planClipPitchAdjustment } from "./audio-tuning.mjs";
 import { buildSongGridReference, planGridEnvelopePattern } from "./song-grid-reference.mjs";
-import { listConfiguredSpliceRoots, observeLocalSpliceSample, searchLocalSpliceSamples } from "./splice-local-search.mjs";
+import { browseLocalSpliceDirectory, listConfiguredSpliceRoots, observeLocalSpliceSample, searchLocalSpliceSamples } from "./splice-local-search.mjs";
 import { inspectGroovePostconditions } from "./groove-workflow.mjs";
 import { analyzeMidiFeel, planMidiFeelTransfer } from "./midi-feel-analysis.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
@@ -39,6 +39,14 @@ import { matchMidiScaleChordRemappingReadback, planMidiScaleChordRemapping } fro
 import { matchMidiDiatonicChordQualityReadback, planMidiDiatonicChordQuality } from "./midi-diatonic-chord-quality.mjs";
 import { matchDrumPatternEditReadback, planDrumPattern, planDrumPatternEdit } from "./drum-pattern.mjs";
 import { matchDrumVariationReadback, planDrumVariation } from "./drum-variation.mjs";
+
+function canonicalLocalSpliceMetadataItem(item, configuredRoots) {
+  const root = configuredRoots.roots.filter(candidate => candidate.available &&
+    (item.uri === candidate.rootPath || item.uri.startsWith(`${candidate.rootPath}${sep}`)))
+    .sort((left, right) => left.rootPath.length - right.rootPath.length)[0];
+  if (!root) return item;
+  return { ...item, path: [root.rootPath, relative(root.rootPath, item.uri).split(sep).join("/")] };
+}
 
 function requireExpectedState(args) {
   if (!Number.isInteger(args.expectedStateVersion)) {
@@ -443,13 +451,26 @@ export class ToolService {
 
   async call(name, args = {}) {
     if (name === "list_local_splice_roots") return listConfiguredSpliceRoots(this.spliceRoots);
+    if (name === "browse_local_splice_directory") {
+      if (args.includeMetadata !== undefined && typeof args.includeMetadata !== "boolean") throw new Error("includeMetadata must be boolean");
+      const observed = await browseLocalSpliceDirectory(args, this.spliceRoots);
+      if (!args.includeMetadata) return observed;
+      const library = this.#browserMetadataLibrary();
+      const configuredRoots = await listConfiguredSpliceRoots(this.spliceRoots);
+      return { ...observed, entries: observed.entries.map((entry) => entry.type === "audio_file" ? {
+        ...entry, metadata: library.get(canonicalLocalSpliceMetadataItem({ root: "local_splice",
+          path: [observed.rootPath, entry.name], uri: entry.sourcePath }, configuredRoots)),
+      } : entry), metadataSource: "private_mcp" };
+    }
     if (name === "search_local_splice_samples") {
       if (args.includeMetadata !== undefined && typeof args.includeMetadata !== "boolean") throw new Error("includeMetadata must be boolean");
       const observed = await searchLocalSpliceSamples(args);
       if (!args.includeMetadata) return observed;
       const library = this.#browserMetadataLibrary();
+      const configuredRoots = await listConfiguredSpliceRoots(this.spliceRoots);
       return { ...observed, samples: observed.samples.map((sample) => ({ ...sample,
-        metadata: library.get({ root: "local_splice", path: [observed.rootPath, sample.relativePath], uri: sample.sourcePath }) })),
+        metadata: library.get(canonicalLocalSpliceMetadataItem({ root: "local_splice",
+          path: [observed.rootPath, sample.relativePath], uri: sample.sourcePath }, configuredRoots)) })),
         metadataSource: "private_mcp" };
     }
     if (name === "analyze_midi_feel") {
@@ -2392,7 +2413,8 @@ export class ToolService {
     if (args.root === "local_splice") {
       if (!Array.isArray(args.path) || args.path.length !== 2)
         throw new Error("local_splice path must contain absolute rootPath and relativePath");
-      return observeLocalSpliceSample(args.path[0], args.path[1]);
+      const item = await observeLocalSpliceSample(args.path[0], args.path[1]);
+      return canonicalLocalSpliceMetadataItem(item, await listConfiguredSpliceRoots(this.spliceRoots));
     }
     const target = normalizeBrowserPath(args);
     if (target.path.length === 0) throw new Error("a browser item path is required");

@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir, platform as currentPlatform } from "node:os";
@@ -20,7 +20,11 @@ export function defaultRemoteScriptRoots({ platform = currentPlatform(), home = 
 
 export function resolveRuntimeConfig(environment = process.env, options = {}) {
   const home = options.home || homedir();
-  let spliceRoots = [];
+  const platform = options.platform || currentPlatform();
+  let spliceRoots = platform === "darwin"
+    ? [join(home, "Splice", "Sounds"), join(home, "Library", "Splice", "Plug-in", "samples")]
+      .filter(path => existsSync(path) && statSync(path).isDirectory())
+    : [];
   if (environment.ABLETON_MCP_SPLICE_ROOTS !== undefined) {
     try { spliceRoots = JSON.parse(environment.ABLETON_MCP_SPLICE_ROOTS); }
     catch { throw new Error("ABLETON_MCP_SPLICE_ROOTS must be a JSON array of absolute paths"); }
