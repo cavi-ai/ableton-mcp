@@ -3,7 +3,7 @@
   "get_device_sidechain_routing",
   "get_clip_groove_context",
   "set_device_sidechain_routing",
-  "get_song_musical_context", "set_song_musical_context", "set_groove", "create_groove", "get_transport_recording_context", "set_transport_recording_context",
+  "get_song_musical_context", "set_song_musical_context", "set_groove", "create_groove", "get_transport_recording_context", "set_transport_recording_context", "capture_midi_session",
   "list_arrangement_cue_points", "create_arrangement_cue_point", "rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point",
   "get_browser_items", "load_browser_item", "search_browser_items", "get_factory_browser_items", "load_factory_browser_item",
   "list_tracks", "list_scenes", "set_scene_launch_quantization", "set_scene_musical_context", "list_clips", "get_clip_timing", "set_clip_timing", "duplicate_clip_loop", "duplicate_clip", "delete_clip",

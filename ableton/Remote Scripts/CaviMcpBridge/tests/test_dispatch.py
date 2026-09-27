@@ -387,6 +387,13 @@ class Song:
         self.cue_points = [CuePoint()]
         self.metronome = False
         self.count_in_duration = 1
+        self.can_capture_midi = True
+        self.capture_midi_destinations = []
+
+    def capture_midi(self, destination):
+        self.capture_midi_destinations.append(destination)
+        self.tracks[0].clip_slots[1].create_clip(4.0)
+        self.can_capture_midi = False
 
     def set_or_delete_cue(self):
         existing = next((cue for cue in self.cue_points if cue.time == self.current_song_time), None)
@@ -604,6 +611,8 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(observed["currentSongTime"], 4.0)
         self.assertTrue(observed["arrangement"]["punchIn"])
         self.assertTrue(observed["session"]["overdub"])
+        self.assertTrue(observed["midiCapture"]["available"])
+        self.assertEqual(observed["midiCapture"]["midiTrackIds"], ["track-0", "track-1"])
         changed = dispatch_request(song, {"method": "set_transport_recording_context", "params": {"changes": {
             "currentSongTime": 32.0, "metronome": False,
             "arrangement": {"record": True, "overdub": True, "punchIn": False, "punchOut": True, "backToArranger": True},
@@ -615,6 +624,23 @@ class DispatchTest(unittest.TestCase):
         self.assertTrue(song.back_to_arranger)
         self.assertFalse(song.overdub)
         self.assertTrue(song.session_automation_record)
+
+    def test_capture_midi_session_rechecks_readiness_and_reports_actual_clip_change(self):
+        song = Song()
+        before = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
+        with self.assertRaisesRegex(ValueError, "changed"):
+            dispatch_request(song, {"method": "capture_midi_session", "params": {
+                "expectedStateVersion": 3, "before": {"available": False}
+            }}, 3)
+        self.assertEqual(song.capture_midi_destinations, [])
+        result = dispatch_request(song, {"method": "capture_midi_session", "params": {
+            "expectedStateVersion": 3, "before": before["midiCapture"]
+        }}, 3)
+        self.assertEqual(song.capture_midi_destinations, [1])
+        self.assertEqual(result["changedSlots"][0]["clipId"], "track-0:clip-1")
+        self.assertFalse(result["changedSlots"][0]["before"]["hasClip"])
+        self.assertTrue(result["changedSlots"][0]["after"]["hasClip"])
+        self.assertFalse(result["after"]["midiCapture"]["available"])
 
     def test_socket_bridge_defers_cue_mutations_until_live_applies_the_playhead(self):
         song = Song()

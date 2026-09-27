@@ -916,6 +916,24 @@ test("transport recording context mutation validates and signs exact changes", a
   }), /currentSongTime/);
 });
 
+test("Capture MIDI signs session scope and refuses an empty native capture buffer", async () => {
+  const before = { stateVersion: 4, midiCapture: { available: true, midiTrackIds: ["track-0", "track-1"] } };
+  const service = new ToolService({ bridge: { async request(method) {
+    if (method === "get_transport_recording_context") return before;
+    if (method === "capture_midi_session") return { stateVersion: 5, changedSlots: [{ clipId: "track-0:clip-1" }] };
+    throw new Error(method);
+  } } });
+  const args = { expectedStateVersion: 4 };
+  const dry = await service.call("capture_midi_session", args);
+  assert.equal(dry.plan.destination, "session");
+  assert.deepEqual(dry.plan.before.midiTrackIds, ["track-0", "track-1"]);
+  const applied = await service.call("capture_midi_session", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(applied.observed.changedSlots[0].clipId, "track-0:clip-1");
+  before.midiCapture.available = false;
+  await assert.rejects(() => service.call("capture_midi_session", args), /no MIDI material/);
+});
+
 test("arrangement cue points are inspectable and exact mutations are guarded", async () => {
   const { service, calls } = fixture();
   assert.equal((await service.call("list_arrangement_cue_points")).cuePoints[0].timeBeats, 16);

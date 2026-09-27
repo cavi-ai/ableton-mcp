@@ -887,6 +887,7 @@ export class ToolService {
     if (name === "set_groove") return this.#setGroove(args);
     if (name === "create_groove") return this.#createGroove(args);
     if (name === "set_transport_recording_context") return this.#setTransportRecordingContext(args);
+    if (name === "capture_midi_session") return this.#captureMidiSession(args);
     if (["create_arrangement_cue_point", "rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point"].includes(name)) {
       return this.#arrangementCuePointMutation(name, args);
     }
@@ -1477,6 +1478,15 @@ export class ToolService {
       method: "set_transport_recording_context", expectedStateVersion: args.expectedStateVersion,
       before: observed, changes
     }, args);
+  }
+
+  async #captureMidiSession(args) {
+    requireExpectedState(args);
+    const observed = await this.bridge.request("get_transport_recording_context", {});
+    assertExpectedState(args, observed);
+    if (observed.midiCapture?.available !== true) throw new Error("no MIDI material is available to capture");
+    return this.#confirmedMutation({ method: "capture_midi_session", destination: "session",
+      expectedStateVersion: args.expectedStateVersion, before: observed.midiCapture }, args);
   }
 
   async #setTransportContext(args) {

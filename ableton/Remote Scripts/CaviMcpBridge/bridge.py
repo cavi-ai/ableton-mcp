@@ -225,6 +225,11 @@ def _transport_recording_context(song, state_version):
         },
         "session": {"record": bool(song.session_record), "overdub": bool(song.overdub)},
         "automationArm": bool(song.session_automation_record),
+        "midiCapture": {
+            "available": bool(getattr(song, "can_capture_midi", False)),
+            "midiTrackIds": [f"track-{index}" for index, track in enumerate(song.tracks)
+                             if bool(getattr(track, "has_midi_input", False))],
+        },
     }
 
 
@@ -2330,6 +2335,27 @@ def dispatch_request(song, request, state_version, application=None):
                                      "groovePoolCreate": groove_pool is not None and callable(getattr(groove_pool, "create_groove", None))}}
     if method == "get_transport_context":
         return _transport_context(song, state_version)
+    if method == "capture_midi_session":
+        if params.get("expectedStateVersion") != state_version:
+            raise ValueError("MIDI capture state version changed")
+        before = _transport_recording_context(song, state_version)
+        if params.get("before") != before["midiCapture"]:
+            raise ValueError("MIDI capture readiness or track topology changed")
+        if not before["midiCapture"]["available"]:
+            raise ValueError("no MIDI material is available to capture")
+        track_ids = before["midiCapture"]["midiTrackIds"]
+        previous = {record["id"]: record for track_id in track_ids
+                    for record in _clip_list(song, track_id, state_version)["clips"]}
+        scene_count_before = len(song.scenes)
+        song.capture_midi(1)
+        current = {record["id"]: record for track_id in track_ids
+                   for record in _clip_list(song, track_id, state_version + 1)["clips"]}
+        changed = [{"clipId": clip_id, "before": previous.get(clip_id), "after": record}
+                   for clip_id, record in current.items() if previous.get(clip_id) != record]
+        return {"stateVersion": state_version + 1, "destination": "session",
+                "before": before, "after": _transport_recording_context(song, state_version + 1),
+                "sceneCountBefore": scene_count_before, "sceneCountAfter": len(song.scenes),
+                "changedSlots": changed}
     if method == "get_looper_performance_context":
         return _looper_performance_context(song, params["trackId"], params["deviceId"], state_version)
     if method == "get_beat_repeat_performance_context":

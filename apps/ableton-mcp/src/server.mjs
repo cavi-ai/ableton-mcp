@@ -64,6 +64,7 @@ const toolNames = [
   "set_song_musical_context",
   "set_groove",
   "get_transport_recording_context",
+  "capture_midi_session",
   "set_transport_recording_context",
   "list_arrangement_cue_points",
   "create_arrangement_cue_point",

@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 189 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 190 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (82)
 
@@ -47,7 +47,7 @@ The server publishes 189 tools. Mutations of the Live Set require `expectedState
 | `get_track_mixer` | Read bounded track volume, pan, mute, solo, and named return sends. | `trackId` |
 | `get_track_routing` | Read exact input, output, and monitoring choices for one track. Group Tracks expose monitoring as null because Live does not support it. | `trackId` |
 | `get_transport_context` | Read transport playback, metronome, and count-in state. | none |
-| `get_transport_recording_context` | Read playhead and Arrangement, Session, and automation recording state. | none |
+| `get_transport_recording_context` | Read playhead, Arrangement and Session recording modes, automation arm, and native Capture MIDI readiness with MIDI track IDs. | none |
 | `inspect_clip_groove_postconditions` | Read current native context and inspect extraction or baking postconditions against a supplied pre-action get_clip_groove_context snapshot. Does not execute the UI action, prove provenance, or validate audible equivalence. Extraction expects one appended groove and unchanged source/timing; baking expects removed assignment and unchanged unrelated timing/shared context. | `trackId`, `clipId`, `operation`, `before` |
 | `inspect_producer_bus` | Read an existing Group Track, its ordered bus FX, child instrument identities, group membership and actual output routing against one layered-system blueprint. Reports mismatches without edits. | `target`, `busTrackId`, `children` |
 | `inspect_producer_chain` | Read the devices on one exact track and compare their factory profiles and order with a named producer-chain blueprint. No devices are loaded or changed. | `target`, `trackId` |
@@ -91,7 +91,7 @@ The server publishes 189 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search local downloaded Splice audio assets under an explicit directory. Read-only; not cloud catalog search, download, or sync. Returns exact local source paths for analyze_audio_file. | `rootPath`, `query` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (95)
+## Mutations (96)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -113,6 +113,7 @@ The server publishes 189 tools. Mutations of the Live Set require `expectedState
 | `apply_midi_transposition` | Plan or apply guarded chromatic MIDI transposition with complete native readback verification. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `semitones` |
 | `apply_midi_velocity_curve` | Plan or apply a guarded MIDI velocity curve while preserving timing, pitch, duration, probability, and expression metadata. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `curve` |
 | `arm_track` | Plan or set the record-arm state of one exact track. | `expectedStateVersion`, `trackId`, `armed` |
+| `capture_midi_session` | Plan or invoke Live's native Capture MIDI into Session View for recently played MIDI on audible tracks. May create or change clips on multiple MIDI tracks or add a scene; the target is determined by Live, not guaranteed by the plan. Reports immediate clip-slot metadata changes; inspect clip notes separately for note-only overdubs. Requires native can_capture_midi readiness and confirmation. | `expectedStateVersion` |
 | `correct_midi_clip_to_scale` | Plan or apply guarded pitch correction of exact chromatic MIDI notes into the current Live scale. Direction is explicit; equal nearest choices require an explicit tie break. Existing in-scale notes are never changed. | `expectedStateVersion`, `trackId`, `clipId`, `direction` |
 | `create_arrangement_cue_point` | Plan or create an Arrangement cue point at an exact beat position. | `expectedStateVersion`, `name`, `timeBeats` |
 | `create_audio_clip` | Plan or import a local audio file into one exact empty Session slot on an unfrozen audio track. The confirmed plan binds the source file identity, size, and modification time; Live validates the audio format. | `expectedStateVersion`, `trackId`, `clipId`, `sourcePath` |
