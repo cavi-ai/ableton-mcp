@@ -4189,10 +4189,11 @@ def dispatch_request(song, request, state_version, application=None):
         clip, timeline = _midi_clip(song, params["trackId"], params["clipId"])
         location = "arrangement" if timeline is not None else "session"
         if method in ("set_midi_note_properties", "transform_midi_notes"):
+            guarded_properties = method == "set_midi_note_properties"
             guarded_basic = (method == "transform_midi_notes" and
                              isinstance(params.get("operation"), dict) and
                              params["operation"].get("type") in ("quantize", "legato", "duplicate"))
-            if guarded_basic:
+            if guarded_basic or guarded_properties:
                 if params.get("expectedStateVersion") != state_version:
                     raise ValueError("MIDI clip state version changed")
                 if params.get("clipTiming") != _clip_timing(song, params["trackId"], params["clipId"], state_version):
@@ -4205,7 +4206,11 @@ def dispatch_request(song, request, state_version, application=None):
                     raise ValueError("MIDI clip changed since observation")
                 basic_notes = {note["noteId"]: note for note in basic_current["notes"]}
                 for change in params["changes"]:
-                    if basic_notes.get(change.get("noteId")) != change.get("previous"):
+                    previous = change.get("previous")
+                    current_note = basic_notes.get(change.get("noteId"))
+                    if current_note is None or (guarded_properties and params.get("operation") == "correct_midi_clip_to_scale" and
+                            (not isinstance(previous, dict) or current_note["pitch"] != previous.get("pitch"))) or \
+                            ((guarded_basic or params.get("operation") != "correct_midi_clip_to_scale") and current_note != previous):
                         raise ValueError("MIDI transform target changed since observation")
             guarded_variation = method == "transform_midi_notes" and params.get("operation") == "apply_drum_variation"
             guarded_humanization = method == "transform_midi_notes" and params.get("operation") == "apply_midi_humanization"
@@ -4559,6 +4564,31 @@ def dispatch_request(song, request, state_version, application=None):
                                 clip.apply_note_modifications([note for note, _ in originals])
                         except Exception as rollback_error:
                             raise RuntimeError("MIDI humanization failed and rollback was incomplete (%s); original error: %s" %
+                                               (rollback_error, mutation_error))
+                        raise mutation_error
+            if guarded_properties:
+                with _undo_step(song):
+                    try:
+                        for change in params["changes"]:
+                            note = by_id[int(change["noteId"])]
+                            for source, target in fields.items():
+                                if source in change:
+                                    setattr(note, target, change[source])
+                        if notes:
+                            clip.apply_note_modifications(notes)
+                        readback = [_midi_note_record(note) for note in clip.get_notes_by_id(note_ids)]
+                        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                                "clipId": params["clipId"], "location": location, "timeline": timeline,
+                                "lengthBeats": float(clip.length), "notes": readback}
+                    except Exception as mutation_error:
+                        for note, values in originals:
+                            for target, value in values.items():
+                                setattr(note, target, value)
+                        try:
+                            if originals:
+                                clip.apply_note_modifications([note for note, _ in originals])
+                        except Exception as rollback_error:
+                            raise RuntimeError("MIDI note properties failed and rollback was incomplete (%s); original error: %s" %
                                                (rollback_error, mutation_error))
                         raise mutation_error
             if guarded_basic:

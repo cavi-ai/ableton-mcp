@@ -1023,8 +1023,9 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(extended["timeline"]["endBeats"], 16.0)
         self.assertEqual(extended["notes"][0]["noteId"], 7)
         changed = dispatch_request(song, {"method": "set_midi_note_properties", "params": {
-            "trackId": "track-0", "clipId": clip_id,
-            "changes": [{"noteId": 7, "velocity": 42}]
+            "trackId": "track-0", "clipId": clip_id, "expectedStateVersion": 3,
+            "before": extended, "clipTiming": timing,
+            "changes": [{"noteId": 7, "previous": extended["notes"][0], "velocity": 42}]
         }}, 3)
         self.assertEqual(changed["stateVersion"], 4)
         self.assertEqual(changed["location"], "arrangement")
@@ -3968,15 +3969,60 @@ class DispatchTest(unittest.TestCase):
         clip.extended_notes = [MidiNote()]
         params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
         observed = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": params}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": params}, 3)
         self.assertEqual(observed["notes"][0]["noteId"], 7)
         self.assertEqual(observed["notes"][0]["releaseVelocity"], 64)
         changed = dispatch_request(song, {"method": "set_midi_note_properties", "params": {
-            **params, "changes": [{"noteId": 7, "probability": 0.25, "releaseVelocity": 92,
+            **params, "expectedStateVersion": 3, "before": observed, "clipTiming": timing,
+            "changes": [{"noteId": 7, "previous": observed["notes"][0],
+                                    "probability": 0.25, "releaseVelocity": 92,
                                     "velocityDeviation": -12}]
         }}, 3)
         self.assertEqual(changed["stateVersion"], 4)
         self.assertEqual(clip.extended_notes[0].probability, 0.25)
         self.assertEqual(changed["notes"][0]["velocityDeviation"], -12)
+
+    def test_per_note_properties_reject_changed_clip_before_writing(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        clip.extended_notes = [MidiNote()]
+        target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+        clip.extended_notes[0].pitch = 62
+        with self.assertRaisesRegex(ValueError, "MIDI clip changed"):
+            dispatch_request(song, {"method": "set_midi_note_properties", "params": {
+                **target, "expectedStateVersion": 3, "before": before, "clipTiming": timing,
+                "changes": [{"noteId": 7, "previous": before["notes"][0], "probability": 0.25}]
+            }}, 3)
+        self.assertEqual(clip.extended_notes[0].probability, 1.0)
+        self.assertEqual(song.undo_boundaries, [])
+
+    def test_per_note_properties_restore_clip_after_native_apply_failure(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        clip.extended_notes = [MidiNote()]
+        target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+        original_apply = clip.apply_note_modifications
+        attempts = [0]
+
+        def apply_then_fail_once(notes):
+            attempts[0] += 1
+            original_apply(notes)
+            if attempts[0] == 1:
+                raise RuntimeError("native apply failed after write")
+
+        clip.apply_note_modifications = apply_then_fail_once
+        with self.assertRaisesRegex(RuntimeError, "native apply failed"):
+            dispatch_request(song, {"method": "set_midi_note_properties", "params": {
+                **target, "expectedStateVersion": 3, "before": before, "clipTiming": timing,
+                "changes": [{"noteId": 7, "previous": before["notes"][0], "probability": 0.25,
+                             "releaseVelocity": 92}]
+            }}, 3)
+        self.assertEqual(dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3), before)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
     def test_transform_midi_notes_updates_existing_notes_and_adds_duplicates(self):
         song = Song()

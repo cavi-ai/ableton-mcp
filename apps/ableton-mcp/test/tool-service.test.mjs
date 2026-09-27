@@ -1583,6 +1583,8 @@ test("per-note properties use a guarded exact-ID mutation plan", async () => {
   const dry = await service.call("set_midi_note_properties", args);
   assert.equal(dry.plan.changes[0].previous.probability, 1);
   assert.equal(dry.plan.changes[0].probability, 0.25);
+  assert.equal(dry.plan.before.notes[0].noteId, 7);
+  assert.equal(dry.plan.clipTiming.loop.endBeats, 4);
   const live = await service.call("set_midi_note_properties", {
     ...args, dryRun: false, confirmationToken: dry.confirmation.token,
     planHash: dry.confirmation.planHash

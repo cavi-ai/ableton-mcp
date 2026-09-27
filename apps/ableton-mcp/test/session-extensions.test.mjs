@@ -170,6 +170,15 @@ test("arrangement MIDI clip reads and note edits resolve timeline identity", asy
   const service = new ToolService({ bridge: { async request(method, params) {
     calls.push({ method, params });
     if (method === "get_midi_clip_notes_extended") return extended;
+    if (method === "get_clip_timing") return {
+      stateVersion: 4, trackId: "track-0", clipId: arrangementClip.id,
+      location: "arrangement", timeline: arrangementClip,
+      loop: { enabled: true, startBeats: 0, endBeats: 8 },
+      timeSignature: { numerator: 4, denominator: 4 },
+      launchQuantization: { value: 0, name: "global", choices: [] },
+      editorGrid: { quantization: { value: 8, name: "1_16", choices: [] }, isTriplet: false },
+      launchLegato: { supported: false }, grooveId: null, availableGrooves: []
+    };
     if (method === "set_midi_note_properties") return { ...extended, stateVersion: 5,
       notes: extended.notes.map(note => note.noteId === params.changes[0].noteId
         ? { ...note, ...params.changes[0] } : note) };

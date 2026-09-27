@@ -2825,10 +2825,20 @@ export class ToolService {
       trackId: args.trackId, clipId: args.clipId
     });
     assertExpectedState(args, observed);
+    const clipTiming = await this.bridge.request("get_clip_timing", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    assertExpectedState(args, clipTiming);
+    const refreshed = await this.bridge.request("get_midi_clip_notes_extended", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    if (JSON.stringify(observed) !== JSON.stringify(refreshed) || observed.trackId !== args.trackId ||
+        observed.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
+      throw new Error("MIDI clip changed during note-property planning; retry");
     const notes = new Map(observed.notes.map((note) => [note.noteId, note]));
     const plan = {
       method: "set_midi_note_properties", trackId: args.trackId, clipId: args.clipId,
-      expectedStateVersion: args.expectedStateVersion,
+      expectedStateVersion: args.expectedStateVersion, before: observed, clipTiming,
       changes: args.changes.map((change, index) => {
         const current = notes.get(change.noteId);
         if (!current) throw new Error(`unknown noteId ${change.noteId}`);
@@ -2849,9 +2859,17 @@ export class ToolService {
     const clip = await this.bridge.request("get_midi_clip_notes_extended", {
       trackId: args.trackId, clipId: args.clipId
     });
+    const clipTiming = await this.bridge.request("get_clip_timing", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    const refreshed = await this.bridge.request("get_midi_clip_notes_extended", {
+      trackId: args.trackId, clipId: args.clipId
+    });
     const after = await this.bridge.request("get_song_musical_context", {});
-    if (before.stateVersion !== clip.stateVersion || clip.stateVersion !== after.stateVersion ||
-        JSON.stringify(before) !== JSON.stringify(after) || clip.trackId !== args.trackId || clip.clipId !== args.clipId)
+    if (before.stateVersion !== clip.stateVersion || clip.stateVersion !== clipTiming.stateVersion ||
+        clipTiming.stateVersion !== after.stateVersion || JSON.stringify(before) !== JSON.stringify(after) ||
+        JSON.stringify(clip) !== JSON.stringify(refreshed) || clip.trackId !== args.trackId ||
+        clip.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
       throw new Error("song or clip changed during scale correction; retry");
 
     const analysis = analyzeMidiNotesAgainstScale(clip.notes, before.key);
@@ -2862,6 +2880,8 @@ export class ToolService {
       trackId: args.trackId,
       clipId: args.clipId,
       expectedStateVersion: args.expectedStateVersion,
+      before: clip,
+      clipTiming,
       scale: { ...analysis.scale, scaleName: analysis.scale.name },
       direction: args.direction,
       tieBreak: args.tieBreak ?? null,
