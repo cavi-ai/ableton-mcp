@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ToolService } from "../src/tool-service.mjs";
+import { createRouter } from "../src/server.mjs";
 
 test("local Splice search finds only audio assets under the selected root", async () => {
   const root = await mkdtemp(join(tmpdir(), "splice-search-"));
@@ -84,5 +85,44 @@ test("local Splice search pages in stable relative-path order across files and f
     const third = await service.call("search_local_splice_samples", { ...args, offset: second.nextOffset });
     assert.deepEqual(third.samples.map(({ relativePath }) => relativePath), ["b-hit.wav"]);
     assert.equal(third.nextOffset, null);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("local Splice search reports an incomplete scan at its visited-item limit", async () => {
+  const root = await mkdtemp(join(tmpdir(), "splice-bounded-"));
+  try {
+    await writeFile(join(root, "a.wav"), "audio");
+    await writeFile(join(root, "b.wav"), "audio");
+    await writeFile(join(root, "c.wav"), "audio");
+    const service = new ToolService({});
+    const bounded = await service.call("search_local_splice_samples", {
+      rootPath: root, query: "c", maxVisited: 2,
+    });
+    assert.deepEqual(bounded.samples, []);
+    assert.equal(bounded.visited, 2);
+    assert.equal(bounded.truncated, true);
+    assert.equal(bounded.nextOffset, null);
+    const complete = await service.call("search_local_splice_samples", {
+      rootPath: root, query: "c", maxVisited: 3,
+    });
+    assert.deepEqual(complete.samples.map(sample => sample.relativePath), ["c.wav"]);
+    assert.equal(complete.truncated, false);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("MCP accepts the scan limit and returns explicit truncation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "splice-mcp-bounded-"));
+  try {
+    await writeFile(join(root, "a.wav"), "audio");
+    await writeFile(join(root, "b.wav"), "audio");
+    const response = await createRouter(new ToolService({}))({
+      id: 1, method: "tools/call", params: {
+        name: "search_local_splice_samples", arguments: { rootPath: root, query: "b", maxVisited: 1 },
+      },
+    });
+    assert.equal(response.error, undefined);
+    assert.equal(response.result.structuredContent.truncated, true);
+    assert.equal(response.result.structuredContent.visited, 1);
+    assert.deepEqual(response.result.structuredContent.samples, []);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
