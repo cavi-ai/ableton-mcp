@@ -1702,6 +1702,18 @@ test("core transport, mixer, scene, and clip operations use guarded mutation pla
   }
 });
 
+test("scene launch carries an explicit legato override through the guarded plan", async () => {
+  const { service, calls } = fixture();
+  const args = { sceneId: "scene-0", expectedStateVersion: 4, forceLegato: true };
+  const dry = await service.call("launch_scene", args);
+  assert.equal(dry.plan.forceLegato, true);
+  const result = await service.call("launch_scene", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.requested.forceLegato, true);
+  assert.equal(calls.at(-1).params.forceLegato, true);
+  await assert.rejects(() => service.call("launch_scene", { ...args, forceLegato: "yes" }), /forceLegato must be boolean/);
+});
+
 test("transport context exposes and guards metronome and count-in changes", async () => {
   const { service, calls } = fixture();
   const observed = await service.call("get_transport_context");

@@ -4739,9 +4739,12 @@ def dispatch_request(song, request, state_version, application=None):
         track.arm = bool(params["armed"])
         return {"stateVersion": state_version + 1, "trackId": params["trackId"], "armed": track.arm}
     if method == "launch_scene":
+        force_legato = params.get("forceLegato", False)
+        if type(force_legato) is not bool:
+            raise ValueError("forceLegato must be boolean")
         index = int(params["sceneId"].removeprefix("scene-"))
-        song.scenes[index].fire()
-        return {"stateVersion": state_version + 1, "sceneId": params["sceneId"]}
+        song.scenes[index].fire(force_legato=force_legato)
+        return {"stateVersion": state_version + 1, "sceneId": params["sceneId"], "forceLegato": force_legato}
     if method in ("launch_clip", "stop_clip"):
         _, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
         if method == "launch_clip":

@@ -3426,6 +3426,9 @@ export class ToolService {
 
   async #genericMutation(name, args) {
     requireExpectedState(args);
+    if (name === "launch_scene" && args.forceLegato !== undefined && typeof args.forceLegato !== "boolean") {
+      throw new Error("forceLegato must be boolean");
+    }
     const current = await this.bridge.request("get_live_state", {});
     assertExpectedState(args, current);
     const plan = { method: name, ...args };

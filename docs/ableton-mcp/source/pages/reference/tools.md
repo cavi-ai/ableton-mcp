@@ -134,7 +134,7 @@ The server publishes 189 tools. Mutations of the Live Set require `expectedState
 | `humanize_midi_notes` | Plan or apply guarded deterministic MIDI timing and velocity humanization with exact clip, grid, and complete native note readback. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `seed`, `gridBeats`, `maxTimingOffsetBeats`, `maxVelocityOffset` |
 | `jump_to_arrangement_cue_point` | Plan or move the playhead to one exact Arrangement cue point. | `expectedStateVersion`, `cuePointId` |
 | `launch_clip` | Plan or launch one exact Session clip slot. | `expectedStateVersion`, `trackId`, `clipId` |
-| `launch_scene` | Plan or launch one exact Session scene. | `expectedStateVersion`, `sceneId` |
+| `launch_scene` | Plan or launch one exact Session scene. Optional forceLegato launches all scene clips immediately in Legato, overriding their clip launch modes. | `expectedStateVersion`, `sceneId` |
 | `load_browser_item` | Plan or load one exact Live browser item onto a guarded ordinary, Return, or Main track. | `expectedStateVersion`, `trackId`, `root`, `path` |
 | `load_factory_browser_item` | Plan or load one exact factory browser item onto a guarded ordinary, Return, or Main track. | `expectedStateVersion`, `trackId`, `root`, `path` |
 | `move_arrangement_clip` | Plan or move one exact Arrangement clip to a new beat position, preserving its span with staged copies, rollback, and an isolated undo step. Rejects collisions with other clips; self-overlap is supported. | `expectedStateVersion`, `trackId`, `clipId`, `startBeats` |

@@ -289,8 +289,10 @@ class Scene:
         self.name = "Verse"
         self.is_triggered = False
         self.launch_quantization = 0
+        self.last_force_legato = None
 
-    def fire(self):
+    def fire(self, force_legato=False):
+        self.last_force_legato = force_legato
         self.is_triggered = True
 
 
@@ -3000,6 +3002,9 @@ class DispatchTest(unittest.TestCase):
         self.assertTrue(song.tracks[0].mute)
         dispatch_request(song, {"method": "launch_scene", "params": {"sceneId": "scene-0"}}, 4)
         self.assertTrue(song.scenes[0].is_triggered)
+        self.assertFalse(song.scenes[0].last_force_legato)
+        dispatch_request(song, {"method": "launch_scene", "params": {"sceneId": "scene-0", "forceLegato": True}}, 4)
+        self.assertTrue(song.scenes[0].last_force_legato)
         dispatch_request(song, {"method": "launch_clip", "params": {"trackId": "track-0", "clipId": "track-0:clip-0"}}, 5)
         self.assertTrue(song.tracks[0].clip_slots[0].clip.is_playing)
         dispatch_request(song, {"method": "arm_track", "params": {"trackId": "track-0", "armed": True}}, 6)
