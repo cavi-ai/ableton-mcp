@@ -68,7 +68,13 @@ export async function discoverOmnisphereFactoryPresets(config) {
       if (!entry.isFile() || !config.extensions.includes(extname(entry.name).toLowerCase())) continue;
       const databasePath = join(root, entry.name);
       const bytes = await readFile(databasePath);
-      for (const patch of embeddedPatches(bytes)) {
+      const patches = embeddedPatches(bytes);
+      const basenameCounts = new Map();
+      for (const patch of patches) {
+        const name = basename(patch.name);
+        basenameCounts.set(name, (basenameCounts.get(name) ?? 0) + 1);
+      }
+      for (const patch of patches) {
         const bodyLength = bytes.length - patch.bodyStart;
         if (!Number.isSafeInteger(patch.offset) || !Number.isSafeInteger(patch.size) ||
             patch.offset < 0 || patch.size <= 0 || patch.offset > bodyLength || patch.size > bodyLength - patch.offset) {
@@ -79,7 +85,9 @@ export async function discoverOmnisphereFactoryPresets(config) {
         discoveries.push(validateAdapterDiscovery({
           productSlug: config.productSlug,
           sourceRoot: root,
-          sourcePath: join(databasePath, patch.name),
+          // Preserve existing IDs where a basename is unique; disambiguate real collisions by full entry path.
+          sourcePath: join(databasePath, basenameCounts.get(basename(patch.name)) === 1
+            ? basename(patch.name) : patch.name),
           sourceContainerPath: databasePath,
           sourceEntryName: patch.name,
           name: basename(patch.name, ".prt_omn"),

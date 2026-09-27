@@ -74,3 +74,29 @@ test("inventoryProduct marks presets it did not rediscover as missing and restor
   assert.deepEqual(await run(["Deep", "Wide"]), { discovered: 0, unchanged: 2, missing: 0 });
   assert.equal(records.get(wide.id).missing, undefined);
 });
+
+test("inventoryProduct refreshes source metadata without resetting unchanged preset progress", async () => {
+  const existing = { id: "omnisphere:fixed", productSlug: "omnisphere", name: "Shared", bank: "Factory",
+    subBank: "Factory", types: ["Factory"], modes: [], author: "Spectrasonics", sourceRoot: "/root",
+    sourcePath: "/root/Factory.db/Shared.prt_omn", sourceRelativePath: "Factory.db/Shared.prt_omn",
+    sourceContainerPath: "/root/Factory.db", sourceEntryName: "Shared.prt_omn",
+    sourceFingerprint: "sha256:same", state: "validated", attempts: 2,
+    evidence: [{ state: "validated", kind: "verified" }] };
+  const records = new Map([[existing.id, existing]]);
+  const store = { get: id => records.get(id), upsert: async record => records.set(record.id, record),
+    list: slug => [...records.values()].filter(record => record.productSlug === slug), flush: async () => {} };
+  const indexed = [];
+  const discovery = { productSlug: "omnisphere", sourceRoot: "/root", sourcePath: existing.sourcePath,
+    sourceContainerPath: existing.sourceContainerPath, sourceEntryName: "Pads/Shared.prt_omn",
+    name: "Shared", bank: "Factory", subBank: "Pads", types: ["Pads"], modes: [],
+    author: "Spectrasonics", sourceFingerprint: "sha256:same" };
+  assert.deepEqual(await inventoryProduct({ productSlug: "omnisphere", discover: async () => [discovery],
+    store, catalog: { upsert: record => indexed.push(record) }, idForDiscovery: () => existing.id }),
+  { discovered: 0, unchanged: 1, missing: 0 });
+  assert.equal(records.get(existing.id).subBank, "Pads");
+  assert.equal(records.get(existing.id).sourceEntryName, "Pads/Shared.prt_omn");
+  assert.deepEqual(records.get(existing.id).types, ["Pads"]);
+  assert.equal(records.get(existing.id).state, "validated");
+  assert.deepEqual(records.get(existing.id).evidence, existing.evidence);
+  assert.equal(indexed[0].subBank, "Pads");
+});

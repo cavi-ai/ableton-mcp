@@ -55,6 +55,21 @@ test("Omnisphere embedded directory hierarchy keeps same-named factory patches d
   assert.notEqual(records[0].sourceFingerprint, records[1].sourceFingerprint);
 });
 
+test("Omnisphere keeps existing stable IDs for unique archive patch names", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "omnisphere-stable-id-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, "Factory.db"), Buffer.from(
+    `<FileSystem><DIR name="Pads"><FILE name="Unique.prt_omn" offset="0" size="3"/></DIR></FileSystem>\nabc`
+  ));
+  const [record] = await discoverOmnisphereFactoryPresets({
+    enabled: true, productSlug: "omnisphere", vendor: "Spectrasonics", factoryRoots: [root], extensions: [".db"]
+  });
+  assert.equal(record.sourceEntryName, "Pads/Unique.prt_omn");
+  assert.equal(record.subBank, "Pads");
+  assert.equal(stablePresetId(record), stablePresetId({ ...record,
+    sourcePath: join(root, "Factory.db", "Unique.prt_omn") }));
+});
+
 test("Omnisphere rejects malformed patch entries rather than returning an incomplete inventory", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "omnisphere-malformed-"));
   t.after(() => rm(root, { recursive: true, force: true }));
