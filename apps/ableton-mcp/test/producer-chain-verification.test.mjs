@@ -81,7 +81,12 @@ test("inspect_producer_bus checks child instruments, grouping, routing and order
     { role: "texture", instrumentMatches: true, grouped: true, routed: false }
   ]);
   assert.equal(result.matchesBlueprint, false);
-  assert.equal(calls.filter(({ method }) => method === "list_tracks").length, 1);
+  devices["track-2"] = [{ ...device("body-rack", "InstrumentGroupDevice", "Instrument Rack"),
+    chains: [{ id: "body-rack/chain-0", devices: [device("body-rack/chain-0/device-0", "Wavetable", "Wavetable")] }], returnChains: [] }];
+  const nested = await service.call("inspect_producer_bus", { target: "layered-bass-system", busTrackId: "track-0",
+    children: [{ role: "sub", trackId: "track-1" }, { role: "body", trackId: "track-2" }, { role: "texture", trackId: "track-3" }] });
+  assert.equal(nested.children[1].instrumentMatches, true);
+  assert.equal(calls.filter(({ method }) => method === "list_tracks").length, 2);
   await assert.rejects(() => service.call("inspect_producer_bus", { target: "mastering", busTrackId: "track-0", children: [] }), /shared-bus/);
   await assert.rejects(() => service.call("inspect_producer_bus", { target: "layered-bass-system", busTrackId: "track-0",
     children: [{ role: "sub", trackId: "track-1" }, { role: "body", trackId: "track-1" }, { role: "texture", trackId: "track-3" }] }), /distinct track/);
@@ -119,6 +124,11 @@ test("inspect_producer_return_bus verifies layered sources, sends-only routing a
   assert.equal(result.busChain.matchesRequiredOrder, true);
   assert.deepEqual(result.children.map(child => child.routed), [true, true, false]);
   assert.equal(result.matchesBlueprint, false);
+  instruments["track-1"] = [{ ...device("body-rack", "InstrumentGroupDevice", "Instrument Rack"),
+    chains: [{ id: "body-rack/chain-0", devices: [device("body-rack/chain-0/device-0", "Wavetable", "Wavetable")] }], returnChains: [] }];
+  const nested = await service.call("inspect_producer_return_bus", { target: "layered-bass-system", returnTrackId: "return-0",
+    children: [{ role: "sub", trackId: "track-0" }, { role: "body", trackId: "track-1" }, { role: "texture", trackId: "track-2" }] });
+  assert.equal(nested.children[1].instrumentMatches, true);
   tracks.stateVersion = 13;
   await assert.rejects(() => service.call("inspect_producer_return_bus", { target: "layered-bass-system", returnTrackId: "return-0",
     children: [{ role: "sub", trackId: "track-0" }, { role: "body", trackId: "track-1" }, { role: "texture", trackId: "track-2" }] }), /state version/);

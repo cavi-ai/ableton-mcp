@@ -8,7 +8,7 @@ import { inspectGroovePostconditions } from "./groove-workflow.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { CatalogService } from "./catalog-service.mjs";
 import { getFactoryDeviceProfile, groupDeviceParameters, listFactoryDeviceProfiles } from "./factory-device-knowledge.mjs";
-import { getProducerChainBlueprint, listProducerChainBlueprints, verifyProducerChain } from "./producer-chain-knowledge.mjs";
+import { collectFactoryDeviceProfileIds, getProducerChainBlueprint, listProducerChainBlueprints, verifyProducerChain } from "./producer-chain-knowledge.mjs";
 import { getPluginIntegrationProfile } from "./plugin-integrations.mjs";
 import { enrichSongScaleContext, getLiveScaleReference, listLiveScaleReferences } from "./live-scale-reference.mjs";
 import { analyzeMidiNotesAgainstScale, planMidiScaleCorrections } from "./midi-scale-analysis.mjs";
@@ -485,7 +485,7 @@ export class ToolService {
         if (!track) throw new Error(`unknown child track ${trackId}`);
         const childDevices = await read("list_devices", trackId);
         const routing = await read("get_track_routing", trackId);
-        const observedInstrumentProfileIds = childDevices.devices.map((device) => getFactoryDeviceProfile(device)?.id).filter(Boolean);
+        const observedInstrumentProfileIds = collectFactoryDeviceProfileIds(childDevices.devices);
         const instrumentMatches = expected.instrumentProfileId
           ? observedInstrumentProfileIds.includes(expected.instrumentProfileId) : null;
         const expectedSourceType = expected.sourceType ?? "midi";
@@ -532,7 +532,7 @@ export class ToolService {
         const childDevices = await read("list_devices", trackId);
         const trackMixer = await read("get_track_mixer", trackId);
         const routing = await read("get_track_routing", trackId);
-        const instrumentProfiles = childDevices.devices.map((device) => getFactoryDeviceProfile(device)?.id).filter(Boolean);
+        const instrumentProfiles = collectFactoryDeviceProfileIds(childDevices.devices);
         const instrumentMatches = expected.instrumentProfileId ? instrumentProfiles.includes(expected.instrumentProfileId) : null;
         const expectedSourceType = expected.sourceType ?? "midi";
         const sourceMatches = track.type === expectedSourceType && (instrumentMatches ?? true);

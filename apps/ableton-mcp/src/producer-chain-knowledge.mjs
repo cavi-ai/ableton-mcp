@@ -193,6 +193,18 @@ export function getProducerChainBlueprint(target) {
   });
 }
 
+export function collectFactoryDeviceProfileIds(devices) {
+  const profileIds = [];
+  const visit = (device) => {
+    const profileId = getFactoryDeviceProfile(device)?.id;
+    if (profileId) profileIds.push(profileId);
+    for (const chain of [...(device.chains ?? []), ...(device.returnChains ?? [])])
+      for (const child of chain.devices ?? []) visit(child);
+  };
+  for (const device of devices) visit(device);
+  return profileIds;
+}
+
 export function verifyProducerChain(target, devices) {
   const blueprint = getProducerChainBlueprint(target);
   if (!Array.isArray(devices)) throw new TypeError("devices must be an array");
