@@ -36,6 +36,8 @@ Track-state JSON is not a native track template: recall does not create tracks o
 
 For an existing Return bus, `capture_device_chain_snapshot` and `save_device_chain_snapshot` now use `cavi-device-chain-v5` to include its volume, pan, mute and solo alongside the ordered FX chain. Guarded `recall_device_chain_snapshot` restores those exposed values against the same compatible Return topology in one Live undo step. Older v1-v4 snapshots remain readable and do not change the Return mixer. This does not capture source-track sends into the bus, hidden plug-in state, samples, automation, or mappings.
 
+For Main, the same tools use `cavi-device-chain-v6` to include master volume, pan, cue volume, crossfader and the currently selected hardware output channel alongside mastering FX. Recall requires that the saved output channel still exists in Live's available choices; an unsupported output-routing API is captured as `null` and cannot be used to set hardware routing. Older snapshots do not alter the master mixer or output. This is not a portable mastering preset or a substitute for checking actual audio at the intended main and headphone outputs.
+
 ## Live browser Favorites
 
 Live's color Collections are separate from NKS catalog tags and favorites. In the native browser, open the saved item's context menu and select the named collection. In the exercised acceptance, the menu initially showed Clear All Colors checked and Favorites unchecked; selecting Favorites made the saved EQ Three preset appear in the Favorites collection's one-item list.

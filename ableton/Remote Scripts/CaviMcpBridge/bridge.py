@@ -679,6 +679,12 @@ def _device_chain_snapshot(song, owner_id, state_version):
                             "pan": _value_record(owner.mixer_device.panning),
                             "mute": bool(owner.mute), "solo": bool(owner.solo)}}
            if owner_id.startswith("return-") else {}),
+        **({"ownerMixer": {"volume": _value_record(owner.mixer_device.volume),
+                            "pan": _value_record(owner.mixer_device.panning),
+                            "cueVolume": _value_record(owner.mixer_device.cue_volume),
+                            "crossfader": _value_record(owner.mixer_device.crossfader),
+                            "outputRouting": _set_mixer(song, state_version)["master"]["outputRouting"]}}
+           if owner_id == "master" else {}),
         "devices": [_snapshot_device(device, f"{owner_id}:device-{index}")
                     for index, device in enumerate(owner.devices)],
     }
@@ -719,7 +725,8 @@ def _persisted_device_chain(record, format_name=None):
                     return True
         return False
     if format_name is None:
-        format_name = ("cavi-device-chain-v5" if "ownerMixer" in record
+        format_name = ("cavi-device-chain-v6" if record["trackId"] == "master"
+                       else "cavi-device-chain-v5" if "ownerMixer" in record
                        else "cavi-device-chain-v4" if any(has_drum_pads(device) for device in record["devices"])
                        else "cavi-device-chain-v3" if any(has_chain_controls(device) for device in record["devices"])
                        else "cavi-device-chain-v2" if any("chains" in device for device in record["devices"])
@@ -736,7 +743,7 @@ def _persisted_device_chain(record, format_name=None):
                     chains = []
                     for chain in device[key]:
                         saved = {"name": chain["name"], "devices": [persisted_device(child) for child in chain["devices"]]}
-                        if format_name in ("cavi-device-chain-v3", "cavi-device-chain-v4", "cavi-device-chain-v5"):
+                        if format_name in ("cavi-device-chain-v3", "cavi-device-chain-v4", "cavi-device-chain-v5", "cavi-device-chain-v6"):
                             mixer = chain["mixer"]
                             saved["mixer"] = {"volume": mixer["volume"]["value"] if mixer["volume"] else None,
                                               "pan": mixer["pan"]["value"] if mixer["pan"] else None,
@@ -745,7 +752,7 @@ def _persisted_device_chain(record, format_name=None):
                             saved["noteRouting"] = dict(chain["noteRouting"])
                         chains.append(saved)
                     result[key] = chains
-        if format_name in ("cavi-device-chain-v4", "cavi-device-chain-v5") and "drumPads" in device:
+        if format_name in ("cavi-device-chain-v4", "cavi-device-chain-v5", "cavi-device-chain-v6") and "drumPads" in device:
             result["drumPads"] = [dict(pad) for pad in device["drumPads"]]
         return result
     return {
@@ -754,6 +761,13 @@ def _persisted_device_chain(record, format_name=None):
                            "pan": record["ownerMixer"]["pan"]["value"],
                            "mute": record["ownerMixer"]["mute"], "solo": record["ownerMixer"]["solo"]}}
            if format_name == "cavi-device-chain-v5" else {}),
+        **({"ownerMixer": {"volume": record["ownerMixer"]["volume"]["value"],
+                           "pan": record["ownerMixer"]["pan"]["value"],
+                           "cueVolume": record["ownerMixer"]["cueVolume"]["value"],
+                           "crossfader": record["ownerMixer"]["crossfader"]["value"],
+                           "outputChannelId": record["ownerMixer"]["outputRouting"]["channel"]["id"]
+                           if record["ownerMixer"]["outputRouting"]["supported"] else None}}
+           if format_name == "cavi-device-chain-v6" else {}),
         "devices": [persisted_device(device) for device in record["devices"]],
     }
 
@@ -3318,7 +3332,7 @@ def dispatch_request(song, request, state_version, application=None):
             raise ValueError("device chain changed after planning")
         target = params["target"]
         format_name = target.get("format")
-        if format_name not in ("cavi-device-chain-v1", "cavi-device-chain-v2", "cavi-device-chain-v3", "cavi-device-chain-v4", "cavi-device-chain-v5") or not isinstance(target.get("devices"), list) or len(target["devices"]) != len(current["devices"]):
+        if format_name not in ("cavi-device-chain-v1", "cavi-device-chain-v2", "cavi-device-chain-v3", "cavi-device-chain-v4", "cavi-device-chain-v5", "cavi-device-chain-v6") or not isinstance(target.get("devices"), list) or len(target["devices"]) != len(current["devices"]):
             raise ValueError("device chain topology mismatch")
         if format_name == "cavi-device-chain-v5":
             native_mixer, saved_mixer = current.get("ownerMixer"), target.get("ownerMixer")
@@ -3330,7 +3344,22 @@ def dispatch_request(song, request, state_version, application=None):
                     raise ValueError("return bus mixer value outside native range")
             if type(saved_mixer["mute"]) is not bool or type(saved_mixer["solo"]) is not bool:
                 raise ValueError("return bus mixer state is invalid")
-        if format_name not in ("cavi-device-chain-v1", "cavi-device-chain-v5") and not any("chains" in device for device in current["devices"]):
+        if format_name == "cavi-device-chain-v6":
+            native_mixer, saved_mixer = current.get("ownerMixer"), target.get("ownerMixer")
+            if owner_id != "master" or native_mixer is None or not isinstance(saved_mixer, dict) or set(saved_mixer) != {"volume", "pan", "cueVolume", "crossfader", "outputChannelId"}:
+                raise ValueError("master mixer layout mismatch")
+            for key in ("volume", "pan", "cueVolume", "crossfader"):
+                value, bounds = saved_mixer[key], native_mixer[key]
+                if type(value) not in (int, float) or not math.isfinite(value) or not bounds["min"] <= value <= bounds["max"]:
+                    raise ValueError("master mixer value outside native range")
+            routing = native_mixer["outputRouting"]
+            channel_id = saved_mixer["outputChannelId"]
+            if routing["supported"]:
+                if not isinstance(channel_id, str) or not any(option["id"] == channel_id for option in routing["availableChannels"]):
+                    raise ValueError("master output channel is unavailable")
+            elif channel_id is not None:
+                raise ValueError("master output routing is unavailable")
+        if format_name not in ("cavi-device-chain-v1", "cavi-device-chain-v5", "cavi-device-chain-v6") and not any("chains" in device for device in current["devices"]):
             raise ValueError("device chain topology mismatch")
         def validate_device(saved_device, native_device):
             if (saved_device.get("className") != native_device["className"] or
@@ -3348,7 +3377,7 @@ def dispatch_request(song, request, state_version, application=None):
                     raise ValueError("device parameter value outside native range")
                 if value != native["value"] and not native["enabled"]:
                     raise ValueError(f"parameter {native['id']} is disabled")
-            if format_name in ("cavi-device-chain-v4", "cavi-device-chain-v5"):
+            if format_name in ("cavi-device-chain-v4", "cavi-device-chain-v5", "cavi-device-chain-v6"):
                 _validate_snapshot_drum_pads(saved_device, native_device)
             if format_name != "cavi-device-chain-v1":
                 for key in ("chains", "returnChains"):
@@ -3363,7 +3392,7 @@ def dispatch_request(song, request, state_version, application=None):
                                 not isinstance(saved_chain.get("devices"), list) or
                                 len(saved_chain["devices"]) != len(native_chain["devices"])):
                             raise ValueError("device chain topology mismatch")
-                        if format_name in ("cavi-device-chain-v3", "cavi-device-chain-v4", "cavi-device-chain-v5"):
+                        if format_name in ("cavi-device-chain-v3", "cavi-device-chain-v4", "cavi-device-chain-v5", "cavi-device-chain-v6"):
                             _validate_snapshot_chain_controls(saved_chain, native_chain)
                         for saved_child, native_child in zip(saved_chain["devices"], native_chain["devices"]):
                             validate_device(saved_child, native_child)
@@ -3382,6 +3411,16 @@ def dispatch_request(song, request, state_version, application=None):
                 write(owner.mixer_device.panning, "value", target["ownerMixer"]["pan"])
                 write(owner, "mute", target["ownerMixer"]["mute"])
                 write(owner, "solo", target["ownerMixer"]["solo"])
+            if format_name == "cavi-device-chain-v6":
+                saved_mixer = target["ownerMixer"]
+                for key, attribute in (("volume", "volume"), ("pan", "panning"),
+                                       ("cueVolume", "cue_volume"), ("crossfader", "crossfader")):
+                    write(getattr(owner.mixer_device, attribute), "value", saved_mixer[key])
+                routing = current["ownerMixer"]["outputRouting"]
+                if routing["supported"]:
+                    selected = next(option for option in routing["availableChannels"]
+                                    if option["id"] == saved_mixer["outputChannelId"])
+                    write(owner, "current_output_sub_routing", selected["name"])
             def apply_device(device, saved_device):
                 write(device, "name", saved_device["name"])
                 for parameter, saved in zip(device.parameters, saved_device["parameters"]):
@@ -3390,11 +3429,11 @@ def dispatch_request(song, request, state_version, application=None):
                     for key, native_chains in (("chains", device.chains), ("returnChains", getattr(device, "return_chains", ()))) if device.can_have_chains else ():
                         for chain, saved_chain in zip(native_chains, saved_device[key]):
                             write(chain, "name", saved_chain["name"])
-                            if format_name in ("cavi-device-chain-v3", "cavi-device-chain-v4", "cavi-device-chain-v5"):
+                            if format_name in ("cavi-device-chain-v3", "cavi-device-chain-v4", "cavi-device-chain-v5", "cavi-device-chain-v6"):
                                 _apply_snapshot_chain_controls(chain, saved_chain, write)
                             for child, saved_child in zip(chain.devices, saved_chain["devices"]):
                                 apply_device(child, saved_child)
-                if format_name in ("cavi-device-chain-v4", "cavi-device-chain-v5"):
+                if format_name in ("cavi-device-chain-v4", "cavi-device-chain-v5", "cavi-device-chain-v6"):
                     _apply_snapshot_drum_pads(device, saved_device, pad_restore)
             for device, saved_device in zip(owner.devices, target["devices"]):
                 apply_device(device, saved_device)

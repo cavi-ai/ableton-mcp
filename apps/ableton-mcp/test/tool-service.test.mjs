@@ -1356,6 +1356,35 @@ test("return bus chain snapshot includes mixer state for guarded recall", async 
   assert.equal(dry.plan.target.ownerMixer.volume, 0.4);
 });
 
+test("master chain snapshot guards mixer and hardware output recall", async () => {
+  const observed = { stateVersion: 9, trackId: "master",
+    ownerMixer: { volume: { value: 0.8, min: 0, max: 1 }, pan: { value: 0, min: -1, max: 1 },
+      cueVolume: { value: 0.7, min: 0, max: 1 }, crossfader: { value: 0, min: -1, max: 1 },
+      outputRouting: { supported: true, channel: { id: "1/2", name: "1/2" },
+        availableChannels: [{ id: "1/2", name: "1/2" }, { id: "3/4", name: "3/4" }] } },
+    devices: [{ id: "master:device-0", name: "Limiter", className: "Limiter", type: "audio_effect",
+      parameters: [{ id: "parameter-0", originalName: "Ceiling", min: 0, max: 1,
+        quantized: false, valueItems: [], value: 0.7, enabled: true }] }] };
+  const service = new ToolService({ bridge: { async request(method) {
+    if (method === "get_device_chain_snapshot") return structuredClone(observed);
+    throw new Error(method);
+  } } });
+  const captured = await service.call("capture_device_chain_snapshot", { trackId: "master" });
+  assert.equal(captured.snapshot.format, "cavi-device-chain-v6");
+  assert.deepEqual(captured.snapshot.ownerMixer, { volume: 0.8, pan: 0, cueVolume: 0.7,
+    crossfader: 0, outputChannelId: "1/2" });
+  validateToolArguments("recall_device_chain_snapshot", { trackId: "master", expectedStateVersion: 9,
+    snapshot: captured.snapshot });
+  const target = structuredClone(captured.snapshot);
+  target.ownerMixer.outputChannelId = "3/4";
+  const dry = await service.call("recall_device_chain_snapshot", { trackId: "master", expectedStateVersion: 9,
+    snapshot: target });
+  assert.equal(dry.plan.target.ownerMixer.outputChannelId, "3/4");
+  target.ownerMixer.outputChannelId = "5/6";
+  await assert.rejects(service.call("recall_device_chain_snapshot", { trackId: "master", expectedStateVersion: 9,
+    snapshot: target }), /master output channel is unavailable/);
+});
+
 test("named device-chain capture can be loaded for guarded recall", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cavi-chain-save-"));
   try {
