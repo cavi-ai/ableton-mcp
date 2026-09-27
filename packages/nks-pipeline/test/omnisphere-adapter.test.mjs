@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { discoverOmnisphereFactoryPresets } from "../src/adapters/omnisphere.mjs";
+import { stablePresetId } from "../src/domain.mjs";
 
 for (const [offset, size] of [["2", "4"], ["4", "1"], ["9007199254740993", "1"], ["0", "0"]]) {
   test(`Omnisphere rejects invalid embedded payload extent ${offset}/${size}`, async (t) => {
@@ -35,4 +36,54 @@ test("Omnisphere adapter discovers embedded factory patches and ignores metadata
   assert.deepEqual(records.map((record) => record.subBank), ["Bass", "Pads"]);
   assert.equal(records.every((record) => record.sourceFingerprint.startsWith("sha256:")), true);
   assert.notEqual(records[0].sourceFingerprint, records[1].sourceFingerprint);
+});
+
+test("Omnisphere embedded directory hierarchy keeps same-named factory patches distinct", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "omnisphere-hierarchy-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const header = `<FileSystem><DIR name="Pads &amp; Textures"><FILE name="Shared.prt_omn" offset="0" size="3"/>` +
+    `</DIR><DIR name="Basses"><DIR name="Analog"><FILE name="Shared.prt_omn" offset="3" size="4"/>` +
+    `</DIR></DIR></FileSystem>\n`;
+  await writeFile(join(root, "Factory.db"), Buffer.concat([Buffer.from(header), Buffer.from("abcdefg")]));
+  const records = await discoverOmnisphereFactoryPresets({
+    enabled: true, productSlug: "omnisphere", vendor: "Spectrasonics", factoryRoots: [root], extensions: [".db"]
+  });
+  assert.deepEqual(records.map(record => record.sourceEntryName),
+    ["Basses/Analog/Shared.prt_omn", "Pads & Textures/Shared.prt_omn"]);
+  assert.deepEqual(records.map(record => record.subBank), ["Basses/Analog", "Pads & Textures"]);
+  assert.equal(new Set(records.map(stablePresetId)).size, 2);
+  assert.notEqual(records[0].sourceFingerprint, records[1].sourceFingerprint);
+});
+
+test("Omnisphere rejects malformed patch entries rather than returning an incomplete inventory", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "omnisphere-malformed-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, "Factory.db"), Buffer.from(
+    `<FileSystem><DIR name="Pads"><FILE name="Skipped.prt_omn" offset="0" size="3"></DIR></FileSystem>\nabc`
+  ));
+  await assert.rejects(() => discoverOmnisphereFactoryPresets({
+    enabled: true, productSlug: "omnisphere", vendor: "Spectrasonics", factoryRoots: [root], extensions: [".db"]
+  }), /malformed embedded Omnisphere patch entry/);
+});
+
+test("Omnisphere rejects a truncated embedded index", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "omnisphere-truncated-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, "Factory.db"), Buffer.from(
+    `<FileSystem><DIR name="Pads"><FILE name="Lost.prt_omn" offset="0" size="3"/>`
+  ));
+  await assert.rejects(() => discoverOmnisphereFactoryPresets({
+    enabled: true, productSlug: "omnisphere", vendor: "Spectrasonics", factoryRoots: [root], extensions: [".db"]
+  }), /truncated embedded Omnisphere index/);
+});
+
+test("Omnisphere rejects an empty embedded patch offset", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "omnisphere-empty-offset-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, "Factory.db"), Buffer.from(
+    `<FileSystem><FILE name="Lost.prt_omn" offset="" size="3"/></FileSystem>\nabc`
+  ));
+  await assert.rejects(() => discoverOmnisphereFactoryPresets({
+    enabled: true, productSlug: "omnisphere", vendor: "Spectrasonics", factoryRoots: [root], extensions: [".db"]
+  }), /invalid embedded patch extent/);
 });
