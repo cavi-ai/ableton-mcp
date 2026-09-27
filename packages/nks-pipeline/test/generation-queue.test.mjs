@@ -132,3 +132,52 @@ test("Serum queue never treats User-source presets as factory jobs", async () =>
   queue.close();
   catalog.close();
 });
+
+test("Omnisphere queue limits legacy and new jobs to its source-derived pilot until validation", async () => {
+  const path = join(await mkdtemp(join(tmpdir(), "nks-omni-pilot-gate-")), "catalog.sqlite");
+  const catalog = Catalog.open(path);
+  const records = Array.from({ length: 30 }, (_, index) => {
+    const suffix = String(index).padStart(2, "0");
+    return { id: `omnisphere:${suffix}`, productSlug: "omnisphere", name: `Preset ${suffix}`,
+      bank: "Factory", subBank: "Pads", sourcePath: `/factory/Factory.db/Preset ${suffix}.prt_omn`,
+      sourceRelativePath: `Factory.db/Preset ${suffix}.prt_omn`,
+      sourceContainerPath: "/factory/Factory.db", sourceEntryName: `Pads/Preset ${suffix}.prt_omn`,
+      author: "Spectrasonics", sourceFingerprint: `sha256:${suffix}`, state: "discovered", evidence: [] };
+  });
+  for (const record of records) catalog.upsert(record);
+  const user = { ...records[0], id: "omnisphere:user", name: "Personal",
+    sourcePath: "/factory/Factory.db/Personal.prt_omn",
+    sourceRelativePath: "Factory.db/Personal.prt_omn", sourceEntryName: "User/Personal.prt_omn",
+    sourceFingerprint: "sha256:user" };
+  catalog.upsert(user);
+  const outside = "omnisphere:24";
+  assert.deepEqual(GenerationQueue.inspect(path, "omnisphere").pilot,
+    { total: 25, validated: 0, gateOpen: false, queueable: 25 });
+  assert.throws(() => GenerationQueue.inspectSelection(path, "omnisphere", [outside]), /pilot/);
+  assert.throws(() => GenerationQueue.inspectSelection(path, "omnisphere", [user.id]), /User.*factory/);
+  const queue = GenerationQueue.open(path);
+  queue.database.prepare(`INSERT INTO nks_generation_jobs
+    (preset_id, source_fingerprint, status, attempts) VALUES (?, ?, 'pending', 0)`)
+    .run(outside, "sha256:24");
+  assert.equal(queue.claim("worker-a", "omnisphere", 1000), undefined);
+  assert.equal(queue.claim("worker-a", null, 1000), undefined);
+  queue.database.prepare("DELETE FROM nks_generation_jobs WHERE preset_id = ?").run(outside);
+  assert.equal(queue.enqueue("omnisphere", [records[0].id]), 1);
+  for (const record of records.filter((_, index) => index < 24 || index === 29))
+    catalog.upsert({ ...record, state: "validated", evidence: [{ state: "validated",
+      kind: "operator_reported_recall_controller_verified", reportSha256: "a".repeat(64),
+      controllerControlCount: 8, recall: { evidence: { sha256: "b".repeat(64) } },
+      controller: { evidence: { sha256: "c".repeat(64) } } }] });
+  assert.deepEqual(GenerationQueue.inspect(path, "omnisphere").pilot,
+    { total: 25, validated: 25, gateOpen: true, queueable: 5 });
+  assert.equal(queue.enqueue("omnisphere", [outside]), 1);
+  assert.throws(() => queue.enqueue("omnisphere", [user.id]), /User.*factory/);
+  assert.equal(queue.claim("worker-a", "omnisphere", 1001).presetId, outside);
+  queue.close();
+  catalog.close();
+});
+
+test("unconfigured product names cannot inherit a pilot policy from object prototypes", async () => {
+  const path = await fixture();
+  assert.equal(GenerationQueue.inspect(path, "toString").pilot, undefined);
+});

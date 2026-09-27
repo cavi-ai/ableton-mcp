@@ -82,6 +82,31 @@ test("NKS enqueue limits jobs to selected IDs and rejects invalid selections", a
   catalog.close();
 });
 
+test("MCP Omnisphere queue status and enqueue enforce the source-derived pilot", async () => {
+  const path = join(await mkdtemp(join(tmpdir(), "nks-mcp-omni-pilot-")), "catalog.sqlite");
+  const catalog = Catalog.open(path);
+  for (let index = 0; index < 30; index++) {
+    const suffix = String(index).padStart(2, "0");
+    catalog.upsert({ id: `omnisphere:${suffix}`, productSlug: "omnisphere",
+      name: `Preset ${suffix}`, bank: "Factory", subBank: "Pads",
+      sourcePath: `/factory/Factory.db/Preset ${suffix}.prt_omn`,
+      sourceRelativePath: `Factory.db/Preset ${suffix}.prt_omn`,
+      sourceContainerPath: "/factory/Factory.db", sourceEntryName: `Pads/Preset ${suffix}.prt_omn`,
+      author: "Spectrasonics", sourceFingerprint: `sha256:${suffix}`,
+      state: "discovered", evidence: [] });
+  }
+  const service = new ToolService({ catalog, generationQueuePath: path });
+  assert.deepEqual((await service.call("get_nks_generation_status", { productSlug: "omnisphere" })).pilot,
+    { total: 25, validated: 0, gateOpen: false, queueable: 25 });
+  await assert.rejects(service.call("enqueue_nks_generation_jobs",
+    { productSlug: "omnisphere", presetIds: ["omnisphere:24"] }), /pilot/);
+  const planned = await service.call("enqueue_nks_generation_jobs",
+    { productSlug: "omnisphere", presetIds: ["omnisphere:00"] });
+  assert.equal(planned.dryRun, true);
+  assert.equal(GenerationQueue.inspect(path, "omnisphere").initialized, false);
+  catalog.close();
+});
+
 test("MCP worker tools lease, renew, retry, and complete only with verified catalog evidence", async () => {
   const path = join(await mkdtemp(join(tmpdir(), "nks-mcp-worker-")), "catalog.sqlite");
   const catalog = Catalog.open(path);
