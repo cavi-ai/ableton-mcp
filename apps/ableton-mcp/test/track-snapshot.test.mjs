@@ -54,7 +54,8 @@ test('track snapshot captures one consistent JSON state for mixer routing and or
   const result = await service.call('capture_track_state_snapshot', { trackId: 'track-0' });
   const snapshot = JSON.parse(JSON.stringify(result.snapshot));
   assert.equal(snapshot.format, 'cavi-track-state-v1');
-  assert.deepEqual(snapshot.track, { name: 'Bass Bus', type: 'midi', isGroup: false });
+  assert.deepEqual(snapshot.track, { name: 'Bass Bus', type: 'midi', isGroup: false,
+    isGrouped: false, groupTrackId: null });
   assert.deepEqual(snapshot.mixer, { volume: 0.85, pan: 0, mute: false, solo: false,
     sends: [{ id: 'send-0', name: 'Reverb', value: 0.2 }] });
   assert.deepEqual(snapshot.routing, { inputTypeId: 'midi-all', inputChannelId: 'all',
@@ -190,6 +191,18 @@ test('track recall rejects incompatible type, device order, parameter layout and
   await assert.rejects(recall, /routing/);
   native.stateVersion = 8;
   await assert.rejects(recall, /stateVersion/);
+});
+
+test('track recall rejects a captured child after its parent group changes', async () => {
+  const { service, native } = fixture();
+  native.track.isGrouped = true;
+  native.track.groupTrackId = 'track-1';
+  const { snapshot } = await service.call('capture_track_state_snapshot', { trackId: 'track-0' });
+  assert.equal(snapshot.track.groupTrackId, 'track-1');
+  native.track.groupTrackId = 'track-2';
+  await assert.rejects(() => service.call('recall_track_state_snapshot', {
+    trackId: 'track-0', expectedStateVersion: 7, snapshot,
+  }), /group membership/);
 });
 
 test('track recall defers dependent channel validation when the captured routing type differs', async () => {

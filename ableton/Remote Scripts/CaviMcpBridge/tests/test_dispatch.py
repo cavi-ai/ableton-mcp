@@ -3259,6 +3259,35 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual([device["id"] for device in result["devices"]], ["track-0:device-0"])
         self.assertEqual(result["devices"][0]["parameters"][0]["originalName"], "Filter Freq")
 
+    def test_track_state_recall_rejects_changed_parent_group(self):
+        song = Song()
+        child = song.tracks[0]
+        child.is_grouped = True
+        child.group_track = song.tracks[1]
+        before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
+        target = _persisted_track_state(before)
+        target["track"].update({"isGrouped": True, "groupTrackId": "track-1", "name": "Changed"})
+        child.is_grouped = False
+        child.group_track = None
+        current = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
+        with self.assertRaisesRegex(ValueError, "group membership"):
+            dispatch_request(song, {"method": "set_track_state_snapshot", "params": {
+                "trackId": "track-0", "before": current, "target": target}}, 6)
+        self.assertEqual(child.name, "Synth")
+
+    def test_track_state_recall_preserves_matching_parent_group_context(self):
+        song = Song()
+        child = song.tracks[0]
+        child.is_grouped = True
+        child.group_track = song.tracks[1]
+        before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
+        target = _persisted_track_state(before)
+        target["track"].update({"isGrouped": True, "groupTrackId": "track-1", "name": "Changed"})
+        result = dispatch_request(song, {"method": "set_track_state_snapshot", "params": {
+            "trackId": "track-0", "before": before, "target": target}}, 6)
+        self.assertEqual(result["track"]["name"], "Changed")
+        self.assertEqual(result["track"]["groupTrackId"], "track-1")
+
     def test_track_state_snapshot_recalls_nested_rack_parameter_in_one_undo_step(self):
         song = Song()
         rack = DrumRack()
