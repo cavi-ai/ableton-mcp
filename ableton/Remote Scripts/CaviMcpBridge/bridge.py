@@ -904,8 +904,9 @@ def _browser_item(application, root, path):
     if root not in BROWSER_ROOTS and root != "hotswap_target":
         raise ValueError("unknown Live browser root")
     item = getattr(application.browser, root)
-    if root == "user_folders" and not hasattr(item, "children"):
-        item = _BrowserRootCollection("User Folders", item)
+    if root in ("user_folders", "legacy_libraries") and not hasattr(item, "children"):
+        item = _BrowserRootCollection(
+            "User Folders" if root == "user_folders" else "Legacy Libraries", item)
     for name in path:
         matches = [child for child in item.children if child.name == name]
         if len(matches) != 1:

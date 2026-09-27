@@ -507,6 +507,25 @@ class DispatchTest(unittest.TestCase):
         self.assertFalse(roots["packs"]["available"])
         self.assertIsNone(roots["packs"]["item"])
 
+    def test_legacy_libraries_vector_is_a_browsable_root(self):
+        application = Application()
+        application.browser.legacy_libraries = BrowserItemVector((
+            BrowserItem("Legacy Pack", "query:legacy-pack", children=(
+                BrowserItem("Vintage.wav", "query:vintage", True),)),
+        ))
+        roots = dispatch_request(Song(), {"method": "list_browser_roots", "params": {}}, 3, application)["roots"]
+        legacy = next(root for root in roots if root["root"] == "legacy_libraries")
+        self.assertTrue(legacy["available"])
+        self.assertEqual(legacy["totalChildren"], 1)
+        self.assertEqual(legacy["item"]["name"], "Legacy Libraries")
+        listing = dispatch_request(Song(), {"method": "get_browser_items", "params": {
+            "root": "legacy_libraries", "path": []}}, 3, application)
+        self.assertEqual([item["name"] for item in listing["children"]], ["Legacy Pack"])
+        search = dispatch_request(Song(), {"method": "search_browser_items", "params": {
+            "root": "legacy_libraries", "path": [], "query": "vintage", "maxDepth": 2, "limit": 10,
+        }}, 3, application)
+        self.assertEqual(search["results"][0]["path"], ["Legacy Pack", "Vintage.wav"])
+
     def test_search_browser_roots_reports_exact_paths_unavailable_roots_and_truncation(self):
         result = dispatch_request(Song(), {"method": "search_browser_roots", "params": {
             "roots": ["instruments", "packs", "user_folders"], "query": "r",
