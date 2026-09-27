@@ -4561,6 +4561,44 @@ def dispatch_request(song, request, state_version, application=None):
                             raise RuntimeError("MIDI humanization failed and rollback was incomplete (%s); original error: %s" %
                                                (rollback_error, mutation_error))
                         raise mutation_error
+            if guarded_basic:
+                existing_ids = {int(note.note_id) for note in clip.get_all_notes_extended()}
+                with _undo_step(song):
+                    try:
+                        for change in params["changes"]:
+                            note = by_id[int(change["noteId"])]
+                            for source, target in fields.items():
+                                if source in change:
+                                    setattr(note, target, change[source])
+                        if notes:
+                            clip.apply_note_modifications(notes)
+                        added_note_ids = list(clip.add_new_notes(new_note_specs)) if new_note_specs else []
+                        readback = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
+                        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                                "clipId": params["clipId"], "location": location, "timeline": timeline,
+                                "lengthBeats": float(clip.length), "notes": readback,
+                                "addedNoteIds": added_note_ids}
+                    except Exception as mutation_error:
+                        rollback_errors = []
+                        try:
+                            current_ids = {int(note.note_id) for note in clip.get_all_notes_extended()}
+                            cleanup_ids = tuple(sorted(current_ids - existing_ids))
+                            if cleanup_ids:
+                                clip.remove_notes_by_id(cleanup_ids)
+                        except Exception as error:
+                            rollback_errors.append("added-note cleanup failed: %s" % error)
+                        for note, values in originals:
+                            for target, value in values.items():
+                                setattr(note, target, value)
+                        try:
+                            if originals:
+                                clip.apply_note_modifications([note for note, _ in originals])
+                        except Exception as error:
+                            rollback_errors.append("existing-note restore failed: %s" % error)
+                        if rollback_errors:
+                            raise RuntimeError("basic MIDI transform failed and rollback was incomplete (%s); original error: %s" %
+                                               ("; ".join(rollback_errors), mutation_error))
+                        raise mutation_error
             if guarded_variation:
                 existing_ids = {int(note.note_id) for note in clip.get_all_notes_extended()}
                 with _undo_step(song):
