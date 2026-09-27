@@ -66,6 +66,29 @@ test("private browser metadata search filters tags and favorites without claimin
   } finally { library.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test("cross-root Live search joins private metadata by exact URI", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "browser-search-metadata-"));
+  const library = new BrowserMetadataLibrary({ path: join(directory, "metadata.sqlite") });
+  let uri = "query:serum";
+  const calls = [];
+  const service = new ToolService({ browserMetadata: library, bridge: { async request(method, params) {
+    calls.push({ method, params });
+    return { stateVersion: 4, results: [{ root: "plugins", path: ["Serum"], uri,
+      name: "Serum", loadable: true, folder: false }], truncated: false };
+  } } });
+  try {
+    library.set({ root: "plugins", path: ["Serum"], uri }, 0, { favorite: true, tags: ["bass"] });
+    const args = { query: "Serum", roots: ["plugins"], includeMetadata: true };
+    const found = await service.call("search_browser_roots", args);
+    assert.deepEqual(found.results[0].metadata, { favorite: true, tags: ["bass"], revision: 1 });
+    assert.equal(found.metadataSource, "private_mcp");
+    assert.equal(calls[0].params.includeMetadata, undefined);
+    uri = "query:serum-new";
+    const moved = await service.call("search_browser_roots", args);
+    assert.deepEqual(moved.results[0].metadata, { favorite: false, tags: [], revision: 0 });
+  } finally { library.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test("private tags and favorites bind to an observed local audio sample without Live", async () => {
   const directory = await mkdtemp(join(tmpdir(), "local-sample-metadata-"));
   const library = new BrowserMetadataLibrary({ path: join(directory, "metadata.sqlite") });

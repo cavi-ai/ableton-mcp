@@ -529,6 +529,7 @@ export class ToolService {
     if (name === "list_browser_roots") return this.bridge.request(name, {});
     if (name === "search_browser_roots") {
       if (typeof args.query !== "string" || !args.query.trim()) throw new Error("query must be a non-empty string");
+      if (args.includeMetadata !== undefined && typeof args.includeMetadata !== "boolean") throw new Error("includeMetadata must be boolean");
       const maxDepth = args.maxDepth ?? 6;
       const limit = args.limit ?? 50;
       const maxVisited = args.maxVisited ?? 10000;
@@ -539,8 +540,13 @@ export class ToolService {
           args.roots.some((root) => typeof root !== "string") || new Set(args.roots).size !== args.roots.length)) {
         throw new Error("roots must be a non-empty array of unique browser root names");
       }
-      return this.bridge.request(name, { ...(args.roots === undefined ? {} : { roots: args.roots }),
+      const observed = await this.bridge.request(name, { ...(args.roots === undefined ? {} : { roots: args.roots }),
         query: args.query.trim(), maxDepth, limit, maxVisited });
+      if (!args.includeMetadata) return observed;
+      const library = this.#browserMetadataLibrary();
+      return { ...observed, results: observed.results.map((item) => ({ ...item,
+        metadata: typeof item.uri === "string" && item.uri ? library.get(item) : null })),
+        metadataSource: "private_mcp", nativeLiveCollectionsModified: false };
     }
     if (name === "get_browser_items" || name === "get_factory_browser_items") {
       return this.bridge.request(name, normalizeBrowserPage(args));
