@@ -21,6 +21,19 @@ test("local Splice search finds only audio assets under the selected root", asyn
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("configured local Splice roots report canonical available and missing folders", async () => {
+  const root = await mkdtemp(join(tmpdir(), "splice-root-"));
+  try {
+    const service = new ToolService({ spliceRoots: [root, join(root, "missing")] });
+    const result = await service.call("list_local_splice_roots", {});
+    assert.equal(result.roots[0].available, true);
+    assert.equal(result.roots[0].rootPath, await (await import("node:fs/promises")).realpath(root));
+    assert.equal(result.roots[1].available, false);
+    assert.equal(result.roots[1].rootPath, null);
+    assert.equal(result.scope, "configured_local_directories");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("local Splice search never follows symlinks outside the selected root", async () => {
   const root = await mkdtemp(join(tmpdir(), "splice-search-"));
   const outside = await mkdtemp(join(tmpdir(), "splice-outside-"));

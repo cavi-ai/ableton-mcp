@@ -3,7 +3,7 @@ import { realpath, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { analyzeAudioFile } from "./audio-analysis.mjs";
 import { buildSongGridReference, planGridEnvelopePattern } from "./song-grid-reference.mjs";
-import { observeLocalSpliceSample, searchLocalSpliceSamples } from "./splice-local-search.mjs";
+import { listConfiguredSpliceRoots, observeLocalSpliceSample, searchLocalSpliceSamples } from "./splice-local-search.mjs";
 import { inspectGroovePostconditions } from "./groove-workflow.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { CatalogService } from "./catalog-service.mjs";
@@ -270,15 +270,17 @@ function normalizeBrowserSearch(args) {
 }
 
 export class ToolService {
-  constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, browserMetadata }) {
+  constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, browserMetadata, spliceRoots = [] }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
     this.snapshotLibrary = snapshotLibrary;
     this.browserMetadata = browserMetadata;
+    this.spliceRoots = spliceRoots;
   }
 
   async call(name, args = {}) {
+    if (name === "list_local_splice_roots") return listConfiguredSpliceRoots(this.spliceRoots);
     if (name === "search_local_splice_samples") {
       if (args.includeMetadata !== undefined && typeof args.includeMetadata !== "boolean") throw new Error("includeMetadata must be boolean");
       const observed = await searchLocalSpliceSamples(args);

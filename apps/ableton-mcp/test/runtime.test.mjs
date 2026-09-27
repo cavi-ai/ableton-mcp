@@ -12,6 +12,16 @@ test("configured runtime works without an NKS catalog", () => {
   runtime.close();
 });
 
+test("runtime passes configured Splice roots to the listing tool", async () => {
+  const root = await mkdtemp(join((await import("node:os")).tmpdir(), "splice-runtime-"));
+  const runtime = createConfiguredService({ ABLETON_MCP_SPLICE_ROOTS: JSON.stringify([root]) });
+  try {
+    const result = await runtime.service.call("list_local_splice_roots", {});
+    assert.equal(result.roots[0].available, true);
+    assert.equal(result.roots[0].rootPath, await (await import("node:fs/promises")).realpath(root));
+  } finally { runtime.close(); await (await import("node:fs/promises")).rm(root, { recursive: true, force: true }); }
+});
+
 test("preset metadata reports when no NKS catalog is configured", async () => {
   const runtime = createConfiguredService({ ABLETON_MCP_BRIDGE_SOCKET: "/tmp/test-ableton-mcp.sock" });
   await assert.rejects(

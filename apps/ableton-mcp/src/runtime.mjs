@@ -19,7 +19,7 @@ const emptyCatalog = {
 };
 
 export function createConfiguredService(environment = process.env, { persistentConfirmations = false } = {}) {
-  const { catalogPath, socketPath, confirmationDirectory, snapshotDirectory, browserMetadataPath } = resolveRuntimeConfig(environment);
+  const { catalogPath, socketPath, confirmationDirectory, snapshotDirectory, browserMetadataPath, spliceRoots } = resolveRuntimeConfig(environment);
   const catalog = catalogPath ? Catalog.open(catalogPath) : emptyCatalog;
   const bridge = new UnixBridgeClient(socketPath);
   const confirmations = persistentConfirmations
@@ -28,7 +28,7 @@ export function createConfiguredService(environment = process.env, { persistentC
   let browserLibrary;
   const browserMetadata = () => (browserLibrary ??= new BrowserMetadataLibrary({ path: browserMetadataPath }));
   return {
-    service: new ToolService({ bridge, catalog, confirmations,
+    service: new ToolService({ bridge, catalog, confirmations, spliceRoots,
       snapshotLibrary: new SnapshotLibrary({ directory: snapshotDirectory }), browserMetadata }),
     close: () => { browserLibrary?.close(); catalog.close(); }
   };

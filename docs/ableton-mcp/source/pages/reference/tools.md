@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 192 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 193 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (84)
+## Read-only (85)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -59,6 +59,7 @@ The server publishes 192 tools. Mutations of the Live Set require `expectedState
 | `list_devices` | List loaded devices on one exact ordinary, Return, or Main track. | `trackId` |
 | `list_factory_device_profiles` | List producer-oriented knowledge profiles for foundational Ableton factory devices. | none |
 | `list_live_scales` | List Ableton Live 12 scale names with semitone intervals and musical families for exact scale selection. Read-only. | none |
+| `list_local_splice_roots` | List explicitly configured downloaded Splice folders, their canonical local paths, and availability. Does not discover Splice cloud assets or download files. | none |
 | `list_producer_chain_blueprints` | List deterministic producer starting points for ordered track, bus, return, mastering, and layered-instrument chains. | none |
 | `list_scenes` | List stable Session scene identities, names, and per-scene launch quantization. | none |
 | `list_tracks` | List stable Ableton track identities, mixer state, and existing group hierarchy. | none |

@@ -16,6 +16,15 @@ test("runtime configuration defaults the socket and treats the catalog as option
   assert.equal(config.socketPath, "/tmp/cavi-ableton-mcp.sock");
   assert.equal(config.catalogPath, undefined);
   assert.equal(config.browserMetadataPath, "/Users/test/.cavi/ableton-mcp/browser-metadata.sqlite");
+  assert.deepEqual(config.spliceRoots, []);
+});
+
+test("configured Splice roots require a JSON array of distinct absolute paths", () => {
+  assert.deepEqual(resolveRuntimeConfig({ ABLETON_MCP_SPLICE_ROOTS: '["/samples/Splice","/archive/Sounds"]' }).spliceRoots,
+    ["/samples/Splice", "/archive/Sounds"]);
+  for (const value of ['"/samples/Splice"', '["relative"]', '["/samples","/samples"]']) {
+    assert.throws(() => resolveRuntimeConfig({ ABLETON_MCP_SPLICE_ROOTS: value }), /ABLETON_MCP_SPLICE_ROOTS/);
+  }
 });
 
 test("server socket default matches the Remote Script default on every platform", async () => {
@@ -40,6 +49,7 @@ test("ABLETON_MCP_* variables override every runtime default", () => {
     ABLETON_MCP_BRIDGE_SOCKET: "/run/bridge.sock",
     ABLETON_MCP_CATALOG_PATH: "/data/catalog.sqlite",
     ABLETON_MCP_BROWSER_METADATA_PATH: "/data/browser.sqlite",
+    ABLETON_MCP_SPLICE_ROOTS: '["/data/splice"]',
     ABLETON_MCP_CONFIRMATION_DIR: "/data/confirmations",
     ABLETON_MCP_SNAPSHOT_DIR: "/data/snapshots"
   }, { home: "/Users/test" });
@@ -47,6 +57,7 @@ test("ABLETON_MCP_* variables override every runtime default", () => {
     socketPath: "/run/bridge.sock",
     catalogPath: "/data/catalog.sqlite",
     browserMetadataPath: "/data/browser.sqlite",
+    spliceRoots: ["/data/splice"],
     confirmationDirectory: "/data/confirmations",
     snapshotDirectory: "/data/snapshots"
   });

@@ -46,7 +46,7 @@ npm run cli -- call list_devices --args '{"trackId":"track-0"}' --json
 
 To try client wiring without Live, run `ABLETON_MCP_FIXTURE=1 npm start`.
 
-For a smaller initial tool catalog, set `ABLETON_MCP_TOOL_PROFILE=core` in the MCP server's environment. It advertises 55 common tools instead of all 190. Use the default `all` profile when an agent needs the complete MIDI, audio, rack, or snapshot toolset; restart the server after changing profiles. The CLI's direct `call` command remains independent of the discovery profile.
+For a smaller initial tool catalog, set `ABLETON_MCP_TOOL_PROFILE=core` in the MCP server's environment. It advertises 58 common tools instead of all 193. Use the default `all` profile when an agent needs the complete MIDI, audio, rack, or snapshot toolset; restart the server after changing profiles. The CLI's direct `call` command remains independent of the discovery profile.
 
 ## What it does
 
@@ -56,7 +56,7 @@ For a smaller initial tool catalog, set `ABLETON_MCP_TOOL_PROFILE=core` in the M
 - **Audio analysis**: loudness, true peak, spectrum, pitch, transients and tuning of local audio files.
 - **Optional NKS preset catalog**: search, tags and favorites for presets discovered from your plug-in libraries.
 
-It publishes 192 tools, 9 concrete resources, 13 resource templates and 5 prompt templates. When Live's Remote Script API doesn't expose something, such as Arrangement automation, Group Track creation, or freezing, the tool reports that boundary and fails closed.
+It publishes 193 tools, 9 concrete resources, 13 resource templates and 5 prompt templates. When Live's Remote Script API doesn't expose something, such as Arrangement automation, Group Track creation, or freezing, the tool reports that boundary and fails closed.
 
 ## Documentation
 
@@ -74,10 +74,11 @@ It publishes 192 tools, 9 concrete resources, 13 resource templates and 5 prompt
 | `ABLETON_MCP_BRIDGE_SOCKET` | `/tmp/cavi-ableton-mcp.sock` | Bridge socket. Read by both the bridge inside Live and the server. |
 | `ABLETON_MCP_CATALOG_PATH` | unset | NKS catalog database for preset search. |
 | `ABLETON_MCP_BROWSER_METADATA_PATH` | `~/.cavi/ableton-mcp/browser-metadata.sqlite` | Tags and favorites for Live browser items. |
+| `ABLETON_MCP_SPLICE_ROOTS` | `[]` | JSON array of absolute downloaded Splice folder paths exposed by `list_local_splice_roots`. |
 | `ABLETON_MCP_CONFIRMATION_DIR` | `~/.cavi/ableton-mcp/confirmations` | Confirmation tokens for CLI `call`. |
 | `ABLETON_MCP_SNAPSHOT_DIR` | `~/.cavi/ableton-mcp/snapshots` | Saved track-state snapshots. |
 | `ABLETON_MCP_FIXTURE` | unset | `1` makes `npm start` serve fixture data without Live. |
-| `ABLETON_MCP_TOOL_PROFILE` | `all` | `core` advertises 55 common tools to reduce MCP discovery context; `all` advertises every tool. |
+| `ABLETON_MCP_TOOL_PROFILE` | `all` | `core` advertises 58 common tools to reduce MCP discovery context; `all` advertises every tool. |
 
 ## Security
 

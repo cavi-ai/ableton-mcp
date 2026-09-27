@@ -4,6 +4,22 @@ import { isAbsolute, join, relative, extname, sep } from "node:path";
 const AUDIO_EXTENSIONS = new Set([".aif", ".aiff", ".flac", ".mp3", ".ogg", ".wav"]);
 const compareNames = (left, right) => left < right ? -1 : left > right ? 1 : 0;
 
+export async function listConfiguredSpliceRoots(paths) {
+  const roots = [];
+  for (const configuredPath of paths) {
+    try {
+      const rootPath = await realpath(configuredPath);
+      const available = (await stat(rootPath)).isDirectory();
+      roots.push({ configuredPath, rootPath: available ? rootPath : null, available });
+    } catch (error) {
+      if (error.code !== "ENOENT" && error.code !== "ENOTDIR") throw error;
+      roots.push({ configuredPath, rootPath: null, available: false });
+    }
+  }
+  return { roots, scope: "configured_local_directories",
+    limitation: "Configured downloaded-file folders only; does not discover Splice cloud assets or synchronize downloads." };
+}
+
 export async function observeLocalSpliceSample(rootPath, relativePath) {
   if (typeof rootPath !== "string" || !isAbsolute(rootPath)) throw new Error("rootPath must be absolute");
   if (typeof relativePath !== "string" || !relativePath || isAbsolute(relativePath) ||
