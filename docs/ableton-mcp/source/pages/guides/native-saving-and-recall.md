@@ -22,6 +22,8 @@ For recall acceptance, compare native class identity and every exposed parameter
 
 Saved native device presets can already be found with `search_browser_items` and loaded with guarded `load_browser_item`. Search `root: "user_library"` below the exact device folder, then use the returned path without guessing spelling or filename extensions. For example, the exercised EQ Three preset was found below `["Presets", "Audio Effects", "EQ Three"]` and loaded using the returned four-segment path including its `.adv` filename.
 
+Third-party VST3 presets can appear at the User Library root as `.vstpreset` files instead of beneath a device folder. Search from the root, use the returned path, and load into an empty staging track before moving the device into a larger chain. Verify the loaded device identity and exposed parameters; a successful load does not prove equivalence of hidden plug-in state. `get_plugin_integration_context` separates this Live browser workflow from direct control of a plug-in's own preset browser, which remains unavailable through the bridge.
+
 Read the current state version, obtain the load dry-run plan, then execute with its confirmation token and plan hash. Observe the chain again afterward. The exercised MCP load added a third EQ Three to the acceptance track; all ten exposed parameter names and raw values matched the source. It did not replace either existing device. Saving still required native UI.
 
 ## Exposed-parameter JSON capture and recall

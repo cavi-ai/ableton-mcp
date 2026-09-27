@@ -910,9 +910,17 @@ export class ToolService {
         nksCatalog: { configured: Boolean(catalogProduct), productSlug: profile.productSlug,
           presetCount: catalogProduct?.count || 0, stateCounts,
           validatedRecordCount: stateCounts ? stateCounts.validated || 0 : null },
+        livePresetWorkflow: {
+          save: { surface: "Live UI", action: "Save Preset", mcpAvailable: false },
+          discover: { tool: "search_browser_items", root: "user_library" },
+          load: { tool: "load_browser_item", useReturnedPath: true, stagingTrackRecommended: true },
+          verify: { tool: "list_devices", scope: "loaded device identity and exposed parameters only",
+            hiddenPluginStateReadable: false }
+        },
         capabilities: {
           parameterRead: true, parameterWrite: writableControls.length > 0,
           hiddenStateRead: false, nativePresetRecall: false,
+          liveUserLibraryPresetLoad: true,
           nksCatalogSearch: Boolean(catalogProduct)
         },
         limitations: [
