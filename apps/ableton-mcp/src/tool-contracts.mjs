@@ -87,7 +87,11 @@ function rackControlSnapshot(version, index, includePads = false) {
 }
 const controlledDeviceChainSnapshot = rackControlSnapshot(3, 2);
 const padDeviceChainSnapshot = rackControlSnapshot(4, 3, true);
-const deviceChainSnapshot = { oneOf: [legacyDeviceChainSnapshot, nestedDeviceChainSnapshot, controlledDeviceChainSnapshot, padDeviceChainSnapshot] };
+const returnDeviceChainSnapshot = rackControlSnapshot(5, 4, true);
+returnDeviceChainSnapshot.properties.ownerMixer = object({ volume: number("Return bus volume."), pan: number("Return bus pan."),
+  mute: boolean("Return bus mute."), solo: boolean("Return bus solo.") }, ["volume", "pan", "mute", "solo"]);
+returnDeviceChainSnapshot.required.push("ownerMixer");
+const deviceChainSnapshot = { oneOf: [legacyDeviceChainSnapshot, nestedDeviceChainSnapshot, controlledDeviceChainSnapshot, padDeviceChainSnapshot, returnDeviceChainSnapshot] };
 const drumLane = object({
   role: string("Producer-facing lane role such as kick, snare, closed_hat, or percussion."),
   note: { type: "integer", minimum: 0, maximum: 127, description: "Exact MIDI note for this drum lane." },
@@ -323,10 +327,10 @@ const envelopePoint = object({
 }, ["time", "duration", "value"]);
 
 const contracts = {
-  capture_device_chain_snapshot: { description: "Capture ordered devices, nested rack and return-chain topology, exposed parameters, chain mixer, Drum Rack note routing and populated pad mute/solo as persistable JSON. Not a native rack or preset; excludes hidden plugin state, samples, automation, and mappings.", inputSchema: object({ trackId: ids.deviceOwnerId }, ["trackId"]) },
-  save_device_chain_snapshot: { description: "Capture a device chain including exposed rack-chain controls and populated Drum Rack pad mute/solo into the private named local chain library. Never overwrites. Does not save hidden plugin state, samples, automation, or mappings.", inputSchema: object({ trackId: ids.deviceOwnerId, name: string("New local chain snapshot name; letters, numbers, dot, underscore and hyphen only.") }, ["trackId", "name"]) },
+  capture_device_chain_snapshot: { description: "Capture ordered devices, nested rack topology, exposed parameters, Return bus mixer, chain mixer, Drum Rack note routing and populated pad mute/solo as persistable JSON. Not a native rack or preset; excludes hidden plugin state, samples, automation, and mappings.", inputSchema: object({ trackId: ids.deviceOwnerId }, ["trackId"]) },
+  save_device_chain_snapshot: { description: "Capture a device chain including Return bus mixer, exposed rack-chain controls and populated Drum Rack pad mute/solo into the private named local chain library. Never overwrites. Does not save hidden plugin state, samples, automation, or mappings.", inputSchema: object({ trackId: ids.deviceOwnerId, name: string("New local chain snapshot name; letters, numbers, dot, underscore and hyphen only.") }, ["trackId", "name"]) },
   load_device_chain_snapshot: { description: "Read a named local device-chain snapshot for review and guarded recall onto an already compatible track, Return, or Main device owner. Does not mutate Live.", inputSchema: object({ name: string("Exact saved chain snapshot name.") }, ["name"]) },
-  recall_device_chain_snapshot: { description: "Plan or recall exposed device parameters, rack-chain mixer, Drum Rack note routing and populated pad mute/solo onto exactly compatible topology in one guarded Live undo step. Legacy v1-v3 captures remain supported. Does not create, delete, or load devices or restore hidden plugin state.", inputSchema: guarded({ trackId: ids.deviceOwnerId, snapshot: deviceChainSnapshot }, ["trackId", "snapshot"]) },
+  recall_device_chain_snapshot: { description: "Plan or recall Return bus mixer, exposed device parameters, rack-chain mixer, Drum Rack note routing and populated pad mute/solo onto exactly compatible topology in one guarded Live undo step. Legacy v1-v4 captures remain supported. Does not create, delete, or load devices or restore hidden plugin state.", inputSchema: guarded({ trackId: ids.deviceOwnerId, snapshot: deviceChainSnapshot }, ["trackId", "snapshot"]) },
   capture_device_parameter_snapshot: { description: "Capture exposed device parameters as persistable JSON, with a consistent live identity check. Not a native preset: excludes hidden plugin state, samples, automation and mappings.", inputSchema: device },
   capture_track_state_snapshot: { description: "Capture one consistent, persistable JSON snapshot of track mixer, routing, ordered devices, nested rack parameters, chain mixer, Drum Rack note routing and populated pad mute/solo. Not a native track preset; excludes clips, hidden state, samples, automation and mappings.", inputSchema: track },
   save_track_state_snapshot: { description: "Capture one exact track state and save its JSON to the private named local snapshot library. Never overwrites; excludes clips, hidden plugin state, samples, automation and mappings.", inputSchema: object({ trackId: ids.trackId, name: string("New local snapshot name; letters, numbers, dot, underscore and hyphen only.") }, ["trackId", "name"]) },

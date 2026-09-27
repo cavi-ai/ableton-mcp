@@ -32,7 +32,7 @@ export function createConfiguredService(environment = process.env, { persistentC
     service: new ToolService({ bridge, catalog, confirmations, spliceRoots, generationQueuePath: catalogPath,
       snapshotLibrary: new SnapshotLibrary({ directory: snapshotDirectory }),
       deviceChainLibrary: new SnapshotLibrary({ directory: join(snapshotDirectory, "device-chains"),
-        formats: ["cavi-device-chain-v1", "cavi-device-chain-v2", "cavi-device-chain-v3", "cavi-device-chain-v4"] }), browserMetadata }),
+        formats: ["cavi-device-chain-v1", "cavi-device-chain-v2", "cavi-device-chain-v3", "cavi-device-chain-v4", "cavi-device-chain-v5"] }), browserMetadata }),
     close: () => { browserLibrary?.close(); catalog.close(); }
   };
 }

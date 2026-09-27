@@ -34,6 +34,8 @@ Read parameters independently after recall rather than treating the mutation ack
 
 Track-state JSON is not a native track template: recall does not create tracks or load missing devices, clips, nested rack devices, hidden plug-in state, samples, automation or mappings. Use native Live Set or `.adg` saving when those elements must travel with the preset.
 
+For an existing Return bus, `capture_device_chain_snapshot` and `save_device_chain_snapshot` now use `cavi-device-chain-v5` to include its volume, pan, mute and solo alongside the ordered FX chain. Guarded `recall_device_chain_snapshot` restores those exposed values against the same compatible Return topology in one Live undo step. Older v1-v4 snapshots remain readable and do not change the Return mixer. This does not capture source-track sends into the bus, hidden plug-in state, samples, automation, or mappings.
+
 ## Live browser Favorites
 
 Live's color Collections are separate from NKS catalog tags and favorites. In the native browser, open the saved item's context menu and select the named collection. In the exercised acceptance, the menu initially showed Clear All Colors checked and Favorites unchecked; selecting Favorites made the saved EQ Three preset appear in the Favorites collection's one-item list.

@@ -1333,6 +1333,29 @@ test("device chain snapshots include populated Drum Rack pad mute and solo state
   assert.equal(dry.plan.target.devices[0].drumPads[0].mute, false);
 });
 
+test("return bus chain snapshot includes mixer state for guarded recall", async () => {
+  const observed = { stateVersion: 9, trackId: "return-0",
+    ownerMixer: { volume: { value: 0.6, min: 0, max: 1 }, pan: { value: 0, min: -1, max: 1 },
+      mute: false, solo: false },
+    devices: [{ id: "return-0:device-0", name: "Reverb", className: "Reverb", type: "audio_effect",
+      parameters: [{ id: "parameter-0", originalName: "Dry/Wet", min: 0, max: 1,
+        quantized: false, valueItems: [], value: 0.7, enabled: true }] }] };
+  const service = new ToolService({ bridge: { async request(method) {
+    if (method === "get_device_chain_snapshot") return structuredClone(observed);
+    throw new Error(method);
+  } } });
+  const captured = await service.call("capture_device_chain_snapshot", { trackId: "return-0" });
+  assert.equal(captured.snapshot.format, "cavi-device-chain-v5");
+  assert.deepEqual(captured.snapshot.ownerMixer, { volume: 0.6, pan: 0, mute: false, solo: false });
+  validateToolArguments("recall_device_chain_snapshot", { trackId: "return-0", expectedStateVersion: 9,
+    snapshot: captured.snapshot });
+  const target = structuredClone(captured.snapshot);
+  target.ownerMixer.volume = 0.4;
+  const dry = await service.call("recall_device_chain_snapshot", { trackId: "return-0", expectedStateVersion: 9,
+    snapshot: target });
+  assert.equal(dry.plan.target.ownerMixer.volume, 0.4);
+});
+
 test("named device-chain capture can be loaded for guarded recall", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cavi-chain-save-"));
   try {

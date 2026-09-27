@@ -3145,6 +3145,24 @@ class DispatchTest(unittest.TestCase):
                 self.assertEqual(owner.devices[0].parameters[0].value, 0.25)
                 self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
 
+    def test_return_chain_snapshot_restores_mixer_and_fx_in_one_undo_step(self):
+        song = Song()
+        song.return_tracks[0].devices = [Device()]
+        before = dispatch_request(song, {"method": "get_device_chain_snapshot", "params": {
+            "trackId": "return-0"}}, 6)
+        target = _persisted_device_chain(before)
+        self.assertEqual(target["format"], "cavi-device-chain-v5")
+        self.assertEqual(target["ownerMixer"], {
+            "volume": 0.6, "pan": 0.0, "mute": False, "solo": False})
+        target["ownerMixer"]["volume"] = 0.4
+        target["devices"][0]["parameters"][0]["value"] = 0.8
+        result = dispatch_request(song, {"method": "set_device_chain_snapshot", "params": {
+            "trackId": "return-0", "before": before, "target": target}}, 6)
+        self.assertEqual(song.return_tracks[0].mixer_device.volume.value, 0.4)
+        self.assertEqual(song.return_tracks[0].devices[0].parameters[0].value, 0.8)
+        self.assertEqual(result["ownerMixer"]["volume"]["value"], 0.4)
+        self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
+
     def test_device_chain_snapshot_recalls_nested_rack_devices_and_rejects_changed_chains(self):
         song = Song()
         rack = DrumRack()
