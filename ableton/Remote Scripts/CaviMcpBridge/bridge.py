@@ -2346,12 +2346,33 @@ def dispatch_request(song, request, state_version, application=None):
         track_ids = before["midiCapture"]["midiTrackIds"]
         previous = {record["id"]: record for track_id in track_ids
                     for record in _clip_list(song, track_id, state_version)["clips"]}
+        def note_state(slot):
+            if not slot.has_clip:
+                return None
+            notes = sorted((_midi_note_record(note) for note in slot.clip.get_all_notes_extended()),
+                           key=lambda note: note["noteId"])
+            digest = hashlib.sha256(json.dumps(notes, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            return {"count": len(notes), "digest": digest}
+        watched = {f"track-{track_index}:clip-{slot_index}": (track_index, slot_index)
+                   for track_index, track in enumerate(song.tracks)
+                   if f"track-{track_index}" in track_ids and track.arm
+                   for slot_index, slot in enumerate(track.clip_slots)
+                   if slot.has_clip and slot.clip.is_playing}
+        notes_before = {clip_id: note_state(song.tracks[track_index].clip_slots[slot_index])
+                        for clip_id, (track_index, slot_index) in watched.items()}
         scene_count_before = len(song.scenes)
         song.capture_midi(1)
         current = {record["id"]: record for track_id in track_ids
                    for record in _clip_list(song, track_id, state_version + 1)["clips"]}
-        changed = [{"clipId": clip_id, "before": previous.get(clip_id), "after": record}
-                   for clip_id, record in current.items() if previous.get(clip_id) != record]
+        notes_after = {clip_id: note_state(song.tracks[track_index].clip_slots[slot_index])
+                       for clip_id, (track_index, slot_index) in watched.items()}
+        changed = [{"clipId": clip_id, "before": previous.get(clip_id), "after": record,
+                    **({"noteCountBefore": notes_before[clip_id]["count"] if notes_before[clip_id] else None,
+                        "noteCountAfter": notes_after[clip_id]["count"] if notes_after[clip_id] else None,
+                        "noteStateChanged": notes_before[clip_id] != notes_after[clip_id]}
+                       if clip_id in watched else {})}
+                   for clip_id, record in current.items()
+                   if previous.get(clip_id) != record or (clip_id in watched and notes_before[clip_id] != notes_after[clip_id])]
         return {"stateVersion": state_version + 1, "destination": "session",
                 "before": before, "after": _transport_recording_context(song, state_version + 1),
                 "sceneCountBefore": scene_count_before, "sceneCountAfter": len(song.scenes),

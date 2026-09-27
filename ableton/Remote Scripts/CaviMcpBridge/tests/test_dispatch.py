@@ -642,6 +642,27 @@ class DispatchTest(unittest.TestCase):
         self.assertTrue(result["changedSlots"][0]["after"]["hasClip"])
         self.assertFalse(result["after"]["midiCapture"]["available"])
 
+    def test_capture_midi_session_reports_note_only_overdub_on_playing_armed_clip(self):
+        song = Song()
+        track = song.tracks[0]
+        track.arm = True
+        clip = track.clip_slots[0].clip
+        clip.is_playing = True
+        clip.extended_notes = [MidiNote(1)]
+        def overdub(destination):
+            clip.extended_notes.append(MidiNote(2))
+            song.can_capture_midi = False
+        song.capture_midi = overdub
+        before = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
+        result = dispatch_request(song, {"method": "capture_midi_session", "params": {
+            "expectedStateVersion": 3, "before": before["midiCapture"]
+        }}, 3)
+        self.assertEqual(len(result["changedSlots"]), 1)
+        self.assertEqual(result["changedSlots"][0]["clipId"], "track-0:clip-0")
+        self.assertEqual(result["changedSlots"][0]["noteCountBefore"], 1)
+        self.assertEqual(result["changedSlots"][0]["noteCountAfter"], 2)
+        self.assertTrue(result["changedSlots"][0]["noteStateChanged"])
+
     def test_socket_bridge_defers_cue_mutations_until_live_applies_the_playhead(self):
         song = Song()
 
