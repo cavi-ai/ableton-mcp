@@ -896,7 +896,7 @@ class _BrowserRootCollection:
 BROWSER_ROOTS = (
     "audio_effects", "clips", "current_project", "drums", "instruments",
     "legacy_libraries", "max_for_live", "midi_effects", "packs", "plugins", "samples", "sounds",
-    "user_folders", "user_library",
+    "splice", "user_folders", "user_library",
 )
 
 
