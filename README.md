@@ -74,7 +74,7 @@ It publishes 213 tools, 9 concrete resources, 13 resource templates and 5 prompt
 | `ABLETON_MCP_BRIDGE_SOCKET` | `/tmp/cavi-ableton-mcp.sock` | Bridge socket. Read by both the bridge inside Live and the server. |
 | `ABLETON_MCP_CATALOG_PATH` | unset | NKS catalog database for preset search. |
 | `ABLETON_MCP_BROWSER_METADATA_PATH` | `~/.cavi/ableton-mcp/browser-metadata.sqlite` | Tags and favorites for Live browser items. |
-| `ABLETON_MCP_SPLICE_ROOTS` | `[]` | JSON array of absolute downloaded Splice folder paths exposed by `list_local_splice_roots`. |
+| `ABLETON_MCP_SPLICE_ROOTS` | Existing macOS `~/Splice/Sounds` and `~/Library/Splice/Plug-in/samples` directories; otherwise `[]` | Override with a JSON array of absolute local Splice folders. Set `[]` to disable discovery. Local cache files are not proof of a download license; cloud search and sync are not supported. |
 | `ABLETON_MCP_CONFIRMATION_DIR` | `~/.cavi/ableton-mcp/confirmations` | Confirmation tokens for CLI `call`. |
 | `ABLETON_MCP_SNAPSHOT_DIR` | `~/.cavi/ableton-mcp/snapshots` | Saved track, device-chain, and MIDI-feel snapshots in separate subdirectories. |
 | `ABLETON_MCP_FIXTURE` | unset | `1` makes `npm start` serve fixture data without Live. |

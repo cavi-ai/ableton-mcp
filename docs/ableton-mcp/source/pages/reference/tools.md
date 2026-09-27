@@ -63,7 +63,7 @@ The server publishes 213 tools. Mutations of the Live Set require `expectedState
 | `list_devices` | List loaded devices on one exact ordinary, Return, or Main track. | `trackId` |
 | `list_factory_device_profiles` | List producer-oriented knowledge profiles for foundational Ableton factory devices. | none |
 | `list_live_scales` | List Ableton Live 12 scale names with semitone intervals and musical families for exact scale selection. Read-only. | none |
-| `list_local_splice_roots` | List explicitly configured downloaded Splice folders, their canonical local paths, and availability. Does not discover Splice cloud assets or download files. | none |
+| `list_local_splice_roots` | List existing local Splice folders and cache paths, including detected macOS defaults and explicitly configured roots. Does not search Splice cloud assets, verify licenses, or download files. | none |
 | `list_producer_chain_blueprints` | List deterministic producer starting points for ordered track, bus, return, mastering, and layered-instrument chains. | none |
 | `list_saved_snapshots` | List names of regular local capture files in the private track, device-chain, or MIDI-feel library. Does not validate capture contents or change Live; load a name to inspect its format and contents. | `kind` |
 | `list_scenes` | List stable Session scene identities, names, and per-scene launch quantization. | none |
@@ -98,7 +98,7 @@ The server publishes 213 tools. Mutations of the Live Set require `expectedState
 | `search_browser_item_metadata` | Search saved private tags and favorites for Live browser items or local_splice samples. Results are not reverified against Live or the local filesystem and do not represent native collections. | none |
 | `search_browser_items` | Search a bounded subtree of Live's browser and return exact paths usable by load_browser_item. Optionally join private MCP tags and favorites by exact root, path, and URI; not native Live collections. | `root`, `query` |
 | `search_browser_roots` | Search selected or all available Live browser roots in order, with exact root/path identities, unavailable roots, and explicit result or scan-limit truncation. Optional private MCP tags/favorites join by exact root, path, and URI; not a native Live collection or Splice cloud search. | `query` |
-| `search_local_splice_samples` | Search downloaded Splice audio assets by filename or pack/category folder under an explicit local directory in stable relative-path order. Offset and nextOffset page through matching files. Optional private MCP tags/favorites join by exact local identity. Read-only; not cloud catalog search, download, or sync. Returns exact local source paths for analyze_audio_file. | `rootPath`, `query` |
+| `search_local_splice_samples` | Search local Splice audio and cache files by filename or folder under an absolute local directory in stable relative-path order. Offset and nextOffset page through matching files. Optional private MCP tags/favorites join by exact local identity. Read-only; not cloud catalog search, license verification, download, or sync. Returns exact local source paths for analyze_audio_file. | `rootPath`, `query` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
 ## Mutations (107)

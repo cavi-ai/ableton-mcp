@@ -17,7 +17,7 @@ export async function listConfiguredSpliceRoots(paths) {
     }
   }
   return { roots, scope: "configured_local_directories",
-    limitation: "Configured downloaded-file folders only; does not discover Splice cloud assets or synchronize downloads." };
+    limitation: "Existing local Splice folders and cache files only; does not search cloud assets, verify licenses, or synchronize downloads." };
 }
 
 export async function observeLocalSpliceSample(rootPath, relativePath) {
@@ -84,5 +84,5 @@ export async function searchLocalSpliceSamples({ rootPath, query, maxDepth = 8, 
   samples.sort((left, right) => compareNames(left.relativePath, right.relativePath));
   return { rootPath: root, query: query.trim(), scope: "local_files_only", offset,
     nextOffset: matched > offset + limit ? offset + limit : null, samples,
-    limitation: "Searches downloaded local audio files only; not Splice cloud catalog, downloads, or sync." };
+    limitation: "Searches local audio and cache files only; not Splice cloud catalog, license verification, downloads, or sync." };
 }
