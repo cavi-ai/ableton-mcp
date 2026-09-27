@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { analyzeMidiFeel } from "../src/midi-feel-analysis.mjs";
+import { analyzeMidiFeel, planMidiFeelTransfer } from "../src/midi-feel-analysis.mjs";
 
 test("each bar in a two-bar MIDI feel cycle marks its own downbeat", () => {
   const observed = { stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-0", lengthBeats: 8,
@@ -18,4 +18,15 @@ test("MIDI feel analysis rejects a triplet grid that cannot divide each bar", ()
   const timing = { timeSignature: { numerator: 5, denominator: 16 }, grooveId: null };
   assert.throws(() => analyzeMidiFeel(observed, timing, { grid: "eighthTriplet", bars: 4 }),
     /does not divide/);
+});
+
+test("MIDI feel transfer refuses a template without source identity", () => {
+  const observed = { stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-0", lengthBeats: 4,
+    notes: [{ noteId: 7, pitch: 42, start: 0.22, duration: 0.1, velocity: 50 }] };
+  const timing = { timeSignature: { numerator: 4, denominator: 4 }, grooveId: null };
+  const template = { format: "cavi-midi-feel-v1", grid: "straight16", bars: 1, barBeats: 4,
+    nativeGrooveId: null, slots: [{ slot: 1, hitCount: 1, meanOffsetBeats: 0.01, meanVelocity: 90 }] };
+  assert.throws(() => planMidiFeelTransfer(observed, timing, {
+    template, timingAmount: 1, velocityAmount: 1
+  }), /source identity/);
 });

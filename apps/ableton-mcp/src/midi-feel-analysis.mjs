@@ -43,5 +43,68 @@ export function analyzeMidiFeel(observed, timing, { grid, bars = 1 }) {
   return { stateVersion: observed.stateVersion, trackId: observed.trackId, clipId: observed.clipId,
     grid, bars, subdivisionsPerQuarterBeat: perBeat, barBeats, cycleBeats, slotCount,
     sourceNoteCount: notes.length, nativeGrooveId: timing.grooveId ?? null, notes, slots,
+    template: { format: "cavi-midi-feel-v1", grid, bars, barBeats,
+      nativeGrooveId: timing.grooveId ?? null,
+      source: { trackId: observed.trackId, clipId: observed.clipId, stateVersion: observed.stateVersion },
+      slots: slots.map(({ slot, hitCount, meanOffsetBeats, meanVelocity }) =>
+        ({ slot, hitCount, meanOffsetBeats, meanVelocity })) },
     limitation: "Measures stored MIDI note timing and velocity only; an assigned native Live groove may change playback timing and accents, which this analysis does not capture." };
+}
+
+export function planMidiFeelTransfer(observed, timing, { template, timingAmount, velocityAmount, noteIds }) {
+  if (template?.format !== "cavi-midi-feel-v1" || !subdivisions[template.grid] ||
+      !Number.isInteger(template.bars) || template.bars < 1 || template.bars > 8 ||
+      !Number.isFinite(template.barBeats) || template.barBeats <= 0 ||
+      template.nativeGrooveId !== null || !Array.isArray(template.slots) || !template.slots.length)
+    throw new Error("invalid stored MIDI feel template");
+  if (typeof template.source?.trackId !== "string" || !template.source.trackId ||
+      typeof template.source?.clipId !== "string" || !template.source.clipId ||
+      !Number.isInteger(template.source?.stateVersion) || template.source.stateVersion < 1)
+    throw new Error("stored MIDI feel template source identity is missing");
+  if (timing.grooveId !== null && timing.grooveId !== undefined)
+    throw new Error("remove the target clip's native groove before transferring stored MIDI feel");
+  const barBeats = timing.timeSignature?.numerator * 4 / timing.timeSignature?.denominator;
+  const perBeat = subdivisions[template.grid];
+  const slotsPerBar = barBeats * perBeat;
+  const slotCount = slotsPerBar * template.bars;
+  if (!Number.isInteger(slotsPerBar) || !Number.isInteger(slotCount) ||
+      Math.abs(barBeats - template.barBeats) > 1e-9)
+    throw new Error("template grid or meter does not match the target clip");
+  if (![timingAmount, velocityAmount].every(value => Number.isFinite(value) && value >= 0 && value <= 1) ||
+      timingAmount + velocityAmount === 0)
+    throw new Error("timingAmount and velocityAmount must be within 0..1 with at least one positive");
+  const slots = new Map();
+  for (const slot of template.slots) {
+    if (!Number.isInteger(slot.slot) || slot.slot < 0 || slot.slot >= slotCount || slots.has(slot.slot) ||
+        !Number.isInteger(slot.hitCount) || slot.hitCount < 1 ||
+        !Number.isFinite(slot.meanOffsetBeats) || Math.abs(slot.meanOffsetBeats) > 0.5 / perBeat + 1e-9 ||
+        !Number.isFinite(slot.meanVelocity) || slot.meanVelocity < 1 || slot.meanVelocity > 127)
+      throw new Error("invalid stored MIDI feel template slot");
+    slots.set(slot.slot, slot);
+  }
+  if (!Array.isArray(observed.notes) || observed.notes.length > 4096)
+    throw new Error("MIDI feel transfer supports at most 4096 target notes");
+  const ids = noteIds === undefined ? observed.notes.map(note => note.noteId) : noteIds;
+  if (!Array.isArray(ids) || !ids.length || ids.length > 4096 ||
+      ids.some(id => !Number.isInteger(id)) || new Set(ids).size !== ids.length)
+    throw new Error("noteIds must be a non-empty set of unique note IDs");
+  const byId = new Map(observed.notes.map(note => [note.noteId, note]));
+  const changes = [];
+  for (const id of ids) {
+    const note = byId.get(id);
+    if (!note) throw new Error(`unknown noteId ${id}`);
+    const nearest = Math.round(note.start * perBeat);
+    const slot = slots.get(((nearest % slotCount) + slotCount) % slotCount);
+    if (!slot) continue;
+    const change = { noteId: id };
+    const start = note.start + timingAmount * (nearest / perBeat + slot.meanOffsetBeats - note.start);
+    if (start < 0 || start + note.duration > observed.lengthBeats + 1e-9)
+      throw new Error(`transferred timing extends noteId ${id} beyond the clip`);
+    if (Math.abs(start - note.start) > 1e-9) change.start = start;
+    const velocity = Math.round(note.velocity + velocityAmount * (slot.meanVelocity - note.velocity));
+    if (velocity !== note.velocity) change.velocity = velocity;
+    if (Object.keys(change).length > 1) changes.push(change);
+  }
+  if (!changes.length) throw new Error("feel template produces no note changes");
+  return changes;
 }

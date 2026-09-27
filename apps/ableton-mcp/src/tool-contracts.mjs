@@ -31,6 +31,20 @@ const choice = (description) => ({ oneOf: [{ type: "integer" }, { type: "string"
 const empty = object();
 const track = object({ trackId: ids.trackId }, ["trackId"]);
 const clip = object({ trackId: ids.trackId, clipId: ids.clipId }, ["trackId", "clipId"]);
+const midiFeelTemplate = object({
+  format: { const: "cavi-midi-feel-v1" },
+  grid: { type: "string", enum: ["straight16", "eighthTriplet", "sixteenthTriplet"] },
+  bars: { type: "integer", minimum: 1, maximum: 8 },
+  barBeats: number("Quarter-note beats per source bar.", { exclusiveMinimum: 0 }),
+  nativeGrooveId: { type: "null", description: "Only stored-note templates without an assigned native groove are transferable." },
+  source: object({ trackId: ids.trackId, clipId: ids.clipId,
+    stateVersion: { type: "integer", minimum: 1 } }, ["trackId", "clipId", "stateVersion"]),
+  slots: { ...array(object({ slot: { type: "integer", minimum: 0 }, hitCount: { type: "integer", minimum: 1 },
+    meanOffsetBeats: number("Mean stored-note deviation from this grid slot."),
+    meanVelocity: number("Mean stored-note velocity.", { minimum: 1, maximum: 127 }) },
+  ["slot", "hitCount", "meanOffsetBeats", "meanVelocity"]), "Nonempty measured slots from analyze_midi_feel."),
+    minItems: 1, maxItems: 4096 }
+}, ["format", "grid", "bars", "barBeats", "nativeGrooveId", "source", "slots"]);
 const device = object({ trackId: ids.deviceOwnerId, deviceId: ids.deviceId }, ["trackId", "deviceId"]);
 const snapshotParameter = object({ originalName: string("Native parameter identity in index order."),
   min: number("Native minimum."), max: number("Native maximum."), quantized: boolean("Native quantization."),
@@ -449,6 +463,11 @@ const contracts = {
   get_clip_timing: { description: "Read clip loop, signature, launch quantization, Session launch Legato, groove assignment, and editor grid including triplets for one exact Session or Arrangement clip; Arrangement responses include timeline identity.", inputSchema: clip },
   get_clip_groove_context: { description: "Read one native callback snapshot of exact clip/track names, MIDI note IDs and expression metadata or audio state, clip timing, complete Groove Pool and global musical context. Supports before/after validation of UI-only extraction and baking; does not execute them.", inputSchema: clip },
   analyze_midi_feel: { description: "Measure stored MIDI note timing offsets and velocity accents by straight-sixteenth, eighth-triplet, or sixteenth-triplet slot over one to eight bars in the clip's meter. Read-only; reports any assigned native groove but cannot measure its playback effect or extract a Live Groove Pool pattern.", inputSchema: object({ trackId: ids.trackId, clipId: ids.clipId, grid: { type: "string", enum: ["straight16", "eighthTriplet", "sixteenthTriplet"] }, bars: { type: "integer", minimum: 1, maximum: 8, description: "Number of clip-meter bars in the repeating analysis cycle; defaults to one." } }, ["trackId", "clipId", "grid"]) },
+  apply_midi_feel_template: { description: "Plan or transfer a compact stored-MIDI feel template from analyze_midi_feel onto exact target note IDs with independent 0..1 timing and velocity blends. Preserves note IDs, durations and expression metadata through guarded per-note edits. Rejects a target with an assigned native groove; this is not Live Groove Pool baking.", inputSchema: guarded({ trackId: ids.trackId, clipId: ids.clipId, template: midiFeelTemplate,
+    timingAmount: number("Blend toward template timing; zero preserves each target start.", { minimum: 0, maximum: 1 }),
+    velocityAmount: number("Blend toward template mean velocity; zero preserves each target velocity.", { minimum: 0, maximum: 1 }),
+    noteIds: { ...array({ type: "integer" }, "Optional exact target note IDs; omit to transfer to all notes at populated slots."), minItems: 1, maxItems: 4096, uniqueItems: true }
+  }, ["trackId", "clipId", "template", "timingAmount", "velocityAmount"]) },
   inspect_clip_groove_postconditions: { description: "Read current native context and inspect extraction or baking postconditions against a supplied pre-action get_clip_groove_context snapshot. Does not execute the UI action, prove provenance, or validate audible equivalence. Extraction expects one appended groove and unchanged source/timing; baking expects removed assignment and unchanged unrelated timing/shared context.", inputSchema: object({ ...clip.properties, operation: { type: "string", enum: ["bake", "extract"] }, before: { type: "object", description: "Complete pre-action native clip groove context snapshot; supplied data is not authenticated history." } }, ["trackId", "clipId", "operation", "before"]) },
   set_clip_timing: { description: "Plan or apply guarded clip loop, signature, launch quantization, Session launch Legato, groove, and editor-grid changes.", inputSchema: guarded({
     trackId: ids.trackId, clipId: ids.clipId,

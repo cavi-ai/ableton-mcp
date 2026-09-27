@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 208 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 209 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (90)
 
@@ -99,7 +99,7 @@ The server publishes 208 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search downloaded Splice audio assets by filename or pack/category folder under an explicit local directory in stable relative-path order. Offset and nextOffset page through matching files. Optional private MCP tags/favorites join by exact local identity. Read-only; not cloud catalog search, download, or sync. Returns exact local source paths for analyze_audio_file. | `rootPath`, `query` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (104)
+## Mutations (105)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -113,6 +113,7 @@ The server publishes 208 tools. Mutations of the Live Set require `expectedState
 | `apply_midi_diatonic_harmony` | Plan or apply guarded scale-aware harmony additions while preserving source notes and expression. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `degreeOffsets` |
 | `apply_midi_diatonic_transposition` | Plan or apply guarded scale-degree MIDI transposition bound to Live's current key and scale. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `scaleSteps` |
 | `apply_midi_drop_voicing` | Plan or apply guarded chord drop voicings with complete native note readback verification. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `mode` |
+| `apply_midi_feel_template` | Plan or transfer a compact stored-MIDI feel template from analyze_midi_feel onto exact target note IDs with independent 0..1 timing and velocity blends. Preserves note IDs, durations and expression metadata through guarded per-note edits. Rejects a target with an assigned native groove; this is not Live Groove Pool baking. | `expectedStateVersion`, `trackId`, `clipId`, `template`, `timingAmount`, `velocityAmount` |
 | `apply_midi_gate_pattern` | Plan or apply guarded MIDI gate durations while preserving onset, pitch, velocity, probability, and expression metadata. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `gridBeats`, `gateRatios` |
 | `apply_midi_probability_pattern` | Plan or apply guarded MIDI playback probabilities while preserving pitch, timing, velocity, mute, and expression metadata. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `probabilities` |
 | `apply_midi_ratchet_pattern` | Plan or apply guarded MIDI ratchets while preserving velocity, probability, mute, release velocity, and velocity deviation. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `spanBeats`, `repeatCounts`, `gate` |

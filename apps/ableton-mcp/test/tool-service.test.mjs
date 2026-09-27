@@ -1628,6 +1628,9 @@ test("MIDI feel analysis measures straight-sixteenth offsets and accents without
   assert.equal(result.slots[0].barDownbeat, true);
   assert.equal(result.slots[3].quarterPulse, true);
   assert.equal(result.nativeGrooveId, null);
+  assert.deepEqual(result.template.slots.map(slot => [slot.slot, slot.meanVelocity]),
+    [[0, 100], [1, 90], [2, 80], [4, 110]]);
+  assert.equal(result.template.format, "cavi-midi-feel-v1");
   assert.equal(calls.some(call => call.method.startsWith("set_")), false);
 });
 
@@ -1641,6 +1644,30 @@ test("MIDI feel analysis resolves triplet slots without treating raw timing as n
   assert.equal(result.notes[0].slot, 1);
   assert.ok(Math.abs(result.notes[0].offsetBeats - (0.34 - 1 / 3)) < 1e-9);
   assert.match(result.limitation, /stored MIDI|raw MIDI/i);
+});
+
+test("MIDI feel transfer plans exact timing and velocity blends through guarded note edits", async () => {
+  const { service, calls } = fixture({ extendedNotes: [
+    { noteId: 7, pitch: 42, start: 0.22, duration: 0.1, velocity: 50,
+      velocityDeviation: 0, releaseVelocity: 64, probability: 1, mute: false }
+  ] });
+  const template = { format: "cavi-midi-feel-v1", grid: "straight16", bars: 1, barBeats: 4,
+    nativeGrooveId: null, source: { trackId: "track-1", clipId: "track-1:clip-0", stateVersion: 4 },
+    slots: [{ slot: 1, hitCount: 2, meanOffsetBeats: 0.01, meanVelocity: 90 }] };
+  const args = { trackId: "track-0", clipId: "track-0:clip-0", expectedStateVersion: 4,
+    template, timingAmount: 0.5, velocityAmount: 0.25 };
+  const dry = await service.call("apply_midi_feel_template", args);
+  assert.equal(dry.plan.method, "set_midi_note_properties");
+  assert.equal(dry.plan.changes[0].noteId, 7);
+  assert.ok(Math.abs(dry.plan.changes[0].start - 0.24) < 1e-9);
+  assert.equal(dry.plan.changes[0].velocity, 60);
+  assert.equal(dry.plan.changes[0].previous.start, 0.22);
+  assert.equal(dry.plan.clipTiming.grooveId, null);
+  const live = await service.call("apply_midi_feel_template", {
+    ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash
+  });
+  assert.equal(live.observed.notes[0].velocity, 60);
+  assert.equal(calls.at(-1).method, "set_midi_note_properties");
 });
 
 test("quantization targets absolute note ends independently of starts", async () => {

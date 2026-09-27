@@ -6,7 +6,7 @@ import { planClipPitchAdjustment } from "./audio-tuning.mjs";
 import { buildSongGridReference, planGridEnvelopePattern } from "./song-grid-reference.mjs";
 import { listConfiguredSpliceRoots, observeLocalSpliceSample, searchLocalSpliceSamples } from "./splice-local-search.mjs";
 import { inspectGroovePostconditions } from "./groove-workflow.mjs";
-import { analyzeMidiFeel } from "./midi-feel-analysis.mjs";
+import { analyzeMidiFeel, planMidiFeelTransfer } from "./midi-feel-analysis.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { CatalogService } from "./catalog-service.mjs";
 import { GenerationQueue } from "../../../packages/nks-pipeline/src/generation-queue.mjs";
@@ -418,6 +418,34 @@ export class ToolService {
           timing.trackId !== args.trackId || timing.clipId !== args.clipId)
         throw new Error("MIDI clip changed during feel analysis; retry");
       return analyzeMidiFeel(before, timing, args);
+    }
+    if (name === "apply_midi_feel_template") {
+      requireExpectedState(args);
+      const target = { trackId: args.trackId, clipId: args.clipId };
+      const before = await this.bridge.request("get_midi_clip_notes_extended", target);
+      const clipTiming = await this.bridge.request("get_clip_timing", target);
+      const after = await this.bridge.request("get_midi_clip_notes_extended", target);
+      if (before.stateVersion !== args.expectedStateVersion || clipTiming.stateVersion !== args.expectedStateVersion ||
+          JSON.stringify(before) !== JSON.stringify(after) || before.trackId !== args.trackId ||
+          before.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
+        throw new Error("MIDI clip changed during feel transfer planning; retry");
+      const requested = planMidiFeelTransfer(before, clipTiming, args);
+      const notes = new Map(before.notes.map(note => [note.noteId, note]));
+      const changes = requested.map((change, index) =>
+        normalizeMidiNoteChange(change, index, notes.get(change.noteId), before.lengthBeats));
+      const plan = { method: "set_midi_note_properties", operation: "apply_midi_feel_template",
+        ...target, expectedStateVersion: args.expectedStateVersion, before, clipTiming,
+        template: args.template, changes };
+      if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+      this.#consumeConfirmation(plan, args);
+      const observed = await this.bridge.request("set_midi_note_properties", plan);
+      const readback = new Map(observed.notes.map(note => [note.noteId, note]));
+      if (observed.stateVersion !== args.expectedStateVersion + 1 || changes.some(change => {
+        const note = readback.get(change.noteId);
+        return !note || (change.start !== undefined && Math.abs(note.start - change.start) > 2e-7) ||
+          (change.velocity !== undefined && note.velocity !== change.velocity);
+      })) throw new Error("MIDI feel transfer readback does not match the signed plan");
+      return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString() };
     }
     if (name === "capture_device_chain_snapshot") return this.#captureDeviceChainSnapshot(args);
     if (name === "save_device_chain_snapshot") {
