@@ -9,7 +9,7 @@ All configuration is environment variables. Each one is optional.
 | `ABLETON_MCP_BROWSER_METADATA_PATH` | `~/.cavi/ableton-mcp/browser-metadata.sqlite` | Tags and favorites for Live browser items. |
 | `ABLETON_MCP_SPLICE_ROOTS` | `[]` | JSON array of absolute downloaded Splice folder paths, for example `["/path/to/Splice/sounds"]`. `list_local_splice_roots` reports which configured folders are available. |
 | `ABLETON_MCP_CONFIRMATION_DIR` | `~/.cavi/ableton-mcp/confirmations` | Single-use confirmation tokens for CLI `call`. |
-| `ABLETON_MCP_SNAPSHOT_DIR` | `~/.cavi/ableton-mcp/snapshots` | Saved track-state snapshots from `save_track_state_snapshot`. |
+| `ABLETON_MCP_SNAPSHOT_DIR` | `~/.cavi/ableton-mcp/snapshots` | Private named track-state snapshots; device-chain and MIDI-feel templates use separate subdirectories. |
 | `ABLETON_MCP_FIXTURE` | unset | `1` makes `npm start` serve fixture data without Live. `ableton-mcp serve` ignores it. |
 | `ABLETON_MCP_TOOL_PROFILE` | `all` | `core` advertises 59 common MCP tools; `all` advertises the full catalog. Changing this requires a server restart. CLI `call` is unaffected. |
 

@@ -21,6 +21,9 @@ test("MCP discovery exposes every contracted producer tool", async () => {
   assert.deepEqual(transfer.inputSchema.required,
     ["expectedStateVersion", "trackId", "clipId", "template", "timingAmount", "velocityAmount"]);
   assert.equal(transfer.annotations.readOnlyHint, false);
+  assert.deepEqual(tools.find(tool => tool.name === "save_midi_feel_template").inputSchema.required,
+    ["name", "trackId", "clipId", "grid"]);
+  assert.equal(tools.find(tool => tool.name === "load_midi_feel_template").annotations.readOnlyHint, true);
 });
 
 test("core discovery is bounded and cannot call tools it does not advertise", async () => {

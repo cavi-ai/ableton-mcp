@@ -386,12 +386,13 @@ function normalizeBrowserSearch(args) {
 }
 
 export class ToolService {
-  constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, deviceChainLibrary, browserMetadata, spliceRoots = [], generationQueuePath }) {
+  constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, deviceChainLibrary, midiFeelLibrary, browserMetadata, spliceRoots = [], generationQueuePath }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
     this.snapshotLibrary = snapshotLibrary;
     this.deviceChainLibrary = deviceChainLibrary;
+    this.midiFeelLibrary = midiFeelLibrary;
     this.browserMetadata = browserMetadata;
     this.spliceRoots = spliceRoots;
     this.generationQueuePath = generationQueuePath;
@@ -418,6 +419,19 @@ export class ToolService {
           timing.trackId !== args.trackId || timing.clipId !== args.clipId)
         throw new Error("MIDI clip changed during feel analysis; retry");
       return analyzeMidiFeel(before, timing, args);
+    }
+    if (name === "save_midi_feel_template") {
+      if (!this.midiFeelLibrary) throw new Error("MIDI feel template library is not configured");
+      const analysis = await this.call("analyze_midi_feel", args);
+      if (analysis.template.nativeGrooveId !== null)
+        throw new Error("an assigned native groove cannot be captured as a stored-note feel template");
+      if (!analysis.template.slots.length) throw new Error("source clip has no stored MIDI notes to capture");
+      return { ...await this.midiFeelLibrary.save(args.name, analysis.template), template: analysis.template };
+    }
+    if (name === "load_midi_feel_template") {
+      if (!this.midiFeelLibrary) throw new Error("MIDI feel template library is not configured");
+      const { snapshot, ...entry } = await this.midiFeelLibrary.load(args.name);
+      return { ...entry, template: snapshot };
     }
     if (name === "apply_midi_feel_template") {
       requireExpectedState(args);

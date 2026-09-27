@@ -125,7 +125,7 @@ test("return track deletion discloses devices and affected send lanes", async ()
 });
 
 function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 1, velocity: 100,
-  velocityDeviation: 0, releaseVelocity: 64, probability: 1, mute: false }] } = {}) {
+  velocityDeviation: 0, releaseVelocity: 64, probability: 1, mute: false }], midiFeelLibrary } = {}) {
   const calls = [];
   const bridge = {
     async request(method, params = {}) {
@@ -394,7 +394,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
     } : undefined,
     artworkForPreset: (id) => id === "serum-2:a" ? { id: "art:bass" } : undefined
   };
-  return { service: new ToolService({ bridge, catalog }), calls };
+  return { service: new ToolService({ bridge, catalog, midiFeelLibrary }), calls };
 }
 
 test("search_presets remains read-only", async () => {
@@ -1668,6 +1668,24 @@ test("MIDI feel transfer plans exact timing and velocity blends through guarded 
   });
   assert.equal(live.observed.notes[0].velocity, 60);
   assert.equal(calls.at(-1).method, "set_midi_note_properties");
+});
+
+test("named MIDI feel templates persist from an exact source clip without overwrite", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cavi-feel-library-test-"));
+  try {
+    const { service, calls } = fixture({ midiFeelLibrary: new SnapshotLibrary({ directory, formats: ["cavi-midi-feel-v1"] }), extendedNotes: [
+      { noteId: 7, pitch: 42, start: 0.26, duration: 0.1, velocity: 90 }
+    ] });
+    const args = { name: "house-hats", trackId: "track-0", clipId: "track-0:clip-0", grid: "straight16" };
+    const saved = await service.call("save_midi_feel_template", args);
+    assert.equal(saved.name, "house-hats");
+    assert.equal(saved.template.source.stateVersion, 4);
+    assert.deepEqual(saved.template.slots.map(slot => [slot.slot, slot.meanVelocity]), [[1, 90]]);
+    const loaded = await service.call("load_midi_feel_template", { name: "house-hats" });
+    assert.deepEqual(loaded.template, saved.template);
+    await assert.rejects(() => service.call("save_midi_feel_template", args), /already exists/);
+    assert.equal(calls.some(call => call.method.startsWith("set_")), false);
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
 test("quantization targets absolute note ends independently of starts", async () => {
