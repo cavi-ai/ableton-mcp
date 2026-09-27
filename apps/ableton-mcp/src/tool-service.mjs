@@ -3,7 +3,7 @@ import { realpath, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { analyzeAudioFile } from "./audio-analysis.mjs";
 import { buildSongGridReference, planGridEnvelopePattern } from "./song-grid-reference.mjs";
-import { searchLocalSpliceSamples } from "./splice-local-search.mjs";
+import { observeLocalSpliceSample, searchLocalSpliceSamples } from "./splice-local-search.mjs";
 import { inspectGroovePostconditions } from "./groove-workflow.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { CatalogService } from "./catalog-service.mjs";
@@ -318,7 +318,7 @@ export class ToolService {
     if (name === "get_browser_item_metadata") return this.#getBrowserItemMetadata(args);
     if (name === "set_browser_item_metadata") return this.#setBrowserItemMetadata(args);
     if (name === "search_browser_item_metadata") {
-      return { items: this.#browserMetadataLibrary().search(args), limitation: "Private MCP tags and favorites only; saved browser identities are not reverified against Live in this search and do not change Live's native collections." };
+      return { items: this.#browserMetadataLibrary().search(args), limitation: "Private MCP tags and favorites only; saved identities are not reverified against Live or the local filesystem in this search and do not change native collections." };
     }
     if (name === "get_live_state") return this.bridge.request("get_live_state", {});
     if (name === "get_transport_context") return this.bridge.request("get_transport_context", {});
@@ -1834,6 +1834,11 @@ export class ToolService {
   }
 
   async #observeBrowserMetadataItem(args) {
+    if (args.root === "local_splice") {
+      if (!Array.isArray(args.path) || args.path.length !== 2)
+        throw new Error("local_splice path must contain absolute rootPath and relativePath");
+      return observeLocalSpliceSample(args.path[0], args.path[1]);
+    }
     const target = normalizeBrowserPath(args);
     if (target.path.length === 0) throw new Error("a browser item path is required");
     const observed = await this.bridge.request("get_browser_items", { ...target, offset: 0, limit: 1 });

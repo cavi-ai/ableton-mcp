@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BrowserMetadataLibrary } from "../src/browser-metadata-library.mjs";
@@ -64,4 +64,40 @@ test("private browser metadata search filters tags and favorites without claimin
     }]);
     assert.deepEqual(library.search({ tags: ["unknown"] }), []);
   } finally { library.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("private tags and favorites bind to an observed local audio sample without Live", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "local-sample-metadata-"));
+  const library = new BrowserMetadataLibrary({ path: join(directory, "metadata.sqlite") });
+  const sample = join(directory, "kick.wav");
+  const outside = await mkdtemp(join(tmpdir(), "local-sample-outside-"));
+  const service = new ToolService({ browserMetadata: library });
+  const target = { root: "local_splice", path: [directory, "kick.wav"] };
+  try {
+    await writeFile(sample, "audio");
+    await writeFile(join(outside, "external.wav"), "audio");
+    await symlink(join(outside, "external.wav"), join(directory, "linked.wav"));
+    const before = await service.call("get_browser_item_metadata", target);
+    assert.equal(before.item.uri, await realpath(sample));
+    assert.deepEqual(before.metadata, { favorite: false, tags: [], revision: 0 });
+    const args = { ...target, expectedMetadataRevision: 0, favorite: true, tags: ["Kick", "Drums"] };
+    const dry = await service.call("set_browser_item_metadata", args);
+    await rm(sample);
+    await writeFile(sample, "replacement audio");
+    await assert.rejects(() => service.call("set_browser_item_metadata", { ...args, dryRun: false,
+      confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash }), /plan hash|confirmation/);
+    const fresh = await service.call("set_browser_item_metadata", args);
+    const applied = await service.call("set_browser_item_metadata", { ...args, dryRun: false,
+      confirmationToken: fresh.confirmation.token, planHash: fresh.confirmation.planHash });
+    assert.deepEqual(applied.observed, { favorite: true, tags: ["drums", "kick"], revision: 1 });
+    assert.equal((await service.call("search_browser_item_metadata", { root: "local_splice", favorite: true, tags: ["kick"] })).items.length, 1);
+    await assert.rejects(() => service.call("get_browser_item_metadata", { root: "local_splice",
+      path: [directory, "../external.wav"] }), /relative|path|segment/);
+    await assert.rejects(() => service.call("get_browser_item_metadata", { root: "local_splice",
+      path: [directory, "linked.wav"] }), /symlink/);
+  } finally {
+    library.close();
+    await rm(directory, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
 });

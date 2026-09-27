@@ -1,8 +1,31 @@
-import { readdir, realpath, stat } from "node:fs/promises";
+import { lstat, readdir, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, extname, sep } from "node:path";
 
 const AUDIO_EXTENSIONS = new Set([".aif", ".aiff", ".flac", ".mp3", ".ogg", ".wav"]);
 const compareNames = (left, right) => left < right ? -1 : left > right ? 1 : 0;
+
+export async function observeLocalSpliceSample(rootPath, relativePath) {
+  if (typeof rootPath !== "string" || !isAbsolute(rootPath)) throw new Error("rootPath must be absolute");
+  if (typeof relativePath !== "string" || !relativePath || isAbsolute(relativePath) ||
+      relativePath.includes("\\") || relativePath.split("/").some(part => !part || part === "." || part === ".."))
+    throw new Error("relativePath must contain ordinary relative path segments");
+  if (!AUDIO_EXTENSIONS.has(extname(relativePath).toLowerCase())) throw new Error("local sample must be an audio file");
+  const root = await realpath(rootPath);
+  if (!(await stat(root)).isDirectory()) throw new Error("rootPath must be a directory");
+  let candidate = root;
+  for (const part of relativePath.split("/")) {
+    candidate = join(candidate, part);
+    if ((await lstat(candidate)).isSymbolicLink()) throw new Error("local sample path must not contain a symlink");
+  }
+  const sourcePath = await realpath(candidate);
+  const actualRelativePath = relative(root, sourcePath);
+  if (!actualRelativePath || actualRelativePath === ".." || actualRelativePath.startsWith(`..${sep}`) || isAbsolute(actualRelativePath))
+    throw new Error("local sample must remain inside rootPath");
+  const info = await stat(sourcePath);
+  if (!info.isFile()) throw new Error("local sample must be a file");
+  return { root: "local_splice", path: [root, actualRelativePath.split(sep).join("/")], uri: sourcePath,
+    sourceIdentity: { size: info.size, mtimeMs: info.mtimeMs, dev: info.dev, ino: info.ino } };
+}
 
 export async function searchLocalSpliceSamples({ rootPath, query, maxDepth = 8, offset = 0, limit = 100 }) {
   if (typeof rootPath !== "string" || !isAbsolute(rootPath)) throw new Error("rootPath must be absolute");
