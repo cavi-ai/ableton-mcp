@@ -745,7 +745,17 @@ export class ToolService {
         metadataSource: "private_mcp", nativeLiveCollectionsModified: false };
     }
     if (name === "get_browser_items" || name === "get_factory_browser_items") {
-      return this.bridge.request(name, normalizeBrowserPage(args));
+      if (args.includeMetadata !== undefined && typeof args.includeMetadata !== "boolean") throw new Error("includeMetadata must be boolean");
+      const request = normalizeBrowserPage(args);
+      const observed = await this.bridge.request(name, request);
+      if (!args.includeMetadata) return observed;
+      if (observed.root !== request.root || JSON.stringify(observed.path) !== JSON.stringify(request.path) ||
+          !Array.isArray(observed.children)) throw new Error("invalid browser page observation");
+      const library = this.#browserMetadataLibrary();
+      return { ...observed, children: observed.children.map(child => ({ ...child,
+        metadata: typeof child.uri === "string" && child.uri && typeof child.name === "string" && child.name
+          ? library.get({ root: request.root, path: [...request.path, child.name], uri: child.uri }) : null })),
+        metadataSource: "private_mcp", nativeLiveCollectionsModified: false };
     }
     if (name === "search_browser_items") {
       if (args.includeMetadata !== undefined && typeof args.includeMetadata !== "boolean") throw new Error("includeMetadata must be boolean");

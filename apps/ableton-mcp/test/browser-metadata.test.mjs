@@ -114,6 +114,33 @@ test("subtree Live search optionally joins private tags without sending metadata
   } finally { library.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test("browser pages optionally join child metadata using the exact parent path", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "browser-page-metadata-"));
+  const library = new BrowserMetadataLibrary({ path: join(directory, "metadata.sqlite") });
+  const calls = [];
+  const service = new ToolService({ browserMetadata: library, bridge: { async request(method, params) {
+    calls.push({ method, params });
+    return { stateVersion: 4, root: params.root, path: params.path, totalChildren: 1,
+      nextOffset: null, item: { name: "VST3", uri: "folder:vst3", folder: true, loadable: false },
+      children: [{ name: "Serum", uri: "plugin:serum-vst3", folder: false, loadable: true }] };
+  } } });
+  try {
+    library.set({ root: "plugins", path: ["VST3", "Serum"], uri: "plugin:serum-vst3" }, 0,
+      { favorite: true, tags: ["bass"] });
+    for (const name of ["get_browser_items", "get_factory_browser_items"]) {
+      const result = await service.call(name, { root: "plugins", path: ["VST3"], includeMetadata: true });
+      assert.deepEqual(result.children[0].metadata, { favorite: true, tags: ["bass"], revision: 1 });
+      assert.equal(result.metadataSource, "private_mcp");
+      assert.equal(result.nativeLiveCollectionsModified, false);
+    }
+    assert.ok(calls.every(call => call.params.includeMetadata === undefined));
+    const plain = await service.call("get_browser_items", { root: "plugins", path: ["VST3"] });
+    assert.equal(plain.children[0].metadata, undefined);
+    await assert.rejects(() => service.call("get_browser_items", {
+      root: "plugins", path: ["VST3"], includeMetadata: 1 }), /includeMetadata/);
+  } finally { library.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test("local Splice search includes private tags and favorites by exact file identity", async () => {
   const directory = await mkdtemp(join(tmpdir(), "splice-search-metadata-"));
   const library = new BrowserMetadataLibrary({ path: join(directory, "metadata.sqlite") });
