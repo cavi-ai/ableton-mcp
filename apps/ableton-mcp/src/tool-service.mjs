@@ -1556,6 +1556,19 @@ export class ToolService {
       if (observed.launchLegato?.supported !== true) throw new Error("clip launch Legato is unavailable");
       changes.launchLegato = args.launchLegato;
     }
+    if (args.editorGrid !== undefined) {
+      if (!args.editorGrid || typeof args.editorGrid !== "object" || Array.isArray(args.editorGrid)) throw new Error("editorGrid must be an object");
+      const editorGrid = {};
+      if (args.editorGrid.quantization !== undefined) editorGrid.quantization = normalizeChoice(
+        args.editorGrid.quantization, "editorGrid.quantization", observed.editorGrid.quantization.choices
+      );
+      if (args.editorGrid.isTriplet !== undefined) {
+        if (typeof args.editorGrid.isTriplet !== "boolean") throw new Error("editorGrid.isTriplet must be boolean");
+        editorGrid.isTriplet = args.editorGrid.isTriplet;
+      }
+      if (!Object.keys(editorGrid).length) throw new Error("editorGrid requires quantization or isTriplet");
+      changes.editorGrid = editorGrid;
+    }
     if (args.grooveId !== undefined) {
       if (typeof args.grooveId !== "string") throw new Error("grooveId must identify an available groove");
       if (!observed.availableGrooves.some(({ id }) => id === args.grooveId)) throw new Error(`unknown groove ${args.grooveId}`);

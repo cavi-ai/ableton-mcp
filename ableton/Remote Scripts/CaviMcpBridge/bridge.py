@@ -34,6 +34,7 @@ CLIP_QUANTIZATION_NAMES = (
     "global", "none", "8_bars", "4_bars", "2_bars", "1_bar", "1_2", "1_2_triplet",
     "1_4", "1_4_triplet", "1_8", "1_8_triplet", "1_16", "1_16_triplet", "1_32",
 )
+CLIP_GRID_NAMES = ("none", "8_bars", "4_bars", "2_bars", "1_bar", "1_2", "1_4", "1_8", "1_16", "1_32")
 AUDIO_WARP_MODE_NAMES = ("beats", "tones", "texture", "re_pitch", "complex", "rex", "complex_pro")
 COUNT_IN_DURATION_NAMES = ("none", "one_bar", "two_bars", "four_bars")
 
@@ -326,6 +327,10 @@ def _clip_timing(song, track_id, clip_id, state_version):
         "loop": loop,
         "timeSignature": {"numerator": int(clip.signature_numerator), "denominator": int(clip.signature_denominator)},
         "launchQuantization": _enum_record(clip.launch_quantization, CLIP_QUANTIZATION_NAMES),
+        "editorGrid": {
+            "quantization": _enum_record(clip.view.grid_quantization, CLIP_GRID_NAMES),
+            "isTriplet": bool(clip.view.grid_is_triplet),
+        },
         "launchLegato": {"supported": True, "enabled": bool(clip.legato)}
         if timeline is None and hasattr(clip, "legato") else {"supported": False},
         "grooveId": groove_id,
@@ -3501,6 +3506,15 @@ def dispatch_request(song, request, state_version, application=None):
                 raise ValueError("clip launch Legato is unavailable")
             if type(changes["launchLegato"]) is not bool:
                 raise ValueError("launchLegato must be boolean")
+        editor_grid = changes.get("editorGrid", {})
+        if "quantization" in editor_grid:
+            grid_value = editor_grid["quantization"]
+            if type(grid_value) is not int or grid_value < 0 or grid_value >= len(CLIP_GRID_NAMES):
+                raise ValueError("invalid clip editor grid quantization")
+            if Live is not None and grid_value not in Live.Clip.GridQuantization.values:
+                raise ValueError("clip editor grid quantization is unavailable in this Live version")
+        if "isTriplet" in editor_grid and type(editor_grid["isTriplet"]) is not bool:
+            raise ValueError("clip editor grid isTriplet must be boolean")
         loop = changes.get("loop", {})
         if getattr(clip, "is_audio_clip", False) and not clip.warping and any(key in loop for key in ("startBeats", "endBeats")):
             raise ValueError("beat-based loop positions cannot be applied to unwarped audio")
@@ -3530,6 +3544,10 @@ def dispatch_request(song, request, state_version, application=None):
             clip.launch_quantization = int(changes["launchQuantization"])
         if "launchLegato" in changes:
             clip.legato = changes["launchLegato"]
+        if "quantization" in editor_grid:
+            clip.view.grid_quantization = Live.Clip.GridQuantization.values[editor_grid["quantization"]] if Live is not None else editor_grid["quantization"]
+        if "isTriplet" in editor_grid:
+            clip.view.grid_is_triplet = editor_grid["isTriplet"]
         if "grooveId" in changes:
             clip.groove = _grooves(song)[int(changes["grooveId"].removeprefix("groove-"))]
         return _clip_timing(song, params["trackId"], params["clipId"], state_version + 1)

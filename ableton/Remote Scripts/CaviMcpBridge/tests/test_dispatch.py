@@ -150,6 +150,7 @@ class Clip:
         self.signature_denominator = 4
         self.launch_quantization = 0
         self.legato = False
+        self.view = SimpleNamespace(grid_quantization=8, grid_is_triplet=False)
         self.groove = None
         self.envelopes = {}
     def fire(self):
@@ -2104,6 +2105,8 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(observed["launchQuantization"]["value"], 0)
         self.assertEqual(observed["launchQuantization"]["name"], "global")
         self.assertEqual(observed["launchLegato"], {"supported": True, "enabled": False})
+        self.assertEqual(observed["editorGrid"]["quantization"]["name"], "1_16")
+        self.assertFalse(observed["editorGrid"]["isTriplet"])
         self.assertIn({"value": 12, "name": "1_16"}, observed["launchQuantization"]["choices"])
         self.assertIsNone(observed["grooveId"])
 
@@ -2111,12 +2114,15 @@ class DispatchTest(unittest.TestCase):
             "loop": {"enabled": True, "startBeats": 1.0, "endBeats": 5.0},
             "timeSignature": {"numerator": 3, "denominator": 4},
             "launchQuantization": 12, "launchLegato": True, "grooveId": "groove-0",
+            "editorGrid": {"quantization": 7, "isTriplet": True},
         }}}, 3)
         clip = song.tracks[0].clip_slots[0].clip
         self.assertEqual(changed["stateVersion"], 4)
         self.assertEqual((clip.loop_start, clip.loop_end), (1.0, 5.0))
         self.assertEqual(clip.signature_numerator, 3)
         self.assertTrue(clip.legato)
+        self.assertEqual(clip.view.grid_quantization, 7)
+        self.assertTrue(clip.view.grid_is_triplet)
         self.assertIs(clip.groove, song.groove_pool.grooves[0])
 
     def test_clip_timing_rejects_changed_observation_before_mutation(self):

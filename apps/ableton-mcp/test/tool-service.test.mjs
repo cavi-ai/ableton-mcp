@@ -326,6 +326,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         timeSignature: { numerator: 4, denominator: 4 },
         launchQuantization: { value: 0, name: "global", choices: [{ value: 0, name: "global" }, { value: 12, name: "1_16" }] },
         launchLegato: { supported: true, enabled: false },
+        editorGrid: { quantization: { value: 8, name: "1_16", choices: [{ value: 7, name: "1_8" }, { value: 8, name: "1_16" }] }, isTriplet: false },
         grooveId: null, availableGrooves: [{ id: "groove-0", name: "Swing 16-65" }]
       };
       if (method === "get_audio_clip_state") return {
@@ -1012,6 +1013,15 @@ test("clip timing signs the Session clip launch Legato switch", async () => {
   const dry = await service.call("set_clip_timing", { ...base, launchLegato: true });
   assert.equal(dry.plan.changes.launchLegato, true);
   await assert.rejects(() => service.call("set_clip_timing", { ...base, launchLegato: "yes" }), /launchLegato must be boolean/);
+});
+
+test("clip timing signs exact editor grid choices and triplet mode", async () => {
+  const { service } = fixture();
+  const base = { trackId: "track-0", clipId: "track-0:clip-0", expectedStateVersion: 4 };
+  const dry = await service.call("set_clip_timing", { ...base, editorGrid: { quantization: "1_8", isTriplet: true } });
+  assert.deepEqual(dry.plan.changes.editorGrid, { quantization: 7, isTriplet: true });
+  await assert.rejects(() => service.call("set_clip_timing", { ...base, editorGrid: { quantization: "1_64" } }), /quantization must be one of/);
+  await assert.rejects(() => service.call("set_clip_timing", { ...base, editorGrid: { isTriplet: 1 } }), /isTriplet must be boolean/);
 });
 
 test("clip loop duplication signs exact timing and executes once", async () => {
