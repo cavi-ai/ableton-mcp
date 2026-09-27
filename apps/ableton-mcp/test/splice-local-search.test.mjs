@@ -36,3 +36,24 @@ test("local Splice search never follows symlinks outside the selected root", asy
     await rm(outside, { recursive: true, force: true });
   }
 });
+
+test("local Splice search pages in stable relative-path order across files and folders", async () => {
+  const root = await mkdtemp(join(tmpdir(), "splice-search-"));
+  try {
+    await mkdir(join(root, "a"));
+    await writeFile(join(root, "a", "hit.wav"), "audio");
+    await writeFile(join(root, "a-hit.wav"), "audio");
+    await writeFile(join(root, "b-hit.wav"), "audio");
+    const service = new ToolService({});
+    const args = { rootPath: root, query: "hit", maxDepth: 2, limit: 1 };
+    const first = await service.call("search_local_splice_samples", { ...args, offset: 0 });
+    assert.deepEqual(first.samples.map(({ relativePath }) => relativePath), ["a-hit.wav"]);
+    assert.equal(first.nextOffset, 1);
+    const second = await service.call("search_local_splice_samples", { ...args, offset: first.nextOffset });
+    assert.deepEqual(second.samples.map(({ relativePath }) => relativePath), ["a/hit.wav"]);
+    assert.equal(second.nextOffset, 2);
+    const third = await service.call("search_local_splice_samples", { ...args, offset: second.nextOffset });
+    assert.deepEqual(third.samples.map(({ relativePath }) => relativePath), ["b-hit.wav"]);
+    assert.equal(third.nextOffset, null);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

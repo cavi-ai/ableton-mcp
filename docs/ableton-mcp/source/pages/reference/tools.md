@@ -88,7 +88,7 @@ The server publishes 190 tools. Mutations of the Live Set require `expectedState
 | `propose_audio_transient_warp` | Analyze bounded source-audio onset candidates and propose review-only marker actions toward a beat grid using native Live source-to-beat conversion. Reports signed offsets from the clip-relative beat grid for every candidate, including candidates skipped for marker actions. Heuristic, source-only, no edit or audible validation; individually dry-run actions against current state before applying. | `trackId`, `clipId`, `gridBeats` |
 | `search_browser_item_metadata` | Search saved private browser item tags and favorites. Results are not reverified against current Live browser content and do not represent native Live collections. | none |
 | `search_browser_items` | Search a bounded subtree of Live's browser and return exact paths usable by load_browser_item. | `root`, `query` |
-| `search_local_splice_samples` | Search local downloaded Splice audio assets under an explicit directory. Read-only; not cloud catalog search, download, or sync. Returns exact local source paths for analyze_audio_file. | `rootPath`, `query` |
+| `search_local_splice_samples` | Search downloaded Splice audio assets under an explicit local directory in stable relative-path order. Offset and nextOffset page through matching files. Read-only; not cloud catalog search, download, or sync. Returns exact local source paths for analyze_audio_file. | `rootPath`, `query` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
 ## Mutations (96)
