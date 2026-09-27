@@ -20,6 +20,26 @@ export async function listConfiguredSpliceRoots(paths) {
     limitation: "Existing local Splice folders and cache files only; does not search cloud assets, verify licenses, or synchronize downloads." };
 }
 
+export async function browseLocalSpliceDirectory({ rootPath, offset = 0, limit = 100 }, configuredRoots = []) {
+  if (typeof rootPath !== "string" || !isAbsolute(rootPath)) throw new Error("rootPath must be absolute");
+  if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("offset must be a nonnegative safe integer");
+  if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new Error("limit must be 1 through 200");
+  const root = await realpath(rootPath);
+  if (!(await stat(root)).isDirectory()) throw new Error("rootPath must be a directory");
+  const configured = await listConfiguredSpliceRoots(configuredRoots);
+  if (!configured.roots.some(item => item.available &&
+      (root === item.rootPath || root.startsWith(`${item.rootPath}${sep}`))))
+    throw new Error("rootPath must be inside a configured Splice root");
+  const all = (await readdir(root, { withFileTypes: true }))
+    .filter(entry => entry.isDirectory() || (entry.isFile() && AUDIO_EXTENSIONS.has(extname(entry.name).toLowerCase())))
+    .sort((left, right) => compareNames(left.name, right.name));
+  const entries = all.slice(offset, offset + limit).map(entry => ({
+    name: entry.name, type: entry.isDirectory() ? "directory" : "audio_file", sourcePath: join(root, entry.name),
+  }));
+  return { rootPath: root, scope: "local_files_only", offset, total: all.length,
+    nextOffset: offset + limit < all.length ? offset + limit : null, entries };
+}
+
 export async function observeLocalSpliceSample(rootPath, relativePath) {
   if (typeof rootPath !== "string" || !isAbsolute(rootPath)) throw new Error("rootPath must be absolute");
   if (typeof relativePath !== "string" || !relativePath || isAbsolute(relativePath) ||

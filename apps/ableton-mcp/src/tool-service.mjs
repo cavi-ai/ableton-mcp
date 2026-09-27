@@ -6,7 +6,7 @@ import { isAbsolute } from "node:path";
 import { analyzeAudioFile } from "./audio-analysis.mjs";
 import { planClipPitchAdjustment } from "./audio-tuning.mjs";
 import { buildSongGridReference, planGridEnvelopePattern } from "./song-grid-reference.mjs";
-import { listConfiguredSpliceRoots, observeLocalSpliceSample, searchLocalSpliceSamples } from "./splice-local-search.mjs";
+import { browseLocalSpliceDirectory, listConfiguredSpliceRoots, observeLocalSpliceSample, searchLocalSpliceSamples } from "./splice-local-search.mjs";
 import { inspectGroovePostconditions } from "./groove-workflow.mjs";
 import { analyzeMidiFeel, planMidiFeelTransfer } from "./midi-feel-analysis.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
@@ -443,6 +443,7 @@ export class ToolService {
 
   async call(name, args = {}) {
     if (name === "list_local_splice_roots") return listConfiguredSpliceRoots(this.spliceRoots);
+    if (name === "browse_local_splice_directory") return browseLocalSpliceDirectory(args, this.spliceRoots);
     if (name === "search_local_splice_samples") {
       if (args.includeMetadata !== undefined && typeof args.includeMetadata !== "boolean") throw new Error("includeMetadata must be boolean");
       const observed = await searchLocalSpliceSamples(args);
