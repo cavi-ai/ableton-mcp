@@ -104,6 +104,37 @@ const blueprints = [
       fx("chorus-ensemble", "Chorus-Ensemble", "shared-movement", "Add optional common movement.", true),
       fx("saturator", "Saturator", "shared-color", "Add optional common harmonic character.", true)
     ])
+  },
+  {
+    id: "layered-drums-system", topology: "shared-instrument-bus",
+    summary: "Separate kick, snare and percussion instruments routed into one drum bus.",
+    children: [
+      { role: "kick", instrumentProfileId: "drum-sampler", root: "instruments", path: ["Drum Sampler"], routing: "bus" },
+      { role: "snare", instrumentProfileId: "drum-sampler", root: "instruments", path: ["Drum Sampler"], routing: "bus" },
+      { role: "percussion", instrumentProfileId: "drum-rack", root: "instruments", path: ["Drum Rack"], routing: "bus" }
+    ],
+    stages: ordered([
+      fx("utility", "Utility", "bus-gain", "Set headroom for the summed kit before nonlinear processing."),
+      fx("eq-eight", "EQ Eight", "shared-tone", "Resolve low-frequency and midrange buildup between layers."),
+      fx("drum-buss", "Drum Buss", "shared-character", "Shape the combined transient and low-end response."),
+      fx("glue-compressor", "Glue Compressor", "bus-cohesion", "Control the combined kit envelope."),
+      fx("limiter", "Limiter", "bus-safety", "Catch occasional summed peaks.", true)
+    ])
+  },
+  {
+    id: "layered-keys-system", topology: "shared-instrument-bus",
+    summary: "Separate piano, pad and texture instruments routed into one keys bus.",
+    children: [
+      { role: "electric-piano", instrumentProfileId: "electric", root: "instruments", path: ["Electric"], routing: "bus" },
+      { role: "pad", instrumentProfileId: "wavetable", root: "instruments", path: ["Wavetable"], routing: "bus" },
+      { role: "texture", instrumentProfileId: "sampler", root: "instruments", path: ["Sampler"], routing: "bus" }
+    ],
+    stages: ordered([
+      fx("utility", "Utility", "bus-gain-and-width", "Set combined headroom and stereo width."),
+      fx("eq-eight", "EQ Eight", "layer-separation", "Keep electric-piano articulation clear against pad and texture layers."),
+      fx("compressor", "Compressor", "bus-dynamics", "Control the summed envelope when needed.", true),
+      fx("chorus-ensemble", "Chorus-Ensemble", "shared-movement", "Add optional common movement without obscuring electric-piano attacks.", true)
+    ])
   }
 ];
 

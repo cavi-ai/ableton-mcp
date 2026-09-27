@@ -420,6 +420,20 @@ test("producer chain blueprints return ordered loadable stages and explicit bus 
     { role: "body", instrumentProfileId: "wavetable" },
     { role: "texture", instrumentProfileId: "drift" }
   ]);
+  const drums = await service.call("get_producer_chain_blueprint", { target: "layered-drums-system" });
+  assert.deepEqual(drums.blueprint.children.map(({ role, instrumentProfileId }) => ({ role, instrumentProfileId })), [
+    { role: "kick", instrumentProfileId: "drum-sampler" },
+    { role: "snare", instrumentProfileId: "drum-sampler" },
+    { role: "percussion", instrumentProfileId: "drum-rack" }
+  ]);
+  assert.deepEqual(drums.blueprint.stages.filter(({ optional }) => !optional).map(({ profileId }) => profileId),
+    ["utility", "eq-eight", "drum-buss", "glue-compressor"]);
+  const keys = await service.call("get_producer_chain_blueprint", { target: "layered-keys-system" });
+  assert.deepEqual(keys.blueprint.children.map(({ role, instrumentProfileId }) => ({ role, instrumentProfileId })), [
+    { role: "electric-piano", instrumentProfileId: "electric" },
+    { role: "pad", instrumentProfileId: "wavetable" },
+    { role: "texture", instrumentProfileId: "sampler" }
+  ]);
   assert.deepEqual(calls, []);
 });
 
@@ -428,7 +442,8 @@ test("producer chain catalog covers core tracks, buses, returns and layered inst
   const result = await service.call("list_producer_chain_blueprints");
   assert.deepEqual(result.blueprints.map(({ id }) => id), [
     "bass", "drums", "vocals", "guitar", "keys", "synth", "mix-bus", "mastering",
-    "reverb-return", "delay-return", "layered-bass-system", "layered-synth-system"
+    "reverb-return", "delay-return", "layered-bass-system", "layered-synth-system",
+    "layered-drums-system", "layered-keys-system"
   ]);
   for (const blueprint of result.blueprints) {
     assert.ok(blueprint.topology);
