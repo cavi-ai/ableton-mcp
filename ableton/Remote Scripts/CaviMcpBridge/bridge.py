@@ -652,13 +652,10 @@ def _track_state_snapshot(song, track_id, state_version):
 
 
 def _persisted_track_state(record, format_name=None):
-    device_chain = _persisted_device_chain(record, "cavi-device-chain-v2")
+    chain_format = format_name.replace("cavi-track-state", "cavi-device-chain") if format_name else None
+    device_chain = _persisted_device_chain(record, chain_format)
     if format_name is None:
-        format_name = "cavi-track-state-v2" if device_chain["format"] == "cavi-device-chain-v2" else "cavi-track-state-v1"
-    devices = device_chain["devices"]
-    if format_name == "cavi-track-state-v1":
-        devices = [{key: device[key] for key in ("name", "className", "type", "parameters")}
-                   for device in devices]
+        format_name = device_chain["format"].replace("cavi-device-chain", "cavi-track-state")
     return {
         "format": format_name,
         "track": {"name": record["track"]["name"], "type": record["track"]["type"], "isGroup": record["track"]["isGroup"]},
@@ -670,7 +667,7 @@ def _persisted_track_state(record, format_name=None):
                     "outputTypeId": record["routing"]["output"]["type"]["id"],
                     "outputChannelId": record["routing"]["output"]["channel"]["id"],
                     "monitoring": record["routing"]["monitoring"]["value"] if record["routing"]["monitoring"] else None},
-        "devices": devices,
+        "devices": device_chain["devices"],
     }
 
 
@@ -741,6 +738,53 @@ def _persisted_device_chain(record, format_name=None):
         "format": format_name,
         "devices": [persisted_device(device) for device in record["devices"]],
     }
+
+
+def _validate_snapshot_chain_controls(saved, native):
+    saved_mixer, native_mixer = saved.get("mixer"), native.get("mixer")
+    saved_routing, native_routing = saved.get("noteRouting"), native.get("noteRouting")
+    if not isinstance(saved_mixer, dict) or not isinstance(saved_routing, dict) or native_mixer is None or native_routing is None:
+        raise ValueError("device chain control layout mismatch")
+    for key in ("volume", "pan"):
+        value, bounds = saved_mixer.get(key), native_mixer[key]
+        if bounds is None:
+            if value is not None:
+                raise ValueError("device chain control layout mismatch")
+        elif (type(value) not in (int, float) or not math.isfinite(value) or
+              not bounds["min"] <= value <= bounds["max"] or
+              (value != bounds["value"] and not bounds["enabled"])):
+            raise ValueError("device chain control outside native range")
+    sends = saved_mixer.get("sends")
+    if not isinstance(sends, list) or len(sends) != len(native_mixer["sends"]):
+        raise ValueError("device chain send layout mismatch")
+    for value, bounds in zip(sends, native_mixer["sends"]):
+        if (type(value) not in (int, float) or not math.isfinite(value) or
+                not bounds["min"] <= value <= bounds["max"] or
+                (value != bounds["value"] and not bounds["enabled"])):
+            raise ValueError("device chain send outside native range")
+    for key in ("solo", "mute"):
+        value, observed = saved_mixer.get(key), native_mixer[key]
+        if (observed is None and value is not None) or (observed is not None and type(value) is not bool):
+            raise ValueError("device chain control layout mismatch")
+    for key in ("inputNote", "outputNote"):
+        value, observed = saved_routing.get(key), native_routing[key]
+        if (observed is None and value is not None) or (observed is not None and (type(value) is not int or not 0 <= value <= 127)):
+            raise ValueError("device chain note routing outside native range")
+
+
+def _apply_snapshot_chain_controls(chain, saved, write):
+    mixer = saved["mixer"]
+    for key, attribute in (("volume", "volume"), ("pan", "panning")):
+        if mixer[key] is not None:
+            write(getattr(chain.mixer_device, attribute), "value", mixer[key])
+    for send, value in zip(getattr(getattr(chain, "mixer_device", None), "sends", ()), mixer["sends"]):
+        write(send, "value", value)
+    for key in ("solo", "mute"):
+        if mixer[key] is not None:
+            write(chain, key, mixer[key])
+    for key, attribute in (("inputNote", "in_note"), ("outputNote", "out_note")):
+        if saved["noteRouting"][key] is not None:
+            write(chain, attribute, saved["noteRouting"][key])
 
 
 def _device_type(device):
@@ -3223,36 +3267,6 @@ def dispatch_request(song, request, state_version, application=None):
             raise ValueError("device chain topology mismatch")
         if format_name != "cavi-device-chain-v1" and not any("chains" in device for device in current["devices"]):
             raise ValueError("device chain topology mismatch")
-        def validate_chain_controls(saved, native):
-            saved_mixer, native_mixer = saved.get("mixer"), native.get("mixer")
-            saved_routing, native_routing = saved.get("noteRouting"), native.get("noteRouting")
-            if not isinstance(saved_mixer, dict) or not isinstance(saved_routing, dict):
-                raise ValueError("device chain control layout mismatch")
-            for key in ("volume", "pan"):
-                value, bounds = saved_mixer.get(key), native_mixer[key]
-                if bounds is None:
-                    if value is not None:
-                        raise ValueError("device chain control layout mismatch")
-                elif (type(value) not in (int, float) or not math.isfinite(value) or
-                      not bounds["min"] <= value <= bounds["max"] or
-                      (value != bounds["value"] and not bounds["enabled"])):
-                    raise ValueError("device chain control outside native range")
-            sends = saved_mixer.get("sends")
-            if not isinstance(sends, list) or len(sends) != len(native_mixer["sends"]):
-                raise ValueError("device chain send layout mismatch")
-            for value, bounds in zip(sends, native_mixer["sends"]):
-                if (type(value) not in (int, float) or not math.isfinite(value) or
-                        not bounds["min"] <= value <= bounds["max"] or
-                        (value != bounds["value"] and not bounds["enabled"])):
-                    raise ValueError("device chain send outside native range")
-            for key in ("solo", "mute"):
-                value, observed = saved_mixer.get(key), native_mixer[key]
-                if (observed is None and value is not None) or (observed is not None and type(value) is not bool):
-                    raise ValueError("device chain control layout mismatch")
-            for key in ("inputNote", "outputNote"):
-                value, observed = saved_routing.get(key), native_routing[key]
-                if (observed is None and value is not None) or (observed is not None and (type(value) is not int or not 0 <= value <= 127)):
-                    raise ValueError("device chain note routing outside native range")
         def validate_device(saved_device, native_device):
             if (saved_device.get("className") != native_device["className"] or
                     saved_device.get("type") != native_device["type"] or
@@ -3283,7 +3297,7 @@ def dispatch_request(song, request, state_version, application=None):
                                 len(saved_chain["devices"]) != len(native_chain["devices"])):
                             raise ValueError("device chain topology mismatch")
                         if format_name == "cavi-device-chain-v3":
-                            validate_chain_controls(saved_chain, native_chain)
+                            _validate_snapshot_chain_controls(saved_chain, native_chain)
                         for saved_child, native_child in zip(saved_chain["devices"], native_chain["devices"]):
                             validate_device(saved_child, native_child)
         for saved_device, native_device in zip(target["devices"], current["devices"]):
@@ -3305,18 +3319,7 @@ def dispatch_request(song, request, state_version, application=None):
                         for chain, saved_chain in zip(native_chains, saved_device[key]):
                             write(chain, "name", saved_chain["name"])
                             if format_name == "cavi-device-chain-v3":
-                                mixer = saved_chain["mixer"]
-                                for key, attribute in (("volume", "volume"), ("pan", "panning")):
-                                    if mixer[key] is not None:
-                                        write(getattr(chain.mixer_device, attribute), "value", mixer[key])
-                                for send, value in zip(getattr(getattr(chain, "mixer_device", None), "sends", ()), mixer["sends"]):
-                                    write(send, "value", value)
-                                for key in ("solo", "mute"):
-                                    if mixer[key] is not None:
-                                        write(chain, key, mixer[key])
-                                for key, attribute in (("inputNote", "in_note"), ("outputNote", "out_note")):
-                                    if saved_chain["noteRouting"][key] is not None:
-                                        write(chain, attribute, saved_chain["noteRouting"][key])
+                                _apply_snapshot_chain_controls(chain, saved_chain, write)
                             for child, saved_child in zip(chain.devices, saved_chain["devices"]):
                                 apply_device(child, saved_child)
             for device, saved_device in zip(owner.devices, target["devices"]):
@@ -3344,9 +3347,9 @@ def dispatch_request(song, request, state_version, application=None):
         current = _track_state_snapshot(song, track_id, state_version)
         if current != params["before"]:
             raise ValueError("track state changed after planning")
-        if target.get("format") not in ("cavi-track-state-v1", "cavi-track-state-v2"):
+        if target.get("format") not in ("cavi-track-state-v1", "cavi-track-state-v2", "cavi-track-state-v3"):
             raise ValueError("invalid track snapshot format")
-        nested = target["format"] == "cavi-track-state-v2"
+        nested = target["format"] != "cavi-track-state-v1"
         persisted = _persisted_track_state(current, target["format"])
         if nested and not any("chains" in device for device in current["devices"]):
             raise ValueError("snapshot device topology mismatch")
@@ -3404,6 +3407,8 @@ def dispatch_request(song, request, state_version, application=None):
                                 not isinstance(saved_chain.get("devices"), list) or
                                 len(saved_chain["devices"]) != len(native_chain["devices"])):
                             raise ValueError("snapshot device topology mismatch")
+                        if target["format"] == "cavi-track-state-v3":
+                            _validate_snapshot_chain_controls(saved_chain, native_chain)
                         for saved_child, native_child in zip(saved_chain["devices"], native_chain["devices"]):
                             validate_device(saved_child, native_child)
         for saved_device, native_device in zip(target["devices"], current["devices"]):
@@ -3459,6 +3464,8 @@ def dispatch_request(song, request, state_version, application=None):
                     for key, native_chains in (("chains", device.chains), ("returnChains", getattr(device, "return_chains", ()))):
                         for chain, saved_chain in zip(native_chains, saved_device[key]):
                             write(chain, "name", saved_chain["name"])
+                            if target["format"] == "cavi-track-state-v3":
+                                _apply_snapshot_chain_controls(chain, saved_chain, write)
                             for child, saved_child in zip(chain.devices, saved_chain["devices"]):
                                 apply_device(child, saved_child)
             for device, saved_device in zip(track.devices, target["devices"]):

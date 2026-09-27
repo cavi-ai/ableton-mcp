@@ -95,6 +95,35 @@ test('track snapshot saves nested rack state and plans compatible nested recall'
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+test('track snapshot saves rack mixer and Drum Rack note routing for guarded recall', async () => {
+  const directory = await mkdtemp(`${tmpdir()}/cavi-controlled-track-test-`);
+  try {
+    const { service, native } = fixture(new SnapshotLibrary({ directory }));
+    native.devices[0].className = 'InstrumentGroupDevice';
+    native.devices[0].name = 'Drum Rack';
+    native.devices[0].chains = [{ name: 'Kick', devices: [],
+      mixer: { volume: { value: 0.4, min: 0, max: 1, enabled: true }, pan: { value: 0, min: -1, max: 1, enabled: true },
+        sends: [{ index: 0, value: 0.2, min: 0, max: 1, enabled: true }], mute: false, solo: false },
+      noteRouting: { inputNote: 36, outputNote: 36 } }];
+    native.devices[0].returnChains = [];
+    await service.call('save_track_state_snapshot', { trackId: 'track-0', name: 'kick-rack' });
+    const loaded = await service.call('load_track_state_snapshot', { name: 'kick-rack' });
+    assert.equal(loaded.snapshot.format, 'cavi-track-state-v3');
+    assert.equal(loaded.snapshot.devices[0].chains[0].mixer.volume, 0.4);
+    assert.equal(loaded.snapshot.devices[0].chains[0].noteRouting.inputNote, 36);
+    validateToolArguments('recall_track_state_snapshot', { trackId: 'track-0', expectedStateVersion: 7,
+      snapshot: loaded.snapshot });
+    native.devices[0].chains[0].mixer.volume.value = 0.2;
+    const dry = await service.call('recall_track_state_snapshot', { trackId: 'track-0', expectedStateVersion: 7,
+      snapshot: loaded.snapshot });
+    assert.equal(dry.plan.target.devices[0].chains[0].mixer.volume, 0.4);
+    const invalid = structuredClone(loaded.snapshot);
+    invalid.devices[0].chains[0].noteRouting.inputNote = 128;
+    await assert.rejects(() => service.call('recall_track_state_snapshot', { trackId: 'track-0',
+      expectedStateVersion: 7, snapshot: invalid }), /note routing outside native range/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test('track snapshot rejects a native callback response for another target', async () => {
   const { service } = fixture();
   const original = service.bridge.request.bind(service.bridge);

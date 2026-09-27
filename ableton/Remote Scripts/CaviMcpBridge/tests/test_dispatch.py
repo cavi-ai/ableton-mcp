@@ -2937,6 +2937,56 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(result["devices"][0]["chains"][0]["devices"][0]["parameters"][0]["value"], 0.8)
         self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
 
+    def test_track_state_snapshot_recalls_rack_mixer_and_drum_note_routing(self):
+        song = Song()
+        rack = DrumRack()
+        chain = rack.chains[0]
+        chain.mixer_device = SimpleNamespace(volume=Parameter(), panning=Parameter(), sends=[Parameter()])
+        chain.mute, chain.solo = False, False
+        chain.in_note, chain.out_note = 36, 36
+        song.tracks[0].devices = [rack]
+        before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
+        target = _persisted_track_state(before)
+        self.assertEqual(target["format"], "cavi-track-state-v3")
+        saved = target["devices"][0]["chains"][0]
+        saved["mixer"]["volume"] = 0.6
+        saved["mixer"]["sends"][0] = 0.2
+        saved["noteRouting"]["inputNote"] = 38
+        result = dispatch_request(song, {"method": "set_track_state_snapshot", "params": {
+            "trackId": "track-0", "before": before, "target": target,
+        }}, 6)
+        self.assertEqual(result["devices"][0]["chains"][0]["mixer"]["volume"]["value"], 0.6)
+        self.assertEqual(chain.mixer_device.sends[0].value, 0.2)
+        self.assertEqual(chain.in_note, 38)
+        self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
+        unchanged = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 7)
+        invalid = _persisted_track_state(unchanged)
+        invalid["track"]["name"] = "Should Not Change"
+        invalid["devices"][0]["chains"][0]["noteRouting"]["inputNote"] = 128
+        with self.assertRaisesRegex(ValueError, "note routing outside native range"):
+            dispatch_request(song, {"method": "set_track_state_snapshot", "params": {
+                "trackId": "track-0", "before": unchanged, "target": invalid,
+            }}, 7)
+        self.assertEqual(song.tracks[0].name, unchanged["track"]["name"])
+
+    def test_v2_track_snapshot_preserves_newer_rack_controls(self):
+        song = Song()
+        rack = DrumRack()
+        chain = rack.chains[0]
+        chain.mixer_device = SimpleNamespace(volume=Parameter(), panning=Parameter(), sends=[])
+        chain.mute, chain.solo = False, False
+        chain.in_note, chain.out_note = 36, 36
+        song.tracks[0].devices = [rack]
+        before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
+        legacy = _persisted_track_state(before, "cavi-track-state-v2")
+        legacy["devices"][0]["chains"][0]["devices"][0]["parameters"][0]["value"] = 0.8
+        dispatch_request(song, {"method": "set_track_state_snapshot", "params": {
+            "trackId": "track-0", "before": before, "target": legacy,
+        }}, 6)
+        self.assertEqual(chain.devices[0].parameters[0].value, 0.8)
+        self.assertEqual(chain.mixer_device.volume.value, 0.4)
+        self.assertEqual((chain.in_note, chain.out_note), (36, 36))
+
     def test_legacy_track_snapshot_does_not_change_nested_rack_state(self):
         song = Song()
         rack = DrumRack()

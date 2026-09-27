@@ -288,7 +288,14 @@ const nestedTrackStateSnapshot = {
       devices: array({ $ref: "#/properties/snapshot/oneOf/1/$defs/device" }, "Nested devices in native order.") }, ["name", "devices"]),
   },
 };
-const trackStateSnapshot = { oneOf: [legacyTrackStateSnapshot, nestedTrackStateSnapshot] };
+const controlledTrackStateSnapshot = {
+  ...legacyTrackStateSnapshot,
+  properties: { ...legacyTrackStateSnapshot.properties,
+    format: { const: "cavi-track-state-v3" },
+    devices: array({ $ref: "#/properties/snapshot/oneOf/2/$defs/device" }, "Ordered devices including rack controls.") },
+  $defs: controlledDeviceChainSnapshot.$defs,
+};
+const trackStateSnapshot = { oneOf: [legacyTrackStateSnapshot, nestedTrackStateSnapshot, controlledTrackStateSnapshot] };
 
 const note = object({
   pitch: { type: "integer", minimum: 0, maximum: 127 }, start: number("Start in beats.", { minimum: 0 }),
@@ -306,10 +313,10 @@ const contracts = {
   load_device_chain_snapshot: { description: "Read a named local device-chain snapshot for review and guarded recall onto an already compatible track, Return, or Main device owner. Does not mutate Live.", inputSchema: object({ name: string("Exact saved chain snapshot name.") }, ["name"]) },
   recall_device_chain_snapshot: { description: "Plan or recall exposed device parameters, rack-chain mixer and Drum Rack note routing onto exactly compatible topology in one guarded Live undo step. Legacy v1/v2 captures remain supported. Does not create, delete, or load devices or restore hidden plugin state.", inputSchema: guarded({ trackId: ids.deviceOwnerId, snapshot: deviceChainSnapshot }, ["trackId", "snapshot"]) },
   capture_device_parameter_snapshot: { description: "Capture exposed device parameters as persistable JSON, with a consistent live identity check. Not a native preset: excludes hidden plugin state, samples, automation and mappings.", inputSchema: device },
-  capture_track_state_snapshot: { description: "Capture one consistent, persistable JSON snapshot of an existing track's mixer, routing, ordered devices, and exposed nested rack parameters. Not a native track preset; excludes clips, hidden state, samples, automation, pad assignments and mappings.", inputSchema: track },
-  save_track_state_snapshot: { description: "Capture one exact track state and save its JSON to the configured private local snapshot library under a new name. Never overwrites; excludes clips, hidden plugin state, samples, automation, pad assignments and mappings.", inputSchema: object({ trackId: ids.trackId, name: string("New local snapshot name; letters, numbers, dot, underscore and hyphen only.") }, ["trackId", "name"]) },
+  capture_track_state_snapshot: { description: "Capture one consistent, persistable JSON snapshot of track mixer, routing, ordered devices, nested rack parameters, chain mixer and Drum Rack note routing. Not a native track preset; excludes clips, hidden state, samples, pad mute/solo, automation and mappings.", inputSchema: track },
+  save_track_state_snapshot: { description: "Capture one exact track state and save its JSON to the private named local snapshot library. Never overwrites; excludes clips, hidden plugin state, samples, pad mute/solo, automation and mappings.", inputSchema: object({ trackId: ids.trackId, name: string("New local snapshot name; letters, numbers, dot, underscore and hyphen only.") }, ["trackId", "name"]) },
   load_track_state_snapshot: { description: "Read a previously saved local track-state JSON capture for review and explicit guarded recall onto an already compatible track. Does not mutate Live.", inputSchema: object({ name: string("Exact saved snapshot name.") }, ["name"]) },
-  recall_track_state_snapshot: { description: "Plan or recall captured track-state JSON onto exactly compatible track and rack-chain topology. Restores name, mixer, sends, routing and exposed nested parameters in one guarded native undo step; v1 remains supported. Does not load devices, clips, samples, hidden state, automation or mappings.", inputSchema: guarded({ trackId: ids.trackId, snapshot: trackStateSnapshot }, ["trackId", "snapshot"]) },
+  recall_track_state_snapshot: { description: "Plan or recall captured track-state JSON onto exactly compatible topology. Restores track and rack-chain mixer, sends, routing, Drum Rack note routing and exposed nested parameters in one guarded native undo step; v1/v2 remain supported. Does not load devices, clips, samples, hidden state, automation or mappings.", inputSchema: guarded({ trackId: ids.trackId, snapshot: trackStateSnapshot }, ["trackId", "snapshot"]) },
   recall_device_parameter_snapshot: { description: "Guarded recall of parameter JSON onto a matching native device class and exact ordered parameter layout. Supports ordinary, Return, and Main tracks; rejects incompatible bounds/choices and disabled changed controls. Does not restore hidden state.", inputSchema: guarded({ trackId: ids.deviceOwnerId, deviceId: ids.deviceId, snapshot: parameterSnapshot }, ["trackId", "deviceId", "snapshot"]) },
   get_factory_coverage: { description: "Compare observed top-level Live factory browser devices with name-matched knowledge profiles. Reports missing profiles, not verified deep integration or all presets/Packs/plugins.", inputSchema: empty },
   list_producer_chain_blueprints: { description: "List deterministic producer starting points for ordered track, bus, return, mastering, and layered-instrument chains.", inputSchema: empty },

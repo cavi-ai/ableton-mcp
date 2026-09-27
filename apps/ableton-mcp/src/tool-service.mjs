@@ -1171,16 +1171,18 @@ export class ToolService {
     if (observed.trackId !== args.trackId || observed.track?.id !== args.trackId) throw new Error("track snapshot target mismatch");
     const { track, mixer, routing } = observed;
     const nested = observed.devices.some(device => Array.isArray(device.chains));
+    const controlled = observed.devices.some(hasChainControls);
+    const deviceFormat = controlled ? "cavi-device-chain-v3" : nested ? "cavi-device-chain-v2" : "cavi-device-chain-v1";
     return { trackId: args.trackId, stateVersion: observed.stateVersion, snapshot: {
-      format: nested ? "cavi-track-state-v2" : "cavi-track-state-v1",
+      format: deviceFormat.replace("cavi-device-chain", "cavi-track-state"),
       track: { name: track.name, type: track.type, isGroup: Boolean(track.isGroup) },
       mixer: { volume: mixer.volume.value, pan: mixer.pan.value, mute: mixer.mute, solo: mixer.solo,
         sends: mixer.sends.map(send => ({ id: send.id, name: send.name, value: send.value })) },
       routing: { inputTypeId: routing.input.type?.id ?? null, inputChannelId: routing.input.channel?.id ?? null,
         outputTypeId: routing.output.type?.id ?? null, outputChannelId: routing.output.channel?.id ?? null,
         monitoring: routing.monitoring?.value ?? null },
-      devices: persistedChainSnapshot(observed.devices, nested ? "cavi-device-chain-v2" : "cavi-device-chain-v1").devices
-    }, limitation: "Captures mixer, routing, ordered devices and exposed nested rack parameters on one existing track. Not a native track preset: excludes clips, hidden plugin state, samples, automation, pad assignments and mappings." };
+      devices: persistedChainSnapshot(observed.devices, deviceFormat).devices
+    }, limitation: "Captures mixer, routing, ordered devices, exposed nested rack parameters, chain mixer and Drum Rack note routing. Not a native track preset: excludes clips, hidden plugin state, samples, pad mute/solo, automation and mappings." };
   }
 
   async #captureDeviceChainSnapshot(args) {
@@ -1217,7 +1219,7 @@ export class ToolService {
   async #recallTrackStateSnapshot(args) {
     requireExpectedState(args);
     const snapshot = args.snapshot;
-    if (!["cavi-track-state-v1", "cavi-track-state-v2"].includes(snapshot?.format) || !snapshot.track || !snapshot.mixer || !snapshot.routing || !Array.isArray(snapshot.devices)) {
+    if (!["cavi-track-state-v1", "cavi-track-state-v2", "cavi-track-state-v3"].includes(snapshot?.format) || !snapshot.track || !snapshot.mixer || !snapshot.routing || !Array.isArray(snapshot.devices)) {
       throw new Error("invalid track snapshot format");
     }
     const before = await this.bridge.request("get_track_state_snapshot", { trackId: args.trackId });
@@ -1251,14 +1253,15 @@ export class ToolService {
       throw new Error("snapshot routing monitoring is unavailable");
     }
     if (snapshot.devices.length !== before.devices.length) throw new Error("snapshot device topology mismatch");
-    const nested = snapshot.format === "cavi-track-state-v2";
+    const nested = snapshot.format !== "cavi-track-state-v1";
     if (nested && !before.devices.some(device => Array.isArray(device.chains))) throw new Error("snapshot device topology mismatch");
-    snapshot.devices.forEach((saved, index) => validateChainDevice(saved, before.devices[index], nested ? "cavi-device-chain-v2" : "cavi-device-chain-v1", "snapshot device"));
+    const deviceFormat = snapshot.format.replace("cavi-track-state", "cavi-device-chain");
+    snapshot.devices.forEach((saved, index) => validateChainDevice(saved, before.devices[index], deviceFormat, "snapshot device"));
     const target = structuredClone(snapshot);
     const current = (await this.#captureTrackStateSnapshot(args)).snapshot;
-    if (!nested && current.format === "cavi-track-state-v2") {
-      current.format = "cavi-track-state-v1";
-      current.devices = persistedChainSnapshot(before.devices, "cavi-device-chain-v1").devices;
+    if (current.format !== snapshot.format) {
+      current.format = snapshot.format;
+      current.devices = persistedChainSnapshot(before.devices, deviceFormat).devices;
     }
     if (JSON.stringify(current) === JSON.stringify(target)) throw new Error("snapshot already matches; no track changes required");
     const plan = { method: "set_track_state_snapshot", trackId: args.trackId,
