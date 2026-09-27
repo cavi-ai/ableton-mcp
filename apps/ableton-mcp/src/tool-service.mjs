@@ -1405,14 +1405,15 @@ export class ToolService {
       : controlled ? "cavi-device-chain-v3" : nested ? "cavi-device-chain-v2" : "cavi-device-chain-v1";
     return { trackId: args.trackId, stateVersion: observed.stateVersion, snapshot: {
       format: deviceFormat.replace("cavi-device-chain", "cavi-track-state"),
-      track: { name: track.name, type: track.type, isGroup: Boolean(track.isGroup) },
+      track: { name: track.name, type: track.type, isGroup: Boolean(track.isGroup),
+        isGrouped: Boolean(track.isGrouped), groupTrackId: track.groupTrackId ?? null },
       mixer: { volume: mixer.volume.value, pan: mixer.pan.value, mute: mixer.mute, solo: mixer.solo,
         sends: mixer.sends.map(send => ({ id: send.id, name: send.name, value: send.value })) },
       routing: { inputTypeId: routing.input.type?.id ?? null, inputChannelId: routing.input.channel?.id ?? null,
         outputTypeId: routing.output.type?.id ?? null, outputChannelId: routing.output.channel?.id ?? null,
         monitoring: routing.monitoring?.value ?? null },
       devices: persistedChainSnapshot(observed.devices, deviceFormat).devices
-    }, limitation: "Captures mixer, routing, ordered devices, exposed nested rack parameters, chain mixer, Drum Rack note routing and populated pad mute/solo. Not a native track preset: excludes clips, hidden plugin state, samples, automation and mappings." };
+    }, limitation: "Captures group membership, mixer, routing, ordered devices, exposed nested rack parameters, chain mixer, Drum Rack note routing and populated pad mute/solo. Not a native track preset: excludes clips, hidden plugin state, samples, automation and mappings." };
   }
 
   async #captureDeviceChainSnapshot(args) {
@@ -1480,6 +1481,13 @@ export class ToolService {
     if (snapshot.track.type !== before.track.type || Boolean(snapshot.track.isGroup) !== Boolean(before.track.isGroup)) {
       throw new Error("snapshot track type is incompatible");
     }
+    const hasGroupContext = Object.hasOwn(snapshot.track, "isGrouped") || Object.hasOwn(snapshot.track, "groupTrackId");
+    if (hasGroupContext && (typeof snapshot.track.isGrouped !== "boolean" ||
+        (snapshot.track.groupTrackId !== null && typeof snapshot.track.groupTrackId !== "string") ||
+        snapshot.track.isGrouped !== Boolean(before.track.isGrouped) ||
+        snapshot.track.groupTrackId !== (before.track.groupTrackId ?? null))) {
+      throw new Error("snapshot group membership is incompatible");
+    }
     if (typeof snapshot.track.name !== "string" || !snapshot.track.name.trim()) throw new Error("snapshot track name is invalid");
     for (const key of ["volume", "pan"]) {
       const value = snapshot.mixer[key], bounds = before.mixer[key];
@@ -1514,6 +1522,10 @@ export class ToolService {
     if (current.format !== snapshot.format) {
       current.format = snapshot.format;
       current.devices = persistedChainSnapshot(before.devices, deviceFormat).devices;
+    }
+    if (!hasGroupContext) {
+      delete current.track.isGrouped;
+      delete current.track.groupTrackId;
     }
     if (JSON.stringify(current) === JSON.stringify(target)) throw new Error("snapshot already matches; no track changes required");
     const plan = { method: "set_track_state_snapshot", trackId: args.trackId,

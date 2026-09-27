@@ -13,6 +13,36 @@ test("EQ Three preserves native band gains, crossovers and band switches", () =>
   assert.equal(Object.values(groups).flat().length, names.length);
 });
 
+test("Drift exposes each observed synth subsystem without confusing LFO and oscillator waves", () => {
+  const profile = getFactoryDeviceProfile({ className: "Drift", name: "Bass Texture" });
+  const expected = {
+    global: ["Device On"],
+    filterRouting: ["Osc 1 Flt On", "Osc 2 Flt On", "Noise Flt On"],
+    filterModulation: ["LP Mod Amt 1", "LP Mod Amt 2"],
+    filter: ["LP Freq", "LP Res", "LP Type", "Key > LPF", "HP Freq"],
+    lfo: ["LFO Time Mode", "LFO Rate", "LFO Ratio", "LFO Time", "LFO Synced", "LFO Amt", "LFO Wave", "LFO Mod Amt", "LFO Retrig On"],
+    oscillator1: ["Osc 1 Wave", "Osc 1 Shape", "Osc 1 Oct", "Osc 1 Shape Mod Amt", "Osc 1 Gain", "Osc 1 On"],
+    oscillator2: ["Osc 2 Wave", "Osc 2 Detune", "Osc 2 Oct", "Osc 2 Gain", "Osc 2 On"],
+    oscillatorRetrigger: ["Osc Retrig On"],
+    noise: ["Noise Gain", "Noise On"],
+    pitch: ["Pitch Mod Amt 1", "Pitch Mod Amt 2", "Transpose", "Note Pitch Bend On", "Glide Time", "Legato On"],
+    ampEnvelope: ["Env 1 Attack", "Env 1 Decay", "Env 1 Release", "Env 1 Sustain"],
+    modEnvelope: ["Env 2 Attack", "Env 2 Decay", "Env 2 Release", "Env 2 Sustain"],
+    cyclicEnvelope: ["Cyc Env Time Mode", "Cyc Env Rate", "Cyc Env Ratio", "Cyc Env Time", "Cyc Env Synced", "Cyc Env Tilt", "Cyc Env Hold", "Env 2 Cyc On"],
+    modulationMatrix: ["Mod Matrix Amt 1", "Mod Matrix Amt 2", "Mod Matrix Amt 3"],
+    voice: ["Poly Voice Depth", "Spread", "Strength", "Thickness", "Drift"],
+    amplitude: ["Vel > Vol", "Volume"],
+    other: ["Future Control"],
+  };
+  const names = Object.values(expected).flat();
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({
+    id: `parameter-${index}`, originalName: name, name,
+  })));
+  for (const [role, values] of Object.entries(expected)) {
+    assert.deepEqual((groups[role] || []).map(({ originalName }) => originalName), values, role);
+  }
+});
+
 test("Reverb groups every observed native control by its processing stage", () => {
   const profile = getFactoryDeviceProfile({ className: "Reverb", name: "A-Reverb" });
   const names = ["Device On", "Predelay", "In Lo Cut On", "In Hi Cut On", "Input Freq", "Input Width",

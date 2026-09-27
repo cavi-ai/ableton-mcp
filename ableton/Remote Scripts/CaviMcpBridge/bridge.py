@@ -3576,6 +3576,12 @@ def dispatch_request(song, request, state_version, application=None):
             raise ValueError("snapshot device topology mismatch")
         if target["track"]["type"] != persisted["track"]["type"] or target["track"]["isGroup"] != persisted["track"]["isGroup"]:
             raise ValueError("snapshot track type is incompatible")
+        if "isGrouped" in target["track"] or "groupTrackId" in target["track"]:
+            if ("isGrouped" not in target["track"] or "groupTrackId" not in target["track"] or
+                    not isinstance(target["track"].get("isGrouped"), bool) or
+                    target["track"].get("groupTrackId") != current["track"]["groupTrackId"] or
+                    target["track"]["isGrouped"] != current["track"]["isGrouped"]):
+                raise ValueError("snapshot group membership is incompatible")
         if len(target["mixer"]["sends"]) != len(current["mixer"]["sends"]):
             raise ValueError("snapshot send layout mismatch")
         for saved, native in zip(target["mixer"]["sends"], current["mixer"]["sends"]):
@@ -3696,7 +3702,11 @@ def dispatch_request(song, request, state_version, application=None):
             for device, saved_device in zip(track.devices, target["devices"]):
                 apply_device(device, saved_device)
             result = _track_state_snapshot(song, track_id, state_version + 1)
-            if _persisted_track_state(result, target["format"]) != target:
+            observed_target = _persisted_track_state(result, target["format"])
+            if "isGrouped" in target["track"] or "groupTrackId" in target["track"]:
+                observed_target["track"].update({"isGrouped": result["track"]["isGrouped"],
+                                                 "groupTrackId": result["track"]["groupTrackId"]})
+            if observed_target != target:
                 raise ValueError("Live did not apply the complete track snapshot")
         except Exception as error:
             rollback_errors = []
