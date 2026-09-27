@@ -586,6 +586,7 @@ export class ToolService {
         (parameter.originalName || parameter.name || "").trim().toLowerCase() !== "device on");
       const writableControls = configuredControls.filter(parameter => parameter.enabled !== false);
       const catalogProduct = this.catalog.products().find(product => product.productSlug === profile.productSlug);
+      const stateCounts = catalogProduct ? this.catalog.productStateCounts(profile.productSlug) : null;
       return {
         stateVersion: observed.stateVersion, trackId: args.trackId, device, profile,
         presetNavigation: profile.presetNavigation,
@@ -599,7 +600,8 @@ export class ToolService {
           hiddenPluginStateReadable: false
         },
         nksCatalog: { configured: Boolean(catalogProduct), productSlug: profile.productSlug,
-          presetCount: catalogProduct?.count || 0 },
+          presetCount: catalogProduct?.count || 0, stateCounts,
+          validatedRecordCount: stateCounts ? stateCounts.validated || 0 : null },
         capabilities: {
           parameterRead: true, parameterWrite: writableControls.length > 0,
           hiddenStateRead: false, nativePresetRecall: false,
@@ -607,7 +609,8 @@ export class ToolService {
         },
         limitations: [
           "Live exposes only parameters configured for this plug-in; hidden plug-in state is not readable.",
-          "Installed browser variants do not prove cross-format preset compatibility or native preset recall."
+          "Installed browser variants do not prove cross-format preset compatibility or native preset recall.",
+          "Catalog presetCount includes discovered source inventory. Validated lifecycle records do not prove current NKS file availability."
         ]
       };
     }

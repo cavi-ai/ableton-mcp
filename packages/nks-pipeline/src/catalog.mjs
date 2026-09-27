@@ -159,6 +159,13 @@ export class Catalog {
     ).all();
   }
 
+  productStateCounts(productSlug) {
+    const rows = this.database.prepare(
+      "SELECT state, count(*) AS count FROM presets WHERE product_slug = ? AND COALESCE(json_extract(json, '$.missing'), 0) = 0 GROUP BY state ORDER BY state"
+    ).all(productSlug);
+    return Object.fromEntries(rows.map(({ state, count }) => [state, count]));
+  }
+
   metadata(presetId) {
     if (!this.database.prepare("SELECT 1 FROM presets WHERE id = ?").get(presetId)) {
       throw new Error(`unknown preset ${presetId}`);

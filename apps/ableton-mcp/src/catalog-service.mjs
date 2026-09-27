@@ -18,6 +18,10 @@ export class CatalogService {
     return this.catalog.products();
   }
 
+  productStateCounts(productSlug) {
+    return typeof this.catalog.productStateCounts === "function" ? this.catalog.productStateCounts(productSlug) : null;
+  }
+
   artwork(id) {
     const artwork = this.catalog.getArtwork(id);
     if (!artwork) throw new Error(`unknown artwork ${id}`);
