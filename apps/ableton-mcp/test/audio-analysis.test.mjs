@@ -72,7 +72,7 @@ test("pitch analysis selects the requested source channel and rejects absent cha
       assert.equal(method, "get_audio_clip_state");
       assert.deepEqual(target, { trackId: "track-1", clipId: "track-1:clip-0" });
       clipReads++;
-      return { stateVersion: 4, ...target, source: { path: sourcePath } };
+      return { stateVersion: 4, ...target, pitch: { coarse: 2, fine: 10 }, source: { path: sourcePath } };
     } } }));
     const clipAnalysis = await clipRoute({ id: 3, method: "tools/call", params: { name: "analyze_audio_clip",
       arguments: { trackId: "track-1", clipId: "track-1:clip-0", targetMidiNote: 69, includeResonanceCandidates: true, channelIndex: 1 } } });
@@ -81,6 +81,10 @@ test("pitch analysis selects the requested source channel and rejects absent cha
     assert.equal(clipAnalysis.result.structuredContent.measurement.scope, "source_audio");
     assert.equal(clipAnalysis.result.structuredContent.measurement.tuningMeasurement.channelIndex, 1);
     assert.ok(Math.abs(clipAnalysis.result.structuredContent.measurement.tuningMeasurement.medianCentsFromTarget) < 2);
+    assert.equal(clipAnalysis.result.structuredContent.clipPitchAdjustment.eligible, true);
+    assert.deepEqual(clipAnalysis.result.structuredContent.clipPitchAdjustment.currentPitch, { coarse: 2, fine: 10 });
+    assert.deepEqual(clipAnalysis.result.structuredContent.clipPitchAdjustment.proposedPitch, { coarse: 0, fine: 0 });
+    assert.equal(clipAnalysis.result.structuredContent.clipPitchAdjustment.changeCents, -210);
     assert.equal(clipAnalysis.result.structuredContent.measurement.resonanceCandidates.confirmedResonance, false);
     await assert.rejects(() => analyzeAudioFile(sourcePath, { channelIndex: 2 }), /channelIndex/);
     await assert.rejects(() => analyzeAudioFile(sourcePath, { channelIndex: 0.5 }), /channelIndex/);

@@ -35,3 +35,18 @@ export function measureTargetNoteDeviation(frames, targetMidiNote) {
       limitation: "Review-only offset relative to untransposed source audio for one target note and selected analysis window. Do not apply blindly to an already-transposed clip. Whole-clip pitch offsets cannot correct changing notes, vocal intonation, or different source windows; inspect the full material and current clip pitch before a guarded edit." },
     limitation: "Deviation against one explicitly selected equal-tempered note at A4=440 Hz. Not melody/scale inference, pitch correction, or vocal quality grading. Octave deviations are not folded. Unreliable periodicity remains null. Overlapping-frame statistics are not duration-weighted or temporal coverage estimates; transitions and vibrato can affect measurements." };
 }
+
+export function planClipPitchAdjustment(measurement, currentPitch) {
+  const offset = measurement?.wholeClipTuningProposal;
+  const validCurrent = currentPitch && Number.isInteger(currentPitch.coarse) &&
+    currentPitch.coarse >= -48 && currentPitch.coarse <= 48 &&
+    Number.isInteger(currentPitch.fine) && currentPitch.fine >= -50 && currentPitch.fine <= 50;
+  const eligible = offset?.eligible === true && validCurrent === true;
+  const proposedPitch = eligible ? offset.pitchOffset : null;
+  return { eligible, reason: !validCurrent ? "clip_pitch_unavailable" : offset?.reason ?? "tuning_measurement_unavailable",
+    currentPitch: validCurrent ? { coarse: currentPitch.coarse, fine: currentPitch.fine } : null,
+    proposedPitch, changeCents: eligible ?
+      (proposedPitch.coarse - currentPitch.coarse) * 100 + proposedPitch.fine - currentPitch.fine : null,
+    applied: false,
+    limitation: "Review-only absolute clip-pitch settings based on the selected monophonic source window and target note. Not a correction of changing notes or rendered audio. Check the rest of the source, warp mode, and audible result before separately applying with set_audio_clip_state against current Live state." };
+}

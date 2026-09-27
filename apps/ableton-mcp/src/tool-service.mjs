@@ -2,6 +2,7 @@ import { assertExpectedState } from "./bridge-protocol.mjs";
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { analyzeAudioFile } from "./audio-analysis.mjs";
+import { planClipPitchAdjustment } from "./audio-tuning.mjs";
 import { buildSongGridReference, planGridEnvelopePattern } from "./song-grid-reference.mjs";
 import { listConfiguredSpliceRoots, observeLocalSpliceSample, searchLocalSpliceSamples } from "./splice-local-search.mjs";
 import { inspectGroovePostconditions } from "./groove-workflow.mjs";
@@ -886,7 +887,8 @@ export class ToolService {
       const after = await this.bridge.request("get_audio_clip_state", target);
       if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error("audio clip changed during analysis; retry against current state");
       return { ...target, stateVersion: after.stateVersion, measurement,
-        limitation: "Source audio only; excludes clip gain, transposition, warp, envelopes, and device processing." };
+        ...(args.targetMidiNote !== undefined ? { clipPitchAdjustment: planClipPitchAdjustment(measurement.tuningMeasurement, after.pitch) } : {}),
+        limitation: "The measurement is source audio only; it excludes clip gain, transposition, warp, envelopes, and device processing. The separate review-only pitch adjustment reads the current clip pitch but does not audibly validate the result." };
     }
     if (name === "list_devices") return this.bridge.request("list_devices", args);
     if (name === "get_device_hierarchy") return this.bridge.request("get_device_hierarchy", args);
