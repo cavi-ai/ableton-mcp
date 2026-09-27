@@ -31,4 +31,5 @@ npm run cli -- call list_devices --args '{"trackId":"track-0"}' --json
 | `npm start` | Runs the MCP server. With `ABLETON_MCP_FIXTURE=1` it serves fixture data without Live. |
 | `npm test` | Runs the pipeline and server suites, the bridge's Python tests, and the docs tests. |
 | `npm run catalog:inventory` | Builds the NKS manifest and catalog from `config/plugins`. |
+| `npm run catalog:reconcile-serum-saved -- --manifest <absolute-path> --catalog <absolute-path> --run-log <absolute-path> --browser-db <absolute-path> --user-content-root <absolute-path> [--apply]` | Checks reported Serum pilot saves against current source checksums, Komplete's exact browser index, and readable NKS file bytes. Defaults to dry-run; `--apply` advances only verified records to `nks_saved`. Does not validate recall, mappings, or previews. |
 | `npm run docs:build`, `docs:verify` | Builds and verifies the versioned documentation tree. |

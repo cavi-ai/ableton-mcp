@@ -29,6 +29,8 @@ For every enabled product, this discovers presets, then writes `reports/nks/mani
 
 Runs are incremental. A preset whose source fingerprint hasn't changed is reported as `unchanged` and keeps its record. An enabled product without a discovery adapter is an error.
 
+An existing Serum Save As run can be reconciled with `npm run catalog:reconcile-serum-saved --` and explicit absolute paths for `--manifest`, `--catalog`, `--run-log`, `--browser-db`, and `--user-content-root`. The command is a dry run unless `--apply` is supplied. It requires the current source file, an exact visible Komplete browser record, and read access to the saved `.nksf` bytes; missing permission or changed checksums stop the run without advancing records. `nks_saved` means a saved file and index entry were verified, not that the preset was recalled, previewed, controller-mapped, or validated.
+
 A preset the run no longer finds on disk is flagged `missing: true` and counted as `missing`. Its catalog row, tags, favorite state and artwork stay in place. `search_presets` and the product counts skip it, and `get_preset` still returns it with the flag. When the file is back on the next run, the flag is cleared and the preset returns to search with its tags. A misconfigured or empty `factoryRoots` therefore hides presets rather than deleting your metadata. Fix the path and run the inventory again.
 
 Vendor presets stay on your machine. The repository ignores `reports/`, and nothing is uploaded.
