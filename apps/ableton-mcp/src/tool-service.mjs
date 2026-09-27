@@ -46,6 +46,35 @@ function requireExpectedState(args) {
   }
 }
 
+function summarizeWarpMarkerChanges(before, after) {
+  const previous = before.warpMarkers?.markers, current = after.warpMarkers?.markers;
+  if (!Array.isArray(previous) || !Array.isArray(current)) throw new Error("audio quantization readback lacks warp markers");
+  const bySampleTime = new Map();
+  for (const marker of previous) {
+    const matches = bySampleTime.get(marker.sampleTime) ?? [];
+    matches.push(marker);
+    bySampleTime.set(marker.sampleTime, matches);
+  }
+  let retainedCount = 0, insertedCount = 0;
+  const shifts = [];
+  for (const marker of current) {
+    const matches = bySampleTime.get(marker.sampleTime);
+    if (!matches?.length) {
+      insertedCount++;
+      continue;
+    }
+    const prior = matches.shift();
+    retainedCount++;
+    shifts.push({ sampleTime: marker.sampleTime, beforeBeatTime: prior.beatTime,
+      afterBeatTime: marker.beatTime, deltaBeats: marker.beatTime - prior.beatTime });
+  }
+  shifts.sort((a, b) => Math.abs(b.deltaBeats) - Math.abs(a.deltaBeats));
+  return { beforeCount: previous.length, afterCount: current.length, retainedCount, insertedCount,
+    removedCount: previous.length - retainedCount,
+    maxAbsRetainedBeatShift: shifts.length ? Math.abs(shifts[0].deltaBeats) : null,
+    largestRetainedBeatShifts: shifts.slice(0, 8) };
+}
+
 function hasChainControls(device) {
   return ["chains", "returnChains"].some(key => (device[key] ?? []).some(chain =>
     chain.mixer?.volume !== null && chain.mixer?.volume !== undefined ||
@@ -2127,8 +2156,10 @@ export class ToolService {
     const context = await this.bridge.request("get_song_musical_context", {});
     assertExpectedState({ expectedStateVersion: args.expectedStateVersion }, context);
     const beforeSwingAmount = finiteRange(context.groove?.swingAmount, "observed swing amount", 0, 1);
-    return this.#confirmedMutation({ method: "quantize_audio_clip", trackId: args.trackId, clipId: args.clipId,
+    const result = await this.#confirmedMutation({ method: "quantize_audio_clip", trackId: args.trackId, clipId: args.clipId,
       expectedStateVersion: args.expectedStateVersion, before, beforeSwingAmount, grid: args.grid, amount }, args);
+    if (result.dryRun) return result;
+    return { ...result, warpMarkerChanges: summarizeWarpMarkerChanges(before, result.observed) };
   }
 
   async #addAudioWarpMarker(args) {

@@ -1936,6 +1936,36 @@ test("audio quantization signs grid amount and full native before-state", async 
   }
 });
 
+test("audio quantization reports actual marker movement instead of implying a grid snap", async () => {
+  const before = { stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-2", warping: true,
+    warpMarkers: { supported: true, markers: [
+      { sampleTime: 0, beatTime: 0 }, { sampleTime: 0.56, beatTime: 1.12 }, { sampleTime: 2, beatTime: 4 }
+    ] } };
+  const after = { ...before, stateVersion: 5, warpMarkers: { supported: true, markers: [
+    { sampleTime: 0, beatTime: -0.00004 }, { sampleTime: 0.00002, beatTime: 0 },
+    { sampleTime: 0.56, beatTime: 1.11996 }, { sampleTime: 2, beatTime: 3.99996 }
+  ] } };
+  const service = new ToolService({ bridge: { async request(method) {
+    if (method === "get_audio_clip_state") return before;
+    if (method === "get_song_musical_context") return { stateVersion: 4, groove: { swingAmount: 0 } };
+    if (method === "quantize_audio_clip") return after;
+    throw new Error(method);
+  } } });
+  const args = { trackId: "track-0", clipId: "track-0:clip-2", expectedStateVersion: 4,
+    grid: "1_4", amount: 1 };
+  const dry = await service.call("quantize_audio_clip", args);
+  const result = await service.call("quantize_audio_clip", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.warpMarkerChanges.beforeCount, 3);
+  assert.equal(result.warpMarkerChanges.afterCount, 4);
+  assert.equal(result.warpMarkerChanges.retainedCount, 3);
+  assert.equal(result.warpMarkerChanges.insertedCount, 1);
+  assert.equal(result.warpMarkerChanges.removedCount, 0);
+  assert.ok(Math.abs(result.warpMarkerChanges.maxAbsRetainedBeatShift - 0.00004) < 1e-9);
+  assert.deepEqual(result.warpMarkerChanges.largestRetainedBeatShifts.map(shift => shift.sampleTime).sort((a, b) => a - b), [0, 0.56, 2]);
+  assert.ok(result.warpMarkerChanges.largestRetainedBeatShifts.every(shift => Math.abs(shift.deltaBeats + 0.00004) < 1e-9));
+});
+
 test("warp marker creation signs explicit anchor and preserves omitted sample time", async () => {
   const before = { stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-2", warping: true, warpMarkers: { supported: true,
     markers: [{ sampleTime: 0, beatTime: 0 }, { sampleTime: 2, beatTime: 4 }] } };
