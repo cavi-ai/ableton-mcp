@@ -8,11 +8,16 @@ export async function inventoryProduct({
   idForDiscovery = stablePresetId
 }) {
   if (!productSlug) throw new Error("productSlug is required");
+  const identified = (await discover()).map((discovery) => ({ discovery, id: idForDiscovery(discovery) }));
+  const ids = new Set();
+  for (const { id } of identified) {
+    if (ids.has(id)) throw new Error(`duplicate preset ID ${id}`);
+    ids.add(id);
+  }
   let discovered = 0;
   let unchanged = 0;
   const seen = new Set();
-  for (const discovery of await discover()) {
-    const id = idForDiscovery(discovery);
+  for (const { discovery, id } of identified) {
     seen.add(id);
     const existing = store.get(id);
     let record;
