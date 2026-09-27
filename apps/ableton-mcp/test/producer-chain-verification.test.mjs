@@ -97,6 +97,33 @@ test("inspect_producer_bus rejects observations from a changed Live state", asyn
     children: [{ role: "sub", trackId: "track-1" }, { role: "body", trackId: "track-2" }, { role: "texture", trackId: "track-3" }] }), /state version/);
 });
 
+test("inspect_producer_return_bus verifies layered sources, sends-only routing and ordered FX", async () => {
+  const tracks = { stateVersion: 12, tracks: [
+    { id: "track-0", type: "midi" }, { id: "track-1", type: "midi" }, { id: "track-2", type: "midi" }
+  ] };
+  const effects = [device("return-0:device-0", "Utility", "Utility"), device("return-0:device-1", "Eq8", "EQ Eight"), device("return-0:device-2", "Compressor", "Compressor")];
+  const instruments = { "track-0": [device("device-0", "Operator", "Operator")],
+    "track-1": [device("device-0", "Wavetable", "Wavetable")],
+    "track-2": [device("device-0", "Drift", "Drift")] };
+  const bridge = { async request(method, { trackId } = {}) {
+    if (method === "list_tracks") return tracks;
+    if (method === "get_set_mixer") return { stateVersion: 12, returns: [{ id: "return-0", name: "A-Bass Bus", devices: effects }] };
+    if (method === "list_devices") return { stateVersion: 12, trackId, devices: trackId === "return-0" ? effects : instruments[trackId] };
+    if (method === "get_track_mixer") return { stateVersion: 12, trackId, sends: [{ id: "send-0", returnTrackId: "return-0", value: trackId === "track-2" ? 0 : 1 }] };
+    if (method === "get_track_routing") return { stateVersion: 12, trackId, output: { type: { id: trackId === "track-2" ? "main" : "sends-only", name: trackId === "track-2" ? "Main" : "Sends Only" } } };
+    throw new Error(method);
+  } };
+  const service = new ToolService({ bridge });
+  const result = await service.call("inspect_producer_return_bus", { target: "layered-bass-system", returnTrackId: "return-0",
+    children: [{ role: "sub", trackId: "track-0" }, { role: "body", trackId: "track-1" }, { role: "texture", trackId: "track-2" }] });
+  assert.equal(result.busChain.matchesRequiredOrder, true);
+  assert.deepEqual(result.children.map(child => child.routed), [true, true, false]);
+  assert.equal(result.matchesBlueprint, false);
+  tracks.stateVersion = 13;
+  await assert.rejects(() => service.call("inspect_producer_return_bus", { target: "layered-bass-system", returnTrackId: "return-0",
+    children: [{ role: "sub", trackId: "track-0" }, { role: "body", trackId: "track-1" }, { role: "texture", trackId: "track-2" }] }), /state version/);
+});
+
 test("inspect_producer_bus verifies audio children without requiring instruments", async () => {
   const tracks = { stateVersion: 11, tracks: [
     { id: "track-0", name: "Vocal Bus", type: "group", isGroup: true, groupTrackId: null },

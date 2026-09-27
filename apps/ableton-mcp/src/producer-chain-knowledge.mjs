@@ -182,6 +182,10 @@ export function getProducerChainBlueprint(target) {
     execution: {
       loadTool: "load_browser_item",
       routeTool: blueprint.topology.startsWith("shared-") ? "route_tracks_to_bus" : null,
+      ...(blueprint.topology.startsWith("shared-") ? { returnBus: {
+        createTool: "create_return_track", routeTool: "route_tracks_to_return_bus",
+        verifyTool: "inspect_producer_return_bus", requiredOutput: "Sends Only"
+      } } : {}),
       verifyTools: ["list_devices", "get_track_routing", "get_track_mixer"],
       instruction: "Load stages in ascending order onto an empty staging track, inspect observed device order after every load, and use guarded routing tools for shared-bus children. Optional stages require source-specific evidence."
     },

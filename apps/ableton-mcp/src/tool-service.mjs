@@ -502,6 +502,54 @@ export class ToolService {
         matchesBlueprint: busChain.matchesRequiredOrder && children.every(({ sourceMatches, grouped, routed }) => sourceMatches && grouped && routed),
         limitation: "Sequential read-only observations; state-version equality guards against intervening Live edits but does not prove source content, audible signal flow, sound quality or hidden plugin state." };
     }
+    if (name === "inspect_producer_return_bus") {
+      const blueprint = getProducerChainBlueprint(args.target);
+      if (!["shared-instrument-bus", "shared-audio-bus"].includes(blueprint.topology))
+        throw new Error("target must be a shared-bus blueprint");
+      if (!Array.isArray(args.children) || args.children.length !== blueprint.children.length ||
+        new Set(args.children.map(({ role }) => role)).size !== args.children.length ||
+        new Set(args.children.map(({ trackId }) => trackId)).size !== args.children.length ||
+        blueprint.children.some(({ role }) => !args.children.some((child) => child.role === role)))
+        throw new Error("children must map each blueprint role to one distinct track");
+      const trackList = await this.bridge.request("list_tracks", {});
+      const mixer = await this.bridge.request("get_set_mixer", {});
+      if (mixer.stateVersion !== trackList.stateVersion) throw new Error("mixer state version changed");
+      const bus = mixer.returns?.find(({ id }) => id === args.returnTrackId);
+      if (!bus) throw new Error(`unknown Return bus ${args.returnTrackId}`);
+      const read = async (method, trackId) => {
+        const observed = await this.bridge.request(method, { trackId });
+        if (observed.trackId !== trackId || observed.stateVersion !== trackList.stateVersion)
+          throw new Error(`${method} observation changed track identity or state version`);
+        return observed;
+      };
+      const busDevices = await read("list_devices", args.returnTrackId);
+      const busChain = verifyProducerChain(args.target, busDevices.devices);
+      const children = [];
+      for (const expected of blueprint.children) {
+        const { trackId } = args.children.find(({ role }) => role === expected.role);
+        const track = trackList.tracks.find(({ id }) => id === trackId);
+        if (!track) throw new Error(`unknown child track ${trackId}`);
+        const childDevices = await read("list_devices", trackId);
+        const trackMixer = await read("get_track_mixer", trackId);
+        const routing = await read("get_track_routing", trackId);
+        const instrumentProfiles = childDevices.devices.map((device) => getFactoryDeviceProfile(device)?.id).filter(Boolean);
+        const instrumentMatches = expected.instrumentProfileId ? instrumentProfiles.includes(expected.instrumentProfileId) : null;
+        const expectedSourceType = expected.sourceType ?? "midi";
+        const sourceMatches = track.type === expectedSourceType && (instrumentMatches ?? true);
+        const sends = trackMixer.sends?.filter(({ returnTrackId }) => returnTrackId === args.returnTrackId) ?? [];
+        const send = sends.length === 1 ? sends[0] : null;
+        const sendsOnly = routing.output?.type?.name === "Sends Only";
+        children.push({ role: expected.role, trackId, expectedSourceType, observedSourceType: track.type ?? null,
+          sourceMatches, expectedInstrumentProfileId: expected.instrumentProfileId,
+          observedInstrumentProfileIds: instrumentProfiles, instrumentMatches,
+          sendId: send?.id ?? null, sendValue: send?.value ?? null, sendsOnly,
+          routed: sendsOnly && typeof send?.value === "number" && send.value > 0 });
+      }
+      return { target: args.target, returnTrackId: args.returnTrackId, returnName: bus.name,
+        stateVersion: trackList.stateVersion, busChain, children,
+        matchesBlueprint: busChain.matchesRequiredOrder && children.every(({ sourceMatches, routed }) => sourceMatches && routed),
+        limitation: "Sequential read-only observations; state-version equality guards edits but does not prove audible signal, source content, sound quality, or hidden plugin state." };
+    }
     if (name === "list_factory_device_profiles") return { profiles: listFactoryDeviceProfiles() };
     if (name === "get_factory_coverage") {
       const roots = {};

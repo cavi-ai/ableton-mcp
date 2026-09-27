@@ -415,6 +415,10 @@ test("producer chain blueprints return ordered loadable stages and explicit bus 
   ]);
   const layered = await service.call("get_producer_chain_blueprint", { target: "layered-bass-system" });
   assert.equal(layered.blueprint.topology, "shared-instrument-bus");
+  assert.deepEqual(layered.blueprint.execution.returnBus, {
+    createTool: "create_return_track", routeTool: "route_tracks_to_return_bus",
+    verifyTool: "inspect_producer_return_bus", requiredOutput: "Sends Only"
+  });
   assert.deepEqual(layered.blueprint.children.map(({ role, instrumentProfileId }) => ({ role, instrumentProfileId })), [
     { role: "sub", instrumentProfileId: "operator" },
     { role: "body", instrumentProfileId: "wavetable" },

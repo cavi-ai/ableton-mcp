@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 194 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 195 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (85)
+## Read-only (86)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -51,6 +51,7 @@ The server publishes 194 tools. Mutations of the Live Set require `expectedState
 | `inspect_clip_groove_postconditions` | Read current native context and inspect extraction or baking postconditions against a supplied pre-action get_clip_groove_context snapshot. Does not execute the UI action, prove provenance, or validate audible equivalence. Extraction expects one appended groove and unchanged source/timing; baking expects removed assignment and unchanged unrelated timing/shared context. | `trackId`, `clipId`, `operation`, `before` |
 | `inspect_producer_bus` | Read an existing Group Track, its ordered bus FX, child source types or instrument identities, group membership and actual output routing against one layered-system blueprint. Reports mismatches without edits; does not identify the child audio content. | `target`, `busTrackId`, `children` |
 | `inspect_producer_chain` | Read the devices on one exact track and compare their factory profiles and order with a named producer-chain blueprint. No devices are loaded or changed. | `target`, `trackId` |
+| `inspect_producer_return_bus` | Read an existing Return bus against a layered-system blueprint: ordered effects, every source instrument or audio type, matching send level and Sends Only output. Does not prove audible signal or sound quality. | `target`, `returnTrackId`, `children` |
 | `list_arrangement_clips` | Read timeline clip IDs, types, and start/end positions in beats for one track. | `trackId` |
 | `list_arrangement_cue_points` | List Arrangement cue points with stable IDs and beat positions. | none |
 | `list_browser_roots` | List Live's general browser roots with observed availability and immediate child counts. Read-only; this is not Splice cloud search or a filesystem inventory. | none |

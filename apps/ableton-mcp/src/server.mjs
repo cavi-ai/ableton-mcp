@@ -133,6 +133,7 @@ const toolNames = [
   "get_producer_chain_blueprint",
   "inspect_producer_chain",
   "inspect_producer_bus",
+  "inspect_producer_return_bus",
   "set_master_mixer",
   "move_device",
   "list_arrangement_clips",
