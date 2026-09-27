@@ -208,6 +208,18 @@ function targetDisplayValue(parameter, value) {
   return parameter.valueItems[index] ?? null;
 }
 
+function resolveParameterValue(parameter, requested) {
+  if (typeof requested !== "string") return Math.max(parameter.min, Math.min(parameter.max, Number(requested)));
+  if (!parameter.quantized) throw new Error(`parameter ${parameter.id} is not quantized`);
+  const choices = parameter.valueItems?.length
+    ? parameter.valueItems.map((label, index) => ({ value: parameter.min + index, label }))
+    : (parameter.nativeChoiceLabels || []).map(choice => ({ value: choice.value, label: choice.displayValue }));
+  const matches = choices.filter(choice => choice.label === requested);
+  if (!matches.length) throw new Error(`unknown choice label for parameter ${parameter.id}`);
+  if (matches.length !== 1) throw new Error(`ambiguous choice label for parameter ${parameter.id}`);
+  return matches[0].value;
+}
+
 function normalizeMidiNote(note, index, lengthBeats) {
   const pitch = Number(note.pitch);
   const start = Number(note.start);
@@ -1569,7 +1581,7 @@ export class ToolService {
       const parameter = allowed.get(change.id);
       if (!parameter) throw new Error(`parameter ${change.id} is not allowlisted`);
       if (!parameter.enabled) throw new Error(`parameter ${change.id} is disabled`);
-      const value = Math.max(parameter.min, Math.min(parameter.max, Number(change.value)));
+      const value = resolveParameterValue(parameter, change.value);
       return {
         id: change.id,
         name: parameter.name,

@@ -2293,6 +2293,63 @@ test("parameter dry-run uses Live's native label for a quantized triplet grid", 
   assert.equal(dry.plan.changes[0].targetDisplayValue, "1/12");
 });
 
+test("parameter dry-run resolves an exact observed choice label to its native value", async () => {
+  const service = new ToolService({ bridge: { async request(method, plan) {
+    if (method === "set_device_parameters") return {
+      stateVersion: 5, trackId: plan.trackId, deviceId: plan.deviceId,
+      observedChanges: plan.changes
+    };
+    assert.equal(method, "list_device_parameters");
+    return { stateVersion: 4, trackId: "track-0", deviceId: "track-0:device-0", parameters: [
+      { id: "parameter-4", name: "Grid", originalName: "Grid", min: 7, max: 9,
+        value: 7, displayValue: "1/16", enabled: true, quantized: true, valueItems: [],
+        nativeChoiceLabels: [{ value: 7, displayValue: "1/16" },
+          { value: 8, displayValue: "1/12" }, { value: 9, displayValue: "1/24" }] }
+    ] };
+  } } });
+  const dry = await service.call("set_device_parameters", {
+    trackId: "track-0", deviceId: "track-0:device-0", expectedStateVersion: 4,
+    changes: [{ id: "parameter-4", value: "1/12" }]
+  });
+  assert.equal(dry.plan.changes[0].requestedValue, "1/12");
+  assert.equal(dry.plan.changes[0].value, 8);
+  assert.equal(dry.plan.changes[0].targetDisplayValue, "1/12");
+  const live = await service.call("set_device_parameters", {
+    trackId: "track-0", deviceId: "track-0:device-0", expectedStateVersion: 4,
+    changes: [{ id: "parameter-4", value: "1/12" }], dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash
+  });
+  assert.equal(live.observed.observedChanges[0].value, 8);
+});
+
+test("parameter choice labels must be unique, exact, and quantized", async () => {
+  const parameters = [
+    { id: "filter", name: "Filter", originalName: "Filter", min: 2, max: 4,
+      value: 2, displayValue: "Low", enabled: true, quantized: true,
+      valueItems: ["Low", "High", "High"] },
+    { id: "cutoff", name: "Cutoff", originalName: "Cutoff", min: 0, max: 1,
+      value: 0.5, displayValue: "50%", enabled: true, quantized: false, valueItems: [] }
+  ];
+  const service = new ToolService({ bridge: { async request(method) {
+    assert.equal(method, "list_device_parameters");
+    return { stateVersion: 4, trackId: "track-0", deviceId: "track-0:device-0", parameters };
+  } } });
+  const base = { trackId: "track-0", deviceId: "track-0:device-0", expectedStateVersion: 4 };
+  const low = await service.call("set_device_parameters", {
+    ...base, changes: [{ id: "filter", value: "Low" }]
+  });
+  assert.equal(low.plan.changes[0].value, 2);
+  await assert.rejects(service.call("set_device_parameters", {
+    ...base, changes: [{ id: "filter", value: "High" }]
+  }), /ambiguous.*choice/i);
+  await assert.rejects(service.call("set_device_parameters", {
+    ...base, changes: [{ id: "filter", value: "high" }]
+  }), /unknown.*choice/i);
+  await assert.rejects(service.call("set_device_parameters", {
+    ...base, changes: [{ id: "cutoff", value: "50%" }]
+  }), /quantized/i);
+});
+
 test("parameter mutation defaults to dry-run, clamps, confirms once, and returns observed state", async () => {
   const { service, calls } = fixture();
   const args = { trackId: "t1", deviceId: "d1", expectedStateVersion: 4, changes: [{ id: "cutoff", value: 2 }] };
