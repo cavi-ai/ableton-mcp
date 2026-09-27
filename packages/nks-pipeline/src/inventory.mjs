@@ -17,12 +17,11 @@ export async function inventoryProduct({
     const existing = store.get(id);
     let record;
     if (existing?.sourceFingerprint === discovery.sourceFingerprint) {
-      const { missing: _missing, ...present } = existing;
-      record = {
-        ...present,
-        ...(discovery.sourceContainerPath && { sourceContainerPath: discovery.sourceContainerPath }),
-        ...(discovery.sourceEntryName && { sourceEntryName: discovery.sourceEntryName })
-      };
+      const { missing: _missing, sourceContainerPath: _container, sourceEntryName: _entry,
+        ...present } = existing;
+      const { state: _state, attempts: _attempts, evidence: _evidence,
+        ...sourceMetadata } = createPresetRecord(discovery);
+      record = { ...present, ...sourceMetadata, id };
       unchanged += 1;
     } else {
       record = { ...createPresetRecord(discovery), id };

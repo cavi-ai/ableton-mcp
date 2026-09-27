@@ -1,9 +1,29 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { verifyProducerChain } from "../src/producer-chain-knowledge.mjs";
+import { getProducerChainBlueprint, verifyProducerChain } from "../src/producer-chain-knowledge.mjs";
 import { ToolService } from "../src/tool-service.mjs";
 
 const device = (id, className, name) => ({ id, className, name, type: "audio_effect", active: true });
+
+test("vocal blueprint treats Auto Shift as optional early pitch correction", () => {
+  const blueprint = getProducerChainBlueprint("vocals");
+  const correction = blueprint.stages.find(stage => stage.profileId === "auto-shift");
+  assert.equal(correction?.optional, true);
+  assert.equal(correction?.root, "audio_effects");
+  assert.deepEqual(correction?.path, ["Auto Shift"]);
+  assert.ok(correction.order < blueprint.stages.find(stage => stage.profileId === "compressor").order);
+  const withoutCorrection = verifyProducerChain("vocals", [
+    device("utility", "Utility", "Utility"), device("eq", "Eq8", "EQ Eight"),
+    device("compressor", "Compressor", "Compressor")
+  ]);
+  assert.equal(withoutCorrection.matchesRequiredOrder, true);
+  assert.ok(withoutCorrection.optionalOmitted.some(stage => stage.profileId === "auto-shift"));
+  const withCorrection = verifyProducerChain("vocals", [
+    device("utility", "Utility", "Utility"), device("tuner", "PluginDevice", "Auto Shift"),
+    device("eq", "Eq8", "EQ Eight"), device("compressor", "Compressor", "Compressor")
+  ]);
+  assert.equal(withCorrection.matchesRequiredOrder, true);
+});
 
 test("producer-chain verification distinguishes complete order from misplaced and missing stages", () => {
   const ordered = [
@@ -52,10 +72,10 @@ test("inspect_producer_chain verifies exact observed track devices without mutat
 test("inspect_producer_bus checks child instruments, grouping, routing and ordered bus effects", async () => {
   const calls = [];
   const tracks = { stateVersion: 7, tracks: [
-    { id: "track-0", name: "Bass Bus", isGroup: true, groupTrackId: null },
-    { id: "track-1", name: "Sub", isGroup: false, groupTrackId: "track-0" },
-    { id: "track-2", name: "Body", isGroup: false, groupTrackId: "track-0" },
-    { id: "track-3", name: "Texture", isGroup: false, groupTrackId: "track-0" }
+    { id: "track-0", name: "Bass Bus", type: "group", isGroup: true, groupTrackId: null },
+    { id: "track-1", name: "Sub", type: "midi", isGroup: false, groupTrackId: "track-0" },
+    { id: "track-2", name: "Body", type: "midi", isGroup: false, groupTrackId: "track-0" },
+    { id: "track-3", name: "Texture", type: "midi", isGroup: false, groupTrackId: "track-0" }
   ] };
   const devices = {
     "track-0": [device("bus-0", "Utility", "Utility"), device("bus-1", "Eq8", "EQ Eight"), device("bus-2", "Compressor", "Compressor")],
@@ -81,8 +101,19 @@ test("inspect_producer_bus checks child instruments, grouping, routing and order
     { role: "texture", instrumentMatches: true, grouped: true, routed: false }
   ]);
   assert.equal(result.matchesBlueprint, false);
-  assert.equal(calls.filter(({ method }) => method === "list_tracks").length, 1);
-  await assert.rejects(() => service.call("inspect_producer_bus", { target: "mastering", busTrackId: "track-0", children: [] }), /shared-instrument-bus/);
+  devices["track-2"] = [{ ...device("body-rack", "InstrumentGroupDevice", "Instrument Rack"),
+    chains: [{ id: "body-rack/chain-0", devices: [device("body-rack/chain-0/device-0", "Wavetable", "Wavetable")] }], returnChains: [] }];
+  const nested = await service.call("inspect_producer_bus", { target: "layered-bass-system", busTrackId: "track-0",
+    children: [{ role: "sub", trackId: "track-1" }, { role: "body", trackId: "track-2" }, { role: "texture", trackId: "track-3" }] });
+  assert.equal(nested.children[1].instrumentMatches, true);
+  devices["track-2"] = [{ ...device("body-rack", "InstrumentGroupDevice", "Instrument Rack"),
+    chains: [{ id: "body-rack/chain-0", devices: [device("body-rack/chain-0/device-0", "PluginDevice", "Serum 2")] }], returnChains: [] }];
+  const plugin = await service.call("inspect_producer_bus", { target: "layered-bass-system", busTrackId: "track-0",
+    children: [{ role: "sub", trackId: "track-1" }, { role: "body", trackId: "track-2", pluginId: "serum-2" }, { role: "texture", trackId: "track-3" }] });
+  assert.equal(plugin.children[1].instrumentMatches, true);
+  assert.deepEqual(plugin.children[1].observedPluginIds, ["serum-2"]);
+  assert.equal(calls.filter(({ method }) => method === "list_tracks").length, 3);
+  await assert.rejects(() => service.call("inspect_producer_bus", { target: "mastering", busTrackId: "track-0", children: [] }), /shared-bus/);
   await assert.rejects(() => service.call("inspect_producer_bus", { target: "layered-bass-system", busTrackId: "track-0",
     children: [{ role: "sub", trackId: "track-1" }, { role: "body", trackId: "track-1" }, { role: "texture", trackId: "track-3" }] }), /distinct track/);
 });
@@ -95,4 +126,75 @@ test("inspect_producer_bus rejects observations from a changed Live state", asyn
   } } });
   await assert.rejects(() => service.call("inspect_producer_bus", { target: "layered-bass-system", busTrackId: "track-0",
     children: [{ role: "sub", trackId: "track-1" }, { role: "body", trackId: "track-2" }, { role: "texture", trackId: "track-3" }] }), /state version/);
+});
+
+test("inspect_producer_return_bus verifies layered sources, sends-only routing and ordered FX", async () => {
+  const tracks = { stateVersion: 12, tracks: [
+    { id: "track-0", type: "midi" }, { id: "track-1", type: "midi" }, { id: "track-2", type: "midi" }
+  ] };
+  const effects = [device("return-0:device-0", "Utility", "Utility"), device("return-0:device-1", "Eq8", "EQ Eight"), device("return-0:device-2", "Compressor", "Compressor")];
+  const instruments = { "track-0": [device("device-0", "Operator", "Operator")],
+    "track-1": [device("device-0", "Wavetable", "Wavetable")],
+    "track-2": [device("device-0", "Drift", "Drift")] };
+  const bridge = { async request(method, { trackId } = {}) {
+    if (method === "list_tracks") return tracks;
+    if (method === "get_set_mixer") return { stateVersion: 12, returns: [{ id: "return-0", name: "A-Bass Bus", devices: effects }] };
+    if (method === "list_devices") return { stateVersion: 12, trackId, devices: trackId === "return-0" ? effects : instruments[trackId] };
+    if (method === "get_track_mixer") return { stateVersion: 12, trackId, sends: [{ id: "send-0", returnTrackId: "return-0", value: trackId === "track-2" ? 0 : 1 }] };
+    if (method === "get_track_routing") return { stateVersion: 12, trackId, output: { type: { id: trackId === "track-2" ? "main" : "sends-only", name: trackId === "track-2" ? "Main" : "Sends Only" } } };
+    throw new Error(method);
+  } };
+  const service = new ToolService({ bridge });
+  const result = await service.call("inspect_producer_return_bus", { target: "layered-bass-system", returnTrackId: "return-0",
+    children: [{ role: "sub", trackId: "track-0" }, { role: "body", trackId: "track-1" }, { role: "texture", trackId: "track-2" }] });
+  assert.equal(result.busChain.matchesRequiredOrder, true);
+  assert.deepEqual(result.children.map(child => child.routed), [true, true, false]);
+  assert.equal(result.matchesBlueprint, false);
+  instruments["track-1"] = [{ ...device("body-rack", "InstrumentGroupDevice", "Instrument Rack"),
+    chains: [{ id: "body-rack/chain-0", devices: [device("body-rack/chain-0/device-0", "Wavetable", "Wavetable")] }], returnChains: [] }];
+  const nested = await service.call("inspect_producer_return_bus", { target: "layered-bass-system", returnTrackId: "return-0",
+    children: [{ role: "sub", trackId: "track-0" }, { role: "body", trackId: "track-1" }, { role: "texture", trackId: "track-2" }] });
+  assert.equal(nested.children[1].instrumentMatches, true);
+  instruments["track-0"] = [device("device-0", "PluginDevice", "Omnisphere")];
+  const plugin = await service.call("inspect_producer_return_bus", { target: "layered-bass-system", returnTrackId: "return-0",
+    children: [{ role: "sub", trackId: "track-0", pluginId: "omnisphere" }, { role: "body", trackId: "track-1" }, { role: "texture", trackId: "track-2" }] });
+  assert.equal(plugin.children[0].instrumentMatches, true);
+  assert.deepEqual(plugin.children[0].observedPluginIds, ["omnisphere"]);
+  tracks.stateVersion = 13;
+  await assert.rejects(() => service.call("inspect_producer_return_bus", { target: "layered-bass-system", returnTrackId: "return-0",
+    children: [{ role: "sub", trackId: "track-0" }, { role: "body", trackId: "track-1" }, { role: "texture", trackId: "track-2" }] }), /state version/);
+});
+
+test("inspect_producer_bus verifies audio children without requiring instruments", async () => {
+  const tracks = { stateVersion: 11, tracks: [
+    { id: "track-0", name: "Vocal Bus", type: "group", isGroup: true, groupTrackId: null },
+    { id: "track-1", name: "Lead", type: "audio", isGroup: false, groupTrackId: "track-0" },
+    { id: "track-2", name: "Double", type: "audio", isGroup: false, groupTrackId: "track-0" },
+    { id: "track-3", name: "Adlibs", type: "audio", isGroup: false, groupTrackId: "track-0" }
+  ] };
+  const bridge = { async request(method, { trackId } = {}) {
+    if (method === "list_tracks") return tracks;
+    if (method === "list_devices") return { stateVersion: 11, trackId, devices: trackId === "track-0" ? [
+      device("bus-0", "Utility", "Utility"), device("bus-1", "Eq8", "EQ Eight"),
+      device("bus-2", "Compressor", "Compressor")
+    ] : [] };
+    if (method === "get_track_routing") return { stateVersion: 11, trackId,
+      output: { type: { id: "track-0", name: "Vocal Bus" } } };
+    throw new Error(method);
+  } };
+  const service = new ToolService({ bridge });
+  const args = { target: "layered-vocals-system", busTrackId: "track-0", children: [
+    { role: "lead", trackId: "track-1" }, { role: "double", trackId: "track-2" },
+    { role: "adlibs", trackId: "track-3" }
+  ] };
+  const matched = await service.call("inspect_producer_bus", args);
+  assert.equal(matched.matchesBlueprint, true);
+  assert.deepEqual(matched.children.map(({ sourceMatches }) => sourceMatches), [true, true, true]);
+  assert.deepEqual(matched.children.map(({ expectedSourceType, observedSourceType }) =>
+    [expectedSourceType, observedSourceType]), [["audio", "audio"], ["audio", "audio"], ["audio", "audio"]]);
+
+  tracks.tracks[2].type = "midi";
+  const mismatched = await service.call("inspect_producer_bus", args);
+  assert.equal(mismatched.matchesBlueprint, false);
+  assert.equal(mismatched.children[1].sourceMatches, false);
 });

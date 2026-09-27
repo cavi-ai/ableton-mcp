@@ -1,4 +1,4 @@
-import { mkdir, open, readFile, lstat, unlink } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, lstat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
 function snapshotPath(directory, name) {
@@ -8,14 +8,15 @@ function snapshotPath(directory, name) {
 }
 
 export class SnapshotLibrary {
-  constructor({ directory }) {
+  constructor({ directory, formats = ["cavi-track-state-v1", "cavi-track-state-v2", "cavi-track-state-v3", "cavi-track-state-v4"] }) {
     if (typeof directory !== "string" || !directory) throw new Error("snapshot directory is required");
     this.directory = directory;
+    this.formats = new Set(formats);
   }
 
   async save(name, snapshot) {
     const path = snapshotPath(this.directory, name);
-    if (snapshot?.format !== "cavi-track-state-v1") throw new Error("invalid track snapshot format");
+    if (!this.formats.has(snapshot?.format)) throw new Error("invalid snapshot format");
     const content = `${JSON.stringify(snapshot, null, 2)}\n`;
     if (Buffer.byteLength(content) > 4 * 1024 * 1024) throw new Error("snapshot capture is too large");
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
@@ -39,7 +40,19 @@ export class SnapshotLibrary {
     if (info.isSymbolicLink()) throw new Error("snapshot entry must not be a symlink");
     if (!info.isFile() || info.size > 4 * 1024 * 1024) throw new Error("snapshot file is invalid or too large");
     const snapshot = JSON.parse(await readFile(path, "utf8"));
-    if (snapshot?.format !== "cavi-track-state-v1") throw new Error("invalid track snapshot format");
+    if (!this.formats.has(snapshot?.format)) throw new Error("invalid snapshot format");
     return { name, path, snapshot };
+  }
+
+  async list() {
+    let entries;
+    try { entries = await readdir(this.directory, { withFileTypes: true }); }
+    catch (error) {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    }
+    return entries.filter(entry => entry.isFile() && /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.json$/.test(entry.name))
+      .map(entry => entry.name.slice(0, -5)).filter(name => name !== "." && name !== "..")
+      .sort((a, b) => a.localeCompare(b, "en"));
   }
 }

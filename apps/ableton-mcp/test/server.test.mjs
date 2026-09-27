@@ -26,6 +26,15 @@ test("initialize advertises only the protocol version this server supports", asy
   }
 });
 
+test("MCP accepts an exact parameter choice label as a requested value", async () => {
+  const route = createRouter({ call: async (_name, args) => ({ requested: args.changes[0].value }) });
+  const reply = await route({ id: 1, method: "tools/call", params: {
+    name: "set_device_parameters", arguments: { trackId: "track-0", deviceId: "track-0:device-0",
+      expectedStateVersion: 4, changes: [{ id: "parameter-4", value: "1/12" }] }
+  } });
+  assert.equal(reply.result.structuredContent.requested, "1/12");
+});
+
 test("resource discovery separates concrete URIs from parameterized templates", async () => {
   const route = createRouter({ readResource: async (uri) => ({ uri }) });
   const listed = await route({ id: 1, method: "resources/list" });

@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from bridge import SocketBridge, dispatch_request, _device_type, _new_midi_note, _persisted_device_chain, _set_fingerprint, _track_topology_signature
+from bridge import SocketBridge, dispatch_request, _device_type, _new_midi_note, _persisted_device_chain, _persisted_track_state, _set_fingerprint, _track_topology_signature
 
 
 class Parameter:
@@ -149,6 +149,8 @@ class Clip:
         self.signature_numerator = 4
         self.signature_denominator = 4
         self.launch_quantization = 0
+        self.legato = False
+        self.view = SimpleNamespace(grid_quantization=8, grid_is_triplet=False)
         self.groove = None
         self.envelopes = {}
     def fire(self):
@@ -259,6 +261,8 @@ class ClipSlot:
     def __init__(self, has_clip=True):
         self.has_clip = has_clip
         self.clip = Clip() if has_clip else None
+        self.last_launch_quantization = None
+        self.last_record_length = None
 
     def create_clip(self, length):
         if self.has_clip:
@@ -267,7 +271,12 @@ class ClipSlot:
         self.clip = Clip()
         self.clip.length = length
 
-    def fire(self):
+    def fire(self, record_length=None, launch_quantization=None):
+        self.last_launch_quantization = launch_quantization
+        self.last_record_length = record_length
+        if record_length is not None and not self.has_clip:
+            self.has_clip = True
+            self.clip = Clip()
         self.clip.fire()
 
     def stop(self):
@@ -289,8 +298,10 @@ class Scene:
         self.name = "Verse"
         self.is_triggered = False
         self.launch_quantization = 0
+        self.last_force_legato = None
 
-    def fire(self):
+    def fire(self, force_legato=False):
+        self.last_force_legato = force_legato
         self.is_triggered = True
 
 
@@ -376,6 +387,13 @@ class Song:
         self.cue_points = [CuePoint()]
         self.metronome = False
         self.count_in_duration = 1
+        self.can_capture_midi = True
+        self.capture_midi_destinations = []
+
+    def capture_midi(self, destination):
+        self.capture_midi_destinations.append(destination)
+        self.tracks[0].clip_slots[1].create_clip(4.0)
+        self.can_capture_midi = False
 
     def set_or_delete_cue(self):
         existing = next((cue for cue in self.cue_points if cue.time == self.current_song_time), None)
@@ -390,6 +408,8 @@ class Song:
     def create_audio_track(self, index):
         track = Track()
         track.name = "Audio"
+        track.has_midi_input = False
+        track.has_audio_input = True
         self.tracks.insert(index, track)
 
     def create_scene(self, index):
@@ -477,6 +497,68 @@ class Application:
 
 
 class DispatchTest(unittest.TestCase):
+    def test_browser_roots_report_available_and_unavailable_locations(self):
+        result = dispatch_request(Song(), {"method": "list_browser_roots", "params": {}}, 3, Application())
+        roots = {item["root"]: item for item in result["roots"]}
+        self.assertEqual(result["stateVersion"], 3)
+        self.assertEqual(roots["plugins"]["item"]["name"], "Plug-ins")
+        self.assertEqual(roots["plugins"]["totalChildren"], 1)
+        self.assertEqual(roots["user_folders"]["totalChildren"], 1)
+        self.assertFalse(roots["packs"]["available"])
+        self.assertIsNone(roots["packs"]["item"])
+
+    def test_legacy_libraries_vector_is_a_browsable_root(self):
+        application = Application()
+        application.browser.legacy_libraries = BrowserItemVector((
+            BrowserItem("Legacy Pack", "query:legacy-pack", children=(
+                BrowserItem("Vintage.wav", "query:vintage", True),)),
+        ))
+        roots = dispatch_request(Song(), {"method": "list_browser_roots", "params": {}}, 3, application)["roots"]
+        legacy = next(root for root in roots if root["root"] == "legacy_libraries")
+        self.assertTrue(legacy["available"])
+        self.assertEqual(legacy["totalChildren"], 1)
+        self.assertEqual(legacy["item"]["name"], "Legacy Libraries")
+        listing = dispatch_request(Song(), {"method": "get_browser_items", "params": {
+            "root": "legacy_libraries", "path": []}}, 3, application)
+        self.assertEqual([item["name"] for item in listing["children"]], ["Legacy Pack"])
+        search = dispatch_request(Song(), {"method": "search_browser_items", "params": {
+            "root": "legacy_libraries", "path": [], "query": "vintage", "maxDepth": 2, "limit": 10,
+        }}, 3, application)
+        self.assertEqual(search["results"][0]["path"], ["Legacy Pack", "Vintage.wav"])
+
+    def test_search_browser_roots_reports_exact_paths_unavailable_roots_and_truncation(self):
+        result = dispatch_request(Song(), {"method": "search_browser_roots", "params": {
+            "roots": ["instruments", "packs", "user_folders"], "query": "r",
+            "maxDepth": 3, "limit": 2,
+        }}, 3, Application())
+        self.assertEqual(result["stateVersion"], 3)
+        self.assertEqual(result["searchedRoots"], ["instruments", "user_folders"])
+        self.assertEqual(result["unavailableRoots"], ["packs"])
+        self.assertTrue(result["truncated"])
+        self.assertEqual([(item["root"], item["path"]) for item in result["results"]], [
+            ("instruments", ["Drift"]), ("user_folders", ["Splice", "Drums"]),
+        ])
+
+    def test_search_browser_roots_rejects_unknown_or_duplicate_roots(self):
+        for roots in (["unknown"], ["plugins", "plugins"]):
+            with self.assertRaisesRegex(ValueError, "browser roots"):
+                dispatch_request(Song(), {"method": "search_browser_roots", "params": {
+                    "roots": roots, "query": "Drift", "maxDepth": 2, "limit": 10,
+                }}, 3, Application())
+
+    def test_search_browser_roots_caps_scanned_items(self):
+        application = Application()
+        application.browser.samples = BrowserItem("Samples", "query:samples", children=tuple(
+            BrowserItem(f"Sound-{index}", f"query:sound-{index}", True) for index in range(20)
+        ))
+        result = dispatch_request(Song(), {"method": "search_browser_roots", "params": {
+            "roots": ["samples"], "query": "missing", "maxDepth": 1, "limit": 10, "maxVisited": 3,
+        }}, 3, application)
+        self.assertEqual(result["visitedItems"], 3)
+        self.assertTrue(result["truncated"])
+        self.assertEqual(result["truncationReason"], "scan_limit")
+        self.assertEqual(result["results"], [])
+
     def test_audio_inspection_exposes_loaded_source_for_analysis(self):
         song = Song()
         clip = song.tracks[0].clip_slots[2].clip
@@ -489,6 +571,7 @@ class DispatchTest(unittest.TestCase):
 
     def test_unwarped_session_duration_is_seconds_not_beats(self):
         song = Song()
+        song.tracks[0].arrangement_clips = []
         clip = song.tracks[0].clip_slots[2].clip
         clip.warping = False
         clip.looping = False
@@ -509,7 +592,8 @@ class DispatchTest(unittest.TestCase):
         self.assertIsNone(loop_record["lengthBeats"])
         with self.assertRaisesRegex(ValueError, "tempo-map"):
             dispatch_request(song, {"method": "place_session_clip_in_arrangement", "params": {
-                "trackId": "track-0", "clipId": "track-0:clip-2", "startBeats": 8
+                "trackId": "track-0", "clipId": "track-0:clip-2", "startBeats": 8,
+                "source": loop_record, "beforeArrangement": [], "endBeats": None
             }}, 3)
 
     def test_track_listing_does_not_read_arm_on_non_armable_tracks(self):
@@ -544,12 +628,21 @@ class DispatchTest(unittest.TestCase):
 
         self.assertEqual(observed["tracks"], [
             {"id": "track-0", "name": "Bass Bus", "mute": False, "solo": False, "armed": False,
-             "volume": 0.75, "pan": 0.0, "isGroup": True, "isGrouped": False,
+             "volume": 0.75, "pan": 0.0, "type": "group", "isGroup": True, "isGrouped": False,
              "groupTrackId": None, "foldState": 1},
             {"id": "track-1", "name": "Sub Bass", "mute": False, "solo": False, "armed": False,
-             "volume": 0.75, "pan": 0.0, "isGroup": False, "isGrouped": True,
+             "volume": 0.75, "pan": 0.0, "type": "midi", "isGroup": False, "isGrouped": True,
              "groupTrackId": "track-0", "foldState": None},
         ])
+
+    def test_list_tracks_reports_audio_source_type(self):
+        song = Song()
+        song.tracks[1].has_midi_input = False
+        song.tracks[1].has_audio_input = True
+
+        observed = dispatch_request(song, {"method": "list_tracks"}, 3)
+
+        self.assertEqual(observed["tracks"][1]["type"], "audio")
 
     def test_group_fold_and_batch_bus_routing_apply_exact_existing_targets(self):
         song = Song()
@@ -587,12 +680,54 @@ class DispatchTest(unittest.TestCase):
                     {"trackId": "track-1", "outputTypeId": "missing"}]}}, 3)
         self.assertIs(source.current_output_routing, original)
 
+    def test_return_bus_routes_multiple_tracks_with_prevalidated_send_and_output(self):
+        song = Song()
+        route = SimpleNamespace(identifier="sends-only", display_name="Sends Only")
+        for track in song.tracks:
+            track.available_output_routing_types.append(route)
+        before_return = dispatch_request(song, {"method": "get_set_mixer"}, 3)["returns"][0]
+        routes = [{"trackId": f"track-{index}", "sendId": "send-0", "outputTypeId": "sends-only",
+                   "beforeMixer": dispatch_request(song, {"method": "get_track_mixer", "params": {"trackId": f"track-{index}"}}, 3),
+                   "beforeRouting": dispatch_request(song, {"method": "get_track_routing", "params": {"trackId": f"track-{index}"}}, 3)}
+                  for index in range(2)]
+        result = dispatch_request(song, {"method": "route_tracks_to_return_bus", "params": {
+            "expectedStateVersion": 3, "returnTrackId": "return-0", "beforeReturn": before_return,
+            "sendValue": 1.0, "routes": routes,
+        }}, 3)
+        self.assertEqual(result["stateVersion"], 4)
+        self.assertEqual([track.current_output_routing for track in song.tracks], ["Sends Only", "Sends Only"])
+        self.assertEqual([track.mixer_device.sends[0].value for track in song.tracks], [1.0, 1.0])
+        self.assertEqual([route["mixer"]["sends"][0]["value"] for route in result["routes"]], [1.0, 1.0])
+        self.assertEqual([route["routing"]["output"]["type"]["name"] for route in result["routes"]], ["Sends Only", "Sends Only"])
+
+    def test_return_bus_prevalidation_prevents_partial_routing(self):
+        song = Song()
+        route = SimpleNamespace(identifier="sends-only", display_name="Sends Only")
+        for track in song.tracks:
+            track.available_output_routing_types.append(route)
+        before_return = dispatch_request(song, {"method": "get_set_mixer"}, 3)["returns"][0]
+        routes = [{"trackId": f"track-{index}", "sendId": "send-0", "outputTypeId": "sends-only",
+                   "beforeMixer": dispatch_request(song, {"method": "get_track_mixer", "params": {"trackId": f"track-{index}"}}, 3),
+                   "beforeRouting": dispatch_request(song, {"method": "get_track_routing", "params": {"trackId": f"track-{index}"}}, 3)}
+                  for index in range(2)]
+        song.tracks[1].available_output_routing_types.pop()
+        original = song.tracks[0].mixer_device.sends[0].value
+        with self.assertRaisesRegex(ValueError, "source mixer or routing changed"):
+            dispatch_request(song, {"method": "route_tracks_to_return_bus", "params": {
+                "expectedStateVersion": 3, "returnTrackId": "return-0", "beforeReturn": before_return,
+                "sendValue": 1.0, "routes": routes,
+            }}, 3)
+        self.assertEqual(song.tracks[0].mixer_device.sends[0].value, original)
+        self.assertNotEqual(song.tracks[0].current_output_routing, "Sends Only")
+
     def test_transport_recording_context_reads_and_writes_exact_modes(self):
         song = Song()
         observed = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
         self.assertEqual(observed["currentSongTime"], 4.0)
         self.assertTrue(observed["arrangement"]["punchIn"])
         self.assertTrue(observed["session"]["overdub"])
+        self.assertTrue(observed["midiCapture"]["available"])
+        self.assertEqual(observed["midiCapture"]["midiTrackIds"], ["track-0", "track-1"])
         changed = dispatch_request(song, {"method": "set_transport_recording_context", "params": {"changes": {
             "currentSongTime": 32.0, "metronome": False,
             "arrangement": {"record": True, "overdub": True, "punchIn": False, "punchOut": True, "backToArranger": True},
@@ -604,6 +739,44 @@ class DispatchTest(unittest.TestCase):
         self.assertTrue(song.back_to_arranger)
         self.assertFalse(song.overdub)
         self.assertTrue(song.session_automation_record)
+
+    def test_capture_midi_session_rechecks_readiness_and_reports_actual_clip_change(self):
+        song = Song()
+        before = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
+        with self.assertRaisesRegex(ValueError, "changed"):
+            dispatch_request(song, {"method": "capture_midi_session", "params": {
+                "expectedStateVersion": 3, "before": {"available": False}
+            }}, 3)
+        self.assertEqual(song.capture_midi_destinations, [])
+        result = dispatch_request(song, {"method": "capture_midi_session", "params": {
+            "expectedStateVersion": 3, "before": before["midiCapture"]
+        }}, 3)
+        self.assertEqual(song.capture_midi_destinations, [1])
+        self.assertEqual(result["changedSlots"][0]["clipId"], "track-0:clip-1")
+        self.assertFalse(result["changedSlots"][0]["before"]["hasClip"])
+        self.assertTrue(result["changedSlots"][0]["after"]["hasClip"])
+        self.assertFalse(result["after"]["midiCapture"]["available"])
+
+    def test_capture_midi_session_reports_note_only_overdub_on_playing_armed_clip(self):
+        song = Song()
+        track = song.tracks[0]
+        track.arm = True
+        clip = track.clip_slots[0].clip
+        clip.is_playing = True
+        clip.extended_notes = [MidiNote(1)]
+        def overdub(destination):
+            clip.extended_notes.append(MidiNote(2))
+            song.can_capture_midi = False
+        song.capture_midi = overdub
+        before = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
+        result = dispatch_request(song, {"method": "capture_midi_session", "params": {
+            "expectedStateVersion": 3, "before": before["midiCapture"]
+        }}, 3)
+        self.assertEqual(len(result["changedSlots"]), 1)
+        self.assertEqual(result["changedSlots"][0]["clipId"], "track-0:clip-0")
+        self.assertEqual(result["changedSlots"][0]["noteCountBefore"], 1)
+        self.assertEqual(result["changedSlots"][0]["noteCountAfter"], 2)
+        self.assertTrue(result["changedSlots"][0]["noteStateChanged"])
 
     def test_socket_bridge_defers_cue_mutations_until_live_applies_the_playhead(self):
         song = Song()
@@ -869,8 +1042,9 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(extended["timeline"]["endBeats"], 16.0)
         self.assertEqual(extended["notes"][0]["noteId"], 7)
         changed = dispatch_request(song, {"method": "set_midi_note_properties", "params": {
-            "trackId": "track-0", "clipId": clip_id,
-            "changes": [{"noteId": 7, "velocity": 42}]
+            "trackId": "track-0", "clipId": clip_id, "expectedStateVersion": 3,
+            "before": extended, "clipTiming": timing,
+            "changes": [{"noteId": 7, "previous": extended["notes"][0], "velocity": 42}]
         }}, 3)
         self.assertEqual(changed["stateVersion"], 4)
         self.assertEqual(changed["location"], "arrangement")
@@ -1300,16 +1474,65 @@ class DispatchTest(unittest.TestCase):
         boundaries = []
         song.begin_undo_step = lambda: boundaries.append("begin")
         song.end_undo_step = lambda: boundaries.append("end")
-        boundaries = []
-        song.begin_undo_step = lambda: boundaries.append("begin")
-        song.end_undo_step = lambda: boundaries.append("end")
-        params = {"trackId": "track-0", "clipId": "track-0:clip-0", "startBeats": 8.0}
+        params = {"trackId": "track-0", "clipId": "track-0:clip-0", "startBeats": 8.0,
+                  "endBeats": 12.0,
+                  "source": dispatch_request(song, {"method": "list_clips", "params": {"trackId": "track-0"}}, 3)["clips"][0],
+                  "beforeArrangement": []}
         result = dispatch_request(song, {"method": "place_session_clip_in_arrangement", "params": params}, 3)
         self.assertEqual(result["placedClip"]["startBeats"], 8.0)
         self.assertEqual(result["placedClip"]["endBeats"], 12.0)
-        with self.assertRaisesRegex(ValueError, "overlap"):
+        self.assertEqual(boundaries, ["begin", "end"])
+        with self.assertRaisesRegex(ValueError, "Arrangement changed"):
             dispatch_request(song, {"method": "place_session_clip_in_arrangement", "params": {**params, "startBeats": 10.0}}, 4)
         self.assertEqual(len(track.arrangement_clips), 1)
+
+    def test_session_clip_placement_rechecks_signed_source_and_timeline_before_copy(self):
+        song = Song()
+        track = song.tracks[0]
+        track.arrangement_clips = []
+        copies = []
+        def duplicate(clip, start):
+            placed = SimpleNamespace(name=clip.name, start_time=start, end_time=start + clip.length,
+                                     is_audio_clip=False)
+            copies.append((clip, start))
+            track.arrangement_clips.append(placed)
+            return placed
+        track.duplicate_clip_to_arrangement = duplicate
+        source = dispatch_request(song, {"method": "list_clips", "params": {"trackId": "track-0"}}, 3)["clips"][0]
+        params = {"trackId": "track-0", "clipId": source["id"], "startBeats": 8.0, "endBeats": 12.0,
+                  "source": source, "beforeArrangement": []}
+        track.clip_slots[0].clip.name = "Changed after planning"
+        with self.assertRaisesRegex(ValueError, "source clip changed"):
+            dispatch_request(song, {"method": "place_session_clip_in_arrangement", "params": params}, 3)
+        self.assertEqual(copies, [])
+        track.clip_slots[0].clip.name = source["name"]
+        track.arrangement_clips = [SimpleNamespace(name="New", start_time=16.0, end_time=20.0,
+                                                  is_audio_clip=False)]
+        with self.assertRaisesRegex(ValueError, "Arrangement changed"):
+            dispatch_request(song, {"method": "place_session_clip_in_arrangement", "params": params}, 3)
+        self.assertEqual(copies, [])
+
+    def test_session_clip_placement_rolls_back_wrong_native_interval(self):
+        song = Song()
+        track = song.tracks[0]
+        track.arrangement_clips = []
+        boundaries = []
+        song.begin_undo_step = lambda: boundaries.append("begin")
+        song.end_undo_step = lambda: boundaries.append("end")
+        def duplicate(clip, start):
+            placed = SimpleNamespace(name=clip.name, start_time=start, end_time=start + 3.0,
+                                     is_audio_clip=False)
+            track.arrangement_clips.append(placed)
+            return placed
+        track.duplicate_clip_to_arrangement = duplicate
+        track.delete_clip = lambda clip: track.arrangement_clips.remove(clip)
+        source = dispatch_request(song, {"method": "list_clips", "params": {"trackId": "track-0"}}, 3)["clips"][0]
+        with self.assertRaisesRegex(ValueError, "placed clip interval"):
+            dispatch_request(song, {"method": "place_session_clip_in_arrangement", "params": {
+                "trackId": "track-0", "clipId": source["id"], "startBeats": 8.0, "endBeats": 12.0,
+                "source": source, "beforeArrangement": []}}, 3)
+        self.assertEqual(track.arrangement_clips, [])
+        self.assertEqual(boundaries, ["begin", "end"])
 
     def test_arrangement_deletion_checks_identity_and_preserves_other_clips(self):
         song = Song()
@@ -1505,21 +1728,112 @@ class DispatchTest(unittest.TestCase):
         observed = dispatch_request(song, {"method": "get_set_mixer"}, 3)
         self.assertEqual(observed["master"]["cueVolume"]["value"], 0.7)
         self.assertEqual(observed["master"]["outputRouting"]["channel"]["id"], "1/2")
-        routed = dispatch_request(song, {"method": "set_master_mixer", "params": {"changes": {
-            "outputChannelId": {"value": {"id": "3/4", "name": "3/4"}},
+        routed = dispatch_request(song, {"method": "set_master_mixer", "params": {"beforeMaster": observed["master"], "changes": {
+            "outputChannelId": {"previous": observed["master"]["outputRouting"]["channel"],
+                                "value": {"id": "3/4", "name": "3/4"}},
         }}}, 3)
         self.assertEqual(routed["master"]["outputRouting"]["channel"]["id"], "3/4")
         self.assertEqual(observed["returns"][0]["name"], "Reverb")
-        master = dispatch_request(song, {"method": "set_master_mixer", "params": {"changes": {
-            "volume": {"value": 0.5}, "crossfader": {"value": -0.25},
+        master = dispatch_request(song, {"method": "set_master_mixer", "params": {"beforeMaster": routed["master"], "changes": {
+            "volume": {"previousValue": 0.8, "requestedValue": 0.5, "value": 0.5},
+            "crossfader": {"previousValue": 0.0, "requestedValue": -0.25, "value": -0.25},
         }}}, 3)
         self.assertEqual(master["master"]["volume"]["value"], 0.5)
         returned = dispatch_request(song, {"method": "set_return_mixer", "params": {
             "returnTrackId": "return-0", "beforeReturn": observed["returns"][0],
-            "changes": {"pan": {"value": 0.5}, "mute": {"value": True}},
+            "changes": {"pan": {"previousValue": 0.0, "requestedValue": 0.5, "value": 0.5},
+                        "mute": {"previousValue": False, "value": True}},
         }}, 4)
         self.assertTrue(returned["return"]["mute"])
         self.assertEqual(returned["return"]["pan"]["value"], 0.5)
+
+    def test_master_mixer_rejects_stale_plan_before_routing_output(self):
+        song = Song()
+        before = dispatch_request(song, {"method": "get_set_mixer"}, 3)["master"]
+        song.master_track.mixer_device.volume.value = 0.65
+        with self.assertRaisesRegex(ValueError, "master mixer changed"):
+            dispatch_request(song, {"method": "set_master_mixer", "params": {
+                "beforeMaster": before, "changes": {
+                    "outputChannelId": {"previous": before["outputRouting"]["channel"],
+                                        "value": {"id": "3/4", "name": "3/4"}},
+                    "pan": {"previousValue": 0.0, "requestedValue": 0.25, "value": 0.25}
+                }}}, 3)
+        self.assertEqual(song.master_track.current_output_sub_routing, "1/2")
+        self.assertEqual(song.master_track.mixer_device.panning.value, 0.0)
+
+    def test_master_mixer_rolls_back_output_and_volume_after_failed_control_write(self):
+        song = Song()
+        class FailingValue:
+            min, max = -1.0, 1.0
+            @property
+            def value(self):
+                return 0.0
+            @value.setter
+            def value(self, next_value):
+                raise RuntimeError("crossfader write failed")
+        song.master_track.mixer_device.crossfader = FailingValue()
+        boundaries = []
+        song.begin_undo_step = lambda: boundaries.append("begin")
+        song.end_undo_step = lambda: boundaries.append("end")
+        before = dispatch_request(song, {"method": "get_set_mixer"}, 3)["master"]
+        with self.assertRaisesRegex(RuntimeError, "crossfader write failed"):
+            dispatch_request(song, {"method": "set_master_mixer", "params": {
+                "beforeMaster": before, "changes": {
+                    "outputChannelId": {"previous": before["outputRouting"]["channel"],
+                                        "value": {"id": "3/4", "name": "3/4"}},
+                    "volume": {"previousValue": 0.8, "requestedValue": 0.5, "value": 0.5},
+                    "crossfader": {"previousValue": 0.0, "requestedValue": -0.25, "value": -0.25}
+                }}}, 3)
+        self.assertEqual(song.master_track.current_output_sub_routing, "1/2")
+        self.assertEqual(song.master_track.mixer_device.volume.value, 0.8)
+        self.assertEqual(boundaries, ["begin", "end"])
+
+    def test_master_mixer_rejects_out_of_range_value_before_any_write(self):
+        song = Song()
+        before = dispatch_request(song, {"method": "get_set_mixer"}, 3)["master"]
+        with self.assertRaisesRegex(ValueError, "master volume.*range"):
+            dispatch_request(song, {"method": "set_master_mixer", "params": {
+                "beforeMaster": before, "changes": {
+                    "outputChannelId": {"previous": before["outputRouting"]["channel"],
+                                        "value": {"id": "3/4", "name": "3/4"}},
+                    "volume": {"previousValue": 0.8, "requestedValue": 2.0, "value": 2.0}
+                }}}, 3)
+        self.assertEqual(song.master_track.current_output_sub_routing, "1/2")
+        self.assertEqual(song.master_track.mixer_device.volume.value, 0.8)
+
+    def test_return_mixer_rejects_stale_volume_before_mute_change(self):
+        song = Song()
+        before = dispatch_request(song, {"method": "get_set_mixer"}, 3)["returns"][0]
+        song.return_tracks[0].mixer_device.volume.value = 0.4
+        with self.assertRaisesRegex(ValueError, "return track changed"):
+            dispatch_request(song, {"method": "set_return_mixer", "params": {
+                "returnTrackId": "return-0", "beforeReturn": before,
+                "changes": {"mute": {"previousValue": False, "value": True}}}}, 3)
+        self.assertFalse(song.return_tracks[0].mute)
+
+    def test_return_mixer_rolls_back_volume_after_failed_pan_write(self):
+        song = Song()
+        class FailingPan:
+            min, max = -1.0, 1.0
+            @property
+            def value(self):
+                return 0.0
+            @value.setter
+            def value(self, next_value):
+                raise RuntimeError("pan write failed")
+        track = song.return_tracks[0]
+        track.mixer_device.panning = FailingPan()
+        boundaries = []
+        song.begin_undo_step = lambda: boundaries.append("begin")
+        song.end_undo_step = lambda: boundaries.append("end")
+        before = dispatch_request(song, {"method": "get_set_mixer"}, 3)["returns"][0]
+        with self.assertRaisesRegex(RuntimeError, "pan write failed"):
+            dispatch_request(song, {"method": "set_return_mixer", "params": {
+                "returnTrackId": "return-0", "beforeReturn": before,
+                "changes": {"volume": {"previousValue": 0.6, "requestedValue": 0.4, "value": 0.4},
+                            "pan": {"previousValue": 0.0, "requestedValue": 0.25, "value": 0.25}}}}, 3)
+        self.assertEqual(track.mixer_device.volume.value, 0.6)
+        self.assertEqual(boundaries, ["begin", "end"])
 
     def test_create_return_track_appends_named_bus_and_rejects_stale_bus_list(self):
         song = Song()
@@ -2093,18 +2407,25 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(observed["timeSignature"], {"numerator": 4, "denominator": 4})
         self.assertEqual(observed["launchQuantization"]["value"], 0)
         self.assertEqual(observed["launchQuantization"]["name"], "global")
+        self.assertEqual(observed["launchLegato"], {"supported": True, "enabled": False})
+        self.assertEqual(observed["editorGrid"]["quantization"]["name"], "1_16")
+        self.assertFalse(observed["editorGrid"]["isTriplet"])
         self.assertIn({"value": 12, "name": "1_16"}, observed["launchQuantization"]["choices"])
         self.assertIsNone(observed["grooveId"])
 
         changed = dispatch_request(song, {"method": "set_clip_timing", "params": {**params, "changes": {
             "loop": {"enabled": True, "startBeats": 1.0, "endBeats": 5.0},
             "timeSignature": {"numerator": 3, "denominator": 4},
-            "launchQuantization": 12, "grooveId": "groove-0",
+            "launchQuantization": 12, "launchLegato": True, "grooveId": "groove-0",
+            "editorGrid": {"quantization": 7, "isTriplet": True},
         }}}, 3)
         clip = song.tracks[0].clip_slots[0].clip
         self.assertEqual(changed["stateVersion"], 4)
         self.assertEqual((clip.loop_start, clip.loop_end), (1.0, 5.0))
         self.assertEqual(clip.signature_numerator, 3)
+        self.assertTrue(clip.legato)
+        self.assertEqual(clip.view.grid_quantization, 7)
+        self.assertTrue(clip.view.grid_is_triplet)
         self.assertIs(clip.groove, song.groove_pool.grooves[0])
 
     def test_clip_timing_rejects_changed_observation_before_mutation(self):
@@ -2199,6 +2520,328 @@ class DispatchTest(unittest.TestCase):
             "note": 36, "name": "Kick", "mute": False, "solo": False,
             "chainIds": ["track-0:device-0/chain-0"]
         }])
+
+    def test_device_hierarchy_reports_observed_rack_macro_state(self):
+        song = Song()
+        rack = DrumRack()
+        rack.has_macro_mappings = True
+        rack.visible_macro_count = 8
+        rack.variation_count = 2
+        rack.selected_variation_index = 1
+        song.tracks[0].devices = [rack]
+        observed = dispatch_request(song, {"method": "get_device_hierarchy", "params": {
+            "trackId": "track-0", "deviceId": "track-0:device-0"}}, 3)["device"]
+        self.assertEqual(observed["rackMacros"], {
+            "hasMappings": True, "visibleCount": 8,
+            "variationCount": 2, "selectedVariationIndex": 1,
+        })
+        self.assertNotIn("rackMacros", observed["chains"][0]["devices"][0])
+
+    def test_device_hierarchy_reports_native_macro_mapping_targets_and_ranges(self):
+        song = Song()
+        rack = DrumRack()
+        rack.has_macro_mappings = True
+        rack.visible_macro_count = 8
+        rack.variation_count = 0
+        rack.selected_variation_index = -1
+        target_parameter = rack.chains[0].devices[0].parameters[0]
+        rack.macro_mappings = [SimpleNamespace(index=2, parameter=target_parameter,
+                                               path="Kick/Filter Freq", mapping_min=0.1,
+                                               mapping_max=0.9, mapping_min_string="100 Hz",
+                                               mapping_max_string="900 Hz")]
+        song.tracks[0].devices = [rack]
+        observed = dispatch_request(song, {"method": "get_device_hierarchy", "params": {
+            "trackId": "track-0", "deviceId": "track-0:device-0"}}, 3)["device"]
+        self.assertEqual(observed["rackMacros"].get("mappings"), [{
+            "macroIndex": 2, "targetPath": "Kick/Filter Freq",
+            "parameterName": "Cutoff", "parameterOriginalName": "Filter Freq",
+            "parameterMin": 0.0, "parameterMax": 1.0, "parameterQuantized": False,
+            "min": 0.1, "max": 0.9, "minDisplay": "100 Hz", "maxDisplay": "900 Hz"
+        }])
+
+    def test_rack_macro_adjustment_rechecks_rack_and_reads_native_count(self):
+        song = Song()
+        rack = DrumRack()
+        rack.visible_macro_count = 8
+        rack.has_macro_mappings = False
+        rack.variation_count = 0
+        rack.selected_variation_index = -1
+        rack.add_macro = lambda: setattr(rack, "visible_macro_count", rack.visible_macro_count + 2)
+        rack.remove_macro = lambda: setattr(rack, "visible_macro_count", rack.visible_macro_count - 2)
+        song.tracks[0].devices = [rack]
+        before = dispatch_request(song, {"method": "get_device_hierarchy", "params": {
+            "trackId": "track-0", "deviceId": "track-0:device-0"}}, 3)["device"]
+        result = dispatch_request(song, {"method": "adjust_rack_macro_count", "params": {
+            "trackId": "track-0", "deviceId": "track-0:device-0", "beforeDevice": before,
+            "action": "add"}}, 3)
+        self.assertEqual(result["device"]["rackMacros"]["visibleCount"], 10)
+        self.assertEqual(result["stateVersion"], 4)
+        with self.assertRaisesRegex(ValueError, "rack state changed"):
+            dispatch_request(song, {"method": "adjust_rack_macro_count", "params": {
+                "trackId": "track-0", "deviceId": "track-0:device-0", "beforeDevice": before,
+                "action": "remove"}}, 4)
+        self.assertEqual(rack.visible_macro_count, 10)
+        current = result["device"]
+        rack.has_macro_mappings = True
+        with self.assertRaisesRegex(ValueError, "mapped"):
+            dispatch_request(song, {"method": "adjust_rack_macro_count", "params": {
+                "trackId": "track-0", "deviceId": "track-0:device-0", "beforeDevice": {
+                    **current, "rackMacros": {**current["rackMacros"], "hasMappings": True}},
+                "action": "remove"}}, 4)
+        self.assertEqual(rack.visible_macro_count, 10)
+
+    def test_map_rack_macro_rechecks_exact_descendant_parameter_and_observes_mapping(self):
+        song = Song()
+        rack = DrumRack()
+        rack.visible_macro_count = 8
+        rack.has_macro_mappings = False
+        rack.variation_count = 0
+        rack.selected_variation_index = -1
+        rack.macro_mappings = []
+        def macro_map(index, parameter):
+            rack.macro_mappings.append(SimpleNamespace(
+                index=index, path="Kick/Filter Freq", parameter=parameter,
+                mapping_min=parameter.min, mapping_max=parameter.max,
+                mapping_min_string="0 Hz", mapping_max_string="1000 Hz"))
+            rack.has_macro_mappings = True
+        rack.macro_map = macro_map
+        song.tracks[0].devices = [rack]
+        rack_id = "track-0:device-0"
+        target_id = rack_id + "/chain-0/device-0"
+        before = dispatch_request(song, {"method": "get_device_hierarchy", "params": {
+            "trackId": "track-0", "deviceId": rack_id}}, 3)["device"]
+        target = dispatch_request(song, {"method": "list_device_parameters", "params": {
+            "trackId": "track-0", "deviceId": target_id}}, 3)["parameters"]
+        request = {"trackId": "track-0", "deviceId": rack_id, "beforeDevice": before,
+                   "targetDeviceId": target_id, "beforeTargetParameters": target,
+                   "parameterId": "parameter-0", "macroIndex": 2}
+        with self.assertRaisesRegex(ValueError, "descendant"):
+            dispatch_request(song, {"method": "map_rack_macro_to_parameter", "params": {
+                **request, "targetDeviceId": rack_id}}, 3)
+        with self.assertRaisesRegex(ValueError, "macro index"):
+            dispatch_request(song, {"method": "map_rack_macro_to_parameter", "params": {
+                **request, "macroIndex": 8}}, 3)
+        with self.assertRaisesRegex(ValueError, "parameter state changed"):
+            dispatch_request(song, {"method": "map_rack_macro_to_parameter", "params": {
+                **request, "beforeTargetParameters": [{**target[0], "value": 0.9}, *target[1:]]}}, 3)
+        self.assertEqual(rack.macro_mappings, [])
+        result = dispatch_request(song, {"method": "map_rack_macro_to_parameter", "params": {
+            **request}}, 3)
+        self.assertEqual(result["device"]["rackMacros"]["mappings"][0]["macroIndex"], 2)
+        self.assertEqual(result["device"]["rackMacros"]["mappings"][0]["parameterOriginalName"], "Filter Freq")
+        self.assertEqual(result["stateVersion"], 4)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+        with self.assertRaisesRegex(ValueError, "rack state changed"):
+            dispatch_request(song, {"method": "map_rack_macro_to_parameter", "params": {
+                "trackId": "track-0", "deviceId": rack_id, "beforeDevice": before,
+                "targetDeviceId": target_id, "beforeTargetParameters": target,
+                "parameterId": "parameter-0", "macroIndex": 2}}, 4)
+
+    def test_set_rack_macro_mapping_edge_rechecks_single_mapping_and_reads_native_range(self):
+        song = Song()
+        rack = DrumRack()
+        rack.visible_macro_count = 8
+        rack.has_macro_mappings = True
+        rack.variation_count = 0
+        rack.selected_variation_index = -1
+        parameter = rack.chains[0].devices[0].parameters[0]
+        mapping = SimpleNamespace(index=2, path="Kick/Filter Freq", parameter=parameter,
+                                  mapping_min=0.1, mapping_max=0.9,
+                                  mapping_min_string="100 Hz", mapping_max_string="900 Hz")
+        rack.macro_mappings = [mapping]
+        rack.set_mapping_min = lambda index, value: setattr(mapping, "mapping_min", value)
+        rack.set_mapping_max = lambda index, value: setattr(mapping, "mapping_max", value)
+        song.tracks[0].devices = [rack]
+        rack_id = "track-0:device-0"
+        before = dispatch_request(song, {"method": "get_device_hierarchy", "params": {
+            "trackId": "track-0", "deviceId": rack_id}}, 3)["device"]
+        request = {"trackId": "track-0", "deviceId": rack_id, "beforeDevice": before,
+                   "macroIndex": 2, "edge": "min", "value": 0.25}
+        result = dispatch_request(song, {"method": "set_rack_macro_mapping_edge", "params": request}, 3)
+        self.assertEqual(result["device"]["rackMacros"]["mappings"][0]["min"], 0.25)
+        self.assertEqual(result["stateVersion"], 4)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+        with self.assertRaisesRegex(ValueError, "rack state changed"):
+            dispatch_request(song, {"method": "set_rack_macro_mapping_edge", "params": request}, 4)
+        maximum = dispatch_request(song, {"method": "set_rack_macro_mapping_edge", "params": {
+            **request, "beforeDevice": result["device"], "edge": "max", "value": 0.75}}, 4)
+        self.assertEqual(maximum["device"]["rackMacros"]["mappings"][0]["max"], 0.75)
+        rack.macro_mappings.append(SimpleNamespace(index=2, path="Snare/Filter Freq", parameter=Parameter(),
+                                                   mapping_min=0, mapping_max=1,
+                                                   mapping_min_string="0 Hz", mapping_max_string="1000 Hz"))
+        multi = dispatch_request(song, {"method": "get_device_hierarchy", "params": {
+            "trackId": "track-0", "deviceId": rack_id}}, 4)["device"]
+        with self.assertRaisesRegex(ValueError, "exactly one mapping"):
+            dispatch_request(song, {"method": "set_rack_macro_mapping_edge", "params": {
+                **request, "beforeDevice": multi}}, 4)
+        self.assertEqual(mapping.mapping_min, 0.25)
+
+    def test_rack_hierarchy_reports_macro_names_only_when_native_parameter_layout_matches(self):
+        song = Song()
+        rack = DrumRack()
+        rack.visible_macro_count = 2
+        rack.has_macro_mappings = False
+        rack.variation_count = 0
+        rack.selected_variation_index = -1
+        rack.parameters = [Parameter(), Parameter(), Parameter()]
+        rack.parameters[1].original_name = "Macro 1"
+        rack.parameters[1].name = "Low End"
+        rack.parameters[2].original_name = "Macro 2"
+        rack.parameters[2].name = "Crunch"
+        song.tracks[0].devices = [rack]
+        observed = dispatch_request(song, {"method": "get_device_hierarchy", "params": {
+            "trackId": "track-0", "deviceId": "track-0:device-0"}}, 3)["device"]
+        self.assertEqual(observed["rackMacros"]["controls"], [
+            {"macroIndex": 0, "name": "Low End"}, {"macroIndex": 1, "name": "Crunch"}])
+        rack.parameters[2].original_name = "Unknown"
+        observed = dispatch_request(song, {"method": "get_device_hierarchy", "params": {
+            "trackId": "track-0", "deviceId": "track-0:device-0"}}, 3)["device"]
+        self.assertNotIn("controls", observed["rackMacros"])
+
+    def test_rename_rack_macro_requires_observed_control_and_reads_new_name(self):
+        song = Song()
+        rack = DrumRack()
+        rack.visible_macro_count = 2
+        rack.has_macro_mappings = False
+        rack.variation_count = 0
+        rack.selected_variation_index = -1
+        rack.parameters = [Parameter(), Parameter(), Parameter()]
+        rack.parameters[1].original_name = "Macro 1"
+        rack.parameters[1].name = "Macro 1"
+        rack.parameters[2].original_name = "Macro 2"
+        rack.parameters[2].name = "Macro 2"
+        rack.rename_macro = lambda index, name: setattr(rack.parameters[index + 1], "name", name)
+        song.tracks[0].devices = [rack]
+        rack_id = "track-0:device-0"
+        before = dispatch_request(song, {"method": "get_device_hierarchy", "params": {
+            "trackId": "track-0", "deviceId": rack_id}}, 3)["device"]
+        request = {"trackId": "track-0", "deviceId": rack_id, "beforeDevice": before,
+                   "macroIndex": 1, "name": "Drive"}
+        result = dispatch_request(song, {"method": "rename_rack_macro", "params": request}, 3)
+        self.assertEqual(result["device"]["rackMacros"]["controls"][1]["name"], "Drive")
+        self.assertEqual(result["stateVersion"], 4)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+        with self.assertRaisesRegex(ValueError, "rack state changed"):
+            dispatch_request(song, {"method": "rename_rack_macro", "params": request}, 4)
+
+    def test_store_rack_macro_variation_rechecks_parameters_and_reads_count(self):
+        song = Song()
+        rack = DrumRack()
+        rack.has_macro_mappings = True
+        rack.visible_macro_count = 8
+        rack.variation_count = 0
+        rack.selected_variation_index = -1
+        def store():
+            rack.variation_count += 1
+            rack.selected_variation_index = rack.variation_count - 1
+        rack.store_variation = store
+        song.tracks[0].devices = [rack]
+        target = {"trackId": "track-0", "deviceId": "track-0:device-0"}
+        before_device = dispatch_request(song, {"method": "get_device_hierarchy", "params": target}, 3)["device"]
+        before_parameters = dispatch_request(song, {"method": "list_device_parameters", "params": target}, 3)["parameters"]
+        result = dispatch_request(song, {"method": "store_rack_macro_variation", "params": {
+            **target, "beforeDevice": before_device, "beforeParameters": before_parameters}}, 3)
+        self.assertEqual(result["device"]["rackMacros"]["variationCount"], 1)
+        self.assertEqual(result["device"]["rackMacros"]["selectedVariationIndex"], 0)
+        self.assertEqual(result["stateVersion"], 4)
+        before_device = result["device"]
+        before_parameters = result["parameters"]
+        rack.parameters[0].value = 0.9
+        with self.assertRaisesRegex(ValueError, "parameter state changed"):
+            dispatch_request(song, {"method": "store_rack_macro_variation", "params": {
+                **target, "beforeDevice": before_device, "beforeParameters": before_parameters}}, 4)
+        self.assertEqual(rack.variation_count, 1)
+
+    def test_recall_rack_macro_variation_rechecks_state_and_reads_values(self):
+        song = Song()
+        rack = DrumRack()
+        rack.has_macro_mappings = True
+        rack.visible_macro_count = 8
+        rack.variation_count = 2
+        rack.selected_variation_index = -1
+        rack.parameters[0].value = 0.25
+        calls = []
+        def recall():
+            calls.append(rack.selected_variation_index)
+            rack.parameters[0].value = 0.75
+        rack.recall_selected_variation = recall
+        song.tracks[0].devices = [rack]
+        target = {"trackId": "track-0", "deviceId": "track-0:device-0"}
+        before_device = dispatch_request(song, {"method": "get_device_hierarchy", "params": target}, 3)["device"]
+        before_parameters = dispatch_request(song, {"method": "list_device_parameters", "params": target}, 3)["parameters"]
+        payload = {**target, "beforeDevice": before_device, "beforeParameters": before_parameters,
+                   "variationIndex": 1}
+        rack.parameters[0].value = 0.5
+        with self.assertRaisesRegex(ValueError, "parameter state changed"):
+            dispatch_request(song, {"method": "recall_rack_macro_variation", "params": payload}, 3)
+        self.assertEqual(calls, [])
+        rack.parameters[0].value = 0.25
+        result = dispatch_request(song, {"method": "recall_rack_macro_variation", "params": payload}, 3)
+        self.assertEqual(calls, [1])
+        self.assertEqual(result["device"]["rackMacros"]["selectedVariationIndex"], 1)
+        self.assertEqual(result["parameters"][0]["value"], 0.75)
+        self.assertEqual(result["stateVersion"], 4)
+
+    def test_delete_rack_macro_variation_rechecks_state_and_reads_count(self):
+        song = Song()
+        rack = DrumRack()
+        rack.has_macro_mappings = True
+        rack.visible_macro_count = 8
+        rack.variation_count = 2
+        rack.selected_variation_index = 0
+        calls = []
+        def delete():
+            calls.append(rack.selected_variation_index)
+            rack.variation_count -= 1
+            rack.selected_variation_index = -1
+        rack.delete_selected_variation = delete
+        song.tracks[0].devices = [rack]
+        target = {"trackId": "track-0", "deviceId": "track-0:device-0"}
+        before_device = dispatch_request(song, {"method": "get_device_hierarchy", "params": target}, 3)["device"]
+        before_parameters = dispatch_request(song, {"method": "list_device_parameters", "params": target}, 3)["parameters"]
+        payload = {**target, "beforeDevice": before_device, "beforeParameters": before_parameters,
+                   "variationIndex": 1}
+        rack.parameters[0].value = 0.5
+        with self.assertRaisesRegex(ValueError, "parameter state changed"):
+            dispatch_request(song, {"method": "delete_rack_macro_variation", "params": payload}, 3)
+        self.assertEqual(calls, [])
+        rack.parameters[0].value = before_parameters[0]["value"]
+        with self.assertRaisesRegex(ValueError, "variation index"):
+            dispatch_request(song, {"method": "delete_rack_macro_variation", "params": {
+                **payload, "variationIndex": 2}}, 3)
+        self.assertEqual(calls, [])
+        result = dispatch_request(song, {"method": "delete_rack_macro_variation", "params": payload}, 3)
+        self.assertEqual(calls, [1])
+        self.assertTrue(result["deleted"])
+        self.assertEqual(result["device"]["rackMacros"]["variationCount"], 1)
+        self.assertEqual(result["stateVersion"], 4)
+
+    def test_randomize_rack_macros_rechecks_parameters_and_reads_values(self):
+        song = Song()
+        rack = DrumRack()
+        rack.has_macro_mappings = True
+        rack.visible_macro_count = 8
+        rack.variation_count = 1
+        rack.selected_variation_index = 0
+        calls = []
+        def randomize():
+            calls.append(True)
+            rack.parameters[0].value = 0.8
+        rack.randomize_macros = randomize
+        song.tracks[0].devices = [rack]
+        target = {"trackId": "track-0", "deviceId": "track-0:device-0"}
+        before_device = dispatch_request(song, {"method": "get_device_hierarchy", "params": target}, 3)["device"]
+        before_parameters = dispatch_request(song, {"method": "list_device_parameters", "params": target}, 3)["parameters"]
+        payload = {**target, "beforeDevice": before_device, "beforeParameters": before_parameters}
+        rack.parameters[0].value = 0.5
+        with self.assertRaisesRegex(ValueError, "parameter state changed"):
+            dispatch_request(song, {"method": "randomize_rack_macros", "params": payload}, 3)
+        self.assertEqual(calls, [])
+        rack.parameters[0].value = before_parameters[0]["value"]
+        result = dispatch_request(song, {"method": "randomize_rack_macros", "params": payload}, 3)
+        self.assertEqual(calls, [True])
+        self.assertEqual(result["parameters"][0]["value"], 0.8)
+        self.assertEqual(result["stateVersion"], 4)
 
     def test_device_hierarchy_includes_rack_return_chain_devices(self):
         song = Song()
@@ -2600,6 +3243,83 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual([device["id"] for device in result["devices"]], ["track-0:device-0"])
         self.assertEqual(result["devices"][0]["parameters"][0]["originalName"], "Filter Freq")
 
+    def test_track_state_snapshot_recalls_nested_rack_parameter_in_one_undo_step(self):
+        song = Song()
+        rack = DrumRack()
+        song.tracks[0].devices = [rack]
+        before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
+        target = _persisted_track_state(before, "cavi-track-state-v2")
+        self.assertEqual(target["format"], "cavi-track-state-v2")
+        target["devices"][0]["chains"][0]["devices"][0]["parameters"][0]["value"] = 0.8
+        result = dispatch_request(song, {"method": "set_track_state_snapshot", "params": {
+            "trackId": "track-0", "before": before, "target": target,
+        }}, 6)
+        self.assertEqual(result["devices"][0]["chains"][0]["devices"][0]["parameters"][0]["value"], 0.8)
+        self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
+
+    def test_track_state_snapshot_recalls_rack_mixer_and_drum_note_routing(self):
+        song = Song()
+        rack = DrumRack()
+        chain = rack.chains[0]
+        chain.mixer_device = SimpleNamespace(volume=Parameter(), panning=Parameter(), sends=[Parameter()])
+        chain.mute, chain.solo = False, False
+        chain.in_note, chain.out_note = 36, 36
+        song.tracks[0].devices = [rack]
+        before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
+        target = _persisted_track_state(before, "cavi-track-state-v3")
+        self.assertEqual(target["format"], "cavi-track-state-v3")
+        saved = target["devices"][0]["chains"][0]
+        saved["mixer"]["volume"] = 0.6
+        saved["mixer"]["sends"][0] = 0.2
+        saved["noteRouting"]["inputNote"] = 38
+        result = dispatch_request(song, {"method": "set_track_state_snapshot", "params": {
+            "trackId": "track-0", "before": before, "target": target,
+        }}, 6)
+        self.assertEqual(result["devices"][0]["chains"][0]["mixer"]["volume"]["value"], 0.6)
+        self.assertEqual(chain.mixer_device.sends[0].value, 0.2)
+        self.assertEqual(chain.in_note, 38)
+        self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
+        unchanged = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 7)
+        invalid = _persisted_track_state(unchanged)
+        invalid["track"]["name"] = "Should Not Change"
+        invalid["devices"][0]["chains"][0]["noteRouting"]["inputNote"] = 128
+        with self.assertRaisesRegex(ValueError, "note routing outside native range"):
+            dispatch_request(song, {"method": "set_track_state_snapshot", "params": {
+                "trackId": "track-0", "before": unchanged, "target": invalid,
+            }}, 7)
+        self.assertEqual(song.tracks[0].name, unchanged["track"]["name"])
+
+    def test_v2_track_snapshot_preserves_newer_rack_controls(self):
+        song = Song()
+        rack = DrumRack()
+        chain = rack.chains[0]
+        chain.mixer_device = SimpleNamespace(volume=Parameter(), panning=Parameter(), sends=[])
+        chain.mute, chain.solo = False, False
+        chain.in_note, chain.out_note = 36, 36
+        song.tracks[0].devices = [rack]
+        before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
+        legacy = _persisted_track_state(before, "cavi-track-state-v2")
+        legacy["devices"][0]["chains"][0]["devices"][0]["parameters"][0]["value"] = 0.8
+        dispatch_request(song, {"method": "set_track_state_snapshot", "params": {
+            "trackId": "track-0", "before": before, "target": legacy,
+        }}, 6)
+        self.assertEqual(chain.devices[0].parameters[0].value, 0.8)
+        self.assertEqual(chain.mixer_device.volume.value, 0.4)
+        self.assertEqual((chain.in_note, chain.out_note), (36, 36))
+
+    def test_legacy_track_snapshot_does_not_change_nested_rack_state(self):
+        song = Song()
+        rack = DrumRack()
+        song.tracks[0].devices = [rack]
+        before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
+        target = _persisted_track_state(before, "cavi-track-state-v1")
+        target["track"]["name"] = "Legacy Capture"
+        dispatch_request(song, {"method": "set_track_state_snapshot", "params": {
+            "trackId": "track-0", "before": before, "target": target,
+        }}, 6)
+        self.assertEqual(song.tracks[0].name, "Legacy Capture")
+        self.assertEqual(rack.chains[0].devices[0].name, "Kick")
+
     def test_track_state_recall_applies_complete_target_in_one_undo_step(self):
         song = Song()
         before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
@@ -2743,6 +3463,173 @@ class DispatchTest(unittest.TestCase):
                 self.assertEqual(owner.devices[0].parameters[0].value, 0.25)
                 self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
 
+    def test_return_chain_snapshot_restores_mixer_and_fx_in_one_undo_step(self):
+        song = Song()
+        song.return_tracks[0].devices = [Device()]
+        before = dispatch_request(song, {"method": "get_device_chain_snapshot", "params": {
+            "trackId": "return-0"}}, 6)
+        target = _persisted_device_chain(before)
+        self.assertEqual(target["format"], "cavi-device-chain-v5")
+        self.assertEqual(target["ownerMixer"], {
+            "volume": 0.6, "pan": 0.0, "mute": False, "solo": False})
+        target["ownerMixer"]["volume"] = 0.4
+        target["devices"][0]["parameters"][0]["value"] = 0.8
+        result = dispatch_request(song, {"method": "set_device_chain_snapshot", "params": {
+            "trackId": "return-0", "before": before, "target": target}}, 6)
+        self.assertEqual(song.return_tracks[0].mixer_device.volume.value, 0.4)
+        self.assertEqual(song.return_tracks[0].devices[0].parameters[0].value, 0.8)
+        self.assertEqual(result["ownerMixer"]["volume"]["value"], 0.4)
+        self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
+
+    def test_master_chain_snapshot_restores_mixer_output_and_fx_atomically(self):
+        song = Song()
+        song.master_track.devices = [Device()]
+        before = dispatch_request(song, {"method": "get_device_chain_snapshot", "params": {
+            "trackId": "master"}}, 6)
+        target = _persisted_device_chain(before)
+        self.assertEqual(target["format"], "cavi-device-chain-v6")
+        self.assertEqual(target["ownerMixer"], {"volume": 0.8, "pan": 0.0,
+                                                "cueVolume": 0.7, "crossfader": 0.0,
+                                                "outputChannelId": "1/2"})
+        target["ownerMixer"]["volume"] = 0.5
+        target["ownerMixer"]["outputChannelId"] = "3/4"
+        target["devices"][0]["parameters"][0]["value"] = 0.8
+        result = dispatch_request(song, {"method": "set_device_chain_snapshot", "params": {
+            "trackId": "master", "before": before, "target": target}}, 6)
+        self.assertEqual(song.master_track.mixer_device.volume.value, 0.5)
+        self.assertEqual(song.master_track.current_output_sub_routing, "3/4")
+        self.assertEqual(song.master_track.devices[0].parameters[0].value, 0.8)
+        self.assertEqual(result["ownerMixer"]["volume"]["value"], 0.5)
+        self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
+
+    def test_device_chain_snapshot_recalls_nested_rack_devices_and_rejects_changed_chains(self):
+        song = Song()
+        rack = DrumRack()
+        song.tracks[0].devices = [rack]
+        before = dispatch_request(song, {"method": "get_device_chain_snapshot", "params": {"trackId": "track-0"}}, 6)
+        self.assertEqual(before["devices"][0]["chains"][0]["devices"][0]["name"], "Kick")
+        target = _persisted_device_chain(before, "cavi-device-chain-v2")
+        self.assertEqual(target["format"], "cavi-device-chain-v2")
+        target["devices"][0]["chains"][0]["devices"][0]["parameters"][0]["value"] = 0.8
+        result = dispatch_request(song, {"method": "set_device_chain_snapshot", "params": {
+            "trackId": "track-0", "before": before, "target": target,
+        }}, 6)
+        self.assertEqual(result["devices"][0]["chains"][0]["devices"][0]["parameters"][0]["value"], 0.8)
+        self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
+        changed = dispatch_request(song, {"method": "get_device_chain_snapshot", "params": {"trackId": "track-0"}}, 7)
+        mismatched = _persisted_device_chain(changed)
+        mismatched["devices"][0]["chains"].append({"name": "Extra", "devices": []})
+        with self.assertRaisesRegex(ValueError, "topology mismatch"):
+            dispatch_request(song, {"method": "set_device_chain_snapshot", "params": {
+                "trackId": "track-0", "before": changed, "target": mismatched,
+            }}, 7)
+
+    def test_device_chain_snapshot_recalls_rack_mixer_and_drum_note_routing(self):
+        song = Song()
+        rack = DrumRack()
+        chain = rack.chains[0]
+        chain.mixer_device = SimpleNamespace(volume=Parameter(), panning=Parameter(), sends=[Parameter()])
+        chain.mute, chain.solo = False, False
+        chain.in_note, chain.out_note = 36, 36
+        song.tracks[0].devices = [rack]
+        before = dispatch_request(song, {"method": "get_device_chain_snapshot", "params": {"trackId": "track-0"}}, 6)
+        target = _persisted_device_chain(before, "cavi-device-chain-v3")
+        self.assertEqual(target["format"], "cavi-device-chain-v3")
+        saved = target["devices"][0]["chains"][0]
+        saved["mixer"]["volume"] = 0.6
+        saved["mixer"]["sends"][0] = 0.2
+        saved["mixer"]["mute"] = True
+        saved["noteRouting"]["inputNote"] = 38
+        saved["noteRouting"]["outputNote"] = 39
+        result = dispatch_request(song, {"method": "set_device_chain_snapshot", "params": {
+            "trackId": "track-0", "before": before, "target": target,
+        }}, 6)
+        self.assertEqual(result["devices"][0]["chains"][0]["mixer"]["volume"]["value"], 0.6)
+        self.assertEqual(chain.mixer_device.sends[0].value, 0.2)
+        self.assertTrue(chain.mute)
+        self.assertEqual((chain.in_note, chain.out_note), (38, 39))
+        self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
+        unchanged = dispatch_request(song, {"method": "get_device_chain_snapshot", "params": {"trackId": "track-0"}}, 7)
+        invalid = _persisted_device_chain(unchanged)
+        invalid["devices"][0]["chains"][0]["mixer"]["volume"] = 0.9
+        invalid["devices"][0]["chains"][0]["noteRouting"]["inputNote"] = 128
+        with self.assertRaisesRegex(ValueError, "note routing outside native range"):
+            dispatch_request(song, {"method": "set_device_chain_snapshot", "params": {
+                "trackId": "track-0", "before": unchanged, "target": invalid,
+            }}, 7)
+        self.assertEqual(chain.mixer_device.volume.value, 0.6)
+        self.assertEqual(chain.in_note, 38)
+
+    def test_drum_pad_snapshot_captures_and_restores_populated_pad_state(self):
+        song = Song()
+        rack = DrumRack()
+        rack.drum_pads[0].mute = True
+        song.tracks[0].devices = [rack]
+        before = dispatch_request(song, {"method": "get_device_chain_snapshot", "params": {"trackId": "track-0"}}, 6)
+        target = _persisted_device_chain(before)
+        self.assertEqual(target["format"], "cavi-device-chain-v4")
+        self.assertEqual(target["devices"][0]["drumPads"], [{"note": 36, "mute": True, "solo": False}])
+        target["devices"][0]["drumPads"][0]["mute"] = False
+        result = dispatch_request(song, {"method": "set_device_chain_snapshot", "params": {
+            "trackId": "track-0", "before": before, "target": target}}, 6)
+        self.assertFalse(rack.drum_pads[0].mute)
+        self.assertEqual(result["devices"][0]["drumPads"][0]["mute"], False)
+        self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
+
+    def test_track_snapshot_captures_drum_pad_state(self):
+        song = Song()
+        rack = DrumRack()
+        rack.drum_pads[0].solo = True
+        song.tracks[0].devices = [rack]
+        before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
+        target = _persisted_track_state(before)
+        self.assertEqual(target["format"], "cavi-track-state-v4")
+        self.assertEqual(target["devices"][0]["drumPads"], [{"note": 36, "mute": False, "solo": True}])
+        target["devices"][0]["drumPads"][0]["solo"] = False
+        result = dispatch_request(song, {"method": "set_track_state_snapshot", "params": {
+            "trackId": "track-0", "before": before, "target": target}}, 6)
+        self.assertFalse(rack.drum_pads[0].solo)
+        self.assertFalse(result["devices"][0]["drumPads"][0]["solo"])
+        invalid = _persisted_track_state(result)
+        invalid["devices"][0]["drumPads"][0]["note"] = 37
+        with self.assertRaisesRegex(ValueError, "drum pad state or topology"):
+            dispatch_request(song, {"method": "set_track_state_snapshot", "params": {
+                "trackId": "track-0", "before": result, "target": invalid}}, 7)
+
+    def test_v2_device_chain_recall_preserves_newer_rack_controls(self):
+        song = Song()
+        rack = DrumRack()
+        chain = rack.chains[0]
+        chain.mixer_device = SimpleNamespace(volume=Parameter(), panning=Parameter(), sends=[])
+        chain.mute, chain.solo = False, False
+        chain.in_note, chain.out_note = 36, 36
+        song.tracks[0].devices = [rack]
+        before = dispatch_request(song, {"method": "get_device_chain_snapshot", "params": {"trackId": "track-0"}}, 6)
+        legacy = _persisted_device_chain(before, "cavi-device-chain-v2")
+        legacy["devices"][0]["chains"][0]["devices"][0]["parameters"][0]["value"] = 0.8
+        dispatch_request(song, {"method": "set_device_chain_snapshot", "params": {
+            "trackId": "track-0", "before": before, "target": legacy,
+        }}, 6)
+        self.assertEqual(chain.devices[0].parameters[0].value, 0.8)
+        self.assertEqual(chain.mixer_device.volume.value, 0.4)
+        self.assertEqual((chain.in_note, chain.out_note), (36, 36))
+
+    def test_legacy_device_chain_snapshot_recalls_top_level_without_touching_nested_rack(self):
+        song = Song()
+        rack = DrumRack()
+        song.tracks[0].devices = [rack]
+        before = dispatch_request(song, {"method": "get_device_chain_snapshot", "params": {"trackId": "track-0"}}, 3)
+        persisted = _persisted_device_chain(before)
+        legacy = {"format": "cavi-device-chain-v1", "devices": [
+            {key: device[key] for key in ("name", "className", "type", "parameters")}
+            for device in persisted["devices"]]}
+        legacy["devices"][0]["name"] = "Legacy Rack Name"
+        dispatch_request(song, {"method": "set_device_chain_snapshot", "params": {
+            "trackId": "track-0", "before": before, "target": legacy,
+        }}, 3)
+        self.assertEqual(rack.name, "Legacy Rack Name")
+        self.assertEqual(rack.chains[0].devices[0].name, "Kick")
+
     def test_clip_resolution_rejects_negative_and_noncanonical_slot_ids(self):
         song = Song()
         song.tracks[0].clip_slots = [song.tracks[0].clip_slots[0]] * 2
@@ -2821,6 +3708,22 @@ class DispatchTest(unittest.TestCase):
         }])
         self.assertEqual(song.tracks[0].devices[0].parameters[0].value, 0.8)
 
+    def test_parameter_write_rejects_stale_observation_before_mutating(self):
+        song = Song()
+        target = song.tracks[0].devices[0].parameters[0]
+        params = {"trackId": "track-0", "deviceId": "track-0:device-0",
+                  "expectedStateVersion": 4,
+                  "changes": [{"id": "parameter-0", "previousValue": 0.1, "value": 0.8}]}
+        with self.assertRaisesRegex(ValueError, "parameter.*changed"):
+            dispatch_request(song, {"method": "set_device_parameters", "params": params}, 4)
+        self.assertEqual(target.value, 0.4)
+        params["changes"][0]["previousValue"] = 0.4
+        with self.assertRaisesRegex(ValueError, "state version changed"):
+            dispatch_request(song, {"method": "set_device_parameters", "params": params}, 5)
+        self.assertEqual(target.value, 0.4)
+        result = dispatch_request(song, {"method": "set_device_parameters", "params": params}, 4)
+        self.assertEqual(result["observedChanges"][0]["value"], 0.8)
+
     def test_core_production_controls_return_observed_state(self):
         song = Song()
         self.assertEqual(dispatch_request(song, {"method": "list_scenes"}, 1)["scenes"][0]["name"], "Verse")
@@ -2834,10 +3737,40 @@ class DispatchTest(unittest.TestCase):
         self.assertTrue(song.tracks[0].mute)
         dispatch_request(song, {"method": "launch_scene", "params": {"sceneId": "scene-0"}}, 4)
         self.assertTrue(song.scenes[0].is_triggered)
+        self.assertFalse(song.scenes[0].last_force_legato)
+        dispatch_request(song, {"method": "launch_scene", "params": {"sceneId": "scene-0", "forceLegato": True}}, 4)
+        self.assertTrue(song.scenes[0].last_force_legato)
         dispatch_request(song, {"method": "launch_clip", "params": {"trackId": "track-0", "clipId": "track-0:clip-0"}}, 5)
         self.assertTrue(song.tracks[0].clip_slots[0].clip.is_playing)
+        launched = dispatch_request(song, {"method": "launch_clip", "params": {"trackId": "track-0", "clipId": "track-0:clip-0",
+                                                               "launchQuantization": 12}}, 5)
+        self.assertEqual(launched["launchQuantizationOverride"], 12)
+        self.assertEqual(song.tracks[0].clip_slots[0].last_launch_quantization, 12)
+        self.assertEqual(song.tracks[0].clip_slots[0].clip.launch_quantization, 0)
+        with self.assertRaisesRegex(ValueError, "launchQuantization"):
+            dispatch_request(song, {"method": "launch_clip", "params": {"trackId": "track-0", "clipId": "track-0:clip-0",
+                                                        "launchQuantization": 99}}, 5)
         dispatch_request(song, {"method": "arm_track", "params": {"trackId": "track-0", "armed": True}}, 6)
         self.assertTrue(song.tracks[0].arm)
+
+    def test_fixed_length_recording_requires_armed_empty_slot(self):
+        song = Song()
+        slot = song.tracks[0].clip_slots[1]
+        self.assertFalse(slot.has_clip)
+        self.assertFalse(dispatch_request(song, {"method": "list_clips", "params": {"trackId": "track-0"}}, 7)["armed"])
+        params = {"trackId": "track-0", "clipId": "track-0:clip-1", "expectedStateVersion": 7,
+                  "recordLengthBeats": 4.0, "launchQuantization": 12}
+        with self.assertRaisesRegex(ValueError, "armed"):
+            dispatch_request(song, {"method": "launch_clip", "params": params}, 7)
+        song.tracks[0].arm = True
+        observed = dispatch_request(song, {"method": "launch_clip", "params": params}, 7)
+        self.assertEqual(observed["recordLengthBeats"], 4.0)
+        self.assertEqual(slot.last_record_length, 4.0)
+        self.assertEqual(slot.last_launch_quantization, 12)
+        with self.assertRaisesRegex(ValueError, "empty"):
+            dispatch_request(song, {"method": "launch_clip", "params": {**params, "clipId": "track-0:clip-0"}}, 7)
+        with self.assertRaisesRegex(ValueError, "changed"):
+            dispatch_request(song, {"method": "launch_clip", "params": {**params, "expectedStateVersion": 6}}, 7)
 
     def test_scene_launch_quantization_is_read_and_guarded(self):
         song = Song()
@@ -2861,6 +3794,30 @@ class DispatchTest(unittest.TestCase):
             dispatch_request(song, {"method": "set_scene_launch_quantization", "params": {
                 **params, "expectedStateVersion": 4, "value": 99,
                 "before": dispatch_request(song, {"method": "list_scenes"}, 4)["scenes"][0]}}, 4)
+
+    def test_scene_musical_context_rechecks_scene_and_reads_overrides(self):
+        song = Song()
+        scene = song.scenes[0]
+        scene.tempo_enabled = False
+        scene.tempo = -1.0
+        scene.time_signature_enabled = False
+        scene.time_signature_numerator = -1
+        scene.time_signature_denominator = -1
+        before = dispatch_request(song, {"method": "list_scenes"}, 3)["scenes"][0]
+        self.assertEqual(before["tempo"], {"enabled": False, "bpm": None})
+        self.assertEqual(before["timeSignature"], {"enabled": False, "numerator": None, "denominator": None})
+        payload = {"sceneId": "scene-0", "expectedStateVersion": 3, "before": before,
+                   "changes": {"tempo": {"enabled": True, "bpm": 60.0},
+                               "timeSignature": {"enabled": True, "numerator": 3, "denominator": 4}}}
+        scene.name = "Changed"
+        with self.assertRaisesRegex(ValueError, "scene.*changed"):
+            dispatch_request(song, {"method": "set_scene_musical_context", "params": payload}, 3)
+        scene.name = "Verse"
+        result = dispatch_request(song, {"method": "set_scene_musical_context", "params": payload}, 3)
+        self.assertEqual(result["scene"]["tempo"], {"enabled": True, "bpm": 60.0})
+        self.assertEqual(result["scene"]["timeSignature"], {"enabled": True, "numerator": 3, "denominator": 4})
+        self.assertEqual(result["stateVersion"], 4)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
     def test_scene_launch_quantization_reports_unsupported_scenes(self):
         song = Song()
@@ -2895,22 +3852,65 @@ class DispatchTest(unittest.TestCase):
 
     def test_session_structure_creation_and_exact_rename(self):
         song = Song()
+        before_tracks = dispatch_request(song, {"method": "list_tracks"}, 3)["tracks"]
         created_track = dispatch_request(song, {"method": "create_track", "params": {
-            "type": "midi", "index": 1, "name": "Bass"
+            "type": "midi", "index": 1, "name": "Bass", "before": {
+                "count": len(before_tracks), "previous": before_tracks[0],
+                "next": before_tracks[1] if len(before_tracks) > 1 else None}
         }}, 3)
         self.assertEqual(created_track["track"], {"id": "track-1", "name": "Bass", "type": "midi"})
+        self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
+        before_scenes = dispatch_request(song, {"method": "list_scenes"}, 4)["scenes"]
         created_scene = dispatch_request(song, {"method": "create_scene", "params": {
-            "index": 0, "name": "Intro"
+            "index": 0, "name": "Intro", "before": {
+                "count": len(before_scenes), "previous": None, "next": before_scenes[0]}
         }}, 4)
         self.assertEqual(created_scene["scene"]["id"], "scene-0")
         self.assertEqual(created_scene["scene"]["name"], "Intro")
         self.assertEqual(created_scene["scene"]["launchQuantization"]["value"], 0)
+        self.assertEqual(song.undo_boundaries, ["begin", "end", "begin", "end"])
         renamed = dispatch_request(song, {"method": "rename_session_object", "params": {
             "target": {"targetType": "clip", "trackId": "track-0", "targetId": "track-0:clip-0",
                        "previousName": "Loop", "name": "Hook"}
         }}, 5)
         self.assertEqual(renamed["target"]["name"], "Hook")
         self.assertEqual(song.tracks[0].clip_slots[0].clip.name, "Hook")
+
+    def test_create_track_rejects_changed_insertion_context_before_mutation(self):
+        song = Song()
+        original = dispatch_request(song, {"method": "list_tracks"}, 3)["tracks"]
+        before = {"count": len(original), "previous": original[0],
+                  "next": original[1] if len(original) > 1 else None}
+        song.tracks[0].name = "Changed"
+        with self.assertRaisesRegex(ValueError, "insertion context changed"):
+            dispatch_request(song, {"method": "create_track", "params": {
+                "type": "midi", "index": 1, "name": "Bass", "before": before}}, 3)
+        self.assertEqual(len(song.tracks), len(original))
+        self.assertEqual(song.undo_boundaries, [])
+
+    def test_create_track_rolls_back_wrong_native_track_type(self):
+        song = Song()
+        original = list(song.tracks)
+        before_tracks = dispatch_request(song, {"method": "list_tracks"}, 3)["tracks"]
+        song.create_midi_track = song.create_audio_track
+        with self.assertRaisesRegex(RuntimeError, "did not create the requested track"):
+            dispatch_request(song, {"method": "create_track", "params": {
+                "type": "midi", "index": 1, "name": "Bass", "before": {
+                    "count": len(original), "previous": before_tracks[0],
+                    "next": before_tracks[1] if len(original) > 1 else None}}}, 3)
+        self.assertEqual(song.tracks, original)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
+    def test_create_scene_rejects_changed_musical_context_before_insertion(self):
+        song = Song()
+        original = dispatch_request(song, {"method": "list_scenes"}, 3)["scenes"]
+        before = {"count": len(original), "previous": None, "next": original[0]}
+        song.scenes[0].name = "Changed"
+        with self.assertRaisesRegex(ValueError, "scene insertion context changed"):
+            dispatch_request(song, {"method": "create_scene", "params": {
+                "index": 0, "name": "Intro", "before": before}}, 3)
+        self.assertEqual(len(song.scenes), len(original))
+        self.assertEqual(song.undo_boundaries, [])
 
     def test_session_duplicate_and_delete_return_exact_observed_state(self):
         song = Song()
@@ -3004,25 +4004,73 @@ class DispatchTest(unittest.TestCase):
         clip.extended_notes = [MidiNote()]
         params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
         observed = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": params}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": params}, 3)
         self.assertEqual(observed["notes"][0]["noteId"], 7)
         self.assertEqual(observed["notes"][0]["releaseVelocity"], 64)
         changed = dispatch_request(song, {"method": "set_midi_note_properties", "params": {
-            **params, "changes": [{"noteId": 7, "probability": 0.25, "releaseVelocity": 92,
+            **params, "expectedStateVersion": 3, "before": observed, "clipTiming": timing,
+            "changes": [{"noteId": 7, "previous": observed["notes"][0],
+                                    "probability": 0.25, "releaseVelocity": 92,
                                     "velocityDeviation": -12}]
         }}, 3)
         self.assertEqual(changed["stateVersion"], 4)
         self.assertEqual(clip.extended_notes[0].probability, 0.25)
         self.assertEqual(changed["notes"][0]["velocityDeviation"], -12)
 
+    def test_per_note_properties_reject_changed_clip_before_writing(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        clip.extended_notes = [MidiNote()]
+        target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+        clip.extended_notes[0].pitch = 62
+        with self.assertRaisesRegex(ValueError, "MIDI clip changed"):
+            dispatch_request(song, {"method": "set_midi_note_properties", "params": {
+                **target, "expectedStateVersion": 3, "before": before, "clipTiming": timing,
+                "changes": [{"noteId": 7, "previous": before["notes"][0], "probability": 0.25}]
+            }}, 3)
+        self.assertEqual(clip.extended_notes[0].probability, 1.0)
+        self.assertEqual(song.undo_boundaries, [])
+
+    def test_per_note_properties_restore_clip_after_native_apply_failure(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        clip.extended_notes = [MidiNote()]
+        target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+        original_apply = clip.apply_note_modifications
+        attempts = [0]
+
+        def apply_then_fail_once(notes):
+            attempts[0] += 1
+            original_apply(notes)
+            if attempts[0] == 1:
+                raise RuntimeError("native apply failed after write")
+
+        clip.apply_note_modifications = apply_then_fail_once
+        with self.assertRaisesRegex(RuntimeError, "native apply failed"):
+            dispatch_request(song, {"method": "set_midi_note_properties", "params": {
+                **target, "expectedStateVersion": 3, "before": before, "clipTiming": timing,
+                "changes": [{"noteId": 7, "previous": before["notes"][0], "probability": 0.25,
+                             "releaseVelocity": 92}]
+            }}, 3)
+        self.assertEqual(dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3), before)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
     def test_transform_midi_notes_updates_existing_notes_and_adds_duplicates(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip
         clip.extended_notes = [MidiNote()]
         params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": params}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": params}, 3)
 
         changed = dispatch_request(song, {"method": "transform_midi_notes", "params": {
-            **params,
-            "changes": [{"noteId": 7, "start": 0.25, "duration": 0.75}],
+            **params, "expectedStateVersion": 3, "operation": {"type": "duplicate"},
+            "before": before, "clipTiming": timing,
+            "changes": [{"noteId": 7, "previous": before["notes"][0], "start": 0.25, "duration": 0.75}],
             "newNotes": [{"sourceNoteId": 7, "pitch": 60, "start": 2.0, "duration": 0.75,
                           "velocity": 100, "velocityDeviation": 0, "releaseVelocity": 64,
                           "probability": 1.0, "mute": False}]
@@ -3032,15 +4080,66 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(clip.extended_notes[0].duration, 0.75)
         self.assertEqual(changed["addedNoteIds"], [100])
         self.assertEqual(changed["stateVersion"], 4)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
+        after = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": params}, 4)
+        after_timing = dispatch_request(song, {"method": "get_clip_timing", "params": params}, 4)
         duplicate_only = dispatch_request(song, {"method": "transform_midi_notes", "params": {
-            **params, "changes": [],
+            **params, "expectedStateVersion": 4, "operation": {"type": "duplicate"},
+            "before": after, "clipTiming": after_timing, "changes": [],
             "newNotes": [{"sourceNoteId": 7, "pitch": 60, "start": 3.0, "duration": 0.5,
                           "velocity": 100, "velocityDeviation": 0, "releaseVelocity": 64,
                           "probability": 1.0, "mute": False}]
         }}, 4)
         self.assertEqual(duplicate_only["addedNoteIds"], [101])
         self.assertEqual([note["noteId"] for note in duplicate_only["notes"]], [7, 100, 101])
+        self.assertEqual(song.undo_boundaries, ["begin", "end", "begin", "end"])
+
+    def test_basic_midi_transform_rejects_changed_clip_before_writing(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        clip.extended_notes = [MidiNote()]
+        target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+        request = {**target, "expectedStateVersion": 3, "operation": {"type": "quantize", "gridBeats": 0.25},
+                   "before": before, "clipTiming": timing,
+                   "changes": [{"noteId": 7, "previous": before["notes"][0], "start": 0.25}],
+                   "newNotes": []}
+        clip.extended_notes[0].velocity = 80
+        with self.assertRaisesRegex(ValueError, "MIDI clip changed"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": request}, 3)
+        self.assertEqual(clip.extended_notes[0].start_time, before["notes"][0]["start"])
+        self.assertEqual(song.undo_boundaries, [])
+        with self.assertRaisesRegex(ValueError, "unsupported MIDI transform operation"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": {
+                **request, "operation": "unrecognized", "before": before,
+            }}, 3)
+
+    def test_basic_midi_transform_rolls_back_partial_duplicate_failure_in_one_undo_step(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        clip.extended_notes = [MidiNote()]
+        target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+        original_add = clip.add_new_notes
+
+        def add_then_fail(specs):
+            original_add(specs)
+            raise RuntimeError("native add failed after insertion")
+
+        clip.add_new_notes = add_then_fail
+        request = {**target, "expectedStateVersion": 3, "operation": {"type": "duplicate"},
+                   "before": before, "clipTiming": timing,
+                   "changes": [{"noteId": 7, "previous": before["notes"][0], "start": 0.25}],
+                   "newNotes": [{"sourceNoteId": 7, "pitch": 60, "start": 2.0, "duration": 1.0,
+                                 "velocity": 100, "velocityDeviation": 0, "releaseVelocity": 64,
+                                 "probability": 1.0, "mute": False}]}
+        with self.assertRaisesRegex(RuntimeError, "native add failed"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": request}, 3)
+        self.assertEqual(dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3), before)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
     def test_guarded_gate_pattern_applies_duration_and_preserves_complete_note_state(self):
         song = Song()

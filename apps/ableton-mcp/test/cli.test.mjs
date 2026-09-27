@@ -139,6 +139,32 @@ test("doctor rejects a stale bridge handshake", async () => {
   assert.equal(result.bridge.reason, "outdated bridge: expected 0.1.0");
 });
 
+test("doctor exposes a stale bundled Remote Script beside a current User Library copy", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ableton-mcp-copies-"));
+  const sourceRoot = join(root, "source");
+  const home = join(root, "home");
+  const applicationsRoot = join(root, "Applications");
+  const source = join(sourceRoot, "ableton", "Remote Scripts", "CaviMcpBridge");
+  const userCopy = join(home, "Music", "Ableton", "User Library", "Remote Scripts", "CaviMcpBridge");
+  const bundledCopy = join(applicationsRoot, "Ableton Live 12 Suite.app", "Contents", "App-Resources", "MIDI Remote Scripts", "CaviMcpBridge");
+  try {
+    for (const directory of [source, userCopy, bundledCopy]) await mkdir(directory, { recursive: true });
+    for (const name of ["__init__.py", "bridge.py", "capabilities.json", "protocol.py"]) {
+      await writeFile(join(source, name), `${name}: current`);
+      await writeFile(join(userCopy, name), `${name}: current`);
+      await writeFile(join(bundledCopy, name), name === "capabilities.json" ? `${name}: stale` : `${name}: current`);
+    }
+    const result = await runCli(["doctor", "--json"], {
+      home, applicationsRoot, sourceRoot, platform: "darwin",
+      bridgeProbe: async () => ({ bridgeVersion: "0.1.0", capabilities: [] }), stdout: () => {}
+    });
+    assert.deepEqual(result.remoteScriptCopies, [
+      { path: userCopy, matchesPackagedFiles: true, differingFiles: [] },
+      { path: bundledCopy, matchesPackagedFiles: false, differingFiles: ["capabilities.json"] }
+    ]);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("uninstall removes only the named CaviMcpBridge directory", async () => {
   const removed = [];
   const root = "/Users/test/Music/Ableton/User Library/Remote Scripts";

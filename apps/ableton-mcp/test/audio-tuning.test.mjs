@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { measureTargetNoteDeviation } from "../src/audio-tuning.mjs";
+import { measureTargetNoteDeviation, planClipPitchAdjustment } from "../src/audio-tuning.mjs";
 
 test("target-note tuning preserves octave errors and missing periodicity", () => {
   const frames = [{ startSeconds: 0, endSeconds: .256, estimate: { frequencyHz: 440 * 2 ** (25 / 1200) } },
@@ -20,4 +20,34 @@ test("unvoiced tuning measurements remain unavailable rather than zero", () => {
   assert.equal(result.medianCentsFromTarget, null);
   assert.equal(result.medianAbsoluteCentsFromTarget, null);
   assert.equal(result.measuredFrameFraction, 0);
+});
+
+test("stable monophonic source proposes a bounded whole-clip shift only", () => {
+  const frames = Array.from({ length: 5 }, (_, index) => ({ startSeconds: index * .128,
+    endSeconds: index * .128 + .256, estimate: { frequencyHz: 440 * 2 ** (125 / 1200) } }));
+  const result = measureTargetNoteDeviation(frames, 69);
+  assert.equal(result.wholeClipTuningProposal.eligible, true);
+  assert.deepEqual(result.wholeClipTuningProposal.pitchOffset, { coarse: -1, fine: -25 });
+  assert.equal(result.pitchCorrectionApplied, false);
+  const moving = measureTargetNoteDeviation(frames.map((frame, index) => ({ ...frame,
+    estimate: { frequencyHz: 440 * 2 ** ((index % 2 ? 200 : 0) / 1200) } })), 69);
+  assert.equal(moving.wholeClipTuningProposal.eligible, false);
+  assert.equal(moving.wholeClipTuningProposal.pitchOffset, null);
+  const sparse = measureTargetNoteDeviation(frames.map((frame, index) => ({ ...frame,
+    estimate: index === 0 ? frame.estimate : null })), 69);
+  assert.equal(sparse.wholeClipTuningProposal.eligible, false);
+});
+
+test("clip tuning targets absolute pitch settings and exposes the change from current state", () => {
+  const measurement = measureTargetNoteDeviation(Array.from({ length: 5 }, (_, index) => ({
+    startSeconds: index * .128, endSeconds: index * .128 + .256,
+    estimate: { frequencyHz: 440 * 2 ** (125 / 1200) }
+  })), 69);
+  const plan = planClipPitchAdjustment(measurement, { coarse: 2, fine: 10 });
+  assert.equal(plan.eligible, true);
+  assert.deepEqual(plan.currentPitch, { coarse: 2, fine: 10 });
+  assert.deepEqual(plan.proposedPitch, { coarse: -1, fine: -25 });
+  assert.equal(plan.changeCents, -335);
+  assert.equal(plan.applied, false);
+  assert.equal(planClipPitchAdjustment(measurement, null).eligible, false);
 });

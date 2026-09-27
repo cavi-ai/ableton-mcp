@@ -1,14 +1,19 @@
 import { assertExpectedState } from "./bridge-protocol.mjs";
 import { realpath, stat } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { createHash } from "node:crypto";
 import { isAbsolute } from "node:path";
 import { analyzeAudioFile } from "./audio-analysis.mjs";
+import { planClipPitchAdjustment } from "./audio-tuning.mjs";
 import { buildSongGridReference, planGridEnvelopePattern } from "./song-grid-reference.mjs";
-import { searchLocalSpliceSamples } from "./splice-local-search.mjs";
+import { listConfiguredSpliceRoots, observeLocalSpliceSample, searchLocalSpliceSamples } from "./splice-local-search.mjs";
 import { inspectGroovePostconditions } from "./groove-workflow.mjs";
+import { analyzeMidiFeel, planMidiFeelTransfer } from "./midi-feel-analysis.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { CatalogService } from "./catalog-service.mjs";
+import { GenerationQueue } from "../../../packages/nks-pipeline/src/generation-queue.mjs";
 import { getFactoryDeviceProfile, groupDeviceParameters, listFactoryDeviceProfiles } from "./factory-device-knowledge.mjs";
-import { getProducerChainBlueprint, listProducerChainBlueprints, verifyProducerChain } from "./producer-chain-knowledge.mjs";
+import { collectFactoryDeviceProfileIds, collectPluginProfileIds, getProducerChainBlueprint, listProducerChainBlueprints, verifyProducerChain } from "./producer-chain-knowledge.mjs";
 import { getPluginIntegrationProfile } from "./plugin-integrations.mjs";
 import { enrichSongScaleContext, getLiveScaleReference, listLiveScaleReferences } from "./live-scale-reference.mjs";
 import { analyzeMidiNotesAgainstScale, planMidiScaleCorrections } from "./midi-scale-analysis.mjs";
@@ -38,6 +43,148 @@ import { matchDrumVariationReadback, planDrumVariation } from "./drum-variation.
 function requireExpectedState(args) {
   if (!Number.isInteger(args.expectedStateVersion)) {
     throw new Error("expectedStateVersion is required for mutations");
+  }
+}
+
+function summarizeWarpMarkerChanges(before, after) {
+  const previous = before.warpMarkers?.markers, current = after.warpMarkers?.markers;
+  if (!Array.isArray(previous) || !Array.isArray(current)) throw new Error("audio quantization readback lacks warp markers");
+  const bySampleTime = new Map();
+  for (const marker of previous) {
+    const matches = bySampleTime.get(marker.sampleTime) ?? [];
+    matches.push(marker);
+    bySampleTime.set(marker.sampleTime, matches);
+  }
+  let retainedCount = 0, insertedCount = 0;
+  const shifts = [];
+  for (const marker of current) {
+    const matches = bySampleTime.get(marker.sampleTime);
+    if (!matches?.length) {
+      insertedCount++;
+      continue;
+    }
+    const prior = matches.shift();
+    retainedCount++;
+    shifts.push({ sampleTime: marker.sampleTime, beforeBeatTime: prior.beatTime,
+      afterBeatTime: marker.beatTime, deltaBeats: marker.beatTime - prior.beatTime });
+  }
+  shifts.sort((a, b) => Math.abs(b.deltaBeats) - Math.abs(a.deltaBeats));
+  return { beforeCount: previous.length, afterCount: current.length, retainedCount, insertedCount,
+    removedCount: previous.length - retainedCount,
+    maxAbsRetainedBeatShift: shifts.length ? Math.abs(shifts[0].deltaBeats) : null,
+    largestRetainedBeatShifts: shifts.slice(0, 8) };
+}
+
+function hasChainControls(device) {
+  return ["chains", "returnChains"].some(key => (device[key] ?? []).some(chain =>
+    chain.mixer?.volume !== null && chain.mixer?.volume !== undefined ||
+    chain.mixer?.pan !== null && chain.mixer?.pan !== undefined ||
+    (chain.mixer?.sends?.length ?? 0) > 0 ||
+    chain.mixer?.mute !== null && chain.mixer?.mute !== undefined ||
+    chain.mixer?.solo !== null && chain.mixer?.solo !== undefined ||
+    chain.noteRouting?.inputNote !== null && chain.noteRouting?.inputNote !== undefined ||
+    chain.noteRouting?.outputNote !== null && chain.noteRouting?.outputNote !== undefined ||
+    (chain.devices ?? []).some(hasChainControls)));
+}
+
+function hasDrumPadState(device) {
+  return (device.drumPads?.length ?? 0) > 0 || ["chains", "returnChains"].some(key =>
+    (device[key] ?? []).some(chain => (chain.devices ?? []).some(hasDrumPadState)));
+}
+
+function persistedChainDevice(device, format) {
+  const record = { name: device.name, className: device.className, type: device.type,
+    parameters: device.parameters.map(p => ({ originalName: p.originalName, min: p.min, max: p.max,
+      quantized: p.quantized, valueItems: p.valueItems, value: p.value })) };
+  if (format !== "cavi-device-chain-v1") for (const key of ["chains", "returnChains"]) {
+    if (Array.isArray(device[key])) record[key] = device[key].map(chain => {
+      const saved = { name: chain.name, devices: chain.devices.map(child => persistedChainDevice(child, format)) };
+      if (["cavi-device-chain-v3", "cavi-device-chain-v4", "cavi-device-chain-v5", "cavi-device-chain-v6"].includes(format)) {
+        saved.mixer = { volume: chain.mixer.volume?.value ?? null, pan: chain.mixer.pan?.value ?? null,
+          sends: chain.mixer.sends.map(send => send.value), mute: chain.mixer.mute, solo: chain.mixer.solo };
+        saved.noteRouting = { inputNote: chain.noteRouting.inputNote, outputNote: chain.noteRouting.outputNote };
+      }
+      return saved;
+    });
+  }
+  if (["cavi-device-chain-v4", "cavi-device-chain-v5", "cavi-device-chain-v6"].includes(format) && Array.isArray(device.drumPads))
+    record.drumPads = device.drumPads.map(pad => ({ note: pad.note, mute: pad.mute, solo: pad.solo }));
+  return record;
+}
+
+function persistedChainSnapshot(devices, format, ownerMixer) {
+  return { format, ...(format === "cavi-device-chain-v5" ? { ownerMixer: {
+    volume: ownerMixer.volume.value, pan: ownerMixer.pan.value, mute: ownerMixer.mute, solo: ownerMixer.solo
+  } } : {}), ...(format === "cavi-device-chain-v6" ? { ownerMixer: {
+    volume: ownerMixer.volume.value, pan: ownerMixer.pan.value,
+    cueVolume: ownerMixer.cueVolume.value, crossfader: ownerMixer.crossfader.value,
+    outputChannelId: ownerMixer.outputRouting.supported ? ownerMixer.outputRouting.channel?.id ?? null : null
+  } } : {}), devices: devices.map(device => persistedChainDevice(device, format)) };
+}
+
+function validateChainControls(saved, native) {
+  if (!saved.mixer || !saved.noteRouting || !native.mixer || !native.noteRouting) throw new Error("device chain control layout mismatch");
+  for (const key of ["volume", "pan"]) {
+    const value = saved.mixer[key], bounds = native.mixer[key];
+    if (bounds === null) {
+      if (value !== null) throw new Error("device chain control layout mismatch");
+    } else if (!Number.isFinite(value) || value < bounds.min || value > bounds.max ||
+        (value !== bounds.value && !bounds.enabled)) throw new Error("device chain control outside native range");
+  }
+  if (!Array.isArray(saved.mixer.sends) || saved.mixer.sends.length !== native.mixer.sends.length) throw new Error("device chain send layout mismatch");
+  saved.mixer.sends.forEach((value, index) => {
+    const bounds = native.mixer.sends[index];
+    if (!Number.isFinite(value) || value < bounds.min || value > bounds.max ||
+        (value !== bounds.value && !bounds.enabled)) throw new Error("device chain send outside native range");
+  });
+  for (const key of ["mute", "solo"]) {
+    const value = saved.mixer[key], observed = native.mixer[key];
+    if (observed === null ? value !== null : typeof value !== "boolean") throw new Error("device chain control layout mismatch");
+  }
+  for (const key of ["inputNote", "outputNote"]) {
+    const value = saved.noteRouting[key], observed = native.noteRouting[key];
+    if (observed === null ? value !== null : !Number.isInteger(value) || value < 0 || value > 127)
+      throw new Error("device chain note routing outside native range");
+  }
+}
+
+function validateChainDevice(saved, native, format, label = "device chain") {
+  if (saved.className !== native.className || saved.type !== native.type ||
+      typeof saved.name !== "string" || !saved.name.trim() ||
+      !Array.isArray(saved.parameters) || saved.parameters.length !== native.parameters.length) {
+    throw new Error(`${label} topology mismatch`);
+  }
+  saved.parameters.forEach((parameter, index) => {
+    const current = native.parameters[index];
+    for (const field of ["originalName", "min", "max", "quantized", "valueItems"]) {
+      if (JSON.stringify(parameter[field]) !== JSON.stringify(current[field])) throw new Error(`${label} parameter layout mismatch`);
+    }
+    if (!Number.isFinite(parameter.value) || parameter.value < current.min || parameter.value > current.max ||
+        (current.quantized && !Number.isInteger(parameter.value))) throw new Error(`${label} parameter value outside native range`);
+    if (parameter.value !== current.value && !current.enabled) throw new Error(`parameter ${current.id} is disabled`);
+  });
+  if (["cavi-device-chain-v4", "cavi-device-chain-v5", "cavi-device-chain-v6"].includes(format)) {
+    if (native.drumPads === undefined ? saved.drumPads !== undefined :
+      !Array.isArray(saved.drumPads) || saved.drumPads.length !== native.drumPads.length)
+      throw new Error("drum pad topology mismatch");
+    saved.drumPads?.forEach((pad, index) => {
+      if (pad.note !== native.drumPads[index].note || typeof pad.mute !== "boolean" ||
+          typeof pad.solo !== "boolean" || (pad.mute && pad.solo))
+        throw new Error("drum pad state or topology is invalid");
+    });
+  }
+  if (format !== "cavi-device-chain-v1") for (const key of ["chains", "returnChains"]) {
+    if (native[key] === undefined && saved[key] === undefined) continue;
+    if (!Array.isArray(native[key]) || !Array.isArray(saved[key]) || native[key].length !== saved[key].length) {
+      throw new Error(`${label} topology mismatch`);
+    }
+    saved[key].forEach((chain, index) => {
+      const current = native[key][index];
+      if (typeof chain.name !== "string" || !chain.name.trim() || !Array.isArray(chain.devices) ||
+          chain.devices.length !== current.devices.length) throw new Error(`${label} topology mismatch`);
+      if (["cavi-device-chain-v3", "cavi-device-chain-v4", "cavi-device-chain-v5", "cavi-device-chain-v6"].includes(format)) validateChainControls(chain, current);
+      chain.devices.forEach((child, childIndex) => validateChainDevice(child, current.devices[childIndex], format, label));
+    });
   }
 }
 
@@ -88,6 +235,18 @@ function targetDisplayValue(parameter, value) {
   const index = Math.round(value - parameter.min);
   if (Math.abs(parameter.min + index - value) > Number.EPSILON) return null;
   return parameter.valueItems[index] ?? null;
+}
+
+function resolveParameterValue(parameter, requested) {
+  if (typeof requested !== "string") return Math.max(parameter.min, Math.min(parameter.max, Number(requested)));
+  if (!parameter.quantized) throw new Error(`parameter ${parameter.id} is not quantized`);
+  const choices = parameter.valueItems?.length
+    ? parameter.valueItems.map((label, index) => ({ value: parameter.min + index, label }))
+    : (parameter.nativeChoiceLabels || []).map(choice => ({ value: choice.value, label: choice.displayValue }));
+  const matches = choices.filter(choice => choice.label === requested);
+  if (!matches.length) throw new Error(`unknown choice label for parameter ${parameter.id}`);
+  if (matches.length !== 1) throw new Error(`ambiguous choice label for parameter ${parameter.id}`);
+  return matches[0].value;
 }
 
 function normalizeMidiNote(note, index, lengthBeats) {
@@ -270,17 +429,98 @@ function normalizeBrowserSearch(args) {
 }
 
 export class ToolService {
-  constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, browserMetadata }) {
+  constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, deviceChainLibrary, midiFeelLibrary, browserMetadata, spliceRoots = [], generationQueuePath }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
     this.snapshotLibrary = snapshotLibrary;
+    this.deviceChainLibrary = deviceChainLibrary;
+    this.midiFeelLibrary = midiFeelLibrary;
     this.browserMetadata = browserMetadata;
+    this.spliceRoots = spliceRoots;
+    this.generationQueuePath = generationQueuePath;
   }
 
   async call(name, args = {}) {
-    if (name === "search_local_splice_samples") return searchLocalSpliceSamples(args);
+    if (name === "list_local_splice_roots") return listConfiguredSpliceRoots(this.spliceRoots);
+    if (name === "search_local_splice_samples") {
+      if (args.includeMetadata !== undefined && typeof args.includeMetadata !== "boolean") throw new Error("includeMetadata must be boolean");
+      const observed = await searchLocalSpliceSamples(args);
+      if (!args.includeMetadata) return observed;
+      const library = this.#browserMetadataLibrary();
+      return { ...observed, samples: observed.samples.map((sample) => ({ ...sample,
+        metadata: library.get({ root: "local_splice", path: [observed.rootPath, sample.relativePath], uri: sample.sourcePath }) })),
+        metadataSource: "private_mcp" };
+    }
+    if (name === "analyze_midi_feel") {
+      const target = { trackId: args.trackId, clipId: args.clipId };
+      const before = await this.bridge.request("get_midi_clip_notes_extended", target);
+      const timing = await this.bridge.request("get_clip_timing", target);
+      const after = await this.bridge.request("get_midi_clip_notes_extended", target);
+      if (before.stateVersion !== timing.stateVersion || JSON.stringify(before) !== JSON.stringify(after) ||
+          before.trackId !== args.trackId || before.clipId !== args.clipId ||
+          timing.trackId !== args.trackId || timing.clipId !== args.clipId)
+        throw new Error("MIDI clip changed during feel analysis; retry");
+      return analyzeMidiFeel(before, timing, args);
+    }
+    if (name === "save_midi_feel_template") {
+      if (!this.midiFeelLibrary) throw new Error("MIDI feel template library is not configured");
+      const analysis = await this.call("analyze_midi_feel", args);
+      if (analysis.template.nativeGrooveId !== null)
+        throw new Error("an assigned native groove cannot be captured as a stored-note feel template");
+      if (!analysis.template.slots.length) throw new Error("source clip has no stored MIDI notes to capture");
+      return { ...await this.midiFeelLibrary.save(args.name, analysis.template), template: analysis.template };
+    }
+    if (name === "load_midi_feel_template") {
+      if (!this.midiFeelLibrary) throw new Error("MIDI feel template library is not configured");
+      const { snapshot, ...entry } = await this.midiFeelLibrary.load(args.name);
+      return { ...entry, template: snapshot };
+    }
+    if (name === "list_saved_snapshots") {
+      const library = { track: this.snapshotLibrary, "device-chain": this.deviceChainLibrary,
+        "midi-feel": this.midiFeelLibrary }[args.kind];
+      if (!library) throw new Error("requested snapshot library is not configured");
+      return { kind: args.kind, names: await library.list() };
+    }
+    if (name === "apply_midi_feel_template") {
+      requireExpectedState(args);
+      const target = { trackId: args.trackId, clipId: args.clipId };
+      const before = await this.bridge.request("get_midi_clip_notes_extended", target);
+      const clipTiming = await this.bridge.request("get_clip_timing", target);
+      const after = await this.bridge.request("get_midi_clip_notes_extended", target);
+      if (before.stateVersion !== args.expectedStateVersion || clipTiming.stateVersion !== args.expectedStateVersion ||
+          JSON.stringify(before) !== JSON.stringify(after) || before.trackId !== args.trackId ||
+          before.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
+        throw new Error("MIDI clip changed during feel transfer planning; retry");
+      const requested = planMidiFeelTransfer(before, clipTiming, args);
+      const notes = new Map(before.notes.map(note => [note.noteId, note]));
+      const changes = requested.map((change, index) =>
+        normalizeMidiNoteChange(change, index, notes.get(change.noteId), before.lengthBeats));
+      const plan = { method: "set_midi_note_properties", operation: "apply_midi_feel_template",
+        ...target, expectedStateVersion: args.expectedStateVersion, before, clipTiming,
+        template: args.template, changes };
+      if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+      this.#consumeConfirmation(plan, args);
+      const observed = await this.bridge.request("set_midi_note_properties", plan);
+      const readback = new Map(observed.notes.map(note => [note.noteId, note]));
+      if (observed.stateVersion !== args.expectedStateVersion + 1 || changes.some(change => {
+        const note = readback.get(change.noteId);
+        return !note || (change.start !== undefined && Math.abs(note.start - change.start) > 2e-7) ||
+          (change.velocity !== undefined && note.velocity !== change.velocity);
+      })) throw new Error("MIDI feel transfer readback does not match the signed plan");
+      return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString() };
+    }
     if (name === "capture_device_chain_snapshot") return this.#captureDeviceChainSnapshot(args);
+    if (name === "save_device_chain_snapshot") {
+      if (!this.deviceChainLibrary) throw new Error("device-chain snapshot library is not configured");
+      const capture = await this.#captureDeviceChainSnapshot(args);
+      return { ...await this.deviceChainLibrary.save(args.name, capture.snapshot), trackId: args.trackId,
+        stateVersion: capture.stateVersion, limitation: capture.limitation };
+    }
+    if (name === "load_device_chain_snapshot") {
+      if (!this.deviceChainLibrary) throw new Error("device-chain snapshot library is not configured");
+      return this.deviceChainLibrary.load(args.name);
+    }
     if (name === "recall_device_chain_snapshot") return this.#recallDeviceChainSnapshot(args);
     if (name === "capture_track_state_snapshot") return this.#captureTrackStateSnapshot(args);
     if (name === "save_track_state_snapshot") {
@@ -312,13 +552,21 @@ export class ToolService {
     if (name === "search_presets") {
       return { presets: this.catalog.search(args) };
     }
+    if (name === "get_nks_generation_status") return this.#nksGenerationStatus(args);
+    if (name === "get_nks_generation_job") {
+      if (!this.generationQueuePath) throw new Error("preset catalog is not configured");
+      return GenerationQueue.inspectJob(this.generationQueuePath, args.presetId);
+    }
+    if (name === "enqueue_nks_generation_jobs") return this.#enqueueNksGenerationJobs(args);
+    if (["claim_nks_generation_job", "heartbeat_nks_generation_job", "fail_nks_generation_job",
+      "complete_nks_generation_job"].includes(name)) return this.#nksGenerationJob(name, args);
     if (name === "get_preset") return { preset: this.catalog.get(args.presetId) };
     if (name === "get_preset_metadata") return { presetId: args.presetId, metadata: this.catalog.metadata(args.presetId) };
     if (name === "set_preset_metadata") return this.#setPresetMetadata(args);
     if (name === "get_browser_item_metadata") return this.#getBrowserItemMetadata(args);
     if (name === "set_browser_item_metadata") return this.#setBrowserItemMetadata(args);
     if (name === "search_browser_item_metadata") {
-      return { items: this.#browserMetadataLibrary().search(args), limitation: "Private MCP tags and favorites only; saved browser identities are not reverified against Live in this search and do not change Live's native collections." };
+      return { items: this.#browserMetadataLibrary().search(args), limitation: "Private MCP tags and favorites only; saved identities are not reverified against Live or the local filesystem in this search and do not change native collections." };
     }
     if (name === "get_live_state") return this.bridge.request("get_live_state", {});
     if (name === "get_transport_context") return this.bridge.request("get_transport_context", {});
@@ -449,7 +697,8 @@ export class ToolService {
     }
     if (name === "inspect_producer_bus") {
       const blueprint = getProducerChainBlueprint(args.target);
-      if (blueprint.topology !== "shared-instrument-bus") throw new Error("target must be a shared-instrument-bus blueprint");
+      if (!["shared-instrument-bus", "shared-audio-bus"].includes(blueprint.topology))
+        throw new Error("target must be a shared-bus blueprint");
       if (!Array.isArray(args.children) || args.children.length !== blueprint.children.length ||
         new Set(args.children.map(({ role }) => role)).size !== args.children.length ||
         new Set(args.children.map(({ trackId }) => trackId)).size !== args.children.length ||
@@ -469,22 +718,78 @@ export class ToolService {
       const busChain = verifyProducerChain(args.target, busDevices.devices);
       const children = [];
       for (const expected of blueprint.children) {
-        const { trackId } = args.children.find(({ role }) => role === expected.role);
+        const { trackId, pluginId = null } = args.children.find(({ role }) => role === expected.role);
         const track = trackList.tracks.find(({ id }) => id === trackId);
         if (!track) throw new Error(`unknown child track ${trackId}`);
         const childDevices = await read("list_devices", trackId);
         const routing = await read("get_track_routing", trackId);
+        const observedInstrumentProfileIds = collectFactoryDeviceProfileIds(childDevices.devices);
+        const observedPluginIds = collectPluginProfileIds(childDevices.devices);
+        const instrumentMatches = pluginId ? observedPluginIds.includes(pluginId)
+          : expected.instrumentProfileId ? observedInstrumentProfileIds.includes(expected.instrumentProfileId) : null;
+        const expectedSourceType = expected.sourceType ?? "midi";
+        const sourceMatches = track.type === expectedSourceType && (instrumentMatches ?? true);
         children.push({ role: expected.role, trackId,
-          expectedInstrumentProfileId: expected.instrumentProfileId,
-          observedInstrumentProfileIds: childDevices.devices.map((device) => getFactoryDeviceProfile(device)?.id).filter(Boolean),
-          instrumentMatches: childDevices.devices.some((device) => getFactoryDeviceProfile(device)?.id === expected.instrumentProfileId),
+          expectedSourceType, observedSourceType: track.type ?? null, sourceMatches,
+          expectedInstrumentProfileId: pluginId ? null : expected.instrumentProfileId, expectedPluginId: pluginId,
+          observedInstrumentProfileIds, observedPluginIds, instrumentMatches,
           grouped: track.groupTrackId === args.busTrackId,
           routed: routing.output?.type?.id === args.busTrackId });
       }
       return { target: args.target, busTrackId: args.busTrackId, stateVersion: trackList.stateVersion,
         busChain, children,
-        matchesBlueprint: busChain.matchesRequiredOrder && children.every(({ instrumentMatches, grouped, routed }) => instrumentMatches && grouped && routed),
-        limitation: "Sequential read-only observations; state-version equality guards against intervening Live edits but does not prove signal flow, sound quality or hidden plugin state." };
+        matchesBlueprint: busChain.matchesRequiredOrder && children.every(({ sourceMatches, grouped, routed }) => sourceMatches && grouped && routed),
+        limitation: "Sequential read-only observations; state-version equality guards against intervening Live edits but does not prove source content, audible signal flow, sound quality or hidden plugin state." };
+    }
+    if (name === "inspect_producer_return_bus") {
+      const blueprint = getProducerChainBlueprint(args.target);
+      if (!["shared-instrument-bus", "shared-audio-bus"].includes(blueprint.topology))
+        throw new Error("target must be a shared-bus blueprint");
+      if (!Array.isArray(args.children) || args.children.length !== blueprint.children.length ||
+        new Set(args.children.map(({ role }) => role)).size !== args.children.length ||
+        new Set(args.children.map(({ trackId }) => trackId)).size !== args.children.length ||
+        blueprint.children.some(({ role }) => !args.children.some((child) => child.role === role)))
+        throw new Error("children must map each blueprint role to one distinct track");
+      const trackList = await this.bridge.request("list_tracks", {});
+      const mixer = await this.bridge.request("get_set_mixer", {});
+      if (mixer.stateVersion !== trackList.stateVersion) throw new Error("mixer state version changed");
+      const bus = mixer.returns?.find(({ id }) => id === args.returnTrackId);
+      if (!bus) throw new Error(`unknown Return bus ${args.returnTrackId}`);
+      const read = async (method, trackId) => {
+        const observed = await this.bridge.request(method, { trackId });
+        if (observed.trackId !== trackId || observed.stateVersion !== trackList.stateVersion)
+          throw new Error(`${method} observation changed track identity or state version`);
+        return observed;
+      };
+      const busDevices = await read("list_devices", args.returnTrackId);
+      const busChain = verifyProducerChain(args.target, busDevices.devices);
+      const children = [];
+      for (const expected of blueprint.children) {
+        const { trackId, pluginId = null } = args.children.find(({ role }) => role === expected.role);
+        const track = trackList.tracks.find(({ id }) => id === trackId);
+        if (!track) throw new Error(`unknown child track ${trackId}`);
+        const childDevices = await read("list_devices", trackId);
+        const trackMixer = await read("get_track_mixer", trackId);
+        const routing = await read("get_track_routing", trackId);
+        const instrumentProfiles = collectFactoryDeviceProfileIds(childDevices.devices);
+        const observedPluginIds = collectPluginProfileIds(childDevices.devices);
+        const instrumentMatches = pluginId ? observedPluginIds.includes(pluginId)
+          : expected.instrumentProfileId ? instrumentProfiles.includes(expected.instrumentProfileId) : null;
+        const expectedSourceType = expected.sourceType ?? "midi";
+        const sourceMatches = track.type === expectedSourceType && (instrumentMatches ?? true);
+        const sends = trackMixer.sends?.filter(({ returnTrackId }) => returnTrackId === args.returnTrackId) ?? [];
+        const send = sends.length === 1 ? sends[0] : null;
+        const sendsOnly = routing.output?.type?.name === "Sends Only";
+        children.push({ role: expected.role, trackId, expectedSourceType, observedSourceType: track.type ?? null,
+          sourceMatches, expectedInstrumentProfileId: pluginId ? null : expected.instrumentProfileId,
+          expectedPluginId: pluginId, observedInstrumentProfileIds: instrumentProfiles, observedPluginIds, instrumentMatches,
+          sendId: send?.id ?? null, sendValue: send?.value ?? null, sendsOnly,
+          routed: sendsOnly && typeof send?.value === "number" && send.value > 0 });
+      }
+      return { target: args.target, returnTrackId: args.returnTrackId, returnName: bus.name,
+        stateVersion: trackList.stateVersion, busChain, children,
+        matchesBlueprint: busChain.matchesRequiredOrder && children.every(({ sourceMatches, routed }) => sourceMatches && routed),
+        limitation: "Sequential read-only observations; state-version equality guards edits but does not prove audible signal, source content, sound quality, or hidden plugin state." };
     }
     if (name === "list_factory_device_profiles") return { profiles: listFactoryDeviceProfiles() };
     if (name === "get_factory_coverage") {
@@ -520,10 +825,51 @@ export class ToolService {
       return { roots, deepIntegrationVerified: false,
         limitation: "Paged top-level factory browser observations, not an atomic inventory or exhaustive preset/Pack/third-party catalog. Profile matches use browser names; verify native class identity and actual controls after loading. A profile or loadable item does not prove save/recall, modulation, signal flow, or complete device integration." };
     }
-    if (name === "get_browser_items" || name === "get_factory_browser_items") {
-      return this.bridge.request(name, normalizeBrowserPage(args));
+    if (name === "list_browser_roots") return this.bridge.request(name, {});
+    if (name === "search_browser_roots") {
+      if (typeof args.query !== "string" || !args.query.trim()) throw new Error("query must be a non-empty string");
+      if (args.includeMetadata !== undefined && typeof args.includeMetadata !== "boolean") throw new Error("includeMetadata must be boolean");
+      const maxDepth = args.maxDepth ?? 6;
+      const limit = args.limit ?? 50;
+      const maxVisited = args.maxVisited ?? 10000;
+      if (!Number.isInteger(maxDepth) || maxDepth < 1 || maxDepth > 16) throw new Error("maxDepth must be an integer from 1 to 16");
+      if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new Error("limit must be an integer from 1 to 200");
+      if (!Number.isInteger(maxVisited) || maxVisited < 1 || maxVisited > 50000) throw new Error("maxVisited must be an integer from 1 to 50000");
+      if (args.roots !== undefined && (!Array.isArray(args.roots) || !args.roots.length ||
+          args.roots.some((root) => typeof root !== "string") || new Set(args.roots).size !== args.roots.length)) {
+        throw new Error("roots must be a non-empty array of unique browser root names");
+      }
+      const observed = await this.bridge.request(name, { ...(args.roots === undefined ? {} : { roots: args.roots }),
+        query: args.query.trim(), maxDepth, limit, maxVisited });
+      if (!args.includeMetadata) return observed;
+      const library = this.#browserMetadataLibrary();
+      return { ...observed, results: observed.results.map((item) => ({ ...item,
+        metadata: typeof item.uri === "string" && item.uri ? library.get(item) : null })),
+        metadataSource: "private_mcp", nativeLiveCollectionsModified: false };
     }
-    if (name === "search_browser_items") return this.bridge.request(name, normalizeBrowserSearch(args));
+    if (name === "get_browser_items" || name === "get_factory_browser_items") {
+      if (args.includeMetadata !== undefined && typeof args.includeMetadata !== "boolean") throw new Error("includeMetadata must be boolean");
+      const request = normalizeBrowserPage(args);
+      const observed = await this.bridge.request(name, request);
+      if (!args.includeMetadata) return observed;
+      if (observed.root !== request.root || JSON.stringify(observed.path) !== JSON.stringify(request.path) ||
+          !Array.isArray(observed.children)) throw new Error("invalid browser page observation");
+      const library = this.#browserMetadataLibrary();
+      return { ...observed, children: observed.children.map(child => ({ ...child,
+        metadata: typeof child.uri === "string" && child.uri && typeof child.name === "string" && child.name
+          ? library.get({ root: request.root, path: [...request.path, child.name], uri: child.uri }) : null })),
+        metadataSource: "private_mcp", nativeLiveCollectionsModified: false };
+    }
+    if (name === "search_browser_items") {
+      if (args.includeMetadata !== undefined && typeof args.includeMetadata !== "boolean") throw new Error("includeMetadata must be boolean");
+      const observed = await this.bridge.request(name, normalizeBrowserSearch(args));
+      if (!args.includeMetadata) return observed;
+      if (observed.root !== args.root || !Array.isArray(observed.results)) throw new Error("invalid browser search observation");
+      const library = this.#browserMetadataLibrary();
+      return { ...observed, results: observed.results.map(item => ({ ...item,
+        metadata: typeof item.uri === "string" && item.uri ? library.get({ ...item, root: observed.root }) : null })),
+        metadataSource: "private_mcp", nativeLiveCollectionsModified: false };
+    }
     if (name === "get_plugin_integration_context") {
       const identity = await this.#observeDevice(args);
       const { device } = identity;
@@ -548,6 +894,7 @@ export class ToolService {
         (parameter.originalName || parameter.name || "").trim().toLowerCase() !== "device on");
       const writableControls = configuredControls.filter(parameter => parameter.enabled !== false);
       const catalogProduct = this.catalog.products().find(product => product.productSlug === profile.productSlug);
+      const stateCounts = catalogProduct ? this.catalog.productStateCounts(profile.productSlug) : null;
       return {
         stateVersion: observed.stateVersion, trackId: args.trackId, device, profile,
         presetNavigation: profile.presetNavigation,
@@ -561,7 +908,8 @@ export class ToolService {
           hiddenPluginStateReadable: false
         },
         nksCatalog: { configured: Boolean(catalogProduct), productSlug: profile.productSlug,
-          presetCount: catalogProduct?.count || 0 },
+          presetCount: catalogProduct?.count || 0, stateCounts,
+          validatedRecordCount: stateCounts ? stateCounts.validated || 0 : null },
         capabilities: {
           parameterRead: true, parameterWrite: writableControls.length > 0,
           hiddenStateRead: false, nativePresetRecall: false,
@@ -569,7 +917,8 @@ export class ToolService {
         },
         limitations: [
           "Live exposes only parameters configured for this plug-in; hidden plug-in state is not readable.",
-          "Installed browser variants do not prove cross-format preset compatibility or native preset recall."
+          "Installed browser variants do not prove cross-format preset compatibility or native preset recall.",
+          "Catalog presetCount includes discovered source inventory. Validated lifecycle records do not prove current NKS file availability."
         ]
       };
     }
@@ -586,6 +935,10 @@ export class ToolService {
         ? observed.parameters.filter(parameter =>
             (parameter.originalName || parameter.name || "").trim().toLowerCase() !== "device on")
         : null;
+      const maxForLiveControls = ["MxDeviceInstrument", "MxDeviceAudioEffect", "MxDeviceMidiEffect"].includes(device.className)
+        ? observed.parameters.filter(parameter =>
+            (parameter.originalName || parameter.name || "").trim().toLowerCase() !== "device on")
+        : null;
       return {
         stateVersion: observed.stateVersion, trackId: args.trackId, device,
         profile: profile || null,
@@ -599,6 +952,12 @@ export class ToolService {
             .map(parameter => parameter.id),
           configureInLiveRequired: configuredPluginControls.length === 0,
           hiddenPluginStateReadable: false
+        },
+        maxForLiveExposure: maxForLiveControls === null ? null : {
+          deviceKind: device.type, exposedControlIds: maxForLiveControls.map(parameter => parameter.id),
+          writableControlIds: maxForLiveControls.filter(parameter => parameter.enabled !== false).map(parameter => parameter.id),
+          nameAmbiguities: observed.nameAmbiguities ?? [],
+          patchInternalsReadable: false, modulationTargetsReadable: false
         }
       };
     }
@@ -683,7 +1042,8 @@ export class ToolService {
       const after = await this.bridge.request("get_audio_clip_state", target);
       if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error("audio clip changed during analysis; retry against current state");
       return { ...target, stateVersion: after.stateVersion, measurement,
-        limitation: "Source audio only; excludes clip gain, transposition, warp, envelopes, and device processing." };
+        ...(args.targetMidiNote !== undefined ? { clipPitchAdjustment: planClipPitchAdjustment(measurement.tuningMeasurement, after.pitch) } : {}),
+        limitation: "The measurement is source audio only; it excludes clip gain, transposition, warp, envelopes, and device processing. The separate review-only pitch adjustment reads the current clip pitch but does not audibly validate the result." };
     }
     if (name === "list_devices") return this.bridge.request("list_devices", args);
     if (name === "get_device_hierarchy") return this.bridge.request("get_device_hierarchy", args);
@@ -796,6 +1156,149 @@ export class ToolService {
       return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
         expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, index, name: args.name }, args);
     }
+    if (name === "adjust_rack_macro_count") {
+      requireExpectedState(args);
+      if (args.action !== "add" && args.action !== "remove") throw new Error("invalid rack macro action");
+      const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, { ...observed, deviceId: observed.device?.id });
+      const rack = observed.device;
+      if (rack?.id !== args.deviceId || !rack.canHaveChains || !rack.rackMacros) throw new Error("device does not expose rack macros");
+      if (args.action === "remove" && rack.rackMacros.hasMappings) throw new Error("cannot remove a macro while any rack macro is mapped");
+      return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+        expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, action: args.action,
+        warning: "Live chooses the size of each native adjustment; inspect the returned visibleCount. Removing an unmapped visible macro may still change controller layout." }, args);
+    }
+    if (name === "map_rack_macro_to_parameter") {
+      requireExpectedState(args);
+      const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, { ...observed, deviceId: observed.device?.id });
+      const rack = observed.device;
+      if (rack?.id !== args.deviceId || !rack.canHaveChains || !rack.rackMacros || !Array.isArray(rack.rackMacros.mappings)) {
+        throw new Error("rack does not expose native macro mappings");
+      }
+      const descendants = (device) => (device.chains ?? []).concat(device.returnChains ?? [])
+        .flatMap(chain => (chain.devices ?? []).flatMap(child => [child, ...descendants(child)]));
+      if (typeof args.targetDeviceId !== "string" || !descendants(rack).some(device => device.id === args.targetDeviceId)) {
+        throw new Error("target must be an exact descendant of the rack");
+      }
+      if (!Number.isSafeInteger(args.macroIndex) || args.macroIndex < 0 || args.macroIndex >= rack.rackMacros.visibleCount) {
+        throw new Error("macro index is outside the visible range");
+      }
+      const target = await this.bridge.request("list_device_parameters", { trackId: args.trackId, deviceId: args.targetDeviceId });
+      assertExpectedState({ ...args, deviceId: args.targetDeviceId }, target);
+      if (target.deviceId !== args.targetDeviceId || !Array.isArray(target.parameters)) throw new Error("target parameter identity mismatch");
+      const parameter = target.parameters.find(item => item.id === args.parameterId);
+      if (!parameter || !parameter.enabled) throw new Error("target parameter is unavailable or disabled");
+      return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+        targetDeviceId: args.targetDeviceId, parameterId: args.parameterId, macroIndex: args.macroIndex,
+        expectedStateVersion: args.expectedStateVersion, beforeDevice: rack,
+        beforeTargetParameters: target.parameters,
+        warning: "Live may apply its default mapping range. Inspect the returned mapping and parameter behavior after applying; native undo is the recovery path." }, args);
+    }
+    if (name === "set_rack_macro_mapping_edge") {
+      requireExpectedState(args);
+      const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, { ...observed, deviceId: observed.device?.id });
+      const rack = observed.device;
+      if (rack?.id !== args.deviceId || !rack.canHaveChains || !Array.isArray(rack.rackMacros?.mappings)) {
+        throw new Error("rack does not expose native macro mappings");
+      }
+      if (!Number.isSafeInteger(args.macroIndex) || args.macroIndex < 0 || args.macroIndex >= rack.rackMacros.visibleCount) {
+        throw new Error("macro index is outside the visible range");
+      }
+      const mappings = rack.rackMacros.mappings.filter(mapping => mapping.macroIndex === args.macroIndex);
+      if (mappings.length !== 1) throw new Error("range editing requires exactly one mapping on this macro");
+      const mapping = mappings[0];
+      if (mapping.parameterQuantized) throw new Error("quantized mapping range semantics are unavailable");
+      if (args.edge !== "min" && args.edge !== "max") throw new Error("mapping edge must be min or max");
+      if (!Number.isFinite(args.value) || args.value < mapping.parameterMin || args.value > mapping.parameterMax) {
+        throw new Error("mapping edge is outside the native parameter range");
+      }
+      return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+        macroIndex: args.macroIndex, edge: args.edge, value: args.value,
+        expectedStateVersion: args.expectedStateVersion, beforeDevice: rack,
+        warning: "This changes one endpoint of the only observed mapping on the macro. Reversed ranges are possible; inspect the returned range and parameter behavior. Live undo is the recovery path." }, args);
+    }
+    if (name === "rename_rack_macro") {
+      requireExpectedState(args);
+      const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, { ...observed, deviceId: observed.device?.id });
+      const rack = observed.device;
+      if (rack?.id !== args.deviceId || !rack.canHaveChains || !Array.isArray(rack.rackMacros?.controls) ||
+          !Number.isSafeInteger(args.macroIndex) || rack.rackMacros.controls[args.macroIndex]?.macroIndex !== args.macroIndex) {
+        throw new Error("macro name readback is unavailable for this index");
+      }
+      if (typeof args.name !== "string" || !args.name.trim()) throw new Error("macro name must not be empty");
+      return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+        macroIndex: args.macroIndex, name: args.name,
+        expectedStateVersion: args.expectedStateVersion, beforeDevice: rack }, args);
+    }
+    if (name === "store_rack_macro_variation") {
+      requireExpectedState(args);
+      const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, { ...observed, deviceId: observed.device?.id });
+      const rack = observed.device;
+      if (rack?.id !== args.deviceId || !rack.canHaveChains || !rack.rackMacros?.hasMappings) {
+        throw new Error("rack must expose at least one mapped macro");
+      }
+      const parameters = await this.bridge.request("list_device_parameters", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, parameters);
+      if (parameters.deviceId !== args.deviceId || !Array.isArray(parameters.parameters)) throw new Error("rack parameter identity mismatch");
+      return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+        expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, beforeParameters: parameters.parameters,
+        limitation: "Live does not expose the stored variation's target values or mapping destinations." }, args);
+    }
+    if (name === "recall_rack_macro_variation") {
+      requireExpectedState(args);
+      const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, { ...observed, deviceId: observed.device?.id });
+      const rack = observed.device;
+      if (rack?.id !== args.deviceId || !rack.canHaveChains || !rack.rackMacros?.hasMappings) {
+        throw new Error("rack must expose at least one mapped macro");
+      }
+      if (!Number.isInteger(args.variationIndex) || args.variationIndex < 0 || args.variationIndex >= rack.rackMacros.variationCount) {
+        throw new Error("variation index is outside the available range");
+      }
+      const parameters = await this.bridge.request("list_device_parameters", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, parameters);
+      if (parameters.deviceId !== args.deviceId || !Array.isArray(parameters.parameters)) throw new Error("rack parameter identity mismatch");
+      return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+        expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, beforeParameters: parameters.parameters,
+        variationIndex: args.variationIndex,
+        limitation: "Live does not expose saved variation contents before recall; inspect returned parameters." }, args);
+    }
+    if (name === "delete_rack_macro_variation") {
+      requireExpectedState(args);
+      const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, { ...observed, deviceId: observed.device?.id });
+      const rack = observed.device;
+      if (rack?.id !== args.deviceId || !rack.canHaveChains || !rack.rackMacros) throw new Error("device does not expose rack variations");
+      if (!Number.isInteger(args.variationIndex) || args.variationIndex < 0 || args.variationIndex >= rack.rackMacros.variationCount) {
+        throw new Error("variation index is outside the available range");
+      }
+      const parameters = await this.bridge.request("list_device_parameters", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, parameters);
+      if (parameters.deviceId !== args.deviceId || !Array.isArray(parameters.parameters)) throw new Error("rack parameter identity mismatch");
+      return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+        expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, beforeParameters: parameters.parameters,
+        variationIndex: args.variationIndex,
+        warning: "Saved variation contents are not exposed by Live; deleting this variation may not be reconstructable. Live undo behavior is unverified." }, args);
+    }
+    if (name === "randomize_rack_macros") {
+      requireExpectedState(args);
+      const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, { ...observed, deviceId: observed.device?.id });
+      const rack = observed.device;
+      if (rack?.id !== args.deviceId || !rack.canHaveChains || !rack.rackMacros?.hasMappings) {
+        throw new Error("rack must expose at least one mapped macro");
+      }
+      const parameters = await this.bridge.request("list_device_parameters", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, parameters);
+      if (parameters.deviceId !== args.deviceId || !Array.isArray(parameters.parameters)) throw new Error("rack parameter identity mismatch");
+      return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+        expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, beforeParameters: parameters.parameters,
+        limitation: "Live controls randomization; no seed or predictable target values are exposed. Inspect returned parameters." }, args);
+    }
     if (name === "list_device_parameters") {
       return this.bridge.request("list_device_parameters", args);
     }
@@ -809,6 +1312,7 @@ export class ToolService {
     if (name === "set_groove") return this.#setGroove(args);
     if (name === "create_groove") return this.#createGroove(args);
     if (name === "set_transport_recording_context") return this.#setTransportRecordingContext(args);
+    if (name === "capture_midi_session") return this.#captureMidiSession(args);
     if (["create_arrangement_cue_point", "rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point"].includes(name)) {
       return this.#arrangementCuePointMutation(name, args);
     }
@@ -818,10 +1322,12 @@ export class ToolService {
     if (name === "create_return_track") return this.#createReturnTrack(args);
     if (name === "create_scene") return this.#createScene(args);
     if (name === "set_scene_launch_quantization") return this.#setSceneLaunchQuantization(args);
+    if (name === "set_scene_musical_context") return this.#setSceneMusicalContext(args);
     if (name === "rename_session_object") return this.#renameSessionObject(args);
     if (name === "duplicate_session_object") return this.#duplicateSessionObject(args);
     if (name === "delete_session_object") return this.#deleteSessionObject(args);
     if (name === "set_audio_clip_state") return this.#setAudioClipState(args);
+    if (name === "apply_monophonic_audio_tuning") return this.#applyMonophonicAudioTuning(args);
     if (name === "move_audio_warp_marker") return this.#moveAudioWarpMarker(args);
     if (name === "remove_audio_warp_marker") return this.#removeAudioWarpMarker(args);
     if (name === "add_audio_warp_marker") return this.#addAudioWarpMarker(args);
@@ -869,6 +1375,7 @@ export class ToolService {
     if (name === "set_device_sidechain_routing") return this.#setDeviceSidechainRouting(args);
     if (name === "set_group_fold_state") return this.#setGroupFoldState(args);
     if (name === "route_tracks_to_bus") return this.#routeTracksToBus(args);
+    if (name === "route_tracks_to_return_bus") return this.#routeTracksToReturnBus(args);
     if (name === "load_browser_item" || name === "load_factory_browser_item") return this.#loadBrowserItem(name, args);
     if (name === "set_master_mixer" || name === "set_return_mixer") return this.#setBusMixer(name, args);
     if (name === "undo" || name === "redo") return this.#historyMutation(name, args);
@@ -886,59 +1393,65 @@ export class ToolService {
     const observed = await this.bridge.request("get_track_state_snapshot", { trackId: args.trackId });
     if (observed.trackId !== args.trackId || observed.track?.id !== args.trackId) throw new Error("track snapshot target mismatch");
     const { track, mixer, routing } = observed;
+    const nested = observed.devices.some(device => Array.isArray(device.chains));
+    const controlled = observed.devices.some(hasChainControls);
+    const deviceFormat = observed.devices.some(hasDrumPadState) ? "cavi-device-chain-v4"
+      : controlled ? "cavi-device-chain-v3" : nested ? "cavi-device-chain-v2" : "cavi-device-chain-v1";
     return { trackId: args.trackId, stateVersion: observed.stateVersion, snapshot: {
-      format: "cavi-track-state-v1",
+      format: deviceFormat.replace("cavi-device-chain", "cavi-track-state"),
       track: { name: track.name, type: track.type, isGroup: Boolean(track.isGroup) },
       mixer: { volume: mixer.volume.value, pan: mixer.pan.value, mute: mixer.mute, solo: mixer.solo,
         sends: mixer.sends.map(send => ({ id: send.id, name: send.name, value: send.value })) },
       routing: { inputTypeId: routing.input.type?.id ?? null, inputChannelId: routing.input.channel?.id ?? null,
         outputTypeId: routing.output.type?.id ?? null, outputChannelId: routing.output.channel?.id ?? null,
         monitoring: routing.monitoring?.value ?? null },
-      devices: observed.devices.map(device => ({ name: device.name, className: device.className, type: device.type,
-        parameters: device.parameters.map(p => ({ originalName: p.originalName, min: p.min, max: p.max,
-          quantized: p.quantized, valueItems: p.valueItems, value: p.value })) }))
-    }, limitation: "Captures mixer, routing and exposed parameters for ordered top-level devices on one existing track. Not a native track preset: excludes clips, nested rack devices, hidden plugin state, samples, automation and mappings." };
+      devices: persistedChainSnapshot(observed.devices, deviceFormat).devices
+    }, limitation: "Captures mixer, routing, ordered devices, exposed nested rack parameters, chain mixer, Drum Rack note routing and populated pad mute/solo. Not a native track preset: excludes clips, hidden plugin state, samples, automation and mappings." };
   }
 
   async #captureDeviceChainSnapshot(args) {
     const observed = await this.bridge.request("get_device_chain_snapshot", { trackId: args.trackId });
     if (observed.trackId !== args.trackId || !Array.isArray(observed.devices)) throw new Error("device chain snapshot target mismatch");
+    const format = observed.ownerMixer && args.trackId === "master" ? "cavi-device-chain-v6"
+      : observed.ownerMixer && args.trackId.startsWith("return-") ? "cavi-device-chain-v5"
+      : observed.devices.some(hasDrumPadState) ? "cavi-device-chain-v4"
+      : observed.devices.some(hasChainControls) ? "cavi-device-chain-v3"
+      : observed.devices.some(device => Array.isArray(device.chains)) ? "cavi-device-chain-v2" : "cavi-device-chain-v1";
     return { trackId: args.trackId, stateVersion: observed.stateVersion,
-      snapshot: { format: "cavi-device-chain-v1", devices: observed.devices.map(device => ({
-        name: device.name, className: device.className, type: device.type,
-        parameters: device.parameters.map(p => ({ originalName: p.originalName, min: p.min, max: p.max,
-          quantized: p.quantized, valueItems: p.valueItems, value: p.value }))
-      })) },
-      limitation: "Exact current topology and exposed parameters only. Not a native rack or plug-in preset; excludes hidden state, samples, automation, nested devices, and mappings."
+      snapshot: persistedChainSnapshot(observed.devices, format, observed.ownerMixer),
+      limitation: "Exposed topology, parameters, Return or master owner mixer and master output channel, chain mixer, Drum Rack note routing and populated pad mute/solo only. Not a native rack or plug-in preset; excludes hidden state, samples, automation and mappings."
     };
   }
 
   async #recallDeviceChainSnapshot(args) {
     requireExpectedState(args);
-    if (args.snapshot?.format !== "cavi-device-chain-v1" || !Array.isArray(args.snapshot.devices)) throw new Error("invalid device chain snapshot format");
+    if (!["cavi-device-chain-v1", "cavi-device-chain-v2", "cavi-device-chain-v3", "cavi-device-chain-v4", "cavi-device-chain-v5", "cavi-device-chain-v6"].includes(args.snapshot?.format) || !Array.isArray(args.snapshot.devices)) throw new Error("invalid device chain snapshot format");
     const before = await this.bridge.request("get_device_chain_snapshot", { trackId: args.trackId });
     assertExpectedState(args, before);
     if (before.trackId !== args.trackId || before.devices.length !== args.snapshot.devices.length) throw new Error("device chain topology mismatch");
-    args.snapshot.devices.forEach((savedDevice, deviceIndex) => {
-      const nativeDevice = before.devices[deviceIndex];
-      if (savedDevice.className !== nativeDevice.className || savedDevice.type !== nativeDevice.type ||
-          !Array.isArray(savedDevice.parameters) || savedDevice.parameters.length !== nativeDevice.parameters.length) throw new Error("device chain topology mismatch");
-      savedDevice.parameters.forEach((saved, parameterIndex) => {
-        const native = nativeDevice.parameters[parameterIndex];
-        for (const field of ["originalName", "min", "max", "quantized", "valueItems"]) {
-          if (JSON.stringify(saved[field]) !== JSON.stringify(native[field])) throw new Error("device parameter layout mismatch");
-        }
-        if (!Number.isFinite(saved.value) || saved.value < native.min || saved.value > native.max ||
-            (native.quantized && !Number.isInteger(saved.value))) throw new Error("device parameter value outside native range");
-        if (saved.value !== native.value && !native.enabled) throw new Error(`parameter ${native.id} is disabled`);
-      });
-    });
+    if (args.snapshot.format === "cavi-device-chain-v5") {
+      if (!args.trackId.startsWith("return-") || !before.ownerMixer || !args.snapshot.ownerMixer) throw new Error("Return mixer topology mismatch");
+      for (const key of ["volume", "pan"]) {
+        const value = args.snapshot.ownerMixer[key], bounds = before.ownerMixer[key];
+        if (!bounds || !Number.isFinite(value) || value < bounds.min || value > bounds.max ||
+            (value !== bounds.value && bounds.enabled === false)) throw new Error("Return mixer outside native range");
+      }
+      for (const key of ["mute", "solo"]) if (typeof args.snapshot.ownerMixer[key] !== "boolean" ||
+          typeof before.ownerMixer[key] !== "boolean") throw new Error("Return mixer state invalid");
+    } else if (args.snapshot.format === "cavi-device-chain-v6") {
+      if (args.trackId !== "master" || !before.ownerMixer || !args.snapshot.ownerMixer) throw new Error("master mixer topology mismatch");
+      for (const key of ["volume", "pan", "cueVolume", "crossfader"]) {
+        const value = args.snapshot.ownerMixer[key], bounds = before.ownerMixer[key];
+        if (!bounds || !Number.isFinite(value) || value < bounds.min || value > bounds.max)
+          throw new Error("master mixer outside native range");
+      }
+      const routing = before.ownerMixer.outputRouting;
+      if (routing?.supported ? !routing.availableChannels.some(channel => channel.id === args.snapshot.ownerMixer.outputChannelId)
+        : args.snapshot.ownerMixer.outputChannelId !== null) throw new Error("master output channel is unavailable");
+    } else if (args.snapshot.format !== "cavi-device-chain-v1" && !before.devices.some(device => Array.isArray(device.chains))) throw new Error("device chain topology mismatch");
+    args.snapshot.devices.forEach((saved, index) => validateChainDevice(saved, before.devices[index], args.snapshot.format));
     const target = structuredClone(args.snapshot);
-    const current = { format: "cavi-device-chain-v1", devices: before.devices.map(device => ({
-      name: device.name, className: device.className, type: device.type,
-      parameters: device.parameters.map(p => ({ originalName: p.originalName, min: p.min, max: p.max,
-        quantized: p.quantized, valueItems: p.valueItems, value: p.value }))
-    })) };
+    const current = persistedChainSnapshot(before.devices, args.snapshot.format, before.ownerMixer);
     if (JSON.stringify(current) === JSON.stringify(target)) throw new Error("snapshot already matches; no device chain changes required");
     const plan = { method: "set_device_chain_snapshot", trackId: args.trackId,
       expectedStateVersion: args.expectedStateVersion, before, target };
@@ -946,13 +1459,13 @@ export class ToolService {
     this.#consumeConfirmation(plan, args);
     const observed = await this.bridge.request("set_device_chain_snapshot", plan);
     return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString(),
-      rollback: "One Live undo step restores all exposed device names and parameters; native rollback is attempted if recall fails." };
+      rollback: "One Live undo step covers Return or master mixer and output, device names, exposed parameters, chain mixer and note routing; native rollback is attempted if recall fails." };
   }
 
   async #recallTrackStateSnapshot(args) {
     requireExpectedState(args);
     const snapshot = args.snapshot;
-    if (snapshot?.format !== "cavi-track-state-v1" || !snapshot.track || !snapshot.mixer || !snapshot.routing || !Array.isArray(snapshot.devices)) {
+    if (!["cavi-track-state-v1", "cavi-track-state-v2", "cavi-track-state-v3", "cavi-track-state-v4"].includes(snapshot?.format) || !snapshot.track || !snapshot.mixer || !snapshot.routing || !Array.isArray(snapshot.devices)) {
       throw new Error("invalid track snapshot format");
     }
     const before = await this.bridge.request("get_track_state_snapshot", { trackId: args.trackId });
@@ -986,22 +1499,16 @@ export class ToolService {
       throw new Error("snapshot routing monitoring is unavailable");
     }
     if (snapshot.devices.length !== before.devices.length) throw new Error("snapshot device topology mismatch");
-    snapshot.devices.forEach((savedDevice, deviceIndex) => {
-      const nativeDevice = before.devices[deviceIndex];
-      if (savedDevice.className !== nativeDevice.className || savedDevice.type !== nativeDevice.type || !Array.isArray(savedDevice.parameters) ||
-          savedDevice.parameters.length !== nativeDevice.parameters.length) throw new Error("snapshot device topology mismatch");
-      savedDevice.parameters.forEach((saved, parameterIndex) => {
-        const native = nativeDevice.parameters[parameterIndex];
-        for (const field of ["originalName", "min", "max", "quantized", "valueItems"]) {
-          if (JSON.stringify(saved[field]) !== JSON.stringify(native[field])) throw new Error("snapshot parameter layout mismatch");
-        }
-        if (!Number.isFinite(saved.value) || saved.value < native.min || saved.value > native.max ||
-            (native.quantized && !Number.isInteger(saved.value))) throw new Error("snapshot parameter value outside native range");
-        if (saved.value !== native.value && !native.enabled) throw new Error(`parameter ${native.id} is disabled`);
-      });
-    });
+    const nested = snapshot.format !== "cavi-track-state-v1";
+    if (nested && !before.devices.some(device => Array.isArray(device.chains))) throw new Error("snapshot device topology mismatch");
+    const deviceFormat = snapshot.format.replace("cavi-track-state", "cavi-device-chain");
+    snapshot.devices.forEach((saved, index) => validateChainDevice(saved, before.devices[index], deviceFormat, "snapshot device"));
     const target = structuredClone(snapshot);
     const current = (await this.#captureTrackStateSnapshot(args)).snapshot;
+    if (current.format !== snapshot.format) {
+      current.format = snapshot.format;
+      current.devices = persistedChainSnapshot(before.devices, deviceFormat).devices;
+    }
     if (JSON.stringify(current) === JSON.stringify(target)) throw new Error("snapshot already matches; no track changes required");
     const plan = { method: "set_track_state_snapshot", trackId: args.trackId,
       expectedStateVersion: args.expectedStateVersion, before, target };
@@ -1103,7 +1610,7 @@ export class ToolService {
       const parameter = allowed.get(change.id);
       if (!parameter) throw new Error(`parameter ${change.id} is not allowlisted`);
       if (!parameter.enabled) throw new Error(`parameter ${change.id} is disabled`);
-      const value = Math.max(parameter.min, Math.min(parameter.max, Number(change.value)));
+      const value = resolveParameterValue(parameter, change.value);
       return {
         id: change.id,
         name: parameter.name,
@@ -1143,6 +1650,14 @@ export class ToolService {
     }
     this.#consumeConfirmation(plan, args);
     const result = await this.bridge.request("set_device_parameters", plan);
+    if (result.stateVersion !== args.expectedStateVersion + 1 || result.trackId !== args.trackId ||
+        result.deviceId !== args.deviceId || !Array.isArray(result.observedChanges) ||
+        result.observedChanges.length !== changes.length ||
+        changes.some((change, index) => result.observedChanges[index]?.id !== change.id ||
+          !Number.isFinite(result.observedChanges[index]?.value) ||
+          Math.abs(result.observedChanges[index].value - change.value) > 1e-6)) {
+      throw new Error("parameter readback mismatch; write may have applied; re-read device parameters before retrying");
+    }
     return {
       dryRun: false,
       requested: plan,
@@ -1400,6 +1915,15 @@ export class ToolService {
     }, args);
   }
 
+  async #captureMidiSession(args) {
+    requireExpectedState(args);
+    const observed = await this.bridge.request("get_transport_recording_context", {});
+    assertExpectedState(args, observed);
+    if (observed.midiCapture?.available !== true) throw new Error("no MIDI material is available to capture");
+    return this.#confirmedMutation({ method: "capture_midi_session", destination: "session",
+      expectedStateVersion: args.expectedStateVersion, before: observed.midiCapture }, args);
+  }
+
   async #setTransportContext(args) {
     requireExpectedState(args);
     const observed = await this.bridge.request("get_transport_context", {});
@@ -1472,6 +1996,24 @@ export class ToolService {
     if (args.launchQuantization !== undefined) changes.launchQuantization = normalizeChoice(
       args.launchQuantization, "launchQuantization", observed.launchQuantization.choices
     );
+    if (args.launchLegato !== undefined) {
+      if (typeof args.launchLegato !== "boolean") throw new Error("launchLegato must be boolean");
+      if (observed.launchLegato?.supported !== true) throw new Error("clip launch Legato is unavailable");
+      changes.launchLegato = args.launchLegato;
+    }
+    if (args.editorGrid !== undefined) {
+      if (!args.editorGrid || typeof args.editorGrid !== "object" || Array.isArray(args.editorGrid)) throw new Error("editorGrid must be an object");
+      const editorGrid = {};
+      if (args.editorGrid.quantization !== undefined) editorGrid.quantization = normalizeChoice(
+        args.editorGrid.quantization, "editorGrid.quantization", observed.editorGrid.quantization.choices
+      );
+      if (args.editorGrid.isTriplet !== undefined) {
+        if (typeof args.editorGrid.isTriplet !== "boolean") throw new Error("editorGrid.isTriplet must be boolean");
+        editorGrid.isTriplet = args.editorGrid.isTriplet;
+      }
+      if (!Object.keys(editorGrid).length) throw new Error("editorGrid requires quantization or isTriplet");
+      changes.editorGrid = editorGrid;
+    }
     if (args.grooveId !== undefined) {
       if (typeof args.grooveId !== "string") throw new Error("grooveId must identify an available groove");
       if (!observed.availableGrooves.some(({ id }) => id === args.grooveId)) throw new Error(`unknown groove ${args.grooveId}`);
@@ -1531,6 +2073,61 @@ export class ToolService {
     }, args);
   }
 
+  async #applyMonophonicAudioTuning(args) {
+    requireExpectedState(args);
+    if (!Number.isInteger(args.targetMidiNote) || args.targetMidiNote < 0 || args.targetMidiNote > 127)
+      throw new Error("targetMidiNote must be a MIDI note from 0 to 127");
+    const target = { trackId: args.trackId, clipId: args.clipId };
+    const before = await this.bridge.request("get_audio_clip_state", target);
+    assertExpectedState(args, before);
+    if (before.clipId !== args.clipId || typeof before.source?.path !== "string" || !before.source.path)
+      throw new Error("exact audio clip source is unavailable");
+    const first = await analyzeAudioFile(before.source.path, { startSeconds: 0, durationSeconds: 60,
+      targetMidiNote: args.targetMidiNote, channelIndex: 0 });
+    if (first.durationSeconds - first.window.durationSeconds > 0.001)
+      throw new Error("full-source tuning supports audio files of at most 60 seconds");
+    if (![1, 2].includes(first.channels)) throw new Error("full-source tuning requires mono or stereo audio");
+    const analyses = [first];
+    if (first.channels === 2) analyses.push(await analyzeAudioFile(before.source.path, {
+      startSeconds: 0, durationSeconds: 60, targetMidiNote: args.targetMidiNote, channelIndex: 1 }));
+    const adjustments = analyses.map(result => planClipPitchAdjustment(result.tuningMeasurement, before.pitch));
+    if (adjustments.some(adjustment => !adjustment.eligible))
+      throw new Error("full-source tuning requires stable monophonic pitch in every channel");
+    const cents = analyses.map(result => result.tuningMeasurement.medianCentsFromTarget);
+    if (Math.max(...cents) - Math.min(...cents) > 15)
+      throw new Error("stereo channels disagree on the source fundamental");
+    const shiftCents = Math.round(-cents.reduce((sum, value) => sum + value, 0) / cents.length);
+    const coarse = Math.round(shiftCents / 100) || 0, fine = shiftCents - coarse * 100;
+    if (coarse < -48 || coarse > 48 || fine < -50 || fine > 50)
+      throw new Error("measured tuning offset is outside Live clip pitch range");
+    if (before.pitch.coarse === coarse && before.pitch.fine === fine)
+      throw new Error("audio clip already has the proposed whole-source tuning offset");
+    const hash = createHash("sha256");
+    for await (const chunk of createReadStream(first.sourcePath)) hash.update(chunk);
+    const sourceSha256 = hash.digest("hex");
+    const after = await this.bridge.request("get_audio_clip_state", target);
+    if (JSON.stringify(before) !== JSON.stringify(after))
+      throw new Error("audio clip changed during full-source tuning analysis; retry");
+    const plan = { method: "set_audio_clip_state", operation: "apply_monophonic_audio_tuning",
+      ...target, expectedStateVersion: args.expectedStateVersion, before,
+      measurement: { sourcePath: first.sourcePath, sourceSha256, targetMidiNote: args.targetMidiNote,
+        durationSeconds: first.durationSeconds,
+        channels: analyses.map((result, channelIndex) => ({ channelIndex,
+          medianCentsFromTarget: result.tuningMeasurement.medianCentsFromTarget,
+          measuredFrameFraction: result.tuningMeasurement.measuredFrameFraction,
+          maximumSpreadCents: result.tuningMeasurement.wholeClipTuningProposal.maximumSpreadCents })) },
+      changes: { pitchCoarse: { previous: before.pitch.coarse, value: coarse },
+        pitchFine: { previous: before.pitch.fine, value: fine } },
+      limitation: "Whole-clip pitch offset from stable full-source periodicity, not note-level vocal correction or audible validation. Warp, envelopes and downstream devices may affect the heard result." };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    this.#consumeConfirmation(plan, args);
+    const observed = await this.bridge.request("set_audio_clip_state", plan);
+    if (observed.stateVersion !== args.expectedStateVersion + 1 || observed.trackId !== args.trackId ||
+        observed.clipId !== args.clipId || observed.pitch?.coarse !== coarse || observed.pitch?.fine !== fine)
+      throw new Error("audio tuning readback does not match the confirmed plan");
+    return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString() };
+  }
+
   async #cropAudioClip(args) {
     requireExpectedState(args);
     const before = await this.bridge.request("get_audio_clip_state", { trackId: args.trackId, clipId: args.clipId });
@@ -1559,8 +2156,10 @@ export class ToolService {
     const context = await this.bridge.request("get_song_musical_context", {});
     assertExpectedState({ expectedStateVersion: args.expectedStateVersion }, context);
     const beforeSwingAmount = finiteRange(context.groove?.swingAmount, "observed swing amount", 0, 1);
-    return this.#confirmedMutation({ method: "quantize_audio_clip", trackId: args.trackId, clipId: args.clipId,
+    const result = await this.#confirmedMutation({ method: "quantize_audio_clip", trackId: args.trackId, clipId: args.clipId,
       expectedStateVersion: args.expectedStateVersion, before, beforeSwingAmount, grid: args.grid, amount }, args);
+    if (result.dryRun) return result;
+    return { ...result, warpMarkerChanges: summarizeWarpMarkerChanges(before, result.observed) };
   }
 
   async #addAudioWarpMarker(args) {
@@ -1693,6 +2292,49 @@ export class ToolService {
     return this.confirmations.consume(args.confirmationToken, currentHash);
   }
 
+  #nksGenerationStatus(args) {
+    if (!this.generationQueuePath) throw new Error("preset catalog is not configured");
+    return GenerationQueue.inspect(this.generationQueuePath, args.productSlug);
+  }
+
+  #enqueueNksGenerationJobs(args) {
+    if (!this.generationQueuePath) throw new Error("preset catalog is not configured");
+    const { productSlug, presetIds, eligible, fingerprint } = GenerationQueue.inspectSelection(
+      this.generationQueuePath, args.productSlug, args.presetIds);
+    const plan = { method: "enqueue_nks_generation_jobs", productSlug, presetIds, eligible, fingerprint };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    this.#consumeConfirmation(plan, args);
+    const queue = GenerationQueue.open(this.generationQueuePath);
+    try {
+      const enqueued = queue.enqueue(productSlug, presetIds, fingerprint);
+      return { dryRun: false, enqueued, jobs: GenerationQueue.inspect(this.generationQueuePath, productSlug).jobs };
+    } finally {
+      queue.close();
+    }
+  }
+
+  #nksGenerationJob(name, args) {
+    if (!this.generationQueuePath) throw new Error("preset catalog is not configured");
+    if (typeof args.workerId !== "string" || !args.workerId.trim()) throw new Error("workerId is required");
+    if (name === "claim_nks_generation_job") {
+      if (typeof args.productSlug !== "string" || !args.productSlug.trim()) throw new Error("productSlug is required");
+    } else if (typeof args.presetId !== "string" || !args.presetId.trim()) {
+      throw new Error("presetId is required");
+    }
+    const queue = GenerationQueue.open(this.generationQueuePath);
+    try {
+      if (name === "claim_nks_generation_job") {
+        const job = queue.claim(args.workerId, args.productSlug) ?? null;
+        return { job, preset: job ? this.catalog.get(job.presetId) : null };
+      }
+      if (name === "heartbeat_nks_generation_job") return { job: queue.heartbeat(args.presetId, args.workerId) };
+      if (name === "fail_nks_generation_job") return { job: queue.fail(args.presetId, args.workerId, args.reason) };
+      return { job: queue.completeSaved(args.presetId, args.workerId) };
+    } finally {
+      queue.close();
+    }
+  }
+
   async #confirmedMutation(plan, args) {
     if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
     this.#consumeConfirmation(plan, args);
@@ -1721,6 +2363,11 @@ export class ToolService {
   }
 
   async #observeBrowserMetadataItem(args) {
+    if (args.root === "local_splice") {
+      if (!Array.isArray(args.path) || args.path.length !== 2)
+        throw new Error("local_splice path must contain absolute rootPath and relativePath");
+      return observeLocalSpliceSample(args.path[0], args.path[1]);
+    }
     const target = normalizeBrowserPath(args);
     if (target.path.length === 0) throw new Error("a browser item path is required");
     const observed = await this.bridge.request("get_browser_items", { ...target, offset: 0, limit: 1 });
@@ -1797,6 +2444,42 @@ export class ToolService {
     if (value === scene.launchQuantization.value) throw new Error("scene launch quantization is already selected");
     return this.#confirmedMutation({ method: "set_scene_launch_quantization", sceneId: scene.id,
       expectedStateVersion: args.expectedStateVersion, before: scene, value }, args);
+  }
+
+  async #setSceneMusicalContext(args) {
+    requireExpectedState(args);
+    const observed = await this.bridge.request("list_scenes", {});
+    assertExpectedState(args, observed);
+    const scene = observed.scenes.find(({ id }) => id === args.sceneId);
+    if (!scene) throw new Error(`unknown scene ${args.sceneId}`);
+    const changes = {};
+    if (args.tempoEnabled !== undefined) {
+      if (typeof args.tempoEnabled !== "boolean" || scene.tempo?.supported === false || !scene.tempo) throw new Error("scene tempo is unavailable or invalid");
+      if (args.tempoEnabled) {
+        if (typeof args.tempo !== "number" || !Number.isFinite(args.tempo) || args.tempo < 20 || args.tempo > 999) throw new Error("invalid scene tempo");
+        changes.tempo = { enabled: true, bpm: args.tempo };
+      } else {
+        if (args.tempo !== undefined) throw new Error("tempo must be omitted when disabling scene tempo");
+        changes.tempo = { enabled: false };
+      }
+    } else if (args.tempo !== undefined) throw new Error("tempoEnabled is required with tempo");
+    if (args.timeSignatureEnabled !== undefined) {
+      if (typeof args.timeSignatureEnabled !== "boolean" || scene.timeSignature?.supported === false || !scene.timeSignature) throw new Error("scene time signature is unavailable or invalid");
+      if (args.timeSignatureEnabled) {
+        if (!Number.isInteger(args.numerator) || args.numerator < 1 || args.numerator > 99 ||
+            ![1, 2, 4, 8, 16].includes(args.denominator)) throw new Error("invalid scene time signature numerator or denominator");
+        changes.timeSignature = { enabled: true, numerator: args.numerator, denominator: args.denominator };
+      } else {
+        if (args.numerator !== undefined || args.denominator !== undefined) throw new Error("meter values must be omitted when disabling scene time signature");
+        changes.timeSignature = { enabled: false };
+      }
+    } else if (args.numerator !== undefined || args.denominator !== undefined) throw new Error("timeSignatureEnabled is required with meter values");
+    if (!Object.keys(changes).length) throw new Error("no scene musical changes requested");
+    if (Object.entries(changes).every(([key, target]) => Object.entries(target).every(([field, value]) => scene[key][field] === value))) {
+      throw new Error("scene musical context is already selected");
+    }
+    return this.#confirmedMutation({ method: "set_scene_musical_context", sceneId: scene.id,
+      expectedStateVersion: args.expectedStateVersion, before: scene, changes }, args);
   }
 
   async #renameSessionObject(args) {
@@ -2321,10 +3004,20 @@ export class ToolService {
       trackId: args.trackId, clipId: args.clipId
     });
     assertExpectedState(args, observed);
+    const clipTiming = await this.bridge.request("get_clip_timing", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    assertExpectedState(args, clipTiming);
+    const refreshed = await this.bridge.request("get_midi_clip_notes_extended", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    if (JSON.stringify(observed) !== JSON.stringify(refreshed) || observed.trackId !== args.trackId ||
+        observed.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
+      throw new Error("MIDI clip changed during note-property planning; retry");
     const notes = new Map(observed.notes.map((note) => [note.noteId, note]));
     const plan = {
       method: "set_midi_note_properties", trackId: args.trackId, clipId: args.clipId,
-      expectedStateVersion: args.expectedStateVersion,
+      expectedStateVersion: args.expectedStateVersion, before: observed, clipTiming,
       changes: args.changes.map((change, index) => {
         const current = notes.get(change.noteId);
         if (!current) throw new Error(`unknown noteId ${change.noteId}`);
@@ -2345,9 +3038,17 @@ export class ToolService {
     const clip = await this.bridge.request("get_midi_clip_notes_extended", {
       trackId: args.trackId, clipId: args.clipId
     });
+    const clipTiming = await this.bridge.request("get_clip_timing", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    const refreshed = await this.bridge.request("get_midi_clip_notes_extended", {
+      trackId: args.trackId, clipId: args.clipId
+    });
     const after = await this.bridge.request("get_song_musical_context", {});
-    if (before.stateVersion !== clip.stateVersion || clip.stateVersion !== after.stateVersion ||
-        JSON.stringify(before) !== JSON.stringify(after) || clip.trackId !== args.trackId || clip.clipId !== args.clipId)
+    if (before.stateVersion !== clip.stateVersion || clip.stateVersion !== clipTiming.stateVersion ||
+        clipTiming.stateVersion !== after.stateVersion || JSON.stringify(before) !== JSON.stringify(after) ||
+        JSON.stringify(clip) !== JSON.stringify(refreshed) || clip.trackId !== args.trackId ||
+        clip.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
       throw new Error("song or clip changed during scale correction; retry");
 
     const analysis = analyzeMidiNotesAgainstScale(clip.notes, before.key);
@@ -2358,6 +3059,8 @@ export class ToolService {
       trackId: args.trackId,
       clipId: args.clipId,
       expectedStateVersion: args.expectedStateVersion,
+      before: clip,
+      clipTiming,
       scale: { ...analysis.scale, scaleName: analysis.scale.name },
       direction: args.direction,
       tieBreak: args.tieBreak ?? null,
@@ -2382,10 +3085,21 @@ export class ToolService {
       trackId: args.trackId, clipId: args.clipId
     });
     assertExpectedState(args, observed);
+    const clipTiming = await this.bridge.request("get_clip_timing", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    assertExpectedState(args, clipTiming);
+    const refreshed = await this.bridge.request("get_midi_clip_notes_extended", {
+      trackId: args.trackId, clipId: args.clipId
+    });
+    if (JSON.stringify(observed) !== JSON.stringify(refreshed) || observed.trackId !== args.trackId ||
+        observed.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
+      throw new Error("MIDI clip changed during transform planning; retry");
     const transformed = transformMidiNotes(observed, args.noteIds, args.operation);
     const plan = {
       method: "transform_midi_notes", trackId: args.trackId, clipId: args.clipId,
       expectedStateVersion: args.expectedStateVersion, operation: args.operation,
+      before: observed, clipTiming,
       changes: transformed.changes, newNotes: transformed.newNotes
     };
     if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
@@ -3242,6 +3956,30 @@ export class ToolService {
     }, args);
   }
 
+  async #routeTracksToReturnBus(args) {
+    requireExpectedState(args);
+    if (!Array.isArray(args.trackIds) || !args.trackIds.length || args.trackIds.length > 64 || new Set(args.trackIds).size !== args.trackIds.length) throw new Error("trackIds must be 1-64 unique IDs");
+    if (!/^return-(0|[1-9]\d*)$/.test(args.returnTrackId)) throw new Error("returnTrackId must be canonical");
+    if (typeof args.sendValue !== "number" || !Number.isFinite(args.sendValue) || args.sendValue < 0 || args.sendValue > 1) throw new Error("sendValue must be between 0 and 1");
+    const mixer = await this.bridge.request("get_set_mixer", {});
+    assertExpectedState(args, mixer);
+    const beforeReturn = mixer.returns?.find(({ id }) => id === args.returnTrackId);
+    if (!beforeReturn) throw new Error(`unknown returnTrackId ${args.returnTrackId}`);
+    const routes = [];
+    for (const trackId of args.trackIds) {
+      const beforeMixer = await this.bridge.request("get_track_mixer", { trackId });
+      const beforeRouting = await this.bridge.request("get_track_routing", { trackId });
+      assertExpectedState(args, beforeMixer);
+      assertExpectedState(args, beforeRouting);
+      const sends = beforeMixer.sends?.filter((send) => send.returnTrackId === args.returnTrackId) ?? [];
+      const choices = beforeRouting.output?.availableTypes?.filter((choice) => choice.name === "Sends Only") ?? [];
+      if (sends.length !== 1 || choices.length !== 1) throw new Error(`Return send or Sends Only routing unavailable for ${trackId}`);
+      if (args.sendValue < sends[0].min || args.sendValue > sends[0].max) throw new Error(`sendValue outside native range for ${trackId}`);
+      routes.push({ trackId, sendId: sends[0].id, outputTypeId: choices[0].id, beforeMixer, beforeRouting });
+    }
+    return this.#confirmedMutation({ method: "route_tracks_to_return_bus", expectedStateVersion: args.expectedStateVersion, returnTrackId: args.returnTrackId, sendValue: args.sendValue, beforeReturn, routes }, args);
+  }
+
   async #loadBrowserItem(method, args) {
     requireExpectedState(args);
     const browserPath = normalizeBrowserPath(args);
@@ -3311,9 +4049,33 @@ export class ToolService {
 
   async #genericMutation(name, args) {
     requireExpectedState(args);
-    const current = await this.bridge.request("get_live_state", {});
-    assertExpectedState(args, current);
+    if (name === "launch_scene" && args.forceLegato !== undefined && typeof args.forceLegato !== "boolean") {
+      throw new Error("forceLegato must be boolean");
+    }
+    const recording = name === "launch_clip" && args.recordLengthBeats !== undefined;
+    if (recording && (typeof args.recordLengthBeats !== "number" || !Number.isFinite(args.recordLengthBeats) || args.recordLengthBeats <= 0)) {
+      throw new Error("recordLengthBeats must be a positive finite number");
+    }
+    const clipOverride = name === "launch_clip" && args.launchQuantization !== undefined;
+    const current = recording
+      ? await this.bridge.request("list_clips", { trackId: args.trackId })
+      : clipOverride
+      ? await this.bridge.request("get_clip_timing", { trackId: args.trackId, clipId: args.clipId })
+      : await this.bridge.request("get_live_state", {});
+    assertExpectedState(recording || clipOverride ? args : { expectedStateVersion: args.expectedStateVersion }, current);
+    if (recording) {
+      const slot = current.clips.find((clip) => clip.id === args.clipId);
+      if (!slot) throw new Error("unknown clip slot");
+      if (slot.hasClip) throw new Error("fixed-length recording requires an empty clip slot");
+      if (!current.canBeArmed || !current.armed) throw new Error("fixed-length recording requires an armed track");
+      if (current.isFrozen) throw new Error("fixed-length recording is unavailable on a frozen track");
+    }
+    if (!recording && clipOverride && current.clipId !== args.clipId) throw new Error("clipId mismatch");
     const plan = { method: name, ...args };
+    if (clipOverride) {
+      plan.launchQuantization = normalizeChoice(args.launchQuantization, "launchQuantization",
+        recording ? current.launchQuantizationChoices : current.launchQuantization.choices);
+    }
     delete plan.dryRun;
     delete plan.confirmationToken;
     delete plan.planHash;

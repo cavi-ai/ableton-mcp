@@ -14,16 +14,37 @@ test("MCP discovery exposes every contracted producer tool", async () => {
   const metadata = tools.find(tool => tool.name === "set_browser_item_metadata");
   assert.deepEqual(metadata.inputSchema.required, ["expectedMetadataRevision", "root", "path"]);
   assert.match(metadata.description, /private|native/i);
+  const feel = tools.find(tool => tool.name === "analyze_midi_feel");
+  assert.deepEqual(feel.inputSchema.required, ["trackId", "clipId", "grid"]);
+  assert.equal(feel.annotations.readOnlyHint, true);
+  const transfer = tools.find(tool => tool.name === "apply_midi_feel_template");
+  assert.deepEqual(transfer.inputSchema.required,
+    ["expectedStateVersion", "trackId", "clipId", "template", "timingAmount", "velocityAmount"]);
+  assert.equal(transfer.annotations.readOnlyHint, false);
+  assert.deepEqual(tools.find(tool => tool.name === "save_midi_feel_template").inputSchema.required,
+    ["name", "trackId", "clipId", "grid"]);
+  assert.equal(tools.find(tool => tool.name === "load_midi_feel_template").annotations.readOnlyHint, true);
+  const saved = tools.find(tool => tool.name === "list_saved_snapshots");
+  assert.deepEqual(saved.inputSchema.required, ["kind"]);
+  assert.equal(saved.annotations.readOnlyHint, true);
+  const tuning = tools.find(tool => tool.name === "apply_monophonic_audio_tuning");
+  assert.deepEqual(tuning.inputSchema.required,
+    ["expectedStateVersion", "trackId", "clipId", "targetMidiNote"]);
+  assert.equal(tuning.annotations.readOnlyHint, false);
 });
 
 test("core discovery is bounded and cannot call tools it does not advertise", async () => {
   let calls = 0;
   const route = createRouter({ call: async () => { calls++; return { ok: true }; } }, { toolProfile: "core" });
   const tools = (await route({ id: 1, method: "tools/list" })).result.tools;
-  assert.equal(tools.length, 55);
+  assert.equal(tools.length, 59);
   const names = new Set(tools.map((tool) => tool.name));
   assert.ok(names.has("get_live_state"));
+  assert.ok(names.has("list_browser_roots"));
+  assert.ok(names.has("search_browser_roots"));
+  assert.ok(names.has("list_local_splice_roots"));
   assert.ok(names.has("set_tempo"));
+  assert.ok(names.has("route_tracks_to_return_bus"));
   assert.ok(!names.has("apply_midi_diatonic_chord_quality"));
   assert.ok(tools.every((tool) => toolContracts[tool.name]));
   assert.ok(tools.reduce((bytes, tool) => bytes + Buffer.byteLength(JSON.stringify(tool)), 0) / 4 < 20000);
@@ -51,7 +72,7 @@ test("every tool advertises MCP annotations matching its mutation class", async 
   }
   const byName = new Map(listed.result.tools.map(tool => [tool.name, tool]));
   for (const name of ["get_live_state", "list_scenes", "plan_drum_pattern", "analyze_audio_file",
-    "get_track_midi_routing", "capture_track_state_snapshot"]) {
+    "analyze_midi_feel", "get_track_midi_routing", "capture_track_state_snapshot"]) {
     assert.equal(byName.get(name).annotations.readOnlyHint, true, name);
     assert.equal(byName.get(name).annotations.destructiveHint, false, name);
   }

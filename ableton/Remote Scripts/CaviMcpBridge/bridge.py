@@ -34,6 +34,7 @@ CLIP_QUANTIZATION_NAMES = (
     "global", "none", "8_bars", "4_bars", "2_bars", "1_bar", "1_2", "1_2_triplet",
     "1_4", "1_4_triplet", "1_8", "1_8_triplet", "1_16", "1_16_triplet", "1_32",
 )
+CLIP_GRID_NAMES = ("none", "8_bars", "4_bars", "2_bars", "1_bar", "1_2", "1_4", "1_8", "1_16", "1_32")
 AUDIO_WARP_MODE_NAMES = ("beats", "tones", "texture", "re_pitch", "complex", "rex", "complex_pro")
 COUNT_IN_DURATION_NAMES = ("none", "one_bar", "two_bars", "four_bars")
 
@@ -87,6 +88,7 @@ def _track_record(song, track, index):
         "id": f"track-{index}", "name": track.name, "mute": bool(track.mute),
         "solo": bool(track.solo), "armed": bool(track.arm) if getattr(track, "can_be_armed", True) else False,
         "volume": track.mixer_device.volume.value, "pan": track.mixer_device.panning.value,
+        "type": _track_type(track),
         "isGroup": is_group, "isGrouped": is_grouped, "groupTrackId": group_track_id,
         "foldState": int(track.fold_state) if is_group else None,
     }
@@ -224,6 +226,11 @@ def _transport_recording_context(song, state_version):
         },
         "session": {"record": bool(song.session_record), "overdub": bool(song.overdub)},
         "automationArm": bool(song.session_automation_record),
+        "midiCapture": {
+            "available": bool(getattr(song, "can_capture_midi", False)),
+            "midiTrackIds": [f"track-{index}" for index, track in enumerate(song.tracks)
+                             if bool(getattr(track, "has_midi_input", False))],
+        },
     }
 
 
@@ -326,6 +333,12 @@ def _clip_timing(song, track_id, clip_id, state_version):
         "loop": loop,
         "timeSignature": {"numerator": int(clip.signature_numerator), "denominator": int(clip.signature_denominator)},
         "launchQuantization": _enum_record(clip.launch_quantization, CLIP_QUANTIZATION_NAMES),
+        "editorGrid": {
+            "quantization": _enum_record(clip.view.grid_quantization, CLIP_GRID_NAMES),
+            "isTriplet": bool(clip.view.grid_is_triplet),
+        },
+        "launchLegato": {"supported": True, "enabled": bool(clip.legato)}
+        if timeline is None and hasattr(clip, "legato") else {"supported": False},
         "grooveId": groove_id,
         "availableGrooves": [_groove_record(groove, index) for index, groove in enumerate(grooves)],
     }
@@ -389,6 +402,11 @@ def _clip_list(song, track_id, state_version):
     index, track = _track(song, track_id)
     return {
         "stateVersion": state_version, "trackId": track_id,
+        "armed": bool(track.arm) if getattr(track, "can_be_armed", True) else False,
+        "canBeArmed": bool(getattr(track, "can_be_armed", True)),
+        "isFrozen": bool(getattr(track, "is_frozen", False)),
+        "launchQuantizationChoices": [{"value": value, "name": name}
+                                      for value, name in enumerate(CLIP_QUANTIZATION_NAMES)],
         "clips": [{
             "id": f"track-{index}:clip-{slot_index}",
             "name": slot.clip.name if slot.has_clip else None,
@@ -417,9 +435,19 @@ def _arrangement_clips(song, track_id, state_version):
 
 def _scene_record(scene, index):
     quantization = getattr(scene, "launch_quantization", None)
+    tempo_supported = hasattr(scene, "tempo_enabled") and hasattr(scene, "tempo")
+    signature_supported = all(hasattr(scene, key) for key in (
+        "time_signature_enabled", "time_signature_numerator", "time_signature_denominator"))
     return {"id": f"scene-{index}", "name": scene.name,
             "launchQuantization": _enum_record(quantization, CLIP_QUANTIZATION_NAMES)
-            if quantization is not None else {"supported": False}}
+            if quantization is not None else {"supported": False},
+            "tempo": {"enabled": bool(scene.tempo_enabled),
+                      "bpm": float(scene.tempo) if scene.tempo_enabled else None}
+            if tempo_supported else {"supported": False},
+            "timeSignature": {"enabled": bool(scene.time_signature_enabled),
+                              "numerator": int(scene.time_signature_numerator) if scene.time_signature_enabled else None,
+                              "denominator": int(scene.time_signature_denominator) if scene.time_signature_enabled else None}
+            if signature_supported else {"supported": False}}
 
 
 def _parameter_record(parameter, index, include_native_choice_labels=False):
@@ -618,16 +646,18 @@ def _track_state_snapshot(song, track_id, state_version):
         "mixer": {"volume": _value_record(track.mixer_device.volume), "pan": _value_record(track.mixer_device.panning),
                   "mute": bool(track.mute), "solo": bool(track.solo), "sends": _send_records(song, track)},
         "routing": {"input": routing["input"], "output": routing["output"], "monitoring": routing["monitoring"]},
-        "devices": [{**_device_record(device, f"{track_id}:device-{index}"),
-                     "parameters": [_parameter_record(parameter, parameter_index)
-                                    for parameter_index, parameter in enumerate(device.parameters)]}
+        "devices": [_snapshot_device(device, f"{track_id}:device-{index}")
                     for index, device in enumerate(track.devices)],
     }
 
 
-def _persisted_track_state(record):
+def _persisted_track_state(record, format_name=None):
+    chain_format = format_name.replace("cavi-track-state", "cavi-device-chain") if format_name else None
+    device_chain = _persisted_device_chain(record, chain_format)
+    if format_name is None:
+        format_name = device_chain["format"].replace("cavi-device-chain", "cavi-track-state")
     return {
-        "format": "cavi-track-state-v1",
+        "format": format_name,
         "track": {"name": record["track"]["name"], "type": record["track"]["type"], "isGroup": record["track"]["isGroup"]},
         "mixer": {"volume": record["mixer"]["volume"]["value"], "pan": record["mixer"]["pan"]["value"],
                   "mute": record["mixer"]["mute"], "solo": record["mixer"]["solo"],
@@ -637,11 +667,7 @@ def _persisted_track_state(record):
                     "outputTypeId": record["routing"]["output"]["type"]["id"],
                     "outputChannelId": record["routing"]["output"]["channel"]["id"],
                     "monitoring": record["routing"]["monitoring"]["value"] if record["routing"]["monitoring"] else None},
-        "devices": [{"name": device["name"], "className": device["className"], "type": device["type"],
-                     "parameters": [{"originalName": parameter["originalName"], "min": parameter["min"], "max": parameter["max"],
-                                     "quantized": parameter["quantized"], "valueItems": parameter["valueItems"], "value": parameter["value"]}
-                                    for parameter in device["parameters"]]}
-                    for device in record["devices"]],
+        "devices": device_chain["devices"],
     }
 
 
@@ -649,23 +675,185 @@ def _device_chain_snapshot(song, owner_id, state_version):
     owner_id, owner = _device_owner(song, owner_id)
     return {
         "stateVersion": state_version, "trackId": owner_id,
-        "devices": [{**_device_record(device, f"{owner_id}:device-{index}"),
-                     "parameters": [_parameter_record(parameter, parameter_index)
-                                    for parameter_index, parameter in enumerate(device.parameters)]}
+        **({"ownerMixer": {"volume": _value_record(owner.mixer_device.volume),
+                            "pan": _value_record(owner.mixer_device.panning),
+                            "mute": bool(owner.mute), "solo": bool(owner.solo)}}
+           if owner_id.startswith("return-") else {}),
+        **({"ownerMixer": {"volume": _value_record(owner.mixer_device.volume),
+                            "pan": _value_record(owner.mixer_device.panning),
+                            "cueVolume": _value_record(owner.mixer_device.cue_volume),
+                            "crossfader": _value_record(owner.mixer_device.crossfader),
+                            "outputRouting": _set_mixer(song, state_version)["master"]["outputRouting"]}}
+           if owner_id == "master" else {}),
+        "devices": [_snapshot_device(device, f"{owner_id}:device-{index}")
                     for index, device in enumerate(owner.devices)],
     }
 
 
-def _persisted_device_chain(record):
+def _snapshot_device(device, device_id):
+    record = {**_device_record(device, device_id),
+              "parameters": [_parameter_record(parameter, index)
+                             for index, parameter in enumerate(device.parameters)]}
+    if device.can_have_drum_pads:
+        record["drumPads"] = [{"note": int(pad.note), "mute": bool(pad.mute), "solo": bool(pad.solo)}
+                              for pad in device.drum_pads if pad.chains]
+    if device.can_have_chains:
+        for key, chains in (("chains", device.chains), ("returnChains", getattr(device, "return_chains", ()))):
+            prefix = "chain" if key == "chains" else "return-chain"
+            record[key] = [{"name": chain.name,
+                            "mixer": _chain_mixer(chain, audio=key == "returnChains" or device.class_name != "MidiEffectGroupDevice"),
+                            "noteRouting": {"inputNote": getattr(chain, "in_note", None) if key == "chains" and device.can_have_drum_pads else None,
+                                            "outputNote": getattr(chain, "out_note", None) if key == "chains" and device.can_have_drum_pads else None},
+                            "devices": [_snapshot_device(child, f"{device_id}/{prefix}-{chain_index}/device-{child_index}")
+                                        for child_index, child in enumerate(chain.devices)]}
+                           for chain_index, chain in enumerate(chains)]
+    return record
+
+
+def _persisted_device_chain(record, format_name=None):
+    def has_drum_pads(device):
+        return bool(device.get("drumPads")) or any(has_drum_pads(child) for key in ("chains", "returnChains")
+                                                    for chain in device.get(key, ()) for child in chain["devices"])
+    def has_chain_controls(device):
+        for key in ("chains", "returnChains"):
+            for chain in device.get(key, ()):
+                mixer, routing = chain.get("mixer", {}), chain.get("noteRouting", {})
+                if (mixer.get("volume") is not None or mixer.get("pan") is not None or mixer.get("sends") or
+                        mixer.get("mute") is not None or mixer.get("solo") is not None or
+                        routing.get("inputNote") is not None or routing.get("outputNote") is not None or
+                        any(has_chain_controls(child) for child in chain["devices"])):
+                    return True
+        return False
+    if format_name is None:
+        format_name = ("cavi-device-chain-v6" if record["trackId"] == "master"
+                       else "cavi-device-chain-v5" if "ownerMixer" in record
+                       else "cavi-device-chain-v4" if any(has_drum_pads(device) for device in record["devices"])
+                       else "cavi-device-chain-v3" if any(has_chain_controls(device) for device in record["devices"])
+                       else "cavi-device-chain-v2" if any("chains" in device for device in record["devices"])
+                       else "cavi-device-chain-v1")
+    def persisted_device(device):
+        result = {"name": device["name"], "className": device["className"], "type": device["type"],
+                  "parameters": [{"originalName": parameter["originalName"], "min": parameter["min"],
+                                  "max": parameter["max"], "quantized": parameter["quantized"],
+                                  "valueItems": parameter["valueItems"], "value": parameter["value"]}
+                                 for parameter in device["parameters"]]}
+        if format_name != "cavi-device-chain-v1":
+            for key in ("chains", "returnChains"):
+                if key in device:
+                    chains = []
+                    for chain in device[key]:
+                        saved = {"name": chain["name"], "devices": [persisted_device(child) for child in chain["devices"]]}
+                        if format_name in ("cavi-device-chain-v3", "cavi-device-chain-v4", "cavi-device-chain-v5", "cavi-device-chain-v6"):
+                            mixer = chain["mixer"]
+                            saved["mixer"] = {"volume": mixer["volume"]["value"] if mixer["volume"] else None,
+                                              "pan": mixer["pan"]["value"] if mixer["pan"] else None,
+                                              "sends": [send["value"] for send in mixer["sends"]],
+                                              "mute": mixer["mute"], "solo": mixer["solo"]}
+                            saved["noteRouting"] = dict(chain["noteRouting"])
+                        chains.append(saved)
+                    result[key] = chains
+        if format_name in ("cavi-device-chain-v4", "cavi-device-chain-v5", "cavi-device-chain-v6") and "drumPads" in device:
+            result["drumPads"] = [dict(pad) for pad in device["drumPads"]]
+        return result
     return {
-        "format": "cavi-device-chain-v1",
-        "devices": [{"name": device["name"], "className": device["className"], "type": device["type"],
-                     "parameters": [{"originalName": parameter["originalName"], "min": parameter["min"],
-                                     "max": parameter["max"], "quantized": parameter["quantized"],
-                                     "valueItems": parameter["valueItems"], "value": parameter["value"]}
-                                    for parameter in device["parameters"]]}
-                    for device in record["devices"]],
+        "format": format_name,
+        **({"ownerMixer": {"volume": record["ownerMixer"]["volume"]["value"],
+                           "pan": record["ownerMixer"]["pan"]["value"],
+                           "mute": record["ownerMixer"]["mute"], "solo": record["ownerMixer"]["solo"]}}
+           if format_name == "cavi-device-chain-v5" else {}),
+        **({"ownerMixer": {"volume": record["ownerMixer"]["volume"]["value"],
+                           "pan": record["ownerMixer"]["pan"]["value"],
+                           "cueVolume": record["ownerMixer"]["cueVolume"]["value"],
+                           "crossfader": record["ownerMixer"]["crossfader"]["value"],
+                           "outputChannelId": record["ownerMixer"]["outputRouting"]["channel"]["id"]
+                           if record["ownerMixer"]["outputRouting"]["supported"] else None}}
+           if format_name == "cavi-device-chain-v6" else {}),
+        "devices": [persisted_device(device) for device in record["devices"]],
     }
+
+
+def _validate_snapshot_chain_controls(saved, native):
+    saved_mixer, native_mixer = saved.get("mixer"), native.get("mixer")
+    saved_routing, native_routing = saved.get("noteRouting"), native.get("noteRouting")
+    if not isinstance(saved_mixer, dict) or not isinstance(saved_routing, dict) or native_mixer is None or native_routing is None:
+        raise ValueError("device chain control layout mismatch")
+    for key in ("volume", "pan"):
+        value, bounds = saved_mixer.get(key), native_mixer[key]
+        if bounds is None:
+            if value is not None:
+                raise ValueError("device chain control layout mismatch")
+        elif (type(value) not in (int, float) or not math.isfinite(value) or
+              not bounds["min"] <= value <= bounds["max"] or
+              (value != bounds["value"] and not bounds["enabled"])):
+            raise ValueError("device chain control outside native range")
+    sends = saved_mixer.get("sends")
+    if not isinstance(sends, list) or len(sends) != len(native_mixer["sends"]):
+        raise ValueError("device chain send layout mismatch")
+    for value, bounds in zip(sends, native_mixer["sends"]):
+        if (type(value) not in (int, float) or not math.isfinite(value) or
+                not bounds["min"] <= value <= bounds["max"] or
+                (value != bounds["value"] and not bounds["enabled"])):
+            raise ValueError("device chain send outside native range")
+    for key in ("solo", "mute"):
+        value, observed = saved_mixer.get(key), native_mixer[key]
+        if (observed is None and value is not None) or (observed is not None and type(value) is not bool):
+            raise ValueError("device chain control layout mismatch")
+    for key in ("inputNote", "outputNote"):
+        value, observed = saved_routing.get(key), native_routing[key]
+        if (observed is None and value is not None) or (observed is not None and (type(value) is not int or not 0 <= value <= 127)):
+            raise ValueError("device chain note routing outside native range")
+
+
+def _apply_snapshot_chain_controls(chain, saved, write):
+    mixer = saved["mixer"]
+    for key, attribute in (("volume", "volume"), ("pan", "panning")):
+        if mixer[key] is not None:
+            write(getattr(chain.mixer_device, attribute), "value", mixer[key])
+    for send, value in zip(getattr(getattr(chain, "mixer_device", None), "sends", ()), mixer["sends"]):
+        write(send, "value", value)
+    for key in ("solo", "mute"):
+        if mixer[key] is not None:
+            write(chain, key, mixer[key])
+    for key, attribute in (("inputNote", "in_note"), ("outputNote", "out_note")):
+        if saved["noteRouting"][key] is not None:
+            write(chain, attribute, saved["noteRouting"][key])
+
+
+def _validate_snapshot_drum_pads(saved, native):
+    expected, observed = saved.get("drumPads"), native.get("drumPads")
+    if observed is None:
+        if expected is not None:
+            raise ValueError("drum pad topology mismatch")
+        return
+    if not isinstance(expected, list) or len(expected) != len(observed):
+        raise ValueError("drum pad topology mismatch")
+    for target, current in zip(expected, observed):
+        if (type(target.get("note")) is not int or target["note"] != current["note"] or
+                type(target.get("mute")) is not bool or type(target.get("solo")) is not bool or
+                (target["mute"] and target["solo"])):
+            raise ValueError("drum pad state or topology is invalid")
+
+
+def _apply_snapshot_drum_pads(device, saved, restore):
+    if "drumPads" not in saved:
+        return
+    pads = [pad for pad in device.drum_pads if pad.chains]
+    restore.extend((pad, bool(pad.solo), bool(pad.mute)) for pad in pads)
+    for pad, target in zip(pads, saved["drumPads"]):
+        pad.solo = target["solo"]
+    for pad, target in zip(pads, saved["drumPads"]):
+        pad.mute = target["mute"]
+
+
+def _restore_snapshot_drum_pads(restore):
+    errors = []
+    for attribute, index in (("solo", 1), ("mute", 2)):
+        for record in restore:
+            try:
+                setattr(record[0], attribute, record[index])
+            except Exception as error:
+                errors.append(error)
+    return errors
 
 
 def _device_type(device):
@@ -705,19 +893,20 @@ class _BrowserRootCollection:
         self.children = items
 
 
+BROWSER_ROOTS = (
+    "audio_effects", "clips", "current_project", "drums", "instruments",
+    "legacy_libraries", "max_for_live", "midi_effects", "packs", "plugins", "samples", "sounds",
+    "user_folders", "user_library",
+)
+
+
 def _browser_item(application, root, path):
-    roots = {
-        name: name for name in (
-            "audio_effects", "clips", "current_project", "drums", "hotswap_target", "instruments",
-            "legacy_libraries", "max_for_live", "midi_effects", "packs", "plugins", "samples", "sounds",
-            "user_folders", "user_library",
-        )
-    }
-    if root not in roots:
+    if root not in BROWSER_ROOTS and root != "hotswap_target":
         raise ValueError("unknown Live browser root")
-    item = getattr(application.browser, roots[root])
-    if root == "user_folders" and not hasattr(item, "children"):
-        item = _BrowserRootCollection("User Folders", item)
+    item = getattr(application.browser, root)
+    if root in ("user_folders", "legacy_libraries") and not hasattr(item, "children"):
+        item = _BrowserRootCollection(
+            "User Folders" if root == "user_folders" else "Legacy Libraries", item)
     for name in path:
         matches = [child for child in item.children if child.name == name]
         if len(matches) != 1:
@@ -767,6 +956,37 @@ def _chain_mixer(chain, audio=True):
 
 def _device_tree(device, device_id):
     record = _device_record(device, device_id)
+    if device.can_have_chains and all(hasattr(device, field) for field in (
+        "has_macro_mappings", "visible_macro_count", "variation_count", "selected_variation_index"
+    )):
+        record["rackMacros"] = {
+            "hasMappings": bool(device.has_macro_mappings),
+            "visibleCount": int(device.visible_macro_count),
+            "variationCount": int(device.variation_count),
+            "selectedVariationIndex": int(device.selected_variation_index),
+        }
+        count = int(device.visible_macro_count)
+        parameters = device.parameters
+        if len(parameters) > count and all(
+            parameters[index + 1].original_name == f"Macro {index + 1}"
+            for index in range(count)
+        ):
+            record["rackMacros"]["controls"] = [
+                {"macroIndex": index, "name": str(parameters[index + 1].name)}
+                for index in range(count)
+            ]
+        if hasattr(device, "macro_mappings"):
+            record["rackMacros"]["mappings"] = [{
+                "macroIndex": int(mapping.index), "targetPath": str(mapping.path),
+                "parameterName": str(mapping.parameter.name),
+                "parameterOriginalName": str(mapping.parameter.original_name),
+                "parameterMin": float(mapping.parameter.min),
+                "parameterMax": float(mapping.parameter.max),
+                "parameterQuantized": bool(mapping.parameter.is_quantized),
+                "min": float(mapping.mapping_min), "max": float(mapping.mapping_max),
+                "minDisplay": str(mapping.mapping_min_string),
+                "maxDisplay": str(mapping.mapping_max_string),
+            } for mapping in device.macro_mappings]
     chains = []
     chain_ids = []
     if device.can_have_chains:
@@ -2299,6 +2519,48 @@ def dispatch_request(song, request, state_version, application=None):
                                      "groovePoolCreate": groove_pool is not None and callable(getattr(groove_pool, "create_groove", None))}}
     if method == "get_transport_context":
         return _transport_context(song, state_version)
+    if method == "capture_midi_session":
+        if params.get("expectedStateVersion") != state_version:
+            raise ValueError("MIDI capture state version changed")
+        before = _transport_recording_context(song, state_version)
+        if params.get("before") != before["midiCapture"]:
+            raise ValueError("MIDI capture readiness or track topology changed")
+        if not before["midiCapture"]["available"]:
+            raise ValueError("no MIDI material is available to capture")
+        track_ids = before["midiCapture"]["midiTrackIds"]
+        previous = {record["id"]: record for track_id in track_ids
+                    for record in _clip_list(song, track_id, state_version)["clips"]}
+        def note_state(slot):
+            if not slot.has_clip:
+                return None
+            notes = sorted((_midi_note_record(note) for note in slot.clip.get_all_notes_extended()),
+                           key=lambda note: note["noteId"])
+            digest = hashlib.sha256(json.dumps(notes, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            return {"count": len(notes), "digest": digest}
+        watched = {f"track-{track_index}:clip-{slot_index}": (track_index, slot_index)
+                   for track_index, track in enumerate(song.tracks)
+                   if f"track-{track_index}" in track_ids and track.arm
+                   for slot_index, slot in enumerate(track.clip_slots)
+                   if slot.has_clip and slot.clip.is_playing}
+        notes_before = {clip_id: note_state(song.tracks[track_index].clip_slots[slot_index])
+                        for clip_id, (track_index, slot_index) in watched.items()}
+        scene_count_before = len(song.scenes)
+        song.capture_midi(1)
+        current = {record["id"]: record for track_id in track_ids
+                   for record in _clip_list(song, track_id, state_version + 1)["clips"]}
+        notes_after = {clip_id: note_state(song.tracks[track_index].clip_slots[slot_index])
+                       for clip_id, (track_index, slot_index) in watched.items()}
+        changed = [{"clipId": clip_id, "before": previous.get(clip_id), "after": record,
+                    **({"noteCountBefore": notes_before[clip_id]["count"] if notes_before[clip_id] else None,
+                        "noteCountAfter": notes_after[clip_id]["count"] if notes_after[clip_id] else None,
+                        "noteStateChanged": notes_before[clip_id] != notes_after[clip_id]}
+                       if clip_id in watched else {})}
+                   for clip_id, record in current.items()
+                   if previous.get(clip_id) != record or (clip_id in watched and notes_before[clip_id] != notes_after[clip_id])]
+        return {"stateVersion": state_version + 1, "destination": "session",
+                "before": before, "after": _transport_recording_context(song, state_version + 1),
+                "sceneCountBefore": scene_count_before, "sceneCountAfter": len(song.scenes),
+                "changedSlots": changed}
     if method == "get_looper_performance_context":
         return _looper_performance_context(song, params["trackId"], params["deviceId"], state_version)
     if method == "get_beat_repeat_performance_context":
@@ -2628,6 +2890,114 @@ def dispatch_request(song, request, state_version, application=None):
             track.current_output_routing = name
             routes.append(_track_routing(song, track_id, state_version + 1))
         return {"stateVersion": state_version + 1, "busTrackId": params["busTrackId"], "routes": routes}
+    if method == "route_tracks_to_return_bus":
+        if params.get("expectedStateVersion") != state_version:
+            raise ValueError("Return-bus routing state version changed")
+        return_id = params["returnTrackId"]
+        if not isinstance(return_id, str) or not return_id.startswith("return-"):
+            raise ValueError("invalid Return-bus ID")
+        _, return_track = _device_owner(song, return_id)
+        return_index = int(return_id.removeprefix("return-"))
+        if params.get("beforeReturn") != _return_mixer_record(return_track, return_index):
+            raise ValueError("Return bus changed")
+        value = params.get("sendValue")
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1:
+            raise ValueError("invalid send value")
+        changes, seen = [], set()
+        for route in params["routes"]:
+            track_id = route["trackId"]
+            if track_id in seen:
+                raise ValueError("duplicate source track")
+            seen.add(track_id)
+            _, track = _track(song, track_id)
+            before_mixer = dispatch_request(song, {"method": "get_track_mixer", "params": {"trackId": track_id}}, state_version)
+            before_routing = _track_routing(song, track_id, state_version)
+            if route.get("beforeMixer") != before_mixer or route.get("beforeRouting") != before_routing:
+                raise ValueError("source mixer or routing changed")
+            sends = [send for send in before_mixer["sends"] if send["id"] == route["sendId"] and send["returnTrackId"] == return_id]
+            choices = [choice for choice in before_routing["output"]["availableTypes"]
+                       if choice["id"] == route["outputTypeId"] and choice["name"] == "Sends Only"]
+            if len(sends) != 1 or len(choices) != 1 or not sends[0]["min"] <= value <= sends[0]["max"]:
+                raise ValueError("Return send or Sends Only routing unavailable")
+            send_index = int(route["sendId"].removeprefix("send-"))
+            changes.append((track_id, track, track.mixer_device.sends[send_index], choices[0]["name"]))
+        if not changes:
+            raise ValueError("no source tracks")
+        with _undo_step(song):
+            for _, track, send, output_name in changes:
+                send.value = value
+                track.current_output_routing = output_name
+        observed_routes = []
+        for track_id, _, _, _ in changes:
+            mixer = dispatch_request(song, {"method": "get_track_mixer", "params": {"trackId": track_id}}, state_version + 1)
+            routing = _track_routing(song, track_id, state_version + 1)
+            observed_routes.append({"trackId": track_id, "mixer": mixer, "routing": routing})
+        return {"stateVersion": state_version + 1, "returnTrackId": return_id, "routes": observed_routes}
+    if method == "list_browser_roots":
+        roots = []
+        for root in BROWSER_ROOTS:
+            try:
+                item = _browser_item(application, root, [])
+            except (AttributeError, RuntimeError):
+                roots.append({"root": root, "available": False, "item": None, "totalChildren": None})
+            else:
+                roots.append({"root": root, "available": True,
+                              "item": _browser_item_record(item), "totalChildren": len(item.children)})
+        return {"stateVersion": state_version, "roots": roots}
+    if method == "search_browser_roots":
+        roots = params.get("roots", BROWSER_ROOTS)
+        if (not isinstance(roots, (list, tuple)) or not roots
+                or any(root not in BROWSER_ROOTS for root in roots) or len(set(roots)) != len(roots)):
+            raise ValueError("browser roots must be unique known roots")
+        query = params.get("query")
+        max_depth = params.get("maxDepth")
+        limit = params.get("limit")
+        max_visited = params.get("maxVisited", 10000)
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError("browser query must be nonempty")
+        if not isinstance(max_depth, int) or isinstance(max_depth, bool) or not 1 <= max_depth <= 16:
+            raise ValueError("browser depth must be an integer from 1 to 16")
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 200:
+            raise ValueError("browser limit must be an integer from 1 to 200")
+        if not isinstance(max_visited, int) or isinstance(max_visited, bool) or not 1 <= max_visited <= 50000:
+            raise ValueError("browser scan budget must be an integer from 1 to 50000")
+        results, searched, unavailable = [], [], []
+        visited, reason = 0, None
+
+        def visit(parent, path, depth, found, root):
+            nonlocal visited, reason
+            if depth >= max_depth:
+                return
+            for child in parent.children:
+                if visited >= max_visited:
+                    reason = "scan_limit"
+                    return
+                visited += 1
+                child_path = path + [child.name]
+                if query.casefold() in child.name.casefold():
+                    found.append({"root": root, **_browser_item_record(child), "path": child_path})
+                    if len(results) + len(found) > limit:
+                        reason = "result_limit"
+                        return
+                if child.is_folder:
+                    visit(child, child_path, depth + 1, found, root)
+                    if reason:
+                        return
+
+        for root in roots:
+            try:
+                found = []
+                visit(_browser_item(application, root, []), [], 0, found, root)
+            except (AttributeError, RuntimeError):
+                unavailable.append(root)
+                continue
+            searched.append(root)
+            results.extend(found)
+            if reason:
+                break
+        return {"stateVersion": state_version, "query": query, "searchedRoots": searched,
+                "unavailableRoots": unavailable, "results": results[:limit],
+                "visitedItems": visited, "truncated": reason is not None, "truncationReason": reason}
     if method in ("get_browser_items", "get_factory_browser_items"):
         item = _browser_item(application, params["root"], params.get("path", []))
         children = item.children
@@ -2720,33 +3090,117 @@ def dispatch_request(song, request, state_version, application=None):
                 "return": {"id": f"return-{index}", "name": song.return_tracks[index].name}}
     if method == "set_master_mixer":
         mixer = song.master_track.mixer_device
-        if "outputChannelId" in params["changes"]:
-            routing = _set_mixer(song, state_version)["master"]["outputRouting"]
-            identifier = params["changes"]["outputChannelId"]["value"]["id"]
-            selected = next((option for option in routing["availableChannels"] if option["id"] == identifier), None)
-            if not routing["supported"] or selected is None:
-                raise ValueError("master output channel is unavailable")
-            song.master_track.current_output_sub_routing = selected["name"]
+        if params.get("beforeMaster") != _set_mixer(song, state_version)["master"]:
+            raise ValueError("master mixer changed after planning")
+        changes = params["changes"]
         properties = {"volume": "volume", "pan": "panning", "cueVolume": "cue_volume", "crossfader": "crossfader"}
-        for key, attribute in properties.items():
-            if key in params["changes"]:
-                getattr(mixer, attribute).value = params["changes"][key]["value"]
-        return _set_mixer(song, state_version + 1)
+        if not isinstance(changes, dict) or not changes or set(changes) - (set(properties) | {"outputChannelId"}):
+            raise ValueError("invalid master mixer changes")
+        for key in properties:
+            if key not in changes:
+                continue
+            change, bounds = changes[key], params["beforeMaster"][key]
+            requested, value = change.get("requestedValue"), change.get("value")
+            if change.get("previousValue") != bounds["value"] or \
+                    type(requested) not in (int, float) or not math.isfinite(requested) or \
+                    type(value) not in (int, float) or not math.isfinite(value) or \
+                    value != max(bounds["min"], min(bounds["max"], requested)):
+                raise ValueError(f"master {key} value outside signed native range")
+        selected = None
+        if "outputChannelId" in changes:
+            routing = params["beforeMaster"]["outputRouting"]
+            routing_change = changes["outputChannelId"]
+            if routing_change.get("previous") != routing["channel"] or not isinstance(routing_change.get("value"), dict):
+                raise ValueError("master output routing changed after planning")
+            identifier = routing_change["value"].get("id")
+            selected = next((option for option in routing["availableChannels"] if option["id"] == identifier), None)
+            if not routing["supported"] or selected is None or routing_change["value"] != selected:
+                raise ValueError("master output channel is unavailable")
+        writes = []
+        def write(target, attribute, value):
+            previous = getattr(target, attribute)
+            if previous != value:
+                writes.append((target, attribute, previous))
+                setattr(target, attribute, value)
+        song.begin_undo_step()
+        try:
+            if selected is not None:
+                write(song.master_track, "current_output_sub_routing", selected["name"])
+            for key, attribute in properties.items():
+                if key in changes:
+                    write(getattr(mixer, attribute), "value", changes[key]["value"])
+            result = _set_mixer(song, state_version + 1)
+            master = result["master"]
+            if any(master[key]["value"] != changes[key]["value"] for key in properties if key in changes) or \
+                    (selected is not None and master["outputRouting"]["channel"]["id"] != selected["id"]):
+                raise ValueError("Live did not apply the complete master mixer change")
+        except Exception as error:
+            rollback_errors = []
+            for target, attribute, previous in reversed(writes):
+                try:
+                    setattr(target, attribute, previous)
+                except Exception as rollback_error:
+                    rollback_errors.append(rollback_error)
+            if rollback_errors:
+                raise RuntimeError(f"master mixer change failed: {error}; rollback failed: {rollback_errors}; use Live undo") from error
+            raise
+        finally:
+            song.end_undo_step()
+        return result
     if method == "set_return_mixer":
         index = int(params["returnTrackId"].removeprefix("return-"))
         track = song.return_tracks[index]
-        if track.name != params["beforeReturn"]["name"]:
-            raise ValueError("return track identity changed")
+        if _return_mixer_record(track, index) != params.get("beforeReturn"):
+            raise ValueError("return track changed after planning")
         changes = params["changes"]
-        if "volume" in changes:
-            track.mixer_device.volume.value = changes["volume"]["value"]
-        if "pan" in changes:
-            track.mixer_device.panning.value = changes["pan"]["value"]
-        if "mute" in changes:
-            track.mute = changes["mute"]["value"]
-        if "solo" in changes:
-            track.solo = changes["solo"]["value"]
-        return {"stateVersion": state_version + 1, "return": _return_mixer_record(track, index)}
+        if not isinstance(changes, dict) or not changes or set(changes) - {"volume", "pan", "mute", "solo"}:
+            raise ValueError("invalid return mixer changes")
+        for key in ("volume", "pan"):
+            if key not in changes:
+                continue
+            change, bounds = changes[key], params["beforeReturn"][key]
+            requested, value = change.get("requestedValue"), change.get("value")
+            if change.get("previousValue") != bounds["value"] or \
+                    type(requested) not in (int, float) or not math.isfinite(requested) or \
+                    type(value) not in (int, float) or not math.isfinite(value) or \
+                    value != max(bounds["min"], min(bounds["max"], requested)):
+                raise ValueError(f"return {key} value outside signed native range")
+        for key in ("mute", "solo"):
+            if key in changes and (changes[key].get("previousValue") != params["beforeReturn"][key] or
+                                   type(changes[key].get("value")) is not bool):
+                raise ValueError(f"return {key} state is invalid")
+        writes = []
+        def write(target, attribute, value):
+            previous = getattr(target, attribute)
+            if previous != value:
+                writes.append((target, attribute, previous))
+                setattr(target, attribute, value)
+        song.begin_undo_step()
+        try:
+            if "volume" in changes:
+                write(track.mixer_device.volume, "value", changes["volume"]["value"])
+            if "pan" in changes:
+                write(track.mixer_device.panning, "value", changes["pan"]["value"])
+            for key in ("mute", "solo"):
+                if key in changes:
+                    write(track, key, changes[key]["value"])
+            observed = _return_mixer_record(track, index)
+            if any((observed[key]["value"] if key in ("volume", "pan") else observed[key]) != changes[key]["value"]
+                   for key in changes):
+                raise ValueError("Live did not apply the complete return mixer change")
+        except Exception as error:
+            rollback_errors = []
+            for target, attribute, previous in reversed(writes):
+                try:
+                    setattr(target, attribute, previous)
+                except Exception as rollback_error:
+                    rollback_errors.append(rollback_error)
+            if rollback_errors:
+                raise RuntimeError(f"return mixer change failed: {error}; rollback failed: {rollback_errors}; use Live undo") from error
+            raise
+        finally:
+            song.end_undo_step()
+        return {"stateVersion": state_version + 1, "return": observed}
     if method == "get_device_sidechain_routing":
         return _device_sidechain_routing(song, params["trackId"], params["deviceId"], state_version)
     if method == "set_device_sidechain_routing":
@@ -2984,13 +3438,42 @@ def dispatch_request(song, request, state_version, application=None):
         if current != params["before"]:
             raise ValueError("device chain changed after planning")
         target = params["target"]
-        if target.get("format") != "cavi-device-chain-v1" or len(target.get("devices", ())) != len(current["devices"]):
+        format_name = target.get("format")
+        if format_name not in ("cavi-device-chain-v1", "cavi-device-chain-v2", "cavi-device-chain-v3", "cavi-device-chain-v4", "cavi-device-chain-v5", "cavi-device-chain-v6") or not isinstance(target.get("devices"), list) or len(target["devices"]) != len(current["devices"]):
             raise ValueError("device chain topology mismatch")
-        for saved_device, native_device in zip(target["devices"], current["devices"]):
+        if format_name == "cavi-device-chain-v5":
+            native_mixer, saved_mixer = current.get("ownerMixer"), target.get("ownerMixer")
+            if native_mixer is None or not isinstance(saved_mixer, dict) or set(saved_mixer) != {"volume", "pan", "mute", "solo"}:
+                raise ValueError("return bus mixer layout mismatch")
+            for key in ("volume", "pan"):
+                value, bounds = saved_mixer[key], native_mixer[key]
+                if type(value) not in (int, float) or not math.isfinite(value) or not bounds["min"] <= value <= bounds["max"]:
+                    raise ValueError("return bus mixer value outside native range")
+            if type(saved_mixer["mute"]) is not bool or type(saved_mixer["solo"]) is not bool:
+                raise ValueError("return bus mixer state is invalid")
+        if format_name == "cavi-device-chain-v6":
+            native_mixer, saved_mixer = current.get("ownerMixer"), target.get("ownerMixer")
+            if owner_id != "master" or native_mixer is None or not isinstance(saved_mixer, dict) or set(saved_mixer) != {"volume", "pan", "cueVolume", "crossfader", "outputChannelId"}:
+                raise ValueError("master mixer layout mismatch")
+            for key in ("volume", "pan", "cueVolume", "crossfader"):
+                value, bounds = saved_mixer[key], native_mixer[key]
+                if type(value) not in (int, float) or not math.isfinite(value) or not bounds["min"] <= value <= bounds["max"]:
+                    raise ValueError("master mixer value outside native range")
+            routing = native_mixer["outputRouting"]
+            channel_id = saved_mixer["outputChannelId"]
+            if routing["supported"]:
+                if not isinstance(channel_id, str) or not any(option["id"] == channel_id for option in routing["availableChannels"]):
+                    raise ValueError("master output channel is unavailable")
+            elif channel_id is not None:
+                raise ValueError("master output routing is unavailable")
+        if format_name not in ("cavi-device-chain-v1", "cavi-device-chain-v5", "cavi-device-chain-v6") and not any("chains" in device for device in current["devices"]):
+            raise ValueError("device chain topology mismatch")
+        def validate_device(saved_device, native_device):
             if (saved_device.get("className") != native_device["className"] or
                     saved_device.get("type") != native_device["type"] or
                     not isinstance(saved_device.get("name"), str) or not saved_device["name"].strip() or
-                    len(saved_device.get("parameters", ())) != len(native_device["parameters"])):
+                    not isinstance(saved_device.get("parameters"), list) or
+                    len(saved_device["parameters"]) != len(native_device["parameters"])):
                 raise ValueError("device chain topology mismatch")
             for saved, native in zip(saved_device["parameters"], native_device["parameters"]):
                 if any(saved.get(field) != native[field] for field in ("originalName", "min", "max", "quantized", "valueItems")):
@@ -3001,7 +3484,28 @@ def dispatch_request(song, request, state_version, application=None):
                     raise ValueError("device parameter value outside native range")
                 if value != native["value"] and not native["enabled"]:
                     raise ValueError(f"parameter {native['id']} is disabled")
-        writes = []
+            if format_name in ("cavi-device-chain-v4", "cavi-device-chain-v5", "cavi-device-chain-v6"):
+                _validate_snapshot_drum_pads(saved_device, native_device)
+            if format_name != "cavi-device-chain-v1":
+                for key in ("chains", "returnChains"):
+                    native_chains = native_device.get(key)
+                    saved_chains = saved_device.get(key)
+                    if native_chains is None and saved_chains is None:
+                        continue
+                    if not isinstance(saved_chains, list) or native_chains is None or len(saved_chains) != len(native_chains):
+                        raise ValueError("device chain topology mismatch")
+                    for saved_chain, native_chain in zip(saved_chains, native_chains):
+                        if (not isinstance(saved_chain.get("name"), str) or not saved_chain["name"].strip() or
+                                not isinstance(saved_chain.get("devices"), list) or
+                                len(saved_chain["devices"]) != len(native_chain["devices"])):
+                            raise ValueError("device chain topology mismatch")
+                        if format_name in ("cavi-device-chain-v3", "cavi-device-chain-v4", "cavi-device-chain-v5", "cavi-device-chain-v6"):
+                            _validate_snapshot_chain_controls(saved_chain, native_chain)
+                        for saved_child, native_child in zip(saved_chain["devices"], native_chain["devices"]):
+                            validate_device(saved_child, native_child)
+        for saved_device, native_device in zip(target["devices"], current["devices"]):
+            validate_device(saved_device, native_device)
+        writes, pad_restore = [], []
         def write(target_object, attribute, value):
             previous = getattr(target_object, attribute)
             if previous != value:
@@ -3009,12 +3513,40 @@ def dispatch_request(song, request, state_version, application=None):
                 setattr(target_object, attribute, value)
         song.begin_undo_step()
         try:
-            for device, saved_device in zip(owner.devices, target["devices"]):
+            if format_name == "cavi-device-chain-v5":
+                write(owner.mixer_device.volume, "value", target["ownerMixer"]["volume"])
+                write(owner.mixer_device.panning, "value", target["ownerMixer"]["pan"])
+                write(owner, "mute", target["ownerMixer"]["mute"])
+                write(owner, "solo", target["ownerMixer"]["solo"])
+            if format_name == "cavi-device-chain-v6":
+                saved_mixer = target["ownerMixer"]
+                for key, attribute in (("volume", "volume"), ("pan", "panning"),
+                                       ("cueVolume", "cue_volume"), ("crossfader", "crossfader")):
+                    write(getattr(owner.mixer_device, attribute), "value", saved_mixer[key])
+                routing = current["ownerMixer"]["outputRouting"]
+                if routing["supported"]:
+                    selected = next(option for option in routing["availableChannels"]
+                                    if option["id"] == saved_mixer["outputChannelId"])
+                    write(owner, "current_output_sub_routing", selected["name"])
+            def apply_device(device, saved_device):
                 write(device, "name", saved_device["name"])
                 for parameter, saved in zip(device.parameters, saved_device["parameters"]):
                     write(parameter, "value", saved["value"])
+                if format_name != "cavi-device-chain-v1":
+                    for key, native_chains in (("chains", device.chains), ("returnChains", getattr(device, "return_chains", ()))) if device.can_have_chains else ():
+                        for chain, saved_chain in zip(native_chains, saved_device[key]):
+                            write(chain, "name", saved_chain["name"])
+                            if format_name in ("cavi-device-chain-v3", "cavi-device-chain-v4", "cavi-device-chain-v5", "cavi-device-chain-v6"):
+                                _apply_snapshot_chain_controls(chain, saved_chain, write)
+                            for child, saved_child in zip(chain.devices, saved_chain["devices"]):
+                                apply_device(child, saved_child)
+                if format_name in ("cavi-device-chain-v4", "cavi-device-chain-v5", "cavi-device-chain-v6"):
+                    _apply_snapshot_drum_pads(device, saved_device, pad_restore)
+            for device, saved_device in zip(owner.devices, target["devices"]):
+                apply_device(device, saved_device)
             result = _device_chain_snapshot(song, owner_id, state_version + 1)
-            if _persisted_device_chain(result) != target:
+            observed = _persisted_device_chain(result, format_name)
+            if observed != target:
                 raise ValueError("Live did not apply the complete device chain snapshot")
         except Exception as error:
             rollback_errors = []
@@ -3023,6 +3555,7 @@ def dispatch_request(song, request, state_version, application=None):
                     setattr(target_object, attribute, previous)
                 except Exception as rollback_error:
                     rollback_errors.append(rollback_error)
+            rollback_errors.extend(_restore_snapshot_drum_pads(pad_restore))
             if rollback_errors:
                 details = "; ".join(str(item) for item in rollback_errors)
                 raise RuntimeError(f"device chain recall failed: {error}; rollback failed: {details}; use Live undo") from error
@@ -3035,9 +3568,12 @@ def dispatch_request(song, request, state_version, application=None):
         current = _track_state_snapshot(song, track_id, state_version)
         if current != params["before"]:
             raise ValueError("track state changed after planning")
-        if target.get("format") != "cavi-track-state-v1":
+        if target.get("format") not in ("cavi-track-state-v1", "cavi-track-state-v2", "cavi-track-state-v3", "cavi-track-state-v4"):
             raise ValueError("invalid track snapshot format")
-        persisted = _persisted_track_state(current)
+        nested = target["format"] != "cavi-track-state-v1"
+        persisted = _persisted_track_state(current, target["format"])
+        if nested and not any("chains" in device for device in current["devices"]):
+            raise ValueError("snapshot device topology mismatch")
         if target["track"]["type"] != persisted["track"]["type"] or target["track"]["isGroup"] != persisted["track"]["isGroup"]:
             raise ValueError("snapshot track type is incompatible")
         if len(target["mixer"]["sends"]) != len(current["mixer"]["sends"]):
@@ -3070,7 +3606,7 @@ def dispatch_request(song, request, state_version, application=None):
             raise ValueError("snapshot routing monitoring is unavailable")
         if len(target["devices"]) != len(current["devices"]):
             raise ValueError("snapshot device topology mismatch")
-        for saved_device, native_device in zip(target["devices"], current["devices"]):
+        def validate_device(saved_device, native_device):
             if saved_device["className"] != native_device["className"] or saved_device["type"] != native_device["type"] or len(saved_device["parameters"]) != len(native_device["parameters"]):
                 raise ValueError("snapshot device topology mismatch")
             for saved, native in zip(saved_device["parameters"], native_device["parameters"]):
@@ -3080,8 +3616,28 @@ def dispatch_request(song, request, state_version, application=None):
                     raise ValueError("snapshot parameter value outside native range")
                 if saved["value"] != native["value"] and not native["enabled"]:
                     raise ValueError(f"parameter {native['id']} is disabled")
+            if target["format"] == "cavi-track-state-v4":
+                _validate_snapshot_drum_pads(saved_device, native_device)
+            if nested:
+                for key in ("chains", "returnChains"):
+                    native_chains, saved_chains = native_device.get(key), saved_device.get(key)
+                    if native_chains is None and saved_chains is None:
+                        continue
+                    if not isinstance(saved_chains, list) or native_chains is None or len(saved_chains) != len(native_chains):
+                        raise ValueError("snapshot device topology mismatch")
+                    for saved_chain, native_chain in zip(saved_chains, native_chains):
+                        if (not isinstance(saved_chain.get("name"), str) or not saved_chain["name"].strip() or
+                                not isinstance(saved_chain.get("devices"), list) or
+                                len(saved_chain["devices"]) != len(native_chain["devices"])):
+                            raise ValueError("snapshot device topology mismatch")
+                        if target["format"] in ("cavi-track-state-v3", "cavi-track-state-v4"):
+                            _validate_snapshot_chain_controls(saved_chain, native_chain)
+                        for saved_child, native_child in zip(saved_chain["devices"], native_chain["devices"]):
+                            validate_device(saved_child, native_child)
+        for saved_device, native_device in zip(target["devices"], current["devices"]):
+            validate_device(saved_device, native_device)
         _, track = _track(song, track_id)
-        writes = []
+        writes, pad_restore = [], []
         route_previous = {}
         def write(owner, attribute, value):
             previous = getattr(owner, attribute)
@@ -3123,12 +3679,24 @@ def dispatch_request(song, request, state_version, application=None):
                     write_route(attribute, selected["name"])
             if target["routing"]["monitoring"] is not None:
                 write(track, "current_monitoring_state", target["routing"]["monitoring"])
-            for device, saved_device in zip(track.devices, target["devices"]):
+            def apply_device(device, saved_device):
                 write(device, "name", saved_device["name"])
                 for parameter, saved in zip(device.parameters, saved_device["parameters"]):
                     write(parameter, "value", saved["value"])
+                if nested and device.can_have_chains:
+                    for key, native_chains in (("chains", device.chains), ("returnChains", getattr(device, "return_chains", ()))):
+                        for chain, saved_chain in zip(native_chains, saved_device[key]):
+                            write(chain, "name", saved_chain["name"])
+                            if target["format"] in ("cavi-track-state-v3", "cavi-track-state-v4"):
+                                _apply_snapshot_chain_controls(chain, saved_chain, write)
+                            for child, saved_child in zip(chain.devices, saved_chain["devices"]):
+                                apply_device(child, saved_child)
+                if target["format"] == "cavi-track-state-v4":
+                    _apply_snapshot_drum_pads(device, saved_device, pad_restore)
+            for device, saved_device in zip(track.devices, target["devices"]):
+                apply_device(device, saved_device)
             result = _track_state_snapshot(song, track_id, state_version + 1)
-            if _persisted_track_state(result) != target:
+            if _persisted_track_state(result, target["format"]) != target:
                 raise ValueError("Live did not apply the complete track snapshot")
         except Exception as error:
             rollback_errors = []
@@ -3137,6 +3705,7 @@ def dispatch_request(song, request, state_version, application=None):
                     setattr(owner, attribute, previous)
                 except Exception as rollback_error:
                     rollback_errors.append(rollback_error)
+            rollback_errors.extend(_restore_snapshot_drum_pads(pad_restore))
             for attribute in ("current_input_routing", "current_output_routing",
                               "current_input_sub_routing", "current_output_sub_routing"):
                 if attribute in route_previous:
@@ -3152,14 +3721,38 @@ def dispatch_request(song, request, state_version, application=None):
             song.end_undo_step()
         return result
     if method == "create_track":
-        index = int(params["index"])
-        if params["type"] == "midi":
-            song.create_midi_track(index)
-        else:
-            song.create_audio_track(index)
-        song.tracks[index].name = params["name"]
+        index, kind, name = params.get("index"), params.get("type"), params.get("name")
+        if type(index) is not int or not 0 <= index <= len(song.tracks) or kind not in ("midi", "audio") or \
+                not isinstance(name, str) or not name.strip():
+            raise ValueError("invalid track creation request")
+        current = list(song.tracks)
+        context = {"count": len(current),
+                   "previous": _track_record(song, current[index - 1], index - 1) if index else None,
+                   "next": _track_record(song, current[index], index) if index < len(current) else None}
+        if params.get("before") != context:
+            raise ValueError("track insertion context changed")
+        with _undo_step(song):
+            try:
+                if kind == "midi":
+                    song.create_midi_track(index)
+                else:
+                    song.create_audio_track(index)
+                if len(song.tracks) != len(current) + 1 or list(song.tracks[:index]) != current[:index] or \
+                        list(song.tracks[index + 1:]) != current[index:]:
+                    raise RuntimeError("Live did not insert exactly one track at the requested index")
+                song.tracks[index].name = name
+                if _track_type(song.tracks[index]) != kind or song.tracks[index].name != name:
+                    raise RuntimeError("Live did not create the requested track")
+            except Exception as error:
+                if len(song.tracks) == len(current) + 1 and list(song.tracks[:index]) == current[:index] and \
+                        list(song.tracks[index + 1:]) == current[index:]:
+                    try:
+                        song.delete_track(index)
+                    except Exception as rollback_error:
+                        raise RuntimeError(f"track creation failed: {error}; rollback failed: {rollback_error}; use Live undo") from error
+                raise
         return {"stateVersion": state_version + 1, "track": {
-            "id": f"track-{index}", "name": song.tracks[index].name, "type": params["type"],
+            "id": f"track-{index}", "name": song.tracks[index].name, "type": kind,
         }}
     if method == "get_track_mixer":
         _, track = _track(song, params["trackId"])
@@ -3172,9 +3765,33 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "list_scenes":
         return {"stateVersion": state_version, "scenes": [_scene_record(scene, index) for index, scene in enumerate(song.scenes)]}
     if method == "create_scene":
-        index = int(params["index"])
-        song.create_scene(index)
-        song.scenes[index].name = params["name"]
+        index, name = params.get("index"), params.get("name")
+        if type(index) is not int or not 0 <= index <= len(song.scenes) or \
+                not isinstance(name, str) or not name.strip():
+            raise ValueError("invalid scene creation request")
+        current = list(song.scenes)
+        context = {"count": len(current),
+                   "previous": _scene_record(current[index - 1], index - 1) if index else None,
+                   "next": _scene_record(current[index], index) if index < len(current) else None}
+        if params.get("before") != context:
+            raise ValueError("scene insertion context changed")
+        with _undo_step(song):
+            try:
+                song.create_scene(index)
+                if len(song.scenes) != len(current) + 1 or list(song.scenes[:index]) != current[:index] or \
+                        list(song.scenes[index + 1:]) != current[index:]:
+                    raise RuntimeError("Live did not insert exactly one scene at the requested index")
+                song.scenes[index].name = name
+                if song.scenes[index].name != name:
+                    raise RuntimeError("Live did not create the requested scene")
+            except Exception as error:
+                if len(song.scenes) == len(current) + 1 and list(song.scenes[:index]) == current[:index] and \
+                        list(song.scenes[index + 1:]) == current[index:]:
+                    try:
+                        song.delete_scene(index)
+                    except Exception as rollback_error:
+                        raise RuntimeError(f"scene creation failed: {error}; rollback failed: {rollback_error}; use Live undo") from error
+                raise
         return {"stateVersion": state_version + 1, "scene": _scene_record(song.scenes[index], index)}
     if method == "set_scene_launch_quantization":
         if params.get("expectedStateVersion") != state_version:
@@ -3202,6 +3819,56 @@ def dispatch_request(song, request, state_version, application=None):
             raise ValueError("scene launch quantization is already selected")
         with _undo_step(song):
             scene.launch_quantization = value
+        return {"stateVersion": state_version + 1, "scene": _scene_record(scene, index)}
+    if method == "set_scene_musical_context":
+        if params.get("expectedStateVersion") != state_version:
+            raise ValueError("scene state version changed")
+        scene_id = params["sceneId"]
+        if not isinstance(scene_id, str) or not scene_id.startswith("scene-"):
+            raise ValueError("invalid scene ID")
+        suffix = scene_id.removeprefix("scene-")
+        if not suffix.isascii() or not suffix.isdigit() or str(int(suffix)) != suffix or int(suffix) >= len(song.scenes):
+            raise ValueError("scene ID is noncanonical or unavailable")
+        index = int(suffix)
+        scene = song.scenes[index]
+        before = _scene_record(scene, index)
+        if params.get("before") != before:
+            raise ValueError("scene musical context changed")
+        changes = params["changes"]
+        if not isinstance(changes, dict) or not changes or set(changes) - {"tempo", "timeSignature"}:
+            raise ValueError("invalid scene musical changes")
+        if "tempo" in changes:
+            target = changes["tempo"]
+            if not isinstance(target, dict) or before["tempo"].get("supported") is False or type(target.get("enabled")) is not bool:
+                raise ValueError("scene tempo is unavailable")
+            if target["enabled"] and (type(target.get("bpm")) not in (int, float) or
+                                      not math.isfinite(target["bpm"]) or not 20 <= target["bpm"] <= 999):
+                raise ValueError("invalid scene tempo")
+            if set(target) != ({"enabled", "bpm"} if target["enabled"] else {"enabled"}):
+                raise ValueError("invalid scene tempo change")
+        if "timeSignature" in changes:
+            target = changes["timeSignature"]
+            if not isinstance(target, dict) or before["timeSignature"].get("supported") is False or type(target.get("enabled")) is not bool:
+                raise ValueError("scene time signature is unavailable")
+            if target["enabled"] and (type(target.get("numerator")) is not int or
+                                      not 1 <= target["numerator"] <= 99 or
+                                      type(target.get("denominator")) is not int or
+                                      target["denominator"] not in (1, 2, 4, 8, 16)):
+                raise ValueError("invalid scene time signature")
+            if set(target) != ({"enabled", "numerator", "denominator"} if target["enabled"] else {"enabled"}):
+                raise ValueError("invalid scene time signature change")
+        with _undo_step(song):
+            if "tempo" in changes:
+                target = changes["tempo"]
+                scene.tempo_enabled = target["enabled"]
+                if target["enabled"]:
+                    scene.tempo = target["bpm"]
+            if "timeSignature" in changes:
+                target = changes["timeSignature"]
+                scene.time_signature_enabled = target["enabled"]
+                if target["enabled"]:
+                    scene.time_signature_numerator = target["numerator"]
+                    scene.time_signature_denominator = target["denominator"]
         return {"stateVersion": state_version + 1, "scene": _scene_record(scene, index)}
     if method == "rename_session_object":
         target = params["target"]
@@ -3383,15 +4050,41 @@ def dispatch_request(song, request, state_version, application=None):
         track, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
         if not slot.has_clip:
             raise ValueError("source clip is empty")
+        current_source = next(clip for clip in _clip_list(song, params["trackId"], state_version)["clips"]
+                              if clip["id"] == params["clipId"])
+        if params.get("source") != current_source:
+            raise ValueError("source clip changed after planning")
+        if params.get("beforeArrangement") != _arrangement_clips(song, params["trackId"], state_version)["clips"]:
+            raise ValueError("Arrangement changed after planning")
         if getattr(slot.clip, "is_audio_clip", False) and not slot.clip.warping:
             raise ValueError("unwarped placement requires tempo-map duration conversion")
         start = float(params["startBeats"])
         end = start + float(slot.clip.length)
         if not math.isfinite(start) or start < 0 or not math.isfinite(end) or end <= start:
             raise ValueError("startBeats and source length must define a finite positive interval")
+        if params.get("endBeats") != end:
+            raise ValueError("placement end changed after planning")
         if any(start < clip.end_time and end > clip.start_time for clip in track.arrangement_clips):
             raise ValueError("placement would overlap existing Arrangement clips")
-        placed = track.duplicate_clip_to_arrangement(slot.clip, start)
+        placed = None
+        song.begin_undo_step()
+        try:
+            placed = track.duplicate_clip_to_arrangement(slot.clip, start)
+            if not (math.isclose(float(placed.start_time), start, rel_tol=0.0, abs_tol=1e-8)
+                    and math.isclose(float(placed.end_time), end, rel_tol=0.0, abs_tol=1e-8)):
+                raise ValueError("Live changed the placed clip interval")
+            if any(other is not placed and start < other.end_time and end > other.start_time
+                   for other in track.arrangement_clips):
+                raise ValueError("placed clip overlaps another Arrangement clip")
+        except Exception as error:
+            if placed is not None:
+                try:
+                    track.delete_clip(placed)
+                except Exception as rollback_error:
+                    raise RuntimeError(f"placement failed: {error}; rollback failed: {rollback_error}; use Live undo") from error
+            raise
+        finally:
+            song.end_undo_step()
         result = _arrangement_clips(song, params["trackId"], state_version + 1)
         index = next(index for index, clip in enumerate(track.arrangement_clips) if clip == placed)
         result["placedClip"] = _arrangement_clip_record(placed, params["trackId"], index)
@@ -3418,8 +4111,22 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "set_clip_timing":
         if "before" in params and _clip_timing(song, params["trackId"], params["clipId"], state_version) != params["before"]:
             raise ValueError("clip timing changed since observation")
-        clip, _ = _clip_reference(song, params["trackId"], params["clipId"])
+        clip, timeline = _clip_reference(song, params["trackId"], params["clipId"])
         changes = params["changes"]
+        if "launchLegato" in changes:
+            if timeline is not None or not hasattr(clip, "legato"):
+                raise ValueError("clip launch Legato is unavailable")
+            if type(changes["launchLegato"]) is not bool:
+                raise ValueError("launchLegato must be boolean")
+        editor_grid = changes.get("editorGrid", {})
+        if "quantization" in editor_grid:
+            grid_value = editor_grid["quantization"]
+            if type(grid_value) is not int or grid_value < 0 or grid_value >= len(CLIP_GRID_NAMES):
+                raise ValueError("invalid clip editor grid quantization")
+            if Live is not None and grid_value not in Live.Clip.GridQuantization.values:
+                raise ValueError("clip editor grid quantization is unavailable in this Live version")
+        if "isTriplet" in editor_grid and type(editor_grid["isTriplet"]) is not bool:
+            raise ValueError("clip editor grid isTriplet must be boolean")
         loop = changes.get("loop", {})
         if getattr(clip, "is_audio_clip", False) and not clip.warping and any(key in loop for key in ("startBeats", "endBeats")):
             raise ValueError("beat-based loop positions cannot be applied to unwarped audio")
@@ -3447,6 +4154,12 @@ def dispatch_request(song, request, state_version, application=None):
             clip.signature_denominator = int(signature["denominator"])
         if "launchQuantization" in changes:
             clip.launch_quantization = int(changes["launchQuantization"])
+        if "launchLegato" in changes:
+            clip.legato = changes["launchLegato"]
+        if "quantization" in editor_grid:
+            clip.view.grid_quantization = Live.Clip.GridQuantization.values[editor_grid["quantization"]] if Live is not None else editor_grid["quantization"]
+        if "isTriplet" in editor_grid:
+            clip.view.grid_is_triplet = editor_grid["isTriplet"]
         if "grooveId" in changes:
             clip.groove = _grooves(song)[int(changes["grooveId"].removeprefix("groove-"))]
         return _clip_timing(song, params["trackId"], params["clipId"], state_version + 1)
@@ -3477,6 +4190,29 @@ def dispatch_request(song, request, state_version, application=None):
         clip, timeline = _midi_clip(song, params["trackId"], params["clipId"])
         location = "arrangement" if timeline is not None else "session"
         if method in ("set_midi_note_properties", "transform_midi_notes"):
+            guarded_properties = method == "set_midi_note_properties"
+            guarded_basic = (method == "transform_midi_notes" and
+                             isinstance(params.get("operation"), dict) and
+                             params["operation"].get("type") in ("quantize", "legato", "duplicate"))
+            if guarded_basic or guarded_properties:
+                if params.get("expectedStateVersion") != state_version:
+                    raise ValueError("MIDI clip state version changed")
+                if params.get("clipTiming") != _clip_timing(song, params["trackId"], params["clipId"], state_version):
+                    raise ValueError("MIDI clip timing changed")
+                basic_current = {"stateVersion": state_version, "trackId": params["trackId"],
+                                 "clipId": params["clipId"], "location": location, "timeline": timeline,
+                                 "lengthBeats": float(clip.length),
+                                 "notes": [_midi_note_record(note) for note in clip.get_all_notes_extended()]}
+                if params.get("before") != basic_current:
+                    raise ValueError("MIDI clip changed since observation")
+                basic_notes = {note["noteId"]: note for note in basic_current["notes"]}
+                for change in params["changes"]:
+                    previous = change.get("previous")
+                    current_note = basic_notes.get(change.get("noteId"))
+                    if current_note is None or (guarded_properties and params.get("operation") == "correct_midi_clip_to_scale" and
+                            (not isinstance(previous, dict) or current_note["pitch"] != previous.get("pitch"))) or \
+                            ((guarded_basic or params.get("operation") != "correct_midi_clip_to_scale") and current_note != previous):
+                        raise ValueError("MIDI transform target changed since observation")
             guarded_variation = method == "transform_midi_notes" and params.get("operation") == "apply_drum_variation"
             guarded_humanization = method == "transform_midi_notes" and params.get("operation") == "apply_midi_humanization"
             guarded_velocity = method == "transform_midi_notes" and params.get("operation") == "apply_midi_velocity_curve"
@@ -3491,6 +4227,8 @@ def dispatch_request(song, request, state_version, application=None):
             guarded_diatonic = method == "transform_midi_notes" and params.get("operation") == "apply_midi_diatonic_transposition"
             guarded_remapping = method == "transform_midi_notes" and params.get("operation") == "apply_midi_scale_chord_remapping"
             guarded_transform = guarded_variation or guarded_humanization or guarded_velocity or guarded_gate or guarded_probability or guarded_strum or guarded_inversion or guarded_drop or guarded_leading or guarded_arpeggiation or guarded_transposition or guarded_diatonic or guarded_remapping
+            if method == "transform_midi_notes" and not (guarded_basic or guarded_transform):
+                raise ValueError("unsupported MIDI transform operation")
             if guarded_transform:
                 if params.get("expectedStateVersion") != state_version:
                     raise ValueError("MIDI clip state version changed")
@@ -3828,6 +4566,69 @@ def dispatch_request(song, request, state_version, application=None):
                         except Exception as rollback_error:
                             raise RuntimeError("MIDI humanization failed and rollback was incomplete (%s); original error: %s" %
                                                (rollback_error, mutation_error))
+                        raise mutation_error
+            if guarded_properties:
+                with _undo_step(song):
+                    try:
+                        for change in params["changes"]:
+                            note = by_id[int(change["noteId"])]
+                            for source, target in fields.items():
+                                if source in change:
+                                    setattr(note, target, change[source])
+                        if notes:
+                            clip.apply_note_modifications(notes)
+                        readback = [_midi_note_record(note) for note in clip.get_notes_by_id(note_ids)]
+                        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                                "clipId": params["clipId"], "location": location, "timeline": timeline,
+                                "lengthBeats": float(clip.length), "notes": readback}
+                    except Exception as mutation_error:
+                        for note, values in originals:
+                            for target, value in values.items():
+                                setattr(note, target, value)
+                        try:
+                            if originals:
+                                clip.apply_note_modifications([note for note, _ in originals])
+                        except Exception as rollback_error:
+                            raise RuntimeError("MIDI note properties failed and rollback was incomplete (%s); original error: %s" %
+                                               (rollback_error, mutation_error))
+                        raise mutation_error
+            if guarded_basic:
+                existing_ids = {int(note.note_id) for note in clip.get_all_notes_extended()}
+                with _undo_step(song):
+                    try:
+                        for change in params["changes"]:
+                            note = by_id[int(change["noteId"])]
+                            for source, target in fields.items():
+                                if source in change:
+                                    setattr(note, target, change[source])
+                        if notes:
+                            clip.apply_note_modifications(notes)
+                        added_note_ids = list(clip.add_new_notes(new_note_specs)) if new_note_specs else []
+                        readback = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
+                        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                                "clipId": params["clipId"], "location": location, "timeline": timeline,
+                                "lengthBeats": float(clip.length), "notes": readback,
+                                "addedNoteIds": added_note_ids}
+                    except Exception as mutation_error:
+                        rollback_errors = []
+                        try:
+                            current_ids = {int(note.note_id) for note in clip.get_all_notes_extended()}
+                            cleanup_ids = tuple(sorted(current_ids - existing_ids))
+                            if cleanup_ids:
+                                clip.remove_notes_by_id(cleanup_ids)
+                        except Exception as error:
+                            rollback_errors.append("added-note cleanup failed: %s" % error)
+                        for note, values in originals:
+                            for target, value in values.items():
+                                setattr(note, target, value)
+                        try:
+                            if originals:
+                                clip.apply_note_modifications([note for note, _ in originals])
+                        except Exception as error:
+                            rollback_errors.append("existing-note restore failed: %s" % error)
+                        if rollback_errors:
+                            raise RuntimeError("basic MIDI transform failed and rollback was incomplete (%s); original error: %s" %
+                                               ("; ".join(rollback_errors), mutation_error))
                         raise mutation_error
             if guarded_variation:
                 existing_ids = {int(note.note_id) for note in clip.get_all_notes_extended()}
@@ -4338,6 +5139,215 @@ def dispatch_request(song, request, state_version, application=None):
             "stateVersion": state_version, "trackId": params["trackId"],
             "device": _device_tree(device, params["deviceId"]),
         }
+    if method == "map_rack_macro_to_parameter":
+        rack_id = params["deviceId"]
+        _, _, rack = _device(song, params["trackId"], rack_id)
+        if not rack.can_have_chains or _device_tree(rack, rack_id) != params["beforeDevice"]:
+            raise ValueError("rack state changed")
+        target_id = params["targetDeviceId"]
+        if not isinstance(target_id, str) or not target_id.startswith(rack_id + "/"):
+            raise ValueError("target must be a descendant of the rack")
+        _, _, target = _device(song, params["trackId"], target_id)
+        current_parameters = [_parameter_record(parameter, index, include_native_choice_labels=True)
+                              for index, parameter in enumerate(target.parameters)]
+        if current_parameters != params["beforeTargetParameters"]:
+            raise ValueError("target parameter state changed")
+        parameter_id = params["parameterId"]
+        if not isinstance(parameter_id, str) or not parameter_id.startswith("parameter-"):
+            raise ValueError("invalid parameter ID")
+        suffix = parameter_id.removeprefix("parameter-")
+        if not suffix.isascii() or not suffix.isdigit() or str(int(suffix)) != suffix or int(suffix) >= len(target.parameters):
+            raise ValueError("unknown parameter ID")
+        parameter = target.parameters[int(suffix)]
+        if not parameter.is_enabled:
+            raise ValueError("target parameter is not enabled")
+        macro_index = params["macroIndex"]
+        if type(macro_index) is not int or not 0 <= macro_index < rack.visible_macro_count:
+            raise ValueError("macro index is outside the visible range")
+        if not hasattr(rack, "macro_mappings") or not callable(getattr(rack, "macro_map", None)):
+            raise ValueError("native rack macro mapping is unavailable")
+        if any(mapping.index == macro_index and mapping.parameter == parameter for mapping in rack.macro_mappings):
+            raise ValueError("target parameter is already mapped to this macro")
+        song.begin_undo_step()
+        try:
+            rack.macro_map(macro_index, parameter)
+        finally:
+            song.end_undo_step()
+        if not any(mapping.index == macro_index and mapping.parameter == parameter for mapping in rack.macro_mappings):
+            raise RuntimeError("native mapping was not observed; inspect the rack before retrying")
+        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                "device": _device_tree(rack, rack_id)}
+    if method == "set_rack_macro_mapping_edge":
+        rack_id = params["deviceId"]
+        _, _, rack = _device(song, params["trackId"], rack_id)
+        if not rack.can_have_chains or _device_tree(rack, rack_id) != params["beforeDevice"]:
+            raise ValueError("rack state changed")
+        macro_index = params["macroIndex"]
+        if type(macro_index) is not int or not 0 <= macro_index < rack.visible_macro_count:
+            raise ValueError("macro index is outside the visible range")
+        if not hasattr(rack, "macro_mappings"):
+            raise ValueError("native rack macro mappings are unavailable")
+        mappings = [mapping for mapping in rack.macro_mappings if mapping.index == macro_index]
+        if len(mappings) != 1:
+            raise ValueError("range editing requires exactly one mapping on this macro")
+        mapping = mappings[0]
+        if mapping.parameter.is_quantized:
+            raise ValueError("quantized mapping range semantics are unavailable")
+        value = params["value"]
+        if type(value) not in (int, float) or not math.isfinite(value) or not mapping.parameter.min <= value <= mapping.parameter.max:
+            raise ValueError("mapping edge is outside the native parameter range")
+        edge = params["edge"]
+        native = getattr(rack, "set_mapping_min" if edge == "min" else "set_mapping_max", None)
+        if edge not in ("min", "max") or not callable(native):
+            raise ValueError("native mapping edge setter is unavailable")
+        song.begin_undo_step()
+        try:
+            native(macro_index, value)
+        finally:
+            song.end_undo_step()
+        actual = mapping.mapping_min if edge == "min" else mapping.mapping_max
+        if not math.isclose(actual, value, rel_tol=0, abs_tol=1e-6):
+            raise RuntimeError("native mapping range did not match the request; inspect the rack before retrying")
+        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                "device": _device_tree(rack, rack_id)}
+    if method == "rename_rack_macro":
+        rack_id = params["deviceId"]
+        _, _, rack = _device(song, params["trackId"], rack_id)
+        before = _device_tree(rack, rack_id)
+        if not rack.can_have_chains or before != params["beforeDevice"]:
+            raise ValueError("rack state changed")
+        macro_index, name = params["macroIndex"], params["name"]
+        controls = before.get("rackMacros", {}).get("controls")
+        if (type(macro_index) is not int or not isinstance(controls, list) or
+                not 0 <= macro_index < len(controls) or controls[macro_index]["macroIndex"] != macro_index):
+            raise ValueError("macro name readback is unavailable for this index")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("macro name must not be empty")
+        native = getattr(rack, "rename_macro", None)
+        if not callable(native):
+            raise ValueError("native macro rename is unavailable")
+        song.begin_undo_step()
+        try:
+            native(macro_index, name)
+        finally:
+            song.end_undo_step()
+        after = _device_tree(rack, rack_id)
+        controls_after = after.get("rackMacros", {}).get("controls", [])
+        if len(controls_after) <= macro_index or controls_after[macro_index]["name"] != name:
+            raise RuntimeError("native macro name did not match the request; inspect the rack before retrying")
+        return {"stateVersion": state_version + 1, "trackId": params["trackId"], "device": after}
+    if method == "adjust_rack_macro_count":
+        _, _, device = _device(song, params["trackId"], params["deviceId"])
+        if not device.can_have_chains or _device_tree(device, params["deviceId"]) != params["beforeDevice"]:
+            raise ValueError("rack state changed")
+        action = params["action"]
+        if action not in ("add", "remove"):
+            raise ValueError("invalid rack macro action")
+        if action == "remove" and device.has_macro_mappings:
+            raise ValueError("cannot remove a macro while any rack macro is mapped")
+        native = getattr(device, "add_macro" if action == "add" else "remove_macro", None)
+        if not callable(native):
+            raise ValueError("rack macro adjustment is unavailable")
+        song.begin_undo_step()
+        try:
+            native()
+        finally:
+            song.end_undo_step()
+        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                "device": _device_tree(device, params["deviceId"])}
+    if method == "store_rack_macro_variation":
+        _, _, device = _device(song, params["trackId"], params["deviceId"])
+        if not device.can_have_chains or _device_tree(device, params["deviceId"]) != params["beforeDevice"]:
+            raise ValueError("rack state changed")
+        if not getattr(device, "has_macro_mappings", False) or not callable(getattr(device, "store_variation", None)):
+            raise ValueError("rack has no mapped macro or variation storage is unavailable")
+        before_parameters = [_parameter_record(parameter, i, include_native_choice_labels=True)
+                             for i, parameter in enumerate(device.parameters)]
+        if before_parameters != params["beforeParameters"]:
+            raise ValueError("rack parameter state changed")
+        before_count = int(device.variation_count)
+        song.begin_undo_step()
+        try:
+            device.store_variation()
+        finally:
+            song.end_undo_step()
+        after_device = _device_tree(device, params["deviceId"])
+        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                "stored": after_device["rackMacros"]["variationCount"] == before_count + 1,
+                "device": after_device,
+                "parameters": [_parameter_record(parameter, i, include_native_choice_labels=True)
+                               for i, parameter in enumerate(device.parameters)]}
+    if method == "recall_rack_macro_variation":
+        _, _, device = _device(song, params["trackId"], params["deviceId"])
+        if not device.can_have_chains or _device_tree(device, params["deviceId"]) != params["beforeDevice"]:
+            raise ValueError("rack state changed")
+        if not getattr(device, "has_macro_mappings", False) or not callable(getattr(device, "recall_selected_variation", None)):
+            raise ValueError("rack has no mapped macro or variation recall is unavailable")
+        index = params["variationIndex"]
+        if type(index) is not int or index < 0 or index >= int(device.variation_count):
+            raise ValueError("variation index is outside the available range")
+        before_parameters = [_parameter_record(parameter, i, include_native_choice_labels=True)
+                             for i, parameter in enumerate(device.parameters)]
+        if before_parameters != params["beforeParameters"]:
+            raise ValueError("rack parameter state changed")
+        song.begin_undo_step()
+        try:
+            device.selected_variation_index = index
+            device.recall_selected_variation()
+        finally:
+            song.end_undo_step()
+        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                "variationIndex": index, "device": _device_tree(device, params["deviceId"]),
+                "parameters": [_parameter_record(parameter, i, include_native_choice_labels=True)
+                               for i, parameter in enumerate(device.parameters)]}
+    if method == "delete_rack_macro_variation":
+        _, _, device = _device(song, params["trackId"], params["deviceId"])
+        if not device.can_have_chains or _device_tree(device, params["deviceId"]) != params["beforeDevice"]:
+            raise ValueError("rack state changed")
+        native = getattr(device, "delete_selected_variation", None)
+        if not callable(native):
+            raise ValueError("rack variation deletion is unavailable")
+        index = params["variationIndex"]
+        before_count = int(device.variation_count)
+        if type(index) is not int or index < 0 or index >= before_count:
+            raise ValueError("variation index is outside the available range")
+        before_parameters = [_parameter_record(parameter, i, include_native_choice_labels=True)
+                             for i, parameter in enumerate(device.parameters)]
+        if before_parameters != params["beforeParameters"]:
+            raise ValueError("rack parameter state changed")
+        song.begin_undo_step()
+        try:
+            device.selected_variation_index = index
+            native()
+        finally:
+            song.end_undo_step()
+        after_device = _device_tree(device, params["deviceId"])
+        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                "variationIndex": index,
+                "deleted": after_device["rackMacros"]["variationCount"] == before_count - 1,
+                "device": after_device,
+                "parameters": [_parameter_record(parameter, i, include_native_choice_labels=True)
+                               for i, parameter in enumerate(device.parameters)]}
+    if method == "randomize_rack_macros":
+        _, _, device = _device(song, params["trackId"], params["deviceId"])
+        if not device.can_have_chains or _device_tree(device, params["deviceId"]) != params["beforeDevice"]:
+            raise ValueError("rack state changed")
+        native = getattr(device, "randomize_macros", None)
+        if not getattr(device, "has_macro_mappings", False) or not callable(native):
+            raise ValueError("rack has no mapped macro or randomization is unavailable")
+        before_parameters = [_parameter_record(parameter, i, include_native_choice_labels=True)
+                             for i, parameter in enumerate(device.parameters)]
+        if before_parameters != params["beforeParameters"]:
+            raise ValueError("rack parameter state changed")
+        song.begin_undo_step()
+        try:
+            native()
+        finally:
+            song.end_undo_step()
+        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                "device": _device_tree(device, params["deviceId"]),
+                "parameters": [_parameter_record(parameter, i, include_native_choice_labels=True)
+                               for i, parameter in enumerate(device.parameters)]}
     if method == "list_device_parameters":
         _, _, device = _device(song, params["trackId"], params["deviceId"])
         parameters = [_parameter_record(parameter, i, include_native_choice_labels=True)
@@ -4351,6 +5361,9 @@ def dispatch_request(song, request, state_version, application=None):
                 "parameters": parameters, "nameAmbiguities": ambiguities}
     if method == "set_device_parameters":
         _, _, device = _device(song, params["trackId"], params["deviceId"])
+        if ("expectedStateVersion" in params and
+                params["expectedStateVersion"] != state_version):
+            raise ValueError("parameter state version changed before write")
         if "beforeDevice" in params or "beforeParameters" in params:
             current_parameters = [_parameter_record(p, i) for i, p in enumerate(device.parameters)]
             if (_device_tree(device, params["deviceId"]) != params.get("beforeDevice") or
@@ -4360,8 +5373,15 @@ def dispatch_request(song, request, state_version, application=None):
         # since changing a mode may disable a later control during execution.
         for change in params["changes"]:
             index = int(change["id"].removeprefix("parameter-"))
-            if not device.parameters[index].is_enabled:
+            parameter = device.parameters[index]
+            if not parameter.is_enabled:
                 raise ValueError("parameter is disabled")
+            if ("previousValue" in change and
+                    float(parameter.value) != float(change["previousValue"])):
+                raise ValueError("parameter value changed before write")
+            if ("originalName" in change and
+                    parameter.original_name != change["originalName"]):
+                raise ValueError("parameter identity changed before write")
         observed = []
         for change in params["changes"]:
             index = int(change["id"].removeprefix("parameter-"))
@@ -4558,16 +5578,49 @@ def dispatch_request(song, request, state_version, application=None):
         track.arm = bool(params["armed"])
         return {"stateVersion": state_version + 1, "trackId": params["trackId"], "armed": track.arm}
     if method == "launch_scene":
+        force_legato = params.get("forceLegato", False)
+        if type(force_legato) is not bool:
+            raise ValueError("forceLegato must be boolean")
         index = int(params["sceneId"].removeprefix("scene-"))
-        song.scenes[index].fire()
-        return {"stateVersion": state_version + 1, "sceneId": params["sceneId"]}
+        song.scenes[index].fire(force_legato=force_legato)
+        return {"stateVersion": state_version + 1, "sceneId": params["sceneId"], "forceLegato": force_legato}
     if method in ("launch_clip", "stop_clip"):
-        _, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
+        track, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
         if method == "launch_clip":
-            slot.fire()
+            recording = "recordLengthBeats" in params
+            if recording:
+                if params.get("expectedStateVersion") != state_version:
+                    raise ValueError("session state version changed")
+                record_length = params["recordLengthBeats"]
+                if type(record_length) not in (int, float) or not math.isfinite(record_length) or record_length <= 0:
+                    raise ValueError("recordLengthBeats must be a positive finite number")
+                if slot.has_clip:
+                    raise ValueError("fixed-length recording requires an empty clip slot")
+                if not getattr(track, "can_be_armed", True) or not track.arm:
+                    raise ValueError("fixed-length recording requires an armed track")
+                if getattr(track, "is_frozen", False):
+                    raise ValueError("fixed-length recording is unavailable on a frozen track")
+            if "launchQuantization" in params:
+                value = params["launchQuantization"]
+                if type(value) is not int or value < 0 or value >= len(CLIP_QUANTIZATION_NAMES):
+                    raise ValueError("launchQuantization must be a native clip launch quantization value")
+                if recording:
+                    slot.fire(record_length=record_length, launch_quantization=value)
+                else:
+                    slot.fire(launch_quantization=value)
+            elif recording:
+                slot.fire(record_length=record_length)
+            else:
+                slot.fire()
         else:
             slot.stop()
-        return {"stateVersion": state_version + 1, "trackId": params["trackId"], "clipId": params["clipId"], "isPlaying": slot.clip.is_playing if slot.has_clip else False}
+        observed = {"stateVersion": state_version + 1, "trackId": params["trackId"], "clipId": params["clipId"],
+                    "isPlaying": slot.clip.is_playing if slot.has_clip else False}
+        if method == "launch_clip" and "launchQuantization" in params:
+            observed["launchQuantizationOverride"] = params["launchQuantization"]
+        if method == "launch_clip" and "recordLengthBeats" in params:
+            observed["recordLengthBeats"] = params["recordLengthBeats"]
+        return observed
     if method == "panic":
         song.stop_playing()
         return {"stateVersion": state_version + 1, "isPlaying": song.is_playing}

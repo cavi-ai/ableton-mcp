@@ -29,6 +29,20 @@ For every enabled product, this discovers presets, then writes `reports/nks/mani
 
 Runs are incremental. A preset whose source fingerprint hasn't changed is reported as `unchanged` and keeps its record. An enabled product without a discovery adapter is an error.
 
+To plan a Serum factory pilot, run `npm run catalog:serum-pilot -- --manifest /absolute/manifest.json --out /absolute/serum-pilot.json`. Add `--apply` to write a new, non-overwriting job packet. Selection covers the first and last source, each top-level bank, and representative sound categories; it may exceed 25 entries when bank coverage requires it. The packet binds each source fingerprint and expected NKS filename, but does not load Serum or claim a successful save.
+
+To plan an Omnisphere source-derived pilot, run `npm run catalog:omnisphere-pilot -- --manifest /absolute/manifest.json --out /absolute/omnisphere-pilot.json`. Add `--apply` to write a new, non-overwriting packet. It covers the first and last source, each observed bank endpoint, and every observed top-level category; it may exceed 25 entries for coverage. Its bank/category/preset path is an unverified plugin-browser navigation hint, not a tested loading procedure. Do not enqueue a full Omnisphere batch or mark NKS saves from this packet alone; first prove one-preset Save As, indexing, recall, and mappings in Komplete Kontrol.
+
+The MCP generation queue accepts explicit batches of at most 100 preset IDs. For Serum 2 and Omnisphere it accepts only factory IDs in each deterministic pilot until every current pilot record is `validated` with validation evidence; splitting a larger request into smaller batches does not bypass that gate. Workers recheck the gate when claiming jobs, including older queued rows. `get_nks_generation_status` distinguishes the discovered `eligible` count from the pilot's currently `queueable` count. `validated` still requires separate recall, controller-mapping, and preview evidence. Omnisphere's pilot gate does not establish its unverified plugin-browser navigation or Save As feasibility. This gate does not yet apply to Avenger.
+
+An existing Serum Save As run can be reconciled with `npm run catalog:reconcile-serum-saved --` and explicit absolute paths for `--manifest`, `--catalog`, `--run-log`, `--browser-db`, and `--user-content-root`. The command is a dry run unless `--apply` is supplied. It requires the current source file, an exact visible Komplete browser record, and read access to the saved `.nksf` bytes; missing permission or changed checksums stop the run without advancing records. `nks_saved` means a saved file and index entry were verified, not that the preset was recalled, previewed, controller-mapped, or validated.
+
+After capturing a 12-second preset phrase as WAV in Live, normalize and validate that capture with `npm run catalog:preview -- --raw /absolute/raw.wav --out /absolute/preview.wav --apply`. Omit `--apply` to inspect the intended paths without reading or writing audio. Successful processing reports measured duration, sample rate, bit depth, LUFS, true peak, and SHA-256; it never overwrites an existing output. This command does not render in Live, create NKS files, or advance catalog lifecycle state.
+
+For a preset already verified as `nks_saved`, run `npm run catalog:reconcile-preview -- --manifest /absolute/manifest.json --catalog /absolute/catalog.sqlite --preset-id <id> --preview /absolute/preview.wav --sha256 <digest> --capture-report /absolute/capture.json` to inspect the lifecycle change. The report must identify `kind: "reported_ableton_live_capture"`, `presetId`, `sourceFingerprint`, `nksSha256`, `rawPath`, `rawSha256`, and `previewSha256`. Add `--apply` to record `previewed` after checking those identities, re-measuring the preview, and reproducing its bytes from the raw capture. The report is operator-supplied capture evidence; it does not independently establish which sound Live rendered, Komplete recall, controller mappings, or final validation.
+
+After observing Komplete recall and the S88 MK3 pages, keep the observation files locally and use `npm run catalog:reconcile-serum-validation -- --manifest /absolute/manifest.json --catalog /absolute/catalog.sqlite --preset-id <id> --report /absolute/validation.json`. The report identifies `format: "cavi-serum-validation-v1"`, `presetId`, `sourceFingerprint`, `nksSha256`, `previewSha256`, `recall` (observed NKS name, product, evidence path and SHA-256), and `controller` (model, evidence path and SHA-256, plus named pages and at least eight distinct controls with displayed values). Add `--apply` only after reviewing the report and its observation files. The command rechecks current source, NKS, and preview bytes and records an explicitly operator-reported `validated` event; it cannot visually interpret the observation files or inspect the hardware itself. The full factory run must not begin on unreviewed or fabricated reports.
+
 A preset the run no longer finds on disk is flagged `missing: true` and counted as `missing`. Its catalog row, tags, favorite state and artwork stay in place. `search_presets` and the product counts skip it, and `get_preset` still returns it with the flag. When the file is back on the next run, the flag is cleared and the preset returns to search with its tags. A misconfigured or empty `factoryRoots` therefore hides presets rather than deleting your metadata. Fix the path and run the inventory again.
 
 Vendor presets stay on your machine. The repository ignores `reports/`, and nothing is uploaded.
@@ -40,6 +54,16 @@ ABLETON_MCP_CATALOG_PATH="$PWD/reports/nks/catalog.sqlite" npm run cli -- call s
 ```
 
 Set the same variable in your MCP client's server entry.
+
+For Codex, run this from the repository checkout after building the catalog:
+
+```bash
+codex mcp add ableton-mcp \
+  --env "ABLETON_MCP_CATALOG_PATH=$PWD/reports/nks/catalog.sqlite" \
+  -- node "$PWD/apps/ableton-mcp/src/cli.mjs" serve
+```
+
+If you built the catalog elsewhere, replace the path with that catalog's absolute path. Restart the MCP client to load the new server entry, then verify `search_presets` returns your local presets. The catalog and vendor preset files stay local.
 
 ## Tags and favorites
 

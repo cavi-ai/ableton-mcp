@@ -75,6 +75,18 @@ test("Catalog stores approved artwork and one assignment per preset", async () =
   catalog.close();
 });
 
+test("catalog state counts distinguish discovered sources from validated NKS records", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "nks-catalog-states-"));
+  const catalog = Catalog.open(join(dir, "catalog.sqlite"));
+  try {
+    for (const [id, state, missing] of [["a", "discovered", false], ["b", "validated", false], ["c", "validated", true]]) {
+      catalog.upsert({ id: `omnisphere:${id}`, productSlug: "omnisphere", name: id, bank: "Factory",
+        subBank: "Factory", author: "Spectrasonics", sourceFingerprint: `sha256:${id}`, state, missing });
+    }
+    assert.deepEqual(catalog.productStateCounts("omnisphere"), { discovered: 1, validated: 1 });
+  } finally { catalog.close(); }
+});
+
 test("Catalog rejects unapproved or missing artwork assignments", async () => {
   const dir = await mkdtemp(join(tmpdir(), "nks-catalog-artwork-invalid-"));
   const catalog = Catalog.open(join(dir, "catalog.sqlite"));

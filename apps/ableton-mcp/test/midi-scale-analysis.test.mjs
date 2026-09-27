@@ -110,6 +110,10 @@ test("guarded MCP scale correction binds scale, notes, policy, and native readba
     if (method === "get_midi_clip_notes_extended") return {
       stateVersion: 8, trackId: args.trackId, clipId: args.clipId, lengthBeats: 4, notes
     };
+    if (method === "get_clip_timing") return {
+      stateVersion: 8, trackId: args.trackId, clipId: args.clipId,
+      loop: { enabled: true, startBeats: 0, endBeats: 4 }
+    };
     if (method === "set_midi_note_properties") return {
       stateVersion: 9, trackId: args.trackId, clipId: args.clipId,
       notes: args.changes.map(change => ({ ...notes[0], pitch: change.pitch }))
@@ -123,6 +127,8 @@ test("guarded MCP scale correction binds scale, notes, policy, and native readba
   assert.equal(dry.plan.scale.scaleName, "Major");
   assert.equal(dry.plan.changes[0].pitch, 60);
   assert.equal(dry.plan.changes[0].previous.pitch, 61);
+  assert.equal(dry.plan.before.notes[0].noteId, 9);
+  assert.equal(dry.plan.clipTiming.loop.endBeats, 4);
   const live = await service.call("correct_midi_clip_to_scale", {
     ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash
   });

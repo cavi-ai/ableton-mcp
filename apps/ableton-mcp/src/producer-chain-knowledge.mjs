@@ -22,6 +22,7 @@ const blueprints = [
   ])),
   chain("vocals", "Corrective vocal chain with controlled dynamics, sibilance-safe tone and optional ambience sends.", ordered([
     fx("utility", "Utility", "gain", "Set recording gain and polarity before processing."),
+    fx("auto-shift", "Auto Shift", "optional-pitch-correction", "For a monophonic source needing correction, match Root and Scale to the measured performance and song, then audition Strength, Smooth and formant artifacts. This does not tune a vocal automatically.", true),
     fx("eq-eight", "EQ Eight", "corrective-eq", "Remove rumble and reduce persistent resonant buildup."),
     fx("compressor", "Compressor", "leveling", "Control phrase dynamics before additive color."),
     fx("saturator", "Saturator", "color", "Add density and harmonics at conservative drive.", true),
@@ -104,6 +105,67 @@ const blueprints = [
       fx("chorus-ensemble", "Chorus-Ensemble", "shared-movement", "Add optional common movement.", true),
       fx("saturator", "Saturator", "shared-color", "Add optional common harmonic character.", true)
     ])
+  },
+  {
+    id: "layered-drums-system", topology: "shared-instrument-bus",
+    summary: "Separate kick, snare and percussion instruments routed into one drum bus.",
+    children: [
+      { role: "kick", instrumentProfileId: "drum-sampler", root: "instruments", path: ["Drum Sampler"], routing: "bus" },
+      { role: "snare", instrumentProfileId: "drum-sampler", root: "instruments", path: ["Drum Sampler"], routing: "bus" },
+      { role: "percussion", instrumentProfileId: "drum-rack", root: "instruments", path: ["Drum Rack"], routing: "bus" }
+    ],
+    stages: ordered([
+      fx("utility", "Utility", "bus-gain", "Set headroom for the summed kit before nonlinear processing."),
+      fx("eq-eight", "EQ Eight", "shared-tone", "Resolve low-frequency and midrange buildup between layers."),
+      fx("drum-buss", "Drum Buss", "shared-character", "Shape the combined transient and low-end response."),
+      fx("glue-compressor", "Glue Compressor", "bus-cohesion", "Control the combined kit envelope."),
+      fx("limiter", "Limiter", "bus-safety", "Catch occasional summed peaks.", true)
+    ])
+  },
+  {
+    id: "layered-keys-system", topology: "shared-instrument-bus",
+    summary: "Separate piano, pad and texture instruments routed into one keys bus.",
+    children: [
+      { role: "electric-piano", instrumentProfileId: "electric", root: "instruments", path: ["Electric"], routing: "bus" },
+      { role: "pad", instrumentProfileId: "wavetable", root: "instruments", path: ["Wavetable"], routing: "bus" },
+      { role: "texture", instrumentProfileId: "sampler", root: "instruments", path: ["Sampler"], routing: "bus" }
+    ],
+    stages: ordered([
+      fx("utility", "Utility", "bus-gain-and-width", "Set combined headroom and stereo width."),
+      fx("eq-eight", "EQ Eight", "layer-separation", "Keep electric-piano articulation clear against pad and texture layers."),
+      fx("compressor", "Compressor", "bus-dynamics", "Control the summed envelope when needed.", true),
+      fx("chorus-ensemble", "Chorus-Ensemble", "shared-movement", "Add optional common movement without obscuring electric-piano attacks.", true)
+    ])
+  },
+  {
+    id: "layered-vocals-system", topology: "shared-audio-bus",
+    summary: "Separate lead, double and ad-lib audio tracks routed into one vocal bus.",
+    children: [
+      { role: "lead", sourceType: "audio", routing: "bus" },
+      { role: "double", sourceType: "audio", routing: "bus" },
+      { role: "adlibs", sourceType: "audio", routing: "bus" }
+    ],
+    stages: ordered([
+      fx("utility", "Utility", "bus-gain", "Set headroom for the combined vocal arrangement."),
+      fx("eq-eight", "EQ Eight", "shared-tone", "Address buildup shared by the summed vocal tracks."),
+      fx("compressor", "Compressor", "bus-leveling", "Control the combined vocal envelope."),
+      fx("saturator", "Saturator", "shared-color", "Add optional restrained harmonic density.", true)
+    ])
+  },
+  {
+    id: "layered-guitar-system", topology: "shared-audio-bus",
+    summary: "Separate rhythm, lead and texture audio tracks routed into one guitar bus.",
+    children: [
+      { role: "rhythm", sourceType: "audio", routing: "bus" },
+      { role: "lead", sourceType: "audio", routing: "bus" },
+      { role: "texture", sourceType: "audio", routing: "bus" }
+    ],
+    stages: ordered([
+      fx("utility", "Utility", "bus-gain", "Set headroom after summing the guitar layers."),
+      fx("eq-eight", "EQ Eight", "layer-separation", "Control low-mid buildup and competing presence bands."),
+      fx("glue-compressor", "Glue Compressor", "bus-cohesion", "Apply restrained compression to the combined performance."),
+      fx("limiter", "Limiter", "bus-safety", "Catch occasional summed peaks.", true)
+    ])
   }
 ];
 
@@ -120,12 +182,40 @@ export function getProducerChainBlueprint(target) {
     ...blueprint,
     execution: {
       loadTool: "load_browser_item",
-      routeTool: blueprint.topology === "shared-instrument-bus" ? "route_tracks_to_bus" : null,
+      routeTool: blueprint.topology.startsWith("shared-") ? "route_tracks_to_bus" : null,
+      ...(blueprint.topology.startsWith("shared-") ? { returnBus: {
+        createTool: "create_return_track", routeTool: "route_tracks_to_return_bus",
+        verifyTool: "inspect_producer_return_bus", requiredOutput: "Sends Only"
+      } } : {}),
       verifyTools: ["list_devices", "get_track_routing", "get_track_mixer"],
       instruction: "Load stages in ascending order onto an empty staging track, inspect observed device order after every load, and use guarded routing tools for shared-bus children. Optional stages require source-specific evidence."
     },
     limitation: "A deterministic factory-device starting point, not automatic mixing or mastering. Measure the source, inspect native parameters, audition changes, and preserve headroom before committing settings."
   });
+}
+
+export function collectFactoryDeviceProfileIds(devices) {
+  const profileIds = [];
+  const visit = (device) => {
+    const profileId = getFactoryDeviceProfile(device)?.id;
+    if (profileId) profileIds.push(profileId);
+    for (const chain of [...(device.chains ?? []), ...(device.returnChains ?? [])])
+      for (const child of chain.devices ?? []) visit(child);
+  };
+  for (const device of devices) visit(device);
+  return profileIds;
+}
+
+export function collectPluginProfileIds(devices) {
+  const profileIds = [];
+  const visit = (device) => {
+    const profileId = getPluginIntegrationProfile(device)?.id;
+    if (profileId) profileIds.push(profileId);
+    for (const chain of [...(device.chains ?? []), ...(device.returnChains ?? [])])
+      for (const child of chain.devices ?? []) visit(child);
+  };
+  for (const device of devices) visit(device);
+  return profileIds;
 }
 
 export function verifyProducerChain(target, devices) {
@@ -167,3 +257,4 @@ export function verifyProducerChain(target, devices) {
   };
 }
 import { getFactoryDeviceProfile } from "./factory-device-knowledge.mjs";
+import { getPluginIntegrationProfile } from "./plugin-integrations.mjs";

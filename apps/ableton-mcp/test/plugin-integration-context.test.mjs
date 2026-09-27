@@ -27,7 +27,8 @@ test("plugin integration context joins installed variants, Live exposure, and NK
   ];
   const catalog = {
     search: () => [], get: () => undefined,
-    products: () => [{ productSlug: "serum-2", count: 10311 }]
+    products: () => [{ productSlug: "serum-2", count: 10311 }],
+    productStateCounts: () => ({ discovered: 10308, validated: 3 })
   };
   const bridge = { async request(method, args) {
     if (method === "list_devices") return { stateVersion: 7, trackId: "track-0", devices: [device] };
@@ -56,7 +57,8 @@ test("plugin integration context joins installed variants, Live exposure, and NK
     writableControlIds: ["parameter-1"], configureInLiveRequired: false,
     hiddenPluginStateReadable: false
   });
-  assert.deepEqual(result.nksCatalog, { configured: true, productSlug: "serum-2", presetCount: 10311 });
+  assert.deepEqual(result.nksCatalog, { configured: true, productSlug: "serum-2", presetCount: 10311,
+    stateCounts: { discovered: 10308, validated: 3 }, validatedRecordCount: 3 });
   assert.equal(result.capabilities.parameterRead, true);
   assert.equal(result.capabilities.parameterWrite, true);
   assert.equal(result.capabilities.hiddenStateRead, false);
@@ -95,7 +97,8 @@ test("plugin integration context reports installed but unconfigured Omnisphere w
   });
   assert.equal(result.parameterExposure.configureInLiveRequired, true);
   assert.equal(result.capabilities.parameterWrite, false);
-  assert.deepEqual(result.nksCatalog, { configured: false, productSlug: "omnisphere", presetCount: 0 });
+  assert.deepEqual(result.nksCatalog, { configured: false, productSlug: "omnisphere", presetCount: 0,
+    stateCounts: null, validatedRecordCount: null });
   assert.deepEqual(result.presetNavigation.browseBy, ["directory", "category", "type", "genre", "author"]);
   assert.match(result.presetNavigation.load, /double-click/i);
   assert.match(result.limitations[0], /hidden plug-in state/i);

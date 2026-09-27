@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BrowserMetadataLibrary } from "../src/browser-metadata-library.mjs";
@@ -64,4 +64,132 @@ test("private browser metadata search filters tags and favorites without claimin
     }]);
     assert.deepEqual(library.search({ tags: ["unknown"] }), []);
   } finally { library.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("cross-root Live search joins private metadata by exact URI", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "browser-search-metadata-"));
+  const library = new BrowserMetadataLibrary({ path: join(directory, "metadata.sqlite") });
+  let uri = "query:serum";
+  const calls = [];
+  const service = new ToolService({ browserMetadata: library, bridge: { async request(method, params) {
+    calls.push({ method, params });
+    return { stateVersion: 4, results: [{ root: "plugins", path: ["Serum"], uri,
+      name: "Serum", loadable: true, folder: false }], truncated: false };
+  } } });
+  try {
+    library.set({ root: "plugins", path: ["Serum"], uri }, 0, { favorite: true, tags: ["bass"] });
+    const args = { query: "Serum", roots: ["plugins"], includeMetadata: true };
+    const found = await service.call("search_browser_roots", args);
+    assert.deepEqual(found.results[0].metadata, { favorite: true, tags: ["bass"], revision: 1 });
+    assert.equal(found.metadataSource, "private_mcp");
+    assert.equal(calls[0].params.includeMetadata, undefined);
+    uri = "query:serum-new";
+    const moved = await service.call("search_browser_roots", args);
+    assert.deepEqual(moved.results[0].metadata, { favorite: false, tags: [], revision: 0 });
+  } finally { library.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("subtree Live search optionally joins private tags without sending metadata options to Live", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "browser-subtree-metadata-"));
+  const library = new BrowserMetadataLibrary({ path: join(directory, "metadata.sqlite") });
+  const calls = [];
+  const service = new ToolService({ browserMetadata: library, bridge: { async request(method, params) {
+    calls.push({ method, params });
+    return { stateVersion: 4, root: "plugins", path: ["VST3"], query: "Serum",
+      results: [{ path: ["VST3", "Xfer", "Serum"], uri: "plugin:serum-vst3",
+        name: "Serum", loadable: true, folder: false }] };
+  } } });
+  try {
+    library.set({ root: "plugins", path: ["VST3", "Xfer", "Serum"], uri: "plugin:serum-vst3" }, 0,
+      { favorite: true, tags: ["lead"] });
+    const args = { root: "plugins", path: ["VST3"], query: "Serum", includeMetadata: true };
+    const result = await service.call("search_browser_items", args);
+    assert.deepEqual(result.results[0].metadata, { favorite: true, tags: ["lead"], revision: 1 });
+    assert.equal(result.metadataSource, "private_mcp");
+    assert.equal(result.nativeLiveCollectionsModified, false);
+    assert.equal(calls[0].params.includeMetadata, undefined);
+    const plain = await service.call("search_browser_items", { ...args, includeMetadata: false });
+    assert.equal(plain.results[0].metadata, undefined);
+    await assert.rejects(() => service.call("search_browser_items", { ...args, includeMetadata: "yes" }), /includeMetadata/);
+  } finally { library.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("browser pages optionally join child metadata using the exact parent path", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "browser-page-metadata-"));
+  const library = new BrowserMetadataLibrary({ path: join(directory, "metadata.sqlite") });
+  const calls = [];
+  const service = new ToolService({ browserMetadata: library, bridge: { async request(method, params) {
+    calls.push({ method, params });
+    return { stateVersion: 4, root: params.root, path: params.path, totalChildren: 1,
+      nextOffset: null, item: { name: "VST3", uri: "folder:vst3", folder: true, loadable: false },
+      children: [{ name: "Serum", uri: "plugin:serum-vst3", folder: false, loadable: true }] };
+  } } });
+  try {
+    library.set({ root: "plugins", path: ["VST3", "Serum"], uri: "plugin:serum-vst3" }, 0,
+      { favorite: true, tags: ["bass"] });
+    for (const name of ["get_browser_items", "get_factory_browser_items"]) {
+      const result = await service.call(name, { root: "plugins", path: ["VST3"], includeMetadata: true });
+      assert.deepEqual(result.children[0].metadata, { favorite: true, tags: ["bass"], revision: 1 });
+      assert.equal(result.metadataSource, "private_mcp");
+      assert.equal(result.nativeLiveCollectionsModified, false);
+    }
+    assert.ok(calls.every(call => call.params.includeMetadata === undefined));
+    const plain = await service.call("get_browser_items", { root: "plugins", path: ["VST3"] });
+    assert.equal(plain.children[0].metadata, undefined);
+    await assert.rejects(() => service.call("get_browser_items", {
+      root: "plugins", path: ["VST3"], includeMetadata: 1 }), /includeMetadata/);
+  } finally { library.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("local Splice search includes private tags and favorites by exact file identity", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "splice-search-metadata-"));
+  const library = new BrowserMetadataLibrary({ path: join(directory, "metadata.sqlite") });
+  const sample = join(directory, "Kick.wav");
+  try {
+    await writeFile(sample, "audio");
+    library.set({ root: "local_splice", path: [await realpath(directory), "Kick.wav"], uri: await realpath(sample) }, 0,
+      { favorite: true, tags: ["drums"] });
+    const service = new ToolService({ browserMetadata: library });
+    const result = await service.call("search_local_splice_samples", {
+      rootPath: directory, query: "kick", includeMetadata: true,
+    });
+    assert.deepEqual(result.samples[0].metadata, { favorite: true, tags: ["drums"], revision: 1 });
+    assert.equal(result.metadataSource, "private_mcp");
+  } finally { library.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("private tags and favorites bind to an observed local audio sample without Live", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "local-sample-metadata-"));
+  const library = new BrowserMetadataLibrary({ path: join(directory, "metadata.sqlite") });
+  const sample = join(directory, "kick.wav");
+  const outside = await mkdtemp(join(tmpdir(), "local-sample-outside-"));
+  const service = new ToolService({ browserMetadata: library });
+  const target = { root: "local_splice", path: [directory, "kick.wav"] };
+  try {
+    await writeFile(sample, "audio");
+    await writeFile(join(outside, "external.wav"), "audio");
+    await symlink(join(outside, "external.wav"), join(directory, "linked.wav"));
+    const before = await service.call("get_browser_item_metadata", target);
+    assert.equal(before.item.uri, await realpath(sample));
+    assert.deepEqual(before.metadata, { favorite: false, tags: [], revision: 0 });
+    const args = { ...target, expectedMetadataRevision: 0, favorite: true, tags: ["Kick", "Drums"] };
+    const dry = await service.call("set_browser_item_metadata", args);
+    await rm(sample);
+    await writeFile(sample, "replacement audio");
+    await assert.rejects(() => service.call("set_browser_item_metadata", { ...args, dryRun: false,
+      confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash }), /plan hash|confirmation/);
+    const fresh = await service.call("set_browser_item_metadata", args);
+    const applied = await service.call("set_browser_item_metadata", { ...args, dryRun: false,
+      confirmationToken: fresh.confirmation.token, planHash: fresh.confirmation.planHash });
+    assert.deepEqual(applied.observed, { favorite: true, tags: ["drums", "kick"], revision: 1 });
+    assert.equal((await service.call("search_browser_item_metadata", { root: "local_splice", favorite: true, tags: ["kick"] })).items.length, 1);
+    await assert.rejects(() => service.call("get_browser_item_metadata", { root: "local_splice",
+      path: [directory, "../external.wav"] }), /relative|path|segment/);
+    await assert.rejects(() => service.call("get_browser_item_metadata", { root: "local_splice",
+      path: [directory, "linked.wav"] }), /symlink/);
+  } finally {
+    library.close();
+    await rm(directory, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
 });

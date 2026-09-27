@@ -2,6 +2,241 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ToolService } from "../src/tool-service.mjs";
 
+test("macro rename plans an observed control name and requires confirmation", async () => {
+  const deviceId = "track-0:device-0";
+  const rack = { id: deviceId, canHaveChains: true, rackMacros: {
+    hasMappings: false, visibleCount: 2, variationCount: 0, selectedVariationIndex: -1,
+    controls: [{ macroIndex: 0, name: "Macro 1" }, { macroIndex: 1, name: "Macro 2" }]
+  }, chains: [], returnChains: [] };
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
+    assert.equal(method, "rename_rack_macro");
+    assert.deepEqual(params.beforeDevice, rack);
+    return { stateVersion: 5, trackId: "track-0", device: { ...rack, rackMacros: { ...rack.rackMacros,
+      controls: [rack.rackMacros.controls[0], { macroIndex: 1, name: "Drive" }] } } };
+  } } });
+  const args = { trackId: "track-0", deviceId, macroIndex: 1, name: "Drive", expectedStateVersion: 4 };
+  const dry = await service.call("rename_rack_macro", args);
+  assert.equal(dry.plan.beforeDevice.rackMacros.controls[1].name, "Macro 2");
+  const applied = await service.call("rename_rack_macro", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(applied.observed.device.rackMacros.controls[1].name, "Drive");
+  await assert.rejects(() => service.call("rename_rack_macro", { ...args, macroIndex: 2 }), /macro name readback/);
+  await assert.rejects(() => service.call("rename_rack_macro", { ...args, name: " " }), /macro name/);
+});
+
+test("mapping edge plans bind a single native target and reject ambiguous macros", async () => {
+  const deviceId = "track-0:device-0";
+  const mapping = { macroIndex: 2, targetPath: "Kick/Filter Freq", parameterName: "Cutoff",
+    parameterOriginalName: "Filter Freq", parameterMin: 0, parameterMax: 1,
+    parameterQuantized: false, min: 0.1, max: 0.9, minDisplay: "100 Hz", maxDisplay: "900 Hz" };
+  const rack = { id: deviceId, canHaveChains: true, rackMacros: {
+    hasMappings: true, visibleCount: 8, variationCount: 0, selectedVariationIndex: -1,
+    mappings: [mapping] }, chains: [], returnChains: [] };
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
+    assert.equal(method, "set_rack_macro_mapping_edge");
+    assert.deepEqual(params.beforeDevice, rack);
+    return { stateVersion: 5, trackId: "track-0", device: { ...rack, rackMacros: { ...rack.rackMacros,
+      mappings: [{ ...mapping, min: 0.25 }] } } };
+  } } });
+  const args = { trackId: "track-0", deviceId, expectedStateVersion: 4,
+    macroIndex: 2, edge: "min", value: 0.25 };
+  const dry = await service.call("set_rack_macro_mapping_edge", args);
+  assert.equal(dry.plan.beforeDevice.rackMacros.mappings[0].min, 0.1);
+  const applied = await service.call("set_rack_macro_mapping_edge", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(applied.observed.device.rackMacros.mappings[0].min, 0.25);
+  await assert.rejects(() => service.call("set_rack_macro_mapping_edge", { ...args, value: 1.1 }), /native parameter range/);
+  await assert.rejects(() => service.call("set_rack_macro_mapping_edge", { ...args, macroIndex: 3 }), /exactly one mapping/);
+});
+
+test("macro mapping binds one exact rack descendant and parameter snapshot", async () => {
+  const deviceId = "track-0:device-0";
+  const targetDeviceId = `${deviceId}/chain-0/device-0`;
+  const rack = { id: deviceId, canHaveChains: true, rackMacros: {
+    hasMappings: false, visibleCount: 8, variationCount: 0, selectedVariationIndex: -1, mappings: []
+  }, chains: [{ id: `${deviceId}/chain-0`, devices: [{ id: targetDeviceId }] }], returnChains: [] };
+  const parameters = [{ id: "parameter-0", name: "Cutoff", originalName: "Filter Freq",
+    min: 0, max: 1, value: 0.4, displayValue: "400 Hz", enabled: true, quantized: false, valueItems: [] }];
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
+    if (method === "list_device_parameters") return { stateVersion: 4, trackId: "track-0",
+      deviceId: targetDeviceId, parameters, nameAmbiguities: [] };
+    assert.equal(method, "map_rack_macro_to_parameter");
+    assert.deepEqual(params.beforeDevice, rack);
+    assert.deepEqual(params.beforeTargetParameters, parameters);
+    return { stateVersion: 5, trackId: "track-0", device: { ...rack, rackMacros: { ...rack.rackMacros,
+      hasMappings: true, mappings: [{ macroIndex: 2, parameterOriginalName: "Filter Freq" }] } } };
+  } } });
+  const args = { trackId: "track-0", deviceId, targetDeviceId, parameterId: "parameter-0",
+    macroIndex: 2, expectedStateVersion: 4 };
+  const dry = await service.call("map_rack_macro_to_parameter", args);
+  assert.equal(dry.plan.targetDeviceId, targetDeviceId);
+  assert.equal(dry.plan.macroIndex, 2);
+  const applied = await service.call("map_rack_macro_to_parameter", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(applied.observed.device.rackMacros.mappings[0].macroIndex, 2);
+  await assert.rejects(() => service.call("map_rack_macro_to_parameter", {
+    ...args, targetDeviceId: "track-0:device-1" }), /descendant/);
+  await assert.rejects(() => service.call("map_rack_macro_to_parameter", {
+    ...args, macroIndex: 8 }), /macro index/);
+});
+
+test("rack macro count adjustment binds observed rack and requires confirmation", async () => {
+  const deviceId = "track-0:device-0";
+  const rack = { id: deviceId, canHaveChains: true, rackMacros: {
+    hasMappings: false, visibleCount: 8, variationCount: 0, selectedVariationIndex: -1
+  }, chains: [], returnChains: [], drumPads: [] };
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
+    assert.equal(method, "adjust_rack_macro_count");
+    assert.deepEqual(params.beforeDevice, rack);
+    return { stateVersion: 5, trackId: "track-0", device: { ...rack,
+      rackMacros: { ...rack.rackMacros, visibleCount: 10 } } };
+  } } });
+  const args = { trackId: "track-0", deviceId, expectedStateVersion: 4, action: "add" };
+  const dry = await service.call("adjust_rack_macro_count", args);
+  assert.equal(dry.plan.action, "add");
+  const applied = await service.call("adjust_rack_macro_count", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(applied.observed.device.rackMacros.visibleCount, 10);
+  await assert.rejects(() => service.call("adjust_rack_macro_count", { ...args, expectedStateVersion: 3 }), /stateVersion mismatch/);
+  await assert.rejects(() => service.call("adjust_rack_macro_count", { ...args, action: "bad" }), /action/);
+});
+
+test("rack macro removal refuses an unknown mapped target", async () => {
+  const rack = { id: "track-0:device-0", canHaveChains: true,
+    rackMacros: { hasMappings: true, visibleCount: 8, variationCount: 0, selectedVariationIndex: -1 } };
+  const service = new ToolService({ bridge: { async request() {
+    return { stateVersion: 4, trackId: "track-0", device: rack };
+  } } });
+  await assert.rejects(() => service.call("adjust_rack_macro_count", {
+    trackId: "track-0", deviceId: rack.id, expectedStateVersion: 4, action: "remove"
+  }), /mapped/);
+});
+
+test("rack macro variation storage binds both rack and parameter state", async () => {
+  const rack = { id: "track-0:device-0", canHaveChains: true,
+    rackMacros: { hasMappings: true, visibleCount: 8, variationCount: 0, selectedVariationIndex: -1 },
+    chains: [], returnChains: [], drumPads: [] };
+  const parameters = [{ id: "parameter-1", name: "Macro 1", originalName: "Macro 1",
+    min: 0, max: 127, value: 64, displayValue: "64", enabled: true, quantized: false, valueItems: [] }];
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
+    if (method === "list_device_parameters") return { stateVersion: 4, trackId: "track-0", deviceId: rack.id,
+      parameters, nameAmbiguities: [] };
+    assert.equal(method, "store_rack_macro_variation");
+    assert.deepEqual(params.beforeDevice, rack);
+    assert.deepEqual(params.beforeParameters, parameters);
+    return { stateVersion: 5, trackId: "track-0", device: { ...rack,
+      rackMacros: { ...rack.rackMacros, variationCount: 1, selectedVariationIndex: 0 } }, parameters };
+  } } });
+  const args = { trackId: "track-0", deviceId: rack.id, expectedStateVersion: 4 };
+  const dry = await service.call("store_rack_macro_variation", args);
+  assert.deepEqual(dry.plan.beforeParameters, parameters);
+  const applied = await service.call("store_rack_macro_variation", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(applied.observed.device.rackMacros.variationCount, 1);
+});
+
+test("rack macro variation storage refuses racks without mapped macros", async () => {
+  const rack = { id: "track-0:device-0", canHaveChains: true,
+    rackMacros: { hasMappings: false, visibleCount: 8, variationCount: 0, selectedVariationIndex: -1 } };
+  const service = new ToolService({ bridge: { async request() {
+    return { stateVersion: 4, trackId: "track-0", device: rack };
+  } } });
+  await assert.rejects(() => service.call("store_rack_macro_variation", {
+    trackId: "track-0", deviceId: rack.id, expectedStateVersion: 4
+  }), /mapped macro/);
+});
+
+test("rack macro variation recall requires a valid exact index and binds current values", async () => {
+  const rack = { id: "track-0:device-0", canHaveChains: true,
+    rackMacros: { hasMappings: true, visibleCount: 8, variationCount: 2, selectedVariationIndex: -1 },
+    chains: [], returnChains: [], drumPads: [] };
+  const parameters = [{ id: "parameter-1", name: "Macro 1", originalName: "Macro 1",
+    min: 0, max: 127, value: 32, displayValue: "32", enabled: true, quantized: false, valueItems: [] }];
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
+    if (method === "list_device_parameters") return { stateVersion: 4, trackId: "track-0", deviceId: rack.id,
+      parameters, nameAmbiguities: [] };
+    assert.equal(method, "recall_rack_macro_variation");
+    assert.equal(params.variationIndex, 1);
+    assert.deepEqual(params.beforeDevice, rack);
+    assert.deepEqual(params.beforeParameters, parameters);
+    return { stateVersion: 5, trackId: "track-0", variationIndex: 1,
+      device: { ...rack, rackMacros: { ...rack.rackMacros, selectedVariationIndex: 1 } },
+      parameters: [{ ...parameters[0], value: 100, displayValue: "100" }] };
+  } } });
+  const args = { trackId: "track-0", deviceId: rack.id, expectedStateVersion: 4, variationIndex: 1 };
+  const dry = await service.call("recall_rack_macro_variation", args);
+  assert.deepEqual(dry.plan.beforeParameters, parameters);
+  const applied = await service.call("recall_rack_macro_variation", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(applied.observed.parameters[0].value, 100);
+  for (const variationIndex of [-1, 2, 1.5, "1"]) {
+    await assert.rejects(() => service.call("recall_rack_macro_variation", { ...args, variationIndex }), /variation index/);
+  }
+});
+
+test("rack macro variation deletion previews exact index and refuses empty or stale selections", async () => {
+  const rack = { id: "track-0:device-0", canHaveChains: true,
+    rackMacros: { hasMappings: true, visibleCount: 8, variationCount: 2, selectedVariationIndex: 0 },
+    chains: [], returnChains: [], drumPads: [] };
+  const parameters = [{ id: "parameter-1", name: "Macro 1", originalName: "Macro 1",
+    min: 0, max: 127, value: 32, displayValue: "32", enabled: true, quantized: false, valueItems: [] }];
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
+    if (method === "list_device_parameters") return { stateVersion: 4, trackId: "track-0", deviceId: rack.id,
+      parameters, nameAmbiguities: [] };
+    assert.equal(method, "delete_rack_macro_variation");
+    assert.equal(params.variationIndex, 1);
+    assert.deepEqual(params.beforeDevice, rack);
+    assert.deepEqual(params.beforeParameters, parameters);
+    return { stateVersion: 5, trackId: "track-0", variationIndex: 1, deleted: true,
+      device: { ...rack, rackMacros: { ...rack.rackMacros, variationCount: 1, selectedVariationIndex: -1 } },
+      parameters };
+  } } });
+  const args = { trackId: "track-0", deviceId: rack.id, expectedStateVersion: 4, variationIndex: 1 };
+  const dry = await service.call("delete_rack_macro_variation", args);
+  assert.equal(dry.plan.variationIndex, 1);
+  assert.match(dry.plan.warning, /contents.*not exposed/i);
+  const applied = await service.call("delete_rack_macro_variation", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(applied.observed.device.rackMacros.variationCount, 1);
+  for (const variationIndex of [-1, 2, 1.5, "1"]) {
+    await assert.rejects(() => service.call("delete_rack_macro_variation", { ...args, variationIndex }), /variation index/);
+  }
+  await assert.rejects(() => service.call("delete_rack_macro_variation", { ...args, expectedStateVersion: 3 }), /stateVersion mismatch/);
+});
+
+test("rack macro randomization binds mapped rack values and returns native readback", async () => {
+  const rack = { id: "track-0:device-0", canHaveChains: true,
+    rackMacros: { hasMappings: true, visibleCount: 8, variationCount: 1, selectedVariationIndex: 0 },
+    chains: [], returnChains: [], drumPads: [] };
+  const parameters = [{ id: "parameter-1", name: "Macro 1", originalName: "Macro 1",
+    min: 0, max: 127, value: 32, displayValue: "32", enabled: true, quantized: false, valueItems: [] }];
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
+    if (method === "list_device_parameters") return { stateVersion: 4, trackId: "track-0", deviceId: rack.id,
+      parameters, nameAmbiguities: [] };
+    assert.equal(method, "randomize_rack_macros");
+    assert.deepEqual(params.beforeDevice, rack);
+    assert.deepEqual(params.beforeParameters, parameters);
+    return { stateVersion: 5, trackId: "track-0", device: rack,
+      parameters: [{ ...parameters[0], value: 99, displayValue: "99" }] };
+  } } });
+  const args = { trackId: "track-0", deviceId: rack.id, expectedStateVersion: 4 };
+  const dry = await service.call("randomize_rack_macros", args);
+  assert.deepEqual(dry.plan.beforeParameters, parameters);
+  assert.match(dry.plan.limitation, /seed/i);
+  const applied = await service.call("randomize_rack_macros", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(applied.observed.parameters[0].value, 99);
+  await assert.rejects(() => service.call("randomize_rack_macros", { ...args, expectedStateVersion: 3 }), /stateVersion mismatch/);
+});
+
 test("rack sends require exact available enabled indices and confirmation", async () => {
   const deviceId = "track-0:device-0", chainId = `${deviceId}/chain-0`;
   const rack = { id: deviceId, canHaveChains: true, chains: [{ id: chainId,

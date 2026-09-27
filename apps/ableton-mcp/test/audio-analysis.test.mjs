@@ -65,23 +65,108 @@ test("pitch analysis selects the requested source channel and rejects absent cha
     assert.equal(tuning.result.structuredContent.tuningMeasurement.channelIndex, 1);
     assert.ok(Math.abs(tuning.result.structuredContent.tuningMeasurement.medianCentsFromTarget) < 2);
     assert.equal(tuning.result.structuredContent.tuningMeasurement.measuredFrameFraction, 1);
+    assert.equal(tuning.result.structuredContent.tuningMeasurement.wholeClipTuningProposal.eligible, true);
+    assert.deepEqual(tuning.result.structuredContent.tuningMeasurement.wholeClipTuningProposal.pitchOffset, { coarse: 0, fine: 0 });
     let clipReads = 0;
     const clipRoute = createRouter(new ToolService({ bridge: { async request(method, target) {
       assert.equal(method, "get_audio_clip_state");
       assert.deepEqual(target, { trackId: "track-1", clipId: "track-1:clip-0" });
       clipReads++;
-      return { stateVersion: 4, ...target, source: { path: sourcePath } };
+      return { stateVersion: 4, ...target, pitch: { coarse: 2, fine: 10 }, source: { path: sourcePath } };
     } } }));
     const clipAnalysis = await clipRoute({ id: 3, method: "tools/call", params: { name: "analyze_audio_clip",
-      arguments: { trackId: "track-1", clipId: "track-1:clip-0", targetMidiNote: 69, includeResonanceCandidates: true, channelIndex: 1 } } });
+      arguments: { trackId: "track-1", clipId: "track-1:clip-0", targetMidiNote: 69, includePitchEvents: true, includeResonanceCandidates: true, channelIndex: 1 } } });
     assert.equal(clipAnalysis.error, undefined);
     assert.equal(clipReads, 2);
     assert.equal(clipAnalysis.result.structuredContent.measurement.scope, "source_audio");
     assert.equal(clipAnalysis.result.structuredContent.measurement.tuningMeasurement.channelIndex, 1);
+    assert.deepEqual(clipAnalysis.result.structuredContent.measurement.pitchEvents.events.map(event => event.noteName), ["A4"]);
     assert.ok(Math.abs(clipAnalysis.result.structuredContent.measurement.tuningMeasurement.medianCentsFromTarget) < 2);
+    assert.equal(clipAnalysis.result.structuredContent.clipPitchAdjustment.eligible, true);
+    assert.deepEqual(clipAnalysis.result.structuredContent.clipPitchAdjustment.currentPitch, { coarse: 2, fine: 10 });
+    assert.deepEqual(clipAnalysis.result.structuredContent.clipPitchAdjustment.proposedPitch, { coarse: 0, fine: 0 });
+    assert.equal(clipAnalysis.result.structuredContent.clipPitchAdjustment.changeCents, -210);
     assert.equal(clipAnalysis.result.structuredContent.measurement.resonanceCandidates.confirmedResonance, false);
     await assert.rejects(() => analyzeAudioFile(sourcePath, { channelIndex: 2 }), /channelIndex/);
     await assert.rejects(() => analyzeAudioFile(sourcePath, { channelIndex: 0.5 }), /channelIndex/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("guarded full-source tuning binds measured mono audio and verifies clip pitch readback", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cavi-audio-tuning-"));
+  try {
+    const sourcePath = join(directory, "tone.wav");
+    await promisify(execFile)("ffmpeg", ["-nostdin", "-v", "error", "-f", "lavfi", "-i",
+      "aevalsrc=0.5*sin(2*PI*445*t):s=48000:d=1", sourcePath]);
+    const state = { stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-0", location: "session", timeline: null,
+      source: { path: sourcePath, lengthSamples: 48000 }, gain: { value: 0.5, min: 0, max: 1, displayValue: "0 dB" },
+      pitch: { coarse: 0, fine: 0 }, warping: true, warpMode: { value: 0, name: "beats", choices: [] },
+      warpMarkers: { supported: true, markers: [] }, markers: { unit: "beats", startBeats: 0, endBeats: 2 },
+      loop: { enabled: false, unit: "beats", startBeats: 0, endBeats: 2 } };
+    const service = new ToolService({ bridge: { async request(method, plan) {
+      if (method === "get_audio_clip_state") return structuredClone(state);
+      if (method === "set_audio_clip_state") {
+        assert.deepEqual(plan.before.pitch, { coarse: 0, fine: 0 });
+        state.pitch = { coarse: plan.changes.pitchCoarse.value, fine: plan.changes.pitchFine.value };
+        state.stateVersion++;
+        return structuredClone(state);
+      }
+      throw new Error(method);
+    } } });
+    const args = { trackId: state.trackId, clipId: state.clipId, expectedStateVersion: 4, targetMidiNote: 69 };
+    const dry = await service.call("apply_monophonic_audio_tuning", args);
+    assert.equal(dry.dryRun, true);
+    assert.equal(dry.plan.method, "set_audio_clip_state");
+    assert.equal(dry.plan.measurement.channels.length, 1);
+    assert.match(dry.plan.measurement.sourceSha256, /^[a-f0-9]{64}$/);
+    assert.equal(dry.plan.changes.pitchCoarse.value, 0);
+    assert.ok(Math.abs(dry.plan.changes.pitchFine.value + 19) <= 3);
+    const applied = await service.call("apply_monophonic_audio_tuning", { ...args, dryRun: false,
+      confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+    assert.deepEqual(applied.observed.pitch, { coarse: dry.plan.changes.pitchCoarse.value,
+      fine: dry.plan.changes.pitchFine.value });
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("whole-source tuning refuses stereo channels with different fundamentals", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cavi-audio-tuning-stereo-"));
+  try {
+    const sourcePath = join(directory, "different-notes.wav");
+    await promisify(execFile)("ffmpeg", ["-nostdin", "-v", "error", "-f", "lavfi", "-i",
+      "aevalsrc=0.5*sin(2*PI*440*t)|0.5*sin(2*PI*880*t):s=48000:d=1", sourcePath]);
+    const clip = { stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-0",
+      source: { path: sourcePath }, pitch: { coarse: 0, fine: 0 } };
+    const service = new ToolService({ bridge: { async request(method) {
+      assert.equal(method, "get_audio_clip_state");
+      return structuredClone(clip);
+    } } });
+    await assert.rejects(() => service.call("apply_monophonic_audio_tuning", {
+      trackId: clip.trackId, clipId: clip.clipId, expectedStateVersion: 4, targetMidiNote: 69
+    }), /channels disagree|stable monophonic/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("whole-source tuning refuses a source changed after confirmation planning", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cavi-audio-tuning-revision-"));
+  try {
+    const sourcePath = join(directory, "tone.wav");
+    const render = async amplitude => promisify(execFile)("ffmpeg", ["-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i",
+      `aevalsrc=${amplitude}*sin(2*PI*445*t):s=48000:d=1`, sourcePath]);
+    await render(0.5);
+    let writes = 0;
+    const clip = { stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-0",
+      source: { path: sourcePath }, pitch: { coarse: 0, fine: 0 } };
+    const service = new ToolService({ bridge: { async request(method) {
+      if (method === "get_audio_clip_state") return structuredClone(clip);
+      if (method === "set_audio_clip_state") { writes++; return structuredClone(clip); }
+      throw new Error(method);
+    } } });
+    const args = { trackId: clip.trackId, clipId: clip.clipId, expectedStateVersion: 4, targetMidiNote: 69 };
+    const dry = await service.call("apply_monophonic_audio_tuning", args);
+    await render(0.25);
+    await assert.rejects(() => service.call("apply_monophonic_audio_tuning", { ...args, dryRun: false,
+      confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash }), /confirmation|plan|hash/i);
+    assert.equal(writes, 0);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
@@ -208,7 +293,7 @@ test("pitch analysis reports time-varying notes and unvoiced frames across the s
     const sourcePath = join(directory, "notes.wav");
     await promisify(execFile)("ffmpeg", ["-nostdin", "-v", "error", "-f", "lavfi", "-i",
       "aevalsrc=if(lt(t\\,0.7)\\,0.5*sin(2*PI*440*t)\\,if(lt(t\\,1.3)\\,0\\,0.5*sin(2*PI*880*t))):s=48000:d=2", sourcePath]);
-    const result = await analyzeAudioFile(sourcePath, { includePitch: true });
+    const result = await analyzeAudioFile(sourcePath, { includePitchEvents: true });
     const frames = result.monophonicPitch.frames;
     assert.ok(Array.isArray(frames));
     assert.ok(frames.length > 1 && frames.length <= 64);
@@ -222,6 +307,13 @@ test("pitch analysis reports time-varying notes and unvoiced frames across the s
     assert.ok(frames.every((frame, index) => index === 0 || frame.startSeconds - frames[index - 1].startSeconds <= 0.128001));
     assert.ok(frames[0].harmonicPeaks?.some(peak => peak.harmonicNumber === 1 && Math.abs(peak.estimatedFrequencyHz - 440) < 1));
     assert.ok(frames.at(-1).harmonicPeaks?.some(peak => peak.harmonicNumber === 1 && Math.abs(peak.estimatedFrequencyHz - 880) < 1));
+    assert.deepEqual(result.pitchEvents.events.map(event => event.noteName), ["A4", "A5"]);
+    assert.ok(result.pitchEvents.events[0].endSeconds < result.pitchEvents.events[1].startSeconds);
+    const eventReply = await createRouter(new ToolService({}))({ id: 1, method: "tools/call", params: {
+      name: "analyze_audio_file", arguments: { sourcePath, includePitchEvents: true }
+    } });
+    assert.equal(eventReply.error, undefined);
+    assert.deepEqual(eventReply.result.structuredContent.pitchEvents.events.map(event => event.noteName), ["A4", "A5"]);
     assert.ok(frames.filter(frame => frame.estimate === null).every(frame => Array.isArray(frame.harmonicPeaks) && frame.harmonicPeaks.length === 0));
     const route = createRouter(new ToolService({}));
     const reply = await route({ id: 1, method: "tools/call", params: {

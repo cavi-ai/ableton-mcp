@@ -4,6 +4,8 @@ import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ToolService } from "../src/tool-service.mjs";
+import { SnapshotLibrary } from "../src/snapshot-library.mjs";
+import { validateToolArguments } from "../src/tool-validation.mjs";
 
 test("unwarped loop plans preserve seconds and reject incompatible units", async () => {
   const observed = {
@@ -123,7 +125,7 @@ test("return track deletion discloses devices and affected send lanes", async ()
 });
 
 function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 1, velocity: 100,
-  velocityDeviation: 0, releaseVelocity: 64, probability: 1, mute: false }] } = {}) {
+  velocityDeviation: 0, releaseVelocity: 64, probability: 1, mute: false }], midiFeelLibrary } = {}) {
   const calls = [];
   const bridge = {
     async request(method, params = {}) {
@@ -184,6 +186,8 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
       if (method === "list_clips") return {
         stateVersion: 4,
         trackId: params.trackId,
+        armed: params.trackId === "track-0", canBeArmed: true, isFrozen: false,
+        launchQuantizationChoices: [{ value: 0, name: "global" }, { value: 12, name: "1_16" }],
         clips: params.trackId === "track-1" ? [
           { id: "track-1:clip-0", name: null, hasClip: false },
           { id: "track-1:clip-1", name: null, hasClip: false }
@@ -323,6 +327,8 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         loop: { enabled: true, startBeats: 0, endBeats: 4 },
         timeSignature: { numerator: 4, denominator: 4 },
         launchQuantization: { value: 0, name: "global", choices: [{ value: 0, name: "global" }, { value: 12, name: "1_16" }] },
+        launchLegato: { supported: true, enabled: false },
+        editorGrid: { quantization: { value: 8, name: "1_16", choices: [{ value: 7, name: "1_8" }, { value: 8, name: "1_16" }] }, isTriplet: false },
         grooveId: null, availableGrooves: [{ id: "groove-0", name: "Swing 16-65" }]
       };
       if (method === "get_audio_clip_state") return {
@@ -388,7 +394,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
     } : undefined,
     artworkForPreset: (id) => id === "serum-2:a" ? { id: "art:bass" } : undefined
   };
-  return { service: new ToolService({ bridge, catalog }), calls };
+  return { service: new ToolService({ bridge, catalog, midiFeelLibrary }), calls };
 }
 
 test("search_presets remains read-only", async () => {
@@ -411,10 +417,28 @@ test("producer chain blueprints return ordered loadable stages and explicit bus 
   ]);
   const layered = await service.call("get_producer_chain_blueprint", { target: "layered-bass-system" });
   assert.equal(layered.blueprint.topology, "shared-instrument-bus");
+  assert.deepEqual(layered.blueprint.execution.returnBus, {
+    createTool: "create_return_track", routeTool: "route_tracks_to_return_bus",
+    verifyTool: "inspect_producer_return_bus", requiredOutput: "Sends Only"
+  });
   assert.deepEqual(layered.blueprint.children.map(({ role, instrumentProfileId }) => ({ role, instrumentProfileId })), [
     { role: "sub", instrumentProfileId: "operator" },
     { role: "body", instrumentProfileId: "wavetable" },
     { role: "texture", instrumentProfileId: "drift" }
+  ]);
+  const drums = await service.call("get_producer_chain_blueprint", { target: "layered-drums-system" });
+  assert.deepEqual(drums.blueprint.children.map(({ role, instrumentProfileId }) => ({ role, instrumentProfileId })), [
+    { role: "kick", instrumentProfileId: "drum-sampler" },
+    { role: "snare", instrumentProfileId: "drum-sampler" },
+    { role: "percussion", instrumentProfileId: "drum-rack" }
+  ]);
+  assert.deepEqual(drums.blueprint.stages.filter(({ optional }) => !optional).map(({ profileId }) => profileId),
+    ["utility", "eq-eight", "drum-buss", "glue-compressor"]);
+  const keys = await service.call("get_producer_chain_blueprint", { target: "layered-keys-system" });
+  assert.deepEqual(keys.blueprint.children.map(({ role, instrumentProfileId }) => ({ role, instrumentProfileId })), [
+    { role: "electric-piano", instrumentProfileId: "electric" },
+    { role: "pad", instrumentProfileId: "wavetable" },
+    { role: "texture", instrumentProfileId: "sampler" }
   ]);
   assert.deepEqual(calls, []);
 });
@@ -424,7 +448,8 @@ test("producer chain catalog covers core tracks, buses, returns and layered inst
   const result = await service.call("list_producer_chain_blueprints");
   assert.deepEqual(result.blueprints.map(({ id }) => id), [
     "bass", "drums", "vocals", "guitar", "keys", "synth", "mix-bus", "mastering",
-    "reverb-return", "delay-return", "layered-bass-system", "layered-synth-system"
+    "reverb-return", "delay-return", "layered-bass-system", "layered-synth-system",
+    "layered-drums-system", "layered-keys-system", "layered-vocals-system", "layered-guitar-system"
   ]);
   for (const blueprint of result.blueprints) {
     assert.ok(blueprint.topology);
@@ -544,6 +569,32 @@ test("Live browser exposes plug-ins and user content through canonical guarded t
   assert.deepEqual(calls.slice(-4).map(({ method }) => method), [
     "get_browser_items", "list_devices", "get_browser_items", "load_browser_item"
   ]);
+});
+
+test("browser root inventory forwards one read-only native request", async () => {
+  const calls = [];
+  const observed = { stateVersion: 7, roots: [{ root: "plugins", available: true, totalChildren: 2 }] };
+  const service = new ToolService({ bridge: { async request(method, params) {
+    calls.push({ method, params });
+    return observed;
+  } } });
+  assert.deepEqual(await service.call("list_browser_roots", {}), observed);
+  assert.deepEqual(calls, [{ method: "list_browser_roots", params: {} }]);
+});
+
+test("cross-root browser search sends one bounded native query", async () => {
+  const calls = [];
+  const observed = { stateVersion: 7, results: [{ root: "plugins", path: ["Synth"] }], truncated: false };
+  const service = new ToolService({ bridge: { async request(method, params) {
+    calls.push({ method, params });
+    return observed;
+  } } });
+  assert.deepEqual(await service.call("search_browser_roots", {
+    roots: ["plugins", "user_library"], query: "synth", maxDepth: 3, limit: 20, maxVisited: 300,
+  }), observed);
+  assert.deepEqual(calls, [{ method: "search_browser_roots", params: {
+    roots: ["plugins", "user_library"], query: "synth", maxDepth: 3, limit: 20, maxVisited: 300,
+  } }]);
 });
 
 test("browser loading accepts guarded Return and Main device owners", async () => {
@@ -831,6 +882,29 @@ test("plug-in context distinguishes configured controls from currently writable 
   });
 });
 
+test("generic Max for Live context exposes exact writable IDs and ambiguous names", async () => {
+  const device = { id: "track-0:device-0", name: "Renamed Modulator",
+    className: "MxDeviceAudioEffect", classDisplayName: "Max Audio Effect", type: "audio_effect" };
+  const service = new ToolService({ bridge: { async request(method) {
+    if (method === "list_devices") return { stateVersion: 4, trackId: "track-0", devices: [device] };
+    if (method === "list_device_parameters") return { stateVersion: 4, trackId: "track-0", deviceId: device.id,
+      parameters: [
+        { id: "parameter-0", name: "Device On", originalName: "Device On", enabled: true },
+        { id: "parameter-1", name: "Rate", originalName: "Rate", enabled: true },
+        { id: "parameter-2", name: "Rate", originalName: "Rate", enabled: false }
+      ], nameAmbiguities: [{ name: "Rate", parameterIds: ["parameter-1", "parameter-2"] }] };
+    throw new Error(method);
+  } } });
+  const context = await service.call("get_factory_device_context", { trackId: "track-0", deviceId: device.id });
+  assert.equal(context.profile, null);
+  assert.deepEqual(context.maxForLiveExposure, {
+    deviceKind: "audio_effect", exposedControlIds: ["parameter-1", "parameter-2"],
+    writableControlIds: ["parameter-1"],
+    nameAmbiguities: [{ name: "Rate", parameterIds: ["parameter-1", "parameter-2"] }],
+    patchInternalsReadable: false, modulationTargetsReadable: false
+  });
+});
+
 test("device activation and deletion use guarded exact-identity plans", async () => {
   const { service, calls } = fixture();
   const base = { expectedStateVersion: 4, trackId: "track-0", deviceId: "track-0:device-1" };
@@ -910,6 +984,24 @@ test("transport recording context mutation validates and signs exact changes", a
   await assert.rejects(() => service.call("set_transport_recording_context", {
     expectedStateVersion: 4, currentSongTime: -1
   }), /currentSongTime/);
+});
+
+test("Capture MIDI signs session scope and refuses an empty native capture buffer", async () => {
+  const before = { stateVersion: 4, midiCapture: { available: true, midiTrackIds: ["track-0", "track-1"] } };
+  const service = new ToolService({ bridge: { async request(method) {
+    if (method === "get_transport_recording_context") return before;
+    if (method === "capture_midi_session") return { stateVersion: 5, changedSlots: [{ clipId: "track-0:clip-1" }] };
+    throw new Error(method);
+  } } });
+  const args = { expectedStateVersion: 4 };
+  const dry = await service.call("capture_midi_session", args);
+  assert.equal(dry.plan.destination, "session");
+  assert.deepEqual(dry.plan.before.midiTrackIds, ["track-0", "track-1"]);
+  const applied = await service.call("capture_midi_session", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(applied.observed.changedSlots[0].clipId, "track-0:clip-1");
+  before.midiCapture.available = false;
+  await assert.rejects(() => service.call("capture_midi_session", args), /no MIDI material/);
 });
 
 test("arrangement cue points are inspectable and exact mutations are guarded", async () => {
@@ -1003,6 +1095,23 @@ test("clip timing mutation rejects invalid loops and signs groove assignment", a
   assert.equal(dry.plan.changes.grooveId, "groove-0");
 });
 
+test("clip timing signs the Session clip launch Legato switch", async () => {
+  const { service } = fixture();
+  const base = { trackId: "track-0", clipId: "track-0:clip-0", expectedStateVersion: 4 };
+  const dry = await service.call("set_clip_timing", { ...base, launchLegato: true });
+  assert.equal(dry.plan.changes.launchLegato, true);
+  await assert.rejects(() => service.call("set_clip_timing", { ...base, launchLegato: "yes" }), /launchLegato must be boolean/);
+});
+
+test("clip timing signs exact editor grid choices and triplet mode", async () => {
+  const { service } = fixture();
+  const base = { trackId: "track-0", clipId: "track-0:clip-0", expectedStateVersion: 4 };
+  const dry = await service.call("set_clip_timing", { ...base, editorGrid: { quantization: "1_8", isTriplet: true } });
+  assert.deepEqual(dry.plan.changes.editorGrid, { quantization: 7, isTriplet: true });
+  await assert.rejects(() => service.call("set_clip_timing", { ...base, editorGrid: { quantization: "1_64" } }), /quantization must be one of/);
+  await assert.rejects(() => service.call("set_clip_timing", { ...base, editorGrid: { isTriplet: 1 } }), /isTriplet must be boolean/);
+});
+
 test("clip loop duplication signs exact timing and executes once", async () => {
   const { service, calls } = fixture();
   const args = { expectedStateVersion: 4, trackId: "track-0", clipId: "track-0:clip-0" };
@@ -1090,6 +1199,31 @@ test("group fold and bus routing mutations validate exact existing track identit
   await assert.rejects(() => service.call("route_tracks_to_bus", { expectedStateVersion: 4, trackIds: ["track-1"], busTrackId: "track-1" }), /cannot route.*itself/);
 });
 
+test("Return-bus routing signs sends and Sends Only choices for every source", async () => {
+  const calls = [];
+  const service = new ToolService({ bridge: { async request(method, params) {
+    calls.push({ method, params });
+    if (method === "get_set_mixer") return { stateVersion: 4, returns: [{ id: "return-0", name: "A-Bass Bus" }] };
+    if (method === "get_track_mixer") return { stateVersion: 4, trackId: params.trackId,
+      sends: [{ id: "send-0", returnTrackId: "return-0", name: "A-Bass Bus", value: 0, min: 0, max: 1 }] };
+    if (method === "get_track_routing") return { stateVersion: 4, trackId: params.trackId,
+      output: { type: { id: "main", name: "Main" }, availableTypes: [
+        { id: "main", name: "Main" }, { id: "sends-only", name: "Sends Only" }] } };
+    if (method === "route_tracks_to_return_bus") return { stateVersion: 5, returnTrackId: "return-0",
+      routes: params.routes.map(route => ({ trackId: route.trackId, sendValue: 1, outputTypeId: "sends-only" })) };
+    throw new Error(method);
+  } } });
+  const args = { expectedStateVersion: 4, trackIds: ["track-0", "track-1"], returnTrackId: "return-0", sendValue: 1 };
+  const dry = await service.call("route_tracks_to_return_bus", args);
+  assert.deepEqual(dry.plan.routes.map(route => [route.trackId, route.sendId, route.outputTypeId]), [
+    ["track-0", "send-0", "sends-only"], ["track-1", "send-0", "sends-only"]]);
+  assert.equal(dry.plan.beforeReturn.name, "A-Bass Bus");
+  const applied = await service.call("route_tracks_to_return_bus", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(applied.observed.routes.length, 2);
+  assert.equal(calls.filter(call => call.method === "route_tracks_to_return_bus").length, 1);
+});
+
 test("device listing forwards Return and Main owner IDs", async () => {
   const { service, calls } = fixture();
   for (const trackId of ["return-0", "master"]) {
@@ -1141,6 +1275,161 @@ test("device chain snapshots capture and recall exact bus topology", async () =>
     confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
   assert.equal(result.observed.devices[0].parameters[0].value, 0.5);
   assert.equal(mutations.length, 1);
+});
+
+test("device chain snapshots capture and validate nested rack topology", async () => {
+  const parameter = { id: "parameter-0", originalName: "Cutoff", min: 0, max: 1,
+    quantized: false, valueItems: [], value: 0.4, enabled: true };
+  const observed = { stateVersion: 9, trackId: "track-0", devices: [
+    { id: "track-0:device-0", name: "Drum Rack", className: "InstrumentGroupDevice", type: "instrument",
+      parameters: [parameter], chains: [{ name: "Kick", devices: [
+        { id: "track-0:device-0/chain-0/device-0", name: "Simpler", className: "OriginalSimpler", type: "instrument",
+          parameters: [parameter] }
+      ] }], returnChains: [] }
+  ] };
+  const service = new ToolService({ bridge: { async request(method) {
+    if (method === "get_device_chain_snapshot") return structuredClone(observed);
+    throw new Error(method);
+  } } });
+  const captured = await service.call("capture_device_chain_snapshot", { trackId: "track-0" });
+  assert.equal(captured.snapshot.format, "cavi-device-chain-v2");
+  assert.equal(captured.snapshot.devices[0].chains[0].devices[0].name, "Simpler");
+  validateToolArguments("recall_device_chain_snapshot", {
+    trackId: "track-0", expectedStateVersion: 9, snapshot: captured.snapshot,
+  });
+  const incompatible = structuredClone(captured.snapshot);
+  incompatible.devices[0].chains[0].devices[0].className = "PluginDevice";
+  await assert.rejects(() => service.call("recall_device_chain_snapshot", {
+    trackId: "track-0", expectedStateVersion: 9, snapshot: incompatible,
+  }), /topology mismatch/);
+});
+
+test("device chain snapshots preserve rack mixer and note routing with native preflight", async () => {
+  const observed = { stateVersion: 9, trackId: "track-0", devices: [{
+    id: "track-0:device-0", name: "Drum Rack", className: "InstrumentGroupDevice", type: "instrument",
+    parameters: [], chains: [{ name: "Kick", devices: [],
+      mixer: { volume: { value: 0.4, min: 0, max: 1, enabled: true }, pan: { value: 0, min: -1, max: 1, enabled: true },
+        sends: [{ index: 0, value: 0.3, min: 0, max: 1, enabled: true }], mute: false, solo: false },
+      noteRouting: { inputNote: 36, outputNote: 36 } }], returnChains: []
+  }] };
+  const service = new ToolService({ bridge: { async request(method) {
+    if (method === "get_device_chain_snapshot") return structuredClone(observed);
+    throw new Error(method);
+  } } });
+  const captured = await service.call("capture_device_chain_snapshot", { trackId: "track-0" });
+  assert.equal(captured.snapshot.format, "cavi-device-chain-v3");
+  assert.equal(captured.snapshot.devices[0].chains[0].mixer.volume, 0.4);
+  validateToolArguments("recall_device_chain_snapshot", { trackId: "track-0", expectedStateVersion: 9,
+    snapshot: captured.snapshot });
+  const target = structuredClone(captured.snapshot);
+  target.devices[0].chains[0].mixer.volume = 0.6;
+  target.devices[0].chains[0].noteRouting.inputNote = 38;
+  const dry = await service.call("recall_device_chain_snapshot", { trackId: "track-0", expectedStateVersion: 9,
+    snapshot: target });
+  assert.equal(dry.plan.target.devices[0].chains[0].noteRouting.inputNote, 38);
+  target.devices[0].chains[0].mixer.volume = 2;
+  await assert.rejects(() => service.call("recall_device_chain_snapshot", { trackId: "track-0",
+    expectedStateVersion: 9, snapshot: target }), /native range/);
+});
+
+test("device chain snapshots include populated Drum Rack pad mute and solo state", async () => {
+  const observed = { stateVersion: 9, trackId: "track-0", devices: [{
+    id: "track-0:device-0", name: "Drum Rack", className: "InstrumentGroupDevice", type: "instrument",
+    parameters: [], chains: [{ name: "Kick", devices: [],
+      mixer: { volume: null, pan: null, sends: [], mute: null, solo: null },
+      noteRouting: { inputNote: null, outputNote: null } }], returnChains: [],
+    drumPads: [{ note: 36, mute: true, solo: false }]
+  }] };
+  const service = new ToolService({ bridge: { async request(method) {
+    if (method === "get_device_chain_snapshot") return structuredClone(observed);
+    throw new Error(method);
+  } } });
+  const captured = await service.call("capture_device_chain_snapshot", { trackId: "track-0" });
+  assert.equal(captured.snapshot.format, "cavi-device-chain-v4");
+  assert.deepEqual(captured.snapshot.devices[0].drumPads, [{ note: 36, mute: true, solo: false }]);
+  validateToolArguments("recall_device_chain_snapshot", { trackId: "track-0", expectedStateVersion: 9,
+    snapshot: captured.snapshot });
+  const target = structuredClone(captured.snapshot);
+  target.devices[0].drumPads[0].mute = false;
+  const dry = await service.call("recall_device_chain_snapshot", { trackId: "track-0", expectedStateVersion: 9,
+    snapshot: target });
+  assert.equal(dry.plan.target.devices[0].drumPads[0].mute, false);
+});
+
+test("return bus chain snapshot includes mixer state for guarded recall", async () => {
+  const observed = { stateVersion: 9, trackId: "return-0",
+    ownerMixer: { volume: { value: 0.6, min: 0, max: 1 }, pan: { value: 0, min: -1, max: 1 },
+      mute: false, solo: false },
+    devices: [{ id: "return-0:device-0", name: "Reverb", className: "Reverb", type: "audio_effect",
+      parameters: [{ id: "parameter-0", originalName: "Dry/Wet", min: 0, max: 1,
+        quantized: false, valueItems: [], value: 0.7, enabled: true }] }] };
+  const service = new ToolService({ bridge: { async request(method) {
+    if (method === "get_device_chain_snapshot") return structuredClone(observed);
+    throw new Error(method);
+  } } });
+  const captured = await service.call("capture_device_chain_snapshot", { trackId: "return-0" });
+  assert.equal(captured.snapshot.format, "cavi-device-chain-v5");
+  assert.deepEqual(captured.snapshot.ownerMixer, { volume: 0.6, pan: 0, mute: false, solo: false });
+  validateToolArguments("recall_device_chain_snapshot", { trackId: "return-0", expectedStateVersion: 9,
+    snapshot: captured.snapshot });
+  const target = structuredClone(captured.snapshot);
+  target.ownerMixer.volume = 0.4;
+  const dry = await service.call("recall_device_chain_snapshot", { trackId: "return-0", expectedStateVersion: 9,
+    snapshot: target });
+  assert.equal(dry.plan.target.ownerMixer.volume, 0.4);
+});
+
+test("master chain snapshot guards mixer and hardware output recall", async () => {
+  const observed = { stateVersion: 9, trackId: "master",
+    ownerMixer: { volume: { value: 0.8, min: 0, max: 1 }, pan: { value: 0, min: -1, max: 1 },
+      cueVolume: { value: 0.7, min: 0, max: 1 }, crossfader: { value: 0, min: -1, max: 1 },
+      outputRouting: { supported: true, channel: { id: "1/2", name: "1/2" },
+        availableChannels: [{ id: "1/2", name: "1/2" }, { id: "3/4", name: "3/4" }] } },
+    devices: [{ id: "master:device-0", name: "Limiter", className: "Limiter", type: "audio_effect",
+      parameters: [{ id: "parameter-0", originalName: "Ceiling", min: 0, max: 1,
+        quantized: false, valueItems: [], value: 0.7, enabled: true }] }] };
+  const service = new ToolService({ bridge: { async request(method) {
+    if (method === "get_device_chain_snapshot") return structuredClone(observed);
+    throw new Error(method);
+  } } });
+  const captured = await service.call("capture_device_chain_snapshot", { trackId: "master" });
+  assert.equal(captured.snapshot.format, "cavi-device-chain-v6");
+  assert.deepEqual(captured.snapshot.ownerMixer, { volume: 0.8, pan: 0, cueVolume: 0.7,
+    crossfader: 0, outputChannelId: "1/2" });
+  validateToolArguments("recall_device_chain_snapshot", { trackId: "master", expectedStateVersion: 9,
+    snapshot: captured.snapshot });
+  const target = structuredClone(captured.snapshot);
+  target.ownerMixer.outputChannelId = "3/4";
+  const dry = await service.call("recall_device_chain_snapshot", { trackId: "master", expectedStateVersion: 9,
+    snapshot: target });
+  assert.equal(dry.plan.target.ownerMixer.outputChannelId, "3/4");
+  target.ownerMixer.outputChannelId = "5/6";
+  await assert.rejects(service.call("recall_device_chain_snapshot", { trackId: "master", expectedStateVersion: 9,
+    snapshot: target }), /master output channel is unavailable/);
+});
+
+test("named device-chain capture can be loaded for guarded recall", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cavi-chain-save-"));
+  try {
+    const observed = { stateVersion: 3, trackId: "return-0", devices: [{
+      id: "return-0:device-0", name: "Reverb", className: "Reverb", type: "audio_effect",
+      parameters: [{ id: "parameter-0", originalName: "Dry/Wet", min: 0, max: 1,
+        quantized: false, valueItems: [], value: 0.7, enabled: true }]
+    }] };
+    const service = new ToolService({ bridge: { async request(method) {
+      if (method === "get_device_chain_snapshot") return structuredClone(observed);
+      throw new Error(method);
+    } }, deviceChainLibrary: new SnapshotLibrary({ directory, formats: ["cavi-device-chain-v1", "cavi-device-chain-v2"] }) });
+    await service.call("save_device_chain_snapshot", { trackId: "return-0", name: "wet-reverb" });
+    const loaded = await service.call("load_device_chain_snapshot", { name: "wet-reverb" });
+    assert.equal(loaded.snapshot.devices[0].parameters[0].value, 0.7);
+    validateToolArguments("recall_device_chain_snapshot", { trackId: "return-0",
+      expectedStateVersion: 3, snapshot: loaded.snapshot });
+    observed.devices[0].parameters[0].value = 0.2;
+    const dry = await service.call("recall_device_chain_snapshot", { trackId: "return-0",
+      expectedStateVersion: 3, snapshot: loaded.snapshot });
+    assert.equal(dry.plan.target.devices[0].parameters[0].value, 0.7);
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
 test("device reordering requires exact state and confirmation", async () => {
@@ -1317,6 +1606,8 @@ test("per-note properties use a guarded exact-ID mutation plan", async () => {
   const dry = await service.call("set_midi_note_properties", args);
   assert.equal(dry.plan.changes[0].previous.probability, 1);
   assert.equal(dry.plan.changes[0].probability, 0.25);
+  assert.equal(dry.plan.before.notes[0].noteId, 7);
+  assert.equal(dry.plan.clipTiming.loop.endBeats, 4);
   const live = await service.call("set_midi_note_properties", {
     ...args, dryRun: false, confirmationToken: dry.confirmation.token,
     planHash: dry.confirmation.planHash
@@ -1337,6 +1628,103 @@ test("per-note mutation rejects unknown IDs, invalid ranges, and unsupported MPE
   await assert.rejects(() => service.call("set_midi_note_properties", {
     ...base, changes: [{ noteId: 7, pitchBend: 0.5 }]
   }), /unsupported per-note properties: pitchBend/);
+});
+
+test("MIDI feel analysis measures straight-sixteenth offsets and accents without changing notes", async () => {
+  const source = [
+    { noteId: 1, pitch: 36, start: 0, duration: 0.1, velocity: 100 },
+    { noteId: 2, pitch: 42, start: 0.26, duration: 0.1, velocity: 90 },
+    { noteId: 3, pitch: 38, start: 0.51, duration: 0.1, velocity: 80 },
+    { noteId: 4, pitch: 36, start: 1.02, duration: 0.1, velocity: 110 }
+  ];
+  const { service, calls } = fixture({ extendedNotes: source });
+  const result = await service.call("analyze_midi_feel", {
+    trackId: "track-0", clipId: "track-0:clip-0", grid: "straight16"
+  });
+  assert.equal(result.stateVersion, 4);
+  assert.equal(result.cycleBeats, 4);
+  assert.deepEqual(result.notes.map(note => note.slot), [0, 1, 2, 4]);
+  assert.ok(Math.abs(result.notes[1].offsetBeats - 0.01) < 1e-9);
+  assert.ok(Math.abs(result.notes[3].offsetBeats - 0.02) < 1e-9);
+  assert.deepEqual(result.slots.map(slot => [slot.slot, slot.hitCount, slot.meanVelocity]),
+    [[0, 1, 100], [1, 1, 90], [2, 1, 80], [4, 1, 110]]);
+  assert.equal(result.slots[0].barDownbeat, true);
+  assert.equal(result.slots[3].quarterPulse, true);
+  assert.equal(result.nativeGrooveId, null);
+  assert.deepEqual(result.template.slots.map(slot => [slot.slot, slot.meanVelocity]),
+    [[0, 100], [1, 90], [2, 80], [4, 110]]);
+  assert.equal(result.template.format, "cavi-midi-feel-v1");
+  assert.equal(calls.some(call => call.method.startsWith("set_")), false);
+});
+
+test("MIDI feel analysis resolves triplet slots without treating raw timing as native groove playback", async () => {
+  const { service } = fixture({ extendedNotes: [
+    { noteId: 7, pitch: 42, start: 0.34, duration: 0.1, velocity: 72 }
+  ] });
+  const result = await service.call("analyze_midi_feel", {
+    trackId: "track-0", clipId: "track-0:clip-0", grid: "eighthTriplet", bars: 1
+  });
+  assert.equal(result.notes[0].slot, 1);
+  assert.ok(Math.abs(result.notes[0].offsetBeats - (0.34 - 1 / 3)) < 1e-9);
+  assert.match(result.limitation, /stored MIDI|raw MIDI/i);
+});
+
+test("MIDI feel transfer plans exact timing and velocity blends through guarded note edits", async () => {
+  const { service, calls } = fixture({ extendedNotes: [
+    { noteId: 7, pitch: 42, start: 0.22, duration: 0.1, velocity: 50,
+      velocityDeviation: 0, releaseVelocity: 64, probability: 1, mute: false }
+  ] });
+  const template = { format: "cavi-midi-feel-v1", grid: "straight16", bars: 1, barBeats: 4,
+    nativeGrooveId: null, source: { trackId: "track-1", clipId: "track-1:clip-0", stateVersion: 4 },
+    slots: [{ slot: 1, hitCount: 2, meanOffsetBeats: 0.01, meanVelocity: 90 }] };
+  const args = { trackId: "track-0", clipId: "track-0:clip-0", expectedStateVersion: 4,
+    template, timingAmount: 0.5, velocityAmount: 0.25 };
+  const dry = await service.call("apply_midi_feel_template", args);
+  assert.equal(dry.plan.method, "set_midi_note_properties");
+  assert.equal(dry.plan.changes[0].noteId, 7);
+  assert.ok(Math.abs(dry.plan.changes[0].start - 0.24) < 1e-9);
+  assert.equal(dry.plan.changes[0].velocity, 60);
+  assert.equal(dry.plan.changes[0].previous.start, 0.22);
+  assert.equal(dry.plan.clipTiming.grooveId, null);
+  const live = await service.call("apply_midi_feel_template", {
+    ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash
+  });
+  assert.equal(live.observed.notes[0].velocity, 60);
+  assert.equal(calls.at(-1).method, "set_midi_note_properties");
+});
+
+test("named MIDI feel templates persist from an exact source clip without overwrite", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cavi-feel-library-test-"));
+  try {
+    const { service, calls } = fixture({ midiFeelLibrary: new SnapshotLibrary({ directory, formats: ["cavi-midi-feel-v1"] }), extendedNotes: [
+      { noteId: 7, pitch: 42, start: 0.26, duration: 0.1, velocity: 90 }
+    ] });
+    const args = { name: "house-hats", trackId: "track-0", clipId: "track-0:clip-0", grid: "straight16" };
+    const saved = await service.call("save_midi_feel_template", args);
+    assert.equal(saved.name, "house-hats");
+    assert.equal(saved.template.source.stateVersion, 4);
+    assert.deepEqual(saved.template.slots.map(slot => [slot.slot, slot.meanVelocity]), [[1, 90]]);
+    const loaded = await service.call("load_midi_feel_template", { name: "house-hats" });
+    assert.deepEqual(loaded.template, saved.template);
+    await assert.rejects(() => service.call("save_midi_feel_template", args), /already exists/);
+    assert.equal(calls.some(call => call.method.startsWith("set_")), false);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("saved capture discovery selects the requested private library without Live", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cavi-capture-discovery-test-"));
+  try {
+    const snapshotLibrary = new SnapshotLibrary({ directory: join(directory, "tracks") });
+    const deviceChainLibrary = new SnapshotLibrary({ directory: join(directory, "chains"), formats: ["cavi-device-chain-v1"] });
+    const midiFeelLibrary = new SnapshotLibrary({ directory: join(directory, "feel"), formats: ["cavi-midi-feel-v1"] });
+    await snapshotLibrary.save("bass", { format: "cavi-track-state-v1" });
+    await deviceChainLibrary.save("master", { format: "cavi-device-chain-v1" });
+    await midiFeelLibrary.save("swing", { format: "cavi-midi-feel-v1" });
+    const service = new ToolService({ snapshotLibrary, deviceChainLibrary, midiFeelLibrary });
+    assert.deepEqual(await service.call("list_saved_snapshots", { kind: "track" }), { kind: "track", names: ["bass"] });
+    assert.deepEqual(await service.call("list_saved_snapshots", { kind: "device-chain" }), { kind: "device-chain", names: ["master"] });
+    assert.deepEqual(await service.call("list_saved_snapshots", { kind: "midi-feel" }), { kind: "midi-feel", names: ["swing"] });
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
 test("quantization targets absolute note ends independently of starts", async () => {
@@ -1377,6 +1765,8 @@ test("MIDI note transforms sign hand-derived quantize and legato changes", async
       velocityDeviation: 0, releaseVelocity: 64, probability: 1, mute: false },
     start: 0.05, duration: 0.55
   }]);
+  assert.equal(quantize.plan.before.notes[0].noteId, 7);
+  assert.equal(quantize.plan.clipTiming.loop.endBeats, 4);
   assert.equal(calls.at(-1).method, "get_midi_clip_notes_extended");
 
   const { service: legatoService } = fixture({ extendedNotes: [
@@ -1546,6 +1936,36 @@ test("audio quantization signs grid amount and full native before-state", async 
   }
 });
 
+test("audio quantization reports actual marker movement instead of implying a grid snap", async () => {
+  const before = { stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-2", warping: true,
+    warpMarkers: { supported: true, markers: [
+      { sampleTime: 0, beatTime: 0 }, { sampleTime: 0.56, beatTime: 1.12 }, { sampleTime: 2, beatTime: 4 }
+    ] } };
+  const after = { ...before, stateVersion: 5, warpMarkers: { supported: true, markers: [
+    { sampleTime: 0, beatTime: -0.00004 }, { sampleTime: 0.00002, beatTime: 0 },
+    { sampleTime: 0.56, beatTime: 1.11996 }, { sampleTime: 2, beatTime: 3.99996 }
+  ] } };
+  const service = new ToolService({ bridge: { async request(method) {
+    if (method === "get_audio_clip_state") return before;
+    if (method === "get_song_musical_context") return { stateVersion: 4, groove: { swingAmount: 0 } };
+    if (method === "quantize_audio_clip") return after;
+    throw new Error(method);
+  } } });
+  const args = { trackId: "track-0", clipId: "track-0:clip-2", expectedStateVersion: 4,
+    grid: "1_4", amount: 1 };
+  const dry = await service.call("quantize_audio_clip", args);
+  const result = await service.call("quantize_audio_clip", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.warpMarkerChanges.beforeCount, 3);
+  assert.equal(result.warpMarkerChanges.afterCount, 4);
+  assert.equal(result.warpMarkerChanges.retainedCount, 3);
+  assert.equal(result.warpMarkerChanges.insertedCount, 1);
+  assert.equal(result.warpMarkerChanges.removedCount, 0);
+  assert.ok(Math.abs(result.warpMarkerChanges.maxAbsRetainedBeatShift - 0.00004) < 1e-9);
+  assert.deepEqual(result.warpMarkerChanges.largestRetainedBeatShifts.map(shift => shift.sampleTime).sort((a, b) => a - b), [0, 0.56, 2]);
+  assert.ok(result.warpMarkerChanges.largestRetainedBeatShifts.every(shift => Math.abs(shift.deltaBeats + 0.00004) < 1e-9));
+});
+
 test("warp marker creation signs explicit anchor and preserves omitted sample time", async () => {
   const before = { stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-2", warping: true, warpMarkers: { supported: true,
     markers: [{ sampleTime: 0, beatTime: 0 }, { sampleTime: 2, beatTime: 4 }] } };
@@ -1702,6 +2122,54 @@ test("core transport, mixer, scene, and clip operations use guarded mutation pla
   }
 });
 
+test("scene launch carries an explicit legato override through the guarded plan", async () => {
+  const { service, calls } = fixture();
+  const args = { sceneId: "scene-0", expectedStateVersion: 4, forceLegato: true };
+  const dry = await service.call("launch_scene", args);
+  assert.equal(dry.plan.forceLegato, true);
+  const result = await service.call("launch_scene", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.requested.forceLegato, true);
+  assert.equal(calls.at(-1).params.forceLegato, true);
+  await assert.rejects(() => service.call("launch_scene", { ...args, forceLegato: "yes" }), /forceLegato must be boolean/);
+});
+
+test("clip launch signs a one-shot quantization override", async () => {
+  const { service, calls } = fixture();
+  const args = { trackId: "track-0", clipId: "track-0:clip-0", expectedStateVersion: 4, launchQuantization: "1_16" };
+  const dry = await service.call("launch_clip", args);
+  assert.equal(dry.plan.launchQuantization, 12);
+  const result = await service.call("launch_clip", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.requested.launchQuantization, 12);
+  assert.equal(calls.at(-1).params.launchQuantization, 12);
+  await assert.rejects(() => service.call("launch_clip", { ...args, launchQuantization: "bad" }), /launchQuantization must be one of/);
+});
+
+test("clip launch without an override retains the empty-slot recording path", async () => {
+  const { service, calls } = fixture();
+  const args = { trackId: "track-0", clipId: "track-0:clip-1", expectedStateVersion: 4 };
+  const dry = await service.call("launch_clip", args);
+  assert.equal(calls.at(-1).method, "get_live_state");
+  assert.equal(dry.plan.clipId, args.clipId);
+});
+
+test("fixed-length Session recording signs the empty armed slot and one-shot grid", async () => {
+  const { service, calls } = fixture();
+  const args = { trackId: "track-0", clipId: "track-0:clip-1", expectedStateVersion: 4,
+    recordLengthBeats: 4, launchQuantization: "1_16" };
+  const dry = await service.call("launch_clip", args);
+  assert.equal(dry.plan.recordLengthBeats, 4);
+  assert.equal(dry.plan.launchQuantization, 12);
+  const result = await service.call("launch_clip", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.requested.recordLengthBeats, 4);
+  assert.equal(calls.at(-1).params.launchQuantization, 12);
+  await assert.rejects(() => service.call("launch_clip", { ...args, recordLengthBeats: 0 }), /recordLengthBeats/);
+  await assert.rejects(() => service.call("launch_clip", { ...args, clipId: "track-0:clip-0" }), /empty/);
+  await assert.rejects(() => service.call("launch_clip", { ...args, trackId: "track-1", clipId: "track-1:clip-0" }), /armed/);
+});
+
 test("transport context exposes and guards metronome and count-in changes", async () => {
   const { service, calls } = fixture();
   const observed = await service.call("get_transport_context");
@@ -1855,6 +2323,63 @@ test("parameter dry-run uses Live's native label for a quantized triplet grid", 
   assert.equal(dry.plan.changes[0].targetDisplayValue, "1/12");
 });
 
+test("parameter dry-run resolves an exact observed choice label to its native value", async () => {
+  const service = new ToolService({ bridge: { async request(method, plan) {
+    if (method === "set_device_parameters") return {
+      stateVersion: 5, trackId: plan.trackId, deviceId: plan.deviceId,
+      observedChanges: plan.changes
+    };
+    assert.equal(method, "list_device_parameters");
+    return { stateVersion: 4, trackId: "track-0", deviceId: "track-0:device-0", parameters: [
+      { id: "parameter-4", name: "Grid", originalName: "Grid", min: 7, max: 9,
+        value: 7, displayValue: "1/16", enabled: true, quantized: true, valueItems: [],
+        nativeChoiceLabels: [{ value: 7, displayValue: "1/16" },
+          { value: 8, displayValue: "1/12" }, { value: 9, displayValue: "1/24" }] }
+    ] };
+  } } });
+  const dry = await service.call("set_device_parameters", {
+    trackId: "track-0", deviceId: "track-0:device-0", expectedStateVersion: 4,
+    changes: [{ id: "parameter-4", value: "1/12" }]
+  });
+  assert.equal(dry.plan.changes[0].requestedValue, "1/12");
+  assert.equal(dry.plan.changes[0].value, 8);
+  assert.equal(dry.plan.changes[0].targetDisplayValue, "1/12");
+  const live = await service.call("set_device_parameters", {
+    trackId: "track-0", deviceId: "track-0:device-0", expectedStateVersion: 4,
+    changes: [{ id: "parameter-4", value: "1/12" }], dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash
+  });
+  assert.equal(live.observed.observedChanges[0].value, 8);
+});
+
+test("parameter choice labels must be unique, exact, and quantized", async () => {
+  const parameters = [
+    { id: "filter", name: "Filter", originalName: "Filter", min: 2, max: 4,
+      value: 2, displayValue: "Low", enabled: true, quantized: true,
+      valueItems: ["Low", "High", "High"] },
+    { id: "cutoff", name: "Cutoff", originalName: "Cutoff", min: 0, max: 1,
+      value: 0.5, displayValue: "50%", enabled: true, quantized: false, valueItems: [] }
+  ];
+  const service = new ToolService({ bridge: { async request(method) {
+    assert.equal(method, "list_device_parameters");
+    return { stateVersion: 4, trackId: "track-0", deviceId: "track-0:device-0", parameters };
+  } } });
+  const base = { trackId: "track-0", deviceId: "track-0:device-0", expectedStateVersion: 4 };
+  const low = await service.call("set_device_parameters", {
+    ...base, changes: [{ id: "filter", value: "Low" }]
+  });
+  assert.equal(low.plan.changes[0].value, 2);
+  await assert.rejects(service.call("set_device_parameters", {
+    ...base, changes: [{ id: "filter", value: "High" }]
+  }), /ambiguous.*choice/i);
+  await assert.rejects(service.call("set_device_parameters", {
+    ...base, changes: [{ id: "filter", value: "high" }]
+  }), /unknown.*choice/i);
+  await assert.rejects(service.call("set_device_parameters", {
+    ...base, changes: [{ id: "cutoff", value: "50%" }]
+  }), /quantized/i);
+});
+
 test("parameter mutation defaults to dry-run, clamps, confirms once, and returns observed state", async () => {
   const { service, calls } = fixture();
   const args = { trackId: "t1", deviceId: "d1", expectedStateVersion: 4, changes: [{ id: "cutoff", value: 2 }] };
@@ -1866,6 +2391,24 @@ test("parameter mutation defaults to dry-run, clamps, confirms once, and returns
   assert.equal(live.observed.stateVersion, 5);
   assert.equal(calls.at(-1).method, "set_device_parameters");
   await assert.rejects(() => service.call("set_device_parameters", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash }), /unknown/);
+});
+
+test("parameter mutation reports native readback mismatch instead of success", async () => {
+  const { service } = fixture();
+  const args = { trackId: "t1", deviceId: "d1", expectedStateVersion: 4,
+    changes: [{ id: "cutoff", value: 0.75 }] };
+  const dry = await service.call("set_device_parameters", args);
+  service.bridge.request = async (method, params) => {
+    if (method === "list_device_parameters") return { stateVersion: 4, trackId: "t1", deviceId: "d1",
+      parameters: [{ id: "cutoff", name: "Cutoff", originalName: "Filter Freq", min: 0, max: 1,
+        value: 0.4, displayValue: "400 Hz", enabled: true, quantized: false, valueItems: [] }] };
+    if (method === "set_device_parameters") return { stateVersion: 5, trackId: "t1", deviceId: "d1",
+      observedChanges: [{ id: "cutoff", value: 0.5 }] };
+    throw new Error(method);
+  };
+  await assert.rejects(service.call("set_device_parameters", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash }),
+  /readback mismatch.*may have applied/i);
 });
 
 test("Looper Record and Overdub plans disclose recorded-content risk and do not promise parameter rollback", async () => {
