@@ -3495,14 +3495,38 @@ def dispatch_request(song, request, state_version, application=None):
             song.end_undo_step()
         return result
     if method == "create_track":
-        index = int(params["index"])
-        if params["type"] == "midi":
-            song.create_midi_track(index)
-        else:
-            song.create_audio_track(index)
-        song.tracks[index].name = params["name"]
+        index, kind, name = params.get("index"), params.get("type"), params.get("name")
+        if type(index) is not int or not 0 <= index <= len(song.tracks) or kind not in ("midi", "audio") or \
+                not isinstance(name, str) or not name.strip():
+            raise ValueError("invalid track creation request")
+        current = list(song.tracks)
+        context = {"count": len(current),
+                   "previous": _track_record(song, current[index - 1], index - 1) if index else None,
+                   "next": _track_record(song, current[index], index) if index < len(current) else None}
+        if params.get("before") != context:
+            raise ValueError("track insertion context changed")
+        with _undo_step(song):
+            try:
+                if kind == "midi":
+                    song.create_midi_track(index)
+                else:
+                    song.create_audio_track(index)
+                if len(song.tracks) != len(current) + 1 or list(song.tracks[:index]) != current[:index] or \
+                        list(song.tracks[index + 1:]) != current[index:]:
+                    raise RuntimeError("Live did not insert exactly one track at the requested index")
+                song.tracks[index].name = name
+                if _track_type(song.tracks[index]) != kind or song.tracks[index].name != name:
+                    raise RuntimeError("Live did not create the requested track")
+            except Exception as error:
+                if len(song.tracks) == len(current) + 1 and list(song.tracks[:index]) == current[:index] and \
+                        list(song.tracks[index + 1:]) == current[index:]:
+                    try:
+                        song.delete_track(index)
+                    except Exception as rollback_error:
+                        raise RuntimeError(f"track creation failed: {error}; rollback failed: {rollback_error}; use Live undo") from error
+                raise
         return {"stateVersion": state_version + 1, "track": {
-            "id": f"track-{index}", "name": song.tracks[index].name, "type": params["type"],
+            "id": f"track-{index}", "name": song.tracks[index].name, "type": kind,
         }}
     if method == "get_track_mixer":
         _, track = _track(song, params["trackId"])

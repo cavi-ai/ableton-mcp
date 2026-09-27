@@ -408,6 +408,8 @@ class Song:
     def create_audio_track(self, index):
         track = Track()
         track.name = "Audio"
+        track.has_midi_input = False
+        track.has_audio_input = True
         self.tracks.insert(index, track)
 
     def create_scene(self, index):
@@ -3441,10 +3443,14 @@ class DispatchTest(unittest.TestCase):
 
     def test_session_structure_creation_and_exact_rename(self):
         song = Song()
+        before_tracks = dispatch_request(song, {"method": "list_tracks"}, 3)["tracks"]
         created_track = dispatch_request(song, {"method": "create_track", "params": {
-            "type": "midi", "index": 1, "name": "Bass"
+            "type": "midi", "index": 1, "name": "Bass", "before": {
+                "count": len(before_tracks), "previous": before_tracks[0],
+                "next": before_tracks[1] if len(before_tracks) > 1 else None}
         }}, 3)
         self.assertEqual(created_track["track"], {"id": "track-1", "name": "Bass", "type": "midi"})
+        self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
         created_scene = dispatch_request(song, {"method": "create_scene", "params": {
             "index": 0, "name": "Intro"
         }}, 4)
@@ -3457,6 +3463,31 @@ class DispatchTest(unittest.TestCase):
         }}, 5)
         self.assertEqual(renamed["target"]["name"], "Hook")
         self.assertEqual(song.tracks[0].clip_slots[0].clip.name, "Hook")
+
+    def test_create_track_rejects_changed_insertion_context_before_mutation(self):
+        song = Song()
+        original = dispatch_request(song, {"method": "list_tracks"}, 3)["tracks"]
+        before = {"count": len(original), "previous": original[0],
+                  "next": original[1] if len(original) > 1 else None}
+        song.tracks[0].name = "Changed"
+        with self.assertRaisesRegex(ValueError, "insertion context changed"):
+            dispatch_request(song, {"method": "create_track", "params": {
+                "type": "midi", "index": 1, "name": "Bass", "before": before}}, 3)
+        self.assertEqual(len(song.tracks), len(original))
+        self.assertEqual(song.undo_boundaries, [])
+
+    def test_create_track_rolls_back_wrong_native_track_type(self):
+        song = Song()
+        original = list(song.tracks)
+        before_tracks = dispatch_request(song, {"method": "list_tracks"}, 3)["tracks"]
+        song.create_midi_track = song.create_audio_track
+        with self.assertRaisesRegex(RuntimeError, "did not create the requested track"):
+            dispatch_request(song, {"method": "create_track", "params": {
+                "type": "midi", "index": 1, "name": "Bass", "before": {
+                    "count": len(original), "previous": before_tracks[0],
+                    "next": before_tracks[1] if len(original) > 1 else None}}}, 3)
+        self.assertEqual(song.tracks, original)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
     def test_session_duplicate_and_delete_return_exact_observed_state(self):
         song = Song()
