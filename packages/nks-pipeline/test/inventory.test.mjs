@@ -100,3 +100,17 @@ test("inventoryProduct refreshes source metadata without resetting unchanged pre
   assert.deepEqual(records.get(existing.id).evidence, existing.evidence);
   assert.equal(indexed[0].subBank, "Pads");
 });
+
+test("inventoryProduct rejects colliding factory IDs before changing either store", async () => {
+  const writes = [];
+  const discovery = (root) => ({ productSlug: "serum-2", sourceRoot: root,
+    sourcePath: `${root}/Bass/Deep.fxp`, name: "Deep", bank: "Factory", subBank: "Bass",
+    types: ["Bass"], modes: [], author: "Xfer Records", sourceFingerprint: `sha256:${root}` });
+  await assert.rejects(() => inventoryProduct({ productSlug: "serum-2",
+    discover: async () => [discovery("/factory-a"), discovery("/factory-b")],
+    store: { get: () => undefined, upsert: async () => writes.push("manifest"),
+      list: () => [], flush: async () => writes.push("flush") },
+    catalog: { upsert: () => writes.push("catalog") }
+  }), /duplicate preset ID/);
+  assert.deepEqual(writes, []);
+});

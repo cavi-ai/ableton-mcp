@@ -43,6 +43,15 @@ export async function reconcileSerumSaved({ manifestPath, catalogPath, runLogPat
           run.expectedDisplayName !== record.name || run.observedDisplayName !== record.name ||
           run.nksName !== serumNksName(record))
         throw new Error(`source identity evidence mismatch for ${run.id}`);
+      if (!Array.isArray(run.sourceLoad?.missingFiles) || run.sourceLoad.missingFiles.length)
+        throw new Error(`missing source assets must be explicitly reported as none for ${run.id}`);
+      if (typeof run.sourceLoad.evidencePath !== "string" ||
+          !/^[0-9a-f]{64}$/.test(run.sourceLoad.evidenceSha256))
+        throw new Error(`source-load observation evidence is required for ${run.id}`);
+      const sourceLoadPath = await realpath(run.sourceLoad.evidencePath);
+      const sourceLoadBytes = await readFile(sourceLoadPath);
+      if (!sourceLoadBytes.length || sha256(sourceLoadBytes) !== run.sourceLoad.evidenceSha256)
+        throw new Error(`source-load observation checksum mismatch for ${run.id}`);
       if (`sha256:${sha256(await readFile(record.sourcePath))}` !== record.sourceFingerprint)
         throw new Error(`source fingerprint changed for ${run.id}`);
       const fileName = `${run.nksName}.nksf`;
@@ -64,7 +73,9 @@ export async function reconcileSerumSaved({ manifestPath, catalogPath, runLogPat
       const saved = record.state === "discovered"
         ? transitionPreset(loading, "nks_saved", { kind: "komplete_index_and_file_verified",
           reportedSourceDisplayName: run.observedDisplayName, reportedAt: run.at,
-          sourceFingerprint: record.sourceFingerprint, browser: indexed, artifact }) : record;
+          sourceFingerprint: record.sourceFingerprint, browser: indexed, artifact,
+          sourceLoad: { reportedMissingFiles: [], evidence: {
+            path: sourceLoadPath, sha256: run.sourceLoad.evidenceSha256 } } }) : record;
       planned.push(saved);
     }
   } finally {
