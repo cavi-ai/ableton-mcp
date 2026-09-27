@@ -267,7 +267,12 @@ const contracts = {
   inspect_producer_return_bus: { description: "Read an existing Return bus, ordered FX, child sources, sends and Sends Only routing against a layered blueprint. Optional pluginId selects an explicitly chosen Serum 2, Omnisphere or VPS Avenger instead of the blueprint's factory instrument; this verifies loaded identity, not preset or sound.", inputSchema: object({ target: { type: "string", enum: ["layered-bass-system", "layered-synth-system", "layered-drums-system", "layered-keys-system", "layered-vocals-system", "layered-guitar-system"] }, returnTrackId: string("Exact Return Track ID."), children: array(object({ role: string("Exact blueprint child role."), trackId: ids.trackId, pluginId: { type: "string", enum: ["serum-2", "omnisphere", "vps-avenger"] } }, ["role", "trackId"]), "One track for each blueprint child role.") }, ["target", "returnTrackId", "children"]) },
   search_presets: { description: "Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded.", inputSchema: object({ productSlug: string("Product slug."), query: string("Name query."), favorite: boolean("Return only favorites or non-favorites."), tags: array(string("Normalized user tag."), "Require every supplied tag."), limit: { type: "integer", minimum: 1 } }) },
   get_nks_generation_status: { description: "Read eligible discovered preset count and durable generation job counts for one product. Does not create a queue or contact Live.", inputSchema: object({ productSlug: string("Exact product slug.") }, ["productSlug"]) },
+  get_nks_generation_job: { description: "Read one durable NKS generation job and its ordered event history without creating or changing the queue.", inputSchema: object({ presetId: ids.presetId }, ["presetId"]) },
   enqueue_nks_generation_jobs: { description: "Plan or enqueue eligible discovered presets for NKS generation using a single-use confirmation. Does not generate or mark any preset saved.", inputSchema: object({ productSlug: string("Exact product slug."), dryRun: confirmation.dryRun, confirmationToken: confirmation.confirmationToken, planHash: confirmation.planHash }, ["productSlug"]) },
+  claim_nks_generation_job: { description: "Atomically lease one pending NKS generation job for a worker. Returns its catalog preset without loading the plugin or saving a file.", inputSchema: object({ workerId: string("Non-empty worker identity."), productSlug: string("Exact product slug.") }, ["workerId", "productSlug"]) },
+  heartbeat_nks_generation_job: { description: "Extend an unexpired NKS generation lease owned by this worker.", inputSchema: object({ presetId: ids.presetId, workerId: string("Lease owner identity.") }, ["presetId", "workerId"]) },
+  fail_nks_generation_job: { description: "Record a worker failure and return the leased NKS job to pending, or quarantine it after the retry limit. Does not change preset lifecycle.", inputSchema: object({ presetId: ids.presetId, workerId: string("Lease owner identity."), reason: string("Non-empty failure reason.") }, ["presetId", "workerId", "reason"]) },
+  complete_nks_generation_job: { description: "Mark an owned NKS job done only after its catalog preset contains verified saved-artifact evidence. Does not generate or validate the artifact itself.", inputSchema: object({ presetId: ids.presetId, workerId: string("Lease owner identity.") }, ["presetId", "workerId"]) },
   get_preset: { description: "Read one exact NKS preset catalog record.", inputSchema: object({ presetId: ids.presetId }, ["presetId"]) },
   get_preset_metadata: { description: "Read user tags, favorite state, and revision for one preset.", inputSchema: object({ presetId: ids.presetId }, ["presetId"]) },
   set_preset_metadata: { description: "Plan or update user tags and favorite state for one preset with an exact revision guard.", inputSchema: metadataGuarded({ presetId: ids.presetId, favorite: boolean("Favorite state."), tags: array(string("User tag."), "Complete replacement tag set.") }, ["presetId"]) },
@@ -474,7 +479,7 @@ const contracts = {
 };
 
 const readOnlyTools = new Set([
-  "search_presets", "get_nks_generation_status", "get_preset", "get_preset_metadata",
+  "search_presets", "get_nks_generation_status", "get_nks_generation_job", "get_preset", "get_preset_metadata",
   "get_browser_item_metadata", "search_browser_item_metadata",
   "get_live_state", "get_transport_context", "get_history_state",
   "get_song_musical_context", "get_live_scale_reference", "list_live_scales",
@@ -513,6 +518,7 @@ const destructiveTools = new Set([
   "delete_session_object", "delete_clip", "delete_arrangement_clip",
   "delete_arrangement_cue_point", "remove_audio_warp_marker",
   "delete_device", "crop_audio_clip", "set_looper_state", "set_device_parameters",
+  "fail_nks_generation_job", "complete_nks_generation_job",
   "set_track_freeze_state", "adjust_rack_macro_count", "delete_rack_macro_variation"
 ]);
 

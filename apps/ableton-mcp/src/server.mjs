@@ -40,7 +40,12 @@ const resourceTemplates = resourceUris.filter((uri) => uri.includes("{"))
 const toolNames = [
   "search_presets",
   "get_nks_generation_status",
+  "get_nks_generation_job",
   "enqueue_nks_generation_jobs",
+  "claim_nks_generation_job",
+  "heartbeat_nks_generation_job",
+  "fail_nks_generation_job",
+  "complete_nks_generation_job",
   "get_preset",
   "get_preset_metadata",
   "set_preset_metadata",

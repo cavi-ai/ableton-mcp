@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 197 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 202 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (87)
+## Read-only (88)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -35,6 +35,7 @@ The server publishes 197 tools. Mutations of the Live Set require `expectedState
 | `get_looper_performance_context` | Read one native snapshot of a loaded Looper's State, Quantization, Monitor, Song Control, Tempo Control, all exposed parameters, global clip-launch quantization, track input/output routing, monitoring, and transport. Read-only; source readiness and audible outcome are not inferred. | `trackId`, `deviceId` |
 | `get_midi_clip_notes` | Read standard MIDI notes from one exact Session or Arrangement MIDI clip; Arrangement responses include timeline identity. | `trackId`, `clipId` |
 | `get_midi_clip_notes_extended` | Read stable note IDs, probability, release velocity, deviation, and other per-note fields from one exact Session or Arrangement MIDI clip; Arrangement responses include timeline identity. | `trackId`, `clipId` |
+| `get_nks_generation_job` | Read one durable NKS generation job and its ordered event history without creating or changing the queue. | `presetId` |
 | `get_nks_generation_status` | Read eligible discovered preset count and durable generation job counts for one product. Does not create a queue or contact Live. | `productSlug` |
 | `get_plugin_integration_context` | Read product-aware integration state for a loaded supported third-party synth: Serum 2, Omnisphere, or VPS Avenger. Reports installed Live browser variants, preferred VST3 candidate, exact configured and writable parameter IDs, source-inventory versus validated NKS lifecycle counts when available, product-specific preset-browser navigation, and explicit hidden-state/preset-recall boundaries. Read-only. | `trackId`, `deviceId` |
 | `get_preset` | Read one exact NKS preset catalog record. | `presetId` |
@@ -96,7 +97,7 @@ The server publishes 197 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search downloaded Splice audio assets under an explicit local directory in stable relative-path order. Offset and nextOffset page through matching files. Optional private MCP tags/favorites join by exact local identity. Read-only; not cloud catalog search, download, or sync. Returns exact local source paths for analyze_audio_file. | `rootPath`, `query` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (98)
+## Mutations (100)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -119,6 +120,7 @@ The server publishes 197 tools. Mutations of the Live Set require `expectedState
 | `apply_midi_velocity_curve` | Plan or apply a guarded MIDI velocity curve while preserving timing, pitch, duration, probability, and expression metadata. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `curve` |
 | `arm_track` | Plan or set the record-arm state of one exact track. | `expectedStateVersion`, `trackId`, `armed` |
 | `capture_midi_session` | Plan or invoke Live's native Capture MIDI into Session View for recently played MIDI on audible tracks. May create or change clips on multiple MIDI tracks or add a scene; the target is determined by Live, not guaranteed by the plan. Reports immediate slot changes plus note count/digest changes in armed playing MIDI clips; inspect notes separately for content. Requires native can_capture_midi readiness and confirmation. | `expectedStateVersion` |
+| `claim_nks_generation_job` | Atomically lease one pending NKS generation job for a worker. Returns its catalog preset without loading the plugin or saving a file. | `workerId`, `productSlug` |
 | `correct_midi_clip_to_scale` | Plan or apply guarded pitch correction of exact chromatic MIDI notes into the current Live scale. Direction is explicit; equal nearest choices require an explicit tie break. Existing in-scale notes are never changed. | `expectedStateVersion`, `trackId`, `clipId`, `direction` |
 | `create_arrangement_cue_point` | Plan or create an Arrangement cue point at an exact beat position. | `expectedStateVersion`, `name`, `timeBeats` |
 | `create_audio_clip` | Plan or import a local audio file into one exact empty Session slot on an unfrozen audio track. The confirmed plan binds the source file identity, size, and modification time; Live validates the audio format. | `expectedStateVersion`, `trackId`, `clipId`, `sourcePath` |
@@ -138,6 +140,7 @@ The server publishes 197 tools. Mutations of the Live Set require `expectedState
 | `duplicate_session_object` | Plan or duplicate an exact track, Session scene, or clip, optionally naming a duplicated track. | `expectedStateVersion`, `targetType`, `targetId` |
 | `edit_drum_pattern_clip` | Plan or apply guarded replacement of selected drum lanes and bars in an existing MIDI clip. Preserves unrelated notes and verifies the complete native note set. | `expectedStateVersion`, `trackId`, `clipId`, `grid`, `startBar`, `bars`, `lanes` |
 | `enqueue_nks_generation_jobs` | Plan or enqueue eligible discovered presets for NKS generation using a single-use confirmation. Does not generate or mark any preset saved. | `productSlug` |
+| `heartbeat_nks_generation_job` | Extend an unexpired NKS generation lease owned by this worker. | `presetId`, `workerId` |
 | `humanize_midi_notes` | Plan or apply guarded deterministic MIDI timing and velocity humanization with exact clip, grid, and complete native note readback. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `seed`, `gridBeats`, `maxTimingOffsetBeats`, `maxVelocityOffset` |
 | `jump_to_arrangement_cue_point` | Plan or move the playhead to one exact Arrangement cue point. | `expectedStateVersion`, `cuePointId` |
 | `launch_clip` | Plan or launch one exact Session clip slot. On an empty armed slot, optional recordLengthBeats requests fixed-length recording; launchQuantization is a one-shot override and does not change stored clip settings. The immediate response does not prove recording completed. | `expectedStateVersion`, `trackId`, `clipId` |
@@ -199,11 +202,12 @@ The server publishes 197 tools. Mutations of the Live Set require `expectedState
 | `transport_stop` | Plan or stop Ableton transport playback. | `expectedStateVersion` |
 | `undo` | Plan or apply one guarded Ableton undo operation. | `expectedStateVersion` |
 
-## Destructive mutations (12)
+## Destructive mutations (14)
 
 | Tool | Description | Required arguments |
 |---|---|---|
 | `adjust_rack_macro_count` | Plan or invoke one native add/remove macro action on an exact rack, then report the observed count. Removal is refused while any macro mapping exists because Live does not expose the affected mapping target. | `expectedStateVersion`, `trackId`, `deviceId`, `action` |
+| `complete_nks_generation_job` | Mark an owned NKS job done only after its catalog preset contains verified saved-artifact evidence. Does not generate or validate the artifact itself. | `presetId`, `workerId` |
 | `crop_audio_clip` | Plan or apply Live native cropping of one exact audio clip. Preview reports the selected loop interval when enabled, otherwise start/end markers, in current units. Live may retain pre-loop playback material and creates a processed source. Selected interval is not a guarantee of exclusive source-file bounds. Binds audio and loop state and reads back native results. | `expectedStateVersion`, `trackId`, `clipId` |
 | `delete_arrangement_clip` | Plan or delete one exact Arrangement clip, preserving other timeline material. Requires current clip identity and confirmation; deletion is undoable in Live. | `expectedStateVersion`, `trackId`, `clipId` |
 | `delete_arrangement_cue_point` | Plan or delete one exact Arrangement cue point. | `expectedStateVersion`, `cuePointId` |
@@ -211,6 +215,7 @@ The server publishes 197 tools. Mutations of the Live Set require `expectedState
 | `delete_device` | Plan or delete one exact loaded device from an ordinary, Return, Main, or rack chain. | `expectedStateVersion`, `trackId`, `deviceId` |
 | `delete_rack_macro_variation` | Plan or delete one exact zero-based rack macro variation. Destructive: Live does not expose saved variation contents for preview or reconstruction. Requires confirmation and reports observed count. | `expectedStateVersion`, `trackId`, `deviceId`, `variationIndex` |
 | `delete_session_object` | Plan or delete an exact track, Return Track, scene, or Session clip with explicit content authority. Return deletion discloses its devices and affected track-send lanes. | `expectedStateVersion`, `targetType`, `targetId` |
+| `fail_nks_generation_job` | Record a worker failure and return the leased NKS job to pending, or quarantine it after the retry limit. Does not change preset lifecycle. | `presetId`, `workerId`, `reason` |
 | `remove_audio_warp_marker` | Plan or apply deletion of an exact visible audio warp marker. Rejects the hidden terminal marker and stale clip state. | `expectedStateVersion`, `trackId`, `clipId`, `beatTime` |
 | `set_device_parameters` | Plan or apply guarded bounded changes to exact loaded-device parameters on an ordinary, Return, or Main track. Native Looper State writes targeting Record or Overdub are flagged as recorded-content mutations: restoring a previous parameter value does not restore captured audio. | `expectedStateVersion`, `trackId`, `deviceId`, `changes` |
 | `set_looper_state` | Plan or request one exact native Looper State choice: Stop, Record, Play, or Overdub. Native execution rechecks the complete Looper, routing, and transport snapshot before writing State; result reports the immediately observed State parameter and whether it matches the target, not an audible or quantized-boundary outcome. Record/Overdub can mutate captured audio and cannot be rolled back by restoring a parameter value. This does not promise beat-scheduled execution; verify native quantization behavior separately. | `expectedStateVersion`, `trackId`, `deviceId`, `targetState` |

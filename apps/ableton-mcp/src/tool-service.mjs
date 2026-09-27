@@ -325,7 +325,13 @@ export class ToolService {
       return { presets: this.catalog.search(args) };
     }
     if (name === "get_nks_generation_status") return this.#nksGenerationStatus(args);
+    if (name === "get_nks_generation_job") {
+      if (!this.generationQueuePath) throw new Error("preset catalog is not configured");
+      return GenerationQueue.inspectJob(this.generationQueuePath, args.presetId);
+    }
     if (name === "enqueue_nks_generation_jobs") return this.#enqueueNksGenerationJobs(args);
+    if (["claim_nks_generation_job", "heartbeat_nks_generation_job", "fail_nks_generation_job",
+      "complete_nks_generation_job"].includes(name)) return this.#nksGenerationJob(name, args);
     if (name === "get_preset") return { preset: this.catalog.get(args.presetId) };
     if (name === "get_preset_metadata") return { presetId: args.presetId, metadata: this.catalog.metadata(args.presetId) };
     if (name === "set_preset_metadata") return this.#setPresetMetadata(args);
@@ -1911,6 +1917,28 @@ export class ToolService {
     try {
       const enqueued = queue.enqueue(productSlug, fingerprint);
       return { dryRun: false, enqueued, jobs: GenerationQueue.inspect(this.generationQueuePath, productSlug).jobs };
+    } finally {
+      queue.close();
+    }
+  }
+
+  #nksGenerationJob(name, args) {
+    if (!this.generationQueuePath) throw new Error("preset catalog is not configured");
+    if (typeof args.workerId !== "string" || !args.workerId.trim()) throw new Error("workerId is required");
+    if (name === "claim_nks_generation_job") {
+      if (typeof args.productSlug !== "string" || !args.productSlug.trim()) throw new Error("productSlug is required");
+    } else if (typeof args.presetId !== "string" || !args.presetId.trim()) {
+      throw new Error("presetId is required");
+    }
+    const queue = GenerationQueue.open(this.generationQueuePath);
+    try {
+      if (name === "claim_nks_generation_job") {
+        const job = queue.claim(args.workerId, args.productSlug) ?? null;
+        return { job, preset: job ? this.catalog.get(job.presetId) : null };
+      }
+      if (name === "heartbeat_nks_generation_job") return { job: queue.heartbeat(args.presetId, args.workerId) };
+      if (name === "fail_nks_generation_job") return { job: queue.fail(args.presetId, args.workerId, args.reason) };
+      return { job: queue.completeSaved(args.presetId, args.workerId) };
     } finally {
       queue.close();
     }

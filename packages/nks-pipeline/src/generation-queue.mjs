@@ -27,6 +27,23 @@ export class GenerationQueue {
     }
   }
 
+  static inspectJob(path, presetId) {
+    if (typeof presetId !== "string" || !presetId.trim()) throw new Error("presetId is required");
+    const database = new DatabaseSync(path, { readOnly: true });
+    try {
+      if (!database.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table'
+        AND name = 'nks_generation_jobs'`).get()) return { job: null, events: [] };
+      const job = database.prepare(`SELECT preset_id AS presetId, source_fingerprint AS sourceFingerprint,
+        status, attempts, worker_id AS workerId, lease_expires_at AS leaseExpiresAt,
+        last_error AS lastError FROM nks_generation_jobs WHERE preset_id = ?`).get(presetId) ?? null;
+      const events = job ? database.prepare(`SELECT kind, worker_id AS workerId, at_ms AS atMs, detail
+        FROM nks_generation_events WHERE preset_id = ? ORDER BY id`).all(presetId) : [];
+      return { job, events };
+    } finally {
+      database.close();
+    }
+  }
+
   static open(path, options) {
     return new GenerationQueue(new DatabaseSync(path), options);
   }
