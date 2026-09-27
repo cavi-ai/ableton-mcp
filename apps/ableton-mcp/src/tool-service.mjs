@@ -859,6 +859,21 @@ export class ToolService {
         variationIndex: args.variationIndex,
         warning: "Saved variation contents are not exposed by Live; deleting this variation may not be reconstructable. Live undo behavior is unverified." }, args);
     }
+    if (name === "randomize_rack_macros") {
+      requireExpectedState(args);
+      const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, { ...observed, deviceId: observed.device?.id });
+      const rack = observed.device;
+      if (rack?.id !== args.deviceId || !rack.canHaveChains || !rack.rackMacros?.hasMappings) {
+        throw new Error("rack must expose at least one mapped macro");
+      }
+      const parameters = await this.bridge.request("list_device_parameters", { trackId: args.trackId, deviceId: args.deviceId });
+      assertExpectedState(args, parameters);
+      if (parameters.deviceId !== args.deviceId || !Array.isArray(parameters.parameters)) throw new Error("rack parameter identity mismatch");
+      return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+        expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, beforeParameters: parameters.parameters,
+        limitation: "Live controls randomization; no seed or predictable target values are exposed. Inspect returned parameters." }, args);
+    }
     if (name === "list_device_parameters") {
       return this.bridge.request("list_device_parameters", args);
     }

@@ -4439,6 +4439,26 @@ def dispatch_request(song, request, state_version, application=None):
                 "device": after_device,
                 "parameters": [_parameter_record(parameter, i, include_native_choice_labels=True)
                                for i, parameter in enumerate(device.parameters)]}
+    if method == "randomize_rack_macros":
+        _, _, device = _device(song, params["trackId"], params["deviceId"])
+        if not device.can_have_chains or _device_tree(device, params["deviceId"]) != params["beforeDevice"]:
+            raise ValueError("rack state changed")
+        native = getattr(device, "randomize_macros", None)
+        if not getattr(device, "has_macro_mappings", False) or not callable(native):
+            raise ValueError("rack has no mapped macro or randomization is unavailable")
+        before_parameters = [_parameter_record(parameter, i, include_native_choice_labels=True)
+                             for i, parameter in enumerate(device.parameters)]
+        if before_parameters != params["beforeParameters"]:
+            raise ValueError("rack parameter state changed")
+        song.begin_undo_step()
+        try:
+            native()
+        finally:
+            song.end_undo_step()
+        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+                "device": _device_tree(device, params["deviceId"]),
+                "parameters": [_parameter_record(parameter, i, include_native_choice_labels=True)
+                               for i, parameter in enumerate(device.parameters)]}
     if method == "list_device_parameters":
         _, _, device = _device(song, params["trackId"], params["deviceId"])
         parameters = [_parameter_record(parameter, i, include_native_choice_labels=True)

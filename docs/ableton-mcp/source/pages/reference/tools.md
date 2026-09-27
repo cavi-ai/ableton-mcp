@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 187 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 188 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (82)
 
@@ -91,7 +91,7 @@ The server publishes 187 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search local downloaded Splice audio assets under an explicit directory. Read-only; not cloud catalog search, download, or sync. Returns exact local source paths for analyze_audio_file. | `rootPath`, `query` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (93)
+## Mutations (94)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -144,6 +144,7 @@ The server publishes 187 tools. Mutations of the Live Set require `expectedState
 | `panic` | Plan or stop Live playback immediately using the guarded panic operation. | `expectedStateVersion` |
 | `place_session_clip_in_arrangement` | Plan or copy a Session clip onto its track's Arrangement timeline. Rejects overlap with existing timeline material. | `expectedStateVersion`, `trackId`, `clipId`, `startBeats` |
 | `quantize_audio_clip` | Plan or apply Live native quantization to one warped audio clip. Aligns warp markers with the selected grid, amount, and observed global swing; reads back native anchors. Requires unchanged audio state and swing. Live can adjust surrounding anchors. Does not quantize MIDI note ends. | `expectedStateVersion`, `trackId`, `clipId`, `grid`, `amount` |
+| `randomize_rack_macros` | Plan or invoke Live's native randomization of eligible mapped rack macros. Binds exact rack and parameter state, then reports observed values. No seed or predictable outcome is available. | `expectedStateVersion`, `trackId`, `deviceId` |
 | `recall_device_chain_snapshot` | Plan or recall exposed parameters and names onto the same exact compatible ordered device topology in one guarded Live undo step. Does not create, delete, or load devices and cannot restore hidden plugin state. | `expectedStateVersion`, `trackId`, `snapshot` |
 | `recall_device_parameter_snapshot` | Guarded recall of parameter JSON onto a matching native device class and exact ordered parameter layout. Supports ordinary, Return, and Main tracks; rejects incompatible bounds/choices and disabled changed controls. Does not restore hidden state. | `expectedStateVersion`, `trackId`, `deviceId`, `snapshot` |
 | `recall_rack_macro_variation` | Plan or recall one existing rack macro variation by zero-based index. Binds exact rack and current parameter state; Live exposes observed values after recall, not the saved variation contents beforehand. | `expectedStateVersion`, `trackId`, `deviceId`, `variationIndex` |

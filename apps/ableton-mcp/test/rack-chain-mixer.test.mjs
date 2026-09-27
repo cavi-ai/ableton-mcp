@@ -130,6 +130,32 @@ test("rack macro variation deletion previews exact index and refuses empty or st
   await assert.rejects(() => service.call("delete_rack_macro_variation", { ...args, expectedStateVersion: 3 }), /stateVersion mismatch/);
 });
 
+test("rack macro randomization binds mapped rack values and returns native readback", async () => {
+  const rack = { id: "track-0:device-0", canHaveChains: true,
+    rackMacros: { hasMappings: true, visibleCount: 8, variationCount: 1, selectedVariationIndex: 0 },
+    chains: [], returnChains: [], drumPads: [] };
+  const parameters = [{ id: "parameter-1", name: "Macro 1", originalName: "Macro 1",
+    min: 0, max: 127, value: 32, displayValue: "32", enabled: true, quantized: false, valueItems: [] }];
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
+    if (method === "list_device_parameters") return { stateVersion: 4, trackId: "track-0", deviceId: rack.id,
+      parameters, nameAmbiguities: [] };
+    assert.equal(method, "randomize_rack_macros");
+    assert.deepEqual(params.beforeDevice, rack);
+    assert.deepEqual(params.beforeParameters, parameters);
+    return { stateVersion: 5, trackId: "track-0", device: rack,
+      parameters: [{ ...parameters[0], value: 99, displayValue: "99" }] };
+  } } });
+  const args = { trackId: "track-0", deviceId: rack.id, expectedStateVersion: 4 };
+  const dry = await service.call("randomize_rack_macros", args);
+  assert.deepEqual(dry.plan.beforeParameters, parameters);
+  assert.match(dry.plan.limitation, /seed/i);
+  const applied = await service.call("randomize_rack_macros", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(applied.observed.parameters[0].value, 99);
+  await assert.rejects(() => service.call("randomize_rack_macros", { ...args, expectedStateVersion: 3 }), /stateVersion mismatch/);
+});
+
 test("rack sends require exact available enabled indices and confirmation", async () => {
   const deviceId = "track-0:device-0", chainId = `${deviceId}/chain-0`;
   const rack = { id: deviceId, canHaveChains: true, chains: [{ id: chainId,
