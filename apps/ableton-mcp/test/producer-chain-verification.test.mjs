@@ -52,10 +52,10 @@ test("inspect_producer_chain verifies exact observed track devices without mutat
 test("inspect_producer_bus checks child instruments, grouping, routing and ordered bus effects", async () => {
   const calls = [];
   const tracks = { stateVersion: 7, tracks: [
-    { id: "track-0", name: "Bass Bus", isGroup: true, groupTrackId: null },
-    { id: "track-1", name: "Sub", isGroup: false, groupTrackId: "track-0" },
-    { id: "track-2", name: "Body", isGroup: false, groupTrackId: "track-0" },
-    { id: "track-3", name: "Texture", isGroup: false, groupTrackId: "track-0" }
+    { id: "track-0", name: "Bass Bus", type: "group", isGroup: true, groupTrackId: null },
+    { id: "track-1", name: "Sub", type: "midi", isGroup: false, groupTrackId: "track-0" },
+    { id: "track-2", name: "Body", type: "midi", isGroup: false, groupTrackId: "track-0" },
+    { id: "track-3", name: "Texture", type: "midi", isGroup: false, groupTrackId: "track-0" }
   ] };
   const devices = {
     "track-0": [device("bus-0", "Utility", "Utility"), device("bus-1", "Eq8", "EQ Eight"), device("bus-2", "Compressor", "Compressor")],
@@ -82,7 +82,7 @@ test("inspect_producer_bus checks child instruments, grouping, routing and order
   ]);
   assert.equal(result.matchesBlueprint, false);
   assert.equal(calls.filter(({ method }) => method === "list_tracks").length, 1);
-  await assert.rejects(() => service.call("inspect_producer_bus", { target: "mastering", busTrackId: "track-0", children: [] }), /shared-instrument-bus/);
+  await assert.rejects(() => service.call("inspect_producer_bus", { target: "mastering", busTrackId: "track-0", children: [] }), /shared-bus/);
   await assert.rejects(() => service.call("inspect_producer_bus", { target: "layered-bass-system", busTrackId: "track-0",
     children: [{ role: "sub", trackId: "track-1" }, { role: "body", trackId: "track-1" }, { role: "texture", trackId: "track-3" }] }), /distinct track/);
 });
@@ -95,4 +95,38 @@ test("inspect_producer_bus rejects observations from a changed Live state", asyn
   } } });
   await assert.rejects(() => service.call("inspect_producer_bus", { target: "layered-bass-system", busTrackId: "track-0",
     children: [{ role: "sub", trackId: "track-1" }, { role: "body", trackId: "track-2" }, { role: "texture", trackId: "track-3" }] }), /state version/);
+});
+
+test("inspect_producer_bus verifies audio children without requiring instruments", async () => {
+  const tracks = { stateVersion: 11, tracks: [
+    { id: "track-0", name: "Vocal Bus", type: "group", isGroup: true, groupTrackId: null },
+    { id: "track-1", name: "Lead", type: "audio", isGroup: false, groupTrackId: "track-0" },
+    { id: "track-2", name: "Double", type: "audio", isGroup: false, groupTrackId: "track-0" },
+    { id: "track-3", name: "Adlibs", type: "audio", isGroup: false, groupTrackId: "track-0" }
+  ] };
+  const bridge = { async request(method, { trackId } = {}) {
+    if (method === "list_tracks") return tracks;
+    if (method === "list_devices") return { stateVersion: 11, trackId, devices: trackId === "track-0" ? [
+      device("bus-0", "Utility", "Utility"), device("bus-1", "Eq8", "EQ Eight"),
+      device("bus-2", "Compressor", "Compressor")
+    ] : [] };
+    if (method === "get_track_routing") return { stateVersion: 11, trackId,
+      output: { type: { id: "track-0", name: "Vocal Bus" } } };
+    throw new Error(method);
+  } };
+  const service = new ToolService({ bridge });
+  const args = { target: "layered-vocals-system", busTrackId: "track-0", children: [
+    { role: "lead", trackId: "track-1" }, { role: "double", trackId: "track-2" },
+    { role: "adlibs", trackId: "track-3" }
+  ] };
+  const matched = await service.call("inspect_producer_bus", args);
+  assert.equal(matched.matchesBlueprint, true);
+  assert.deepEqual(matched.children.map(({ sourceMatches }) => sourceMatches), [true, true, true]);
+  assert.deepEqual(matched.children.map(({ expectedSourceType, observedSourceType }) =>
+    [expectedSourceType, observedSourceType]), [["audio", "audio"], ["audio", "audio"], ["audio", "audio"]]);
+
+  tracks.tracks[2].type = "midi";
+  const mismatched = await service.call("inspect_producer_bus", args);
+  assert.equal(mismatched.matchesBlueprint, false);
+  assert.equal(mismatched.children[1].sourceMatches, false);
 });

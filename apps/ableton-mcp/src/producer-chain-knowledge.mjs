@@ -135,6 +135,36 @@ const blueprints = [
       fx("compressor", "Compressor", "bus-dynamics", "Control the summed envelope when needed.", true),
       fx("chorus-ensemble", "Chorus-Ensemble", "shared-movement", "Add optional common movement without obscuring electric-piano attacks.", true)
     ])
+  },
+  {
+    id: "layered-vocals-system", topology: "shared-audio-bus",
+    summary: "Separate lead, double and ad-lib audio tracks routed into one vocal bus.",
+    children: [
+      { role: "lead", sourceType: "audio", routing: "bus" },
+      { role: "double", sourceType: "audio", routing: "bus" },
+      { role: "adlibs", sourceType: "audio", routing: "bus" }
+    ],
+    stages: ordered([
+      fx("utility", "Utility", "bus-gain", "Set headroom for the combined vocal arrangement."),
+      fx("eq-eight", "EQ Eight", "shared-tone", "Address buildup shared by the summed vocal tracks."),
+      fx("compressor", "Compressor", "bus-leveling", "Control the combined vocal envelope."),
+      fx("saturator", "Saturator", "shared-color", "Add optional restrained harmonic density.", true)
+    ])
+  },
+  {
+    id: "layered-guitar-system", topology: "shared-audio-bus",
+    summary: "Separate rhythm, lead and texture audio tracks routed into one guitar bus.",
+    children: [
+      { role: "rhythm", sourceType: "audio", routing: "bus" },
+      { role: "lead", sourceType: "audio", routing: "bus" },
+      { role: "texture", sourceType: "audio", routing: "bus" }
+    ],
+    stages: ordered([
+      fx("utility", "Utility", "bus-gain", "Set headroom after summing the guitar layers."),
+      fx("eq-eight", "EQ Eight", "layer-separation", "Control low-mid buildup and competing presence bands."),
+      fx("glue-compressor", "Glue Compressor", "bus-cohesion", "Apply restrained compression to the combined performance."),
+      fx("limiter", "Limiter", "bus-safety", "Catch occasional summed peaks.", true)
+    ])
   }
 ];
 
@@ -151,7 +181,7 @@ export function getProducerChainBlueprint(target) {
     ...blueprint,
     execution: {
       loadTool: "load_browser_item",
-      routeTool: blueprint.topology === "shared-instrument-bus" ? "route_tracks_to_bus" : null,
+      routeTool: blueprint.topology.startsWith("shared-") ? "route_tracks_to_bus" : null,
       verifyTools: ["list_devices", "get_track_routing", "get_track_mixer"],
       instruction: "Load stages in ascending order onto an empty staging track, inspect observed device order after every load, and use guarded routing tools for shared-bus children. Optional stages require source-specific evidence."
     },

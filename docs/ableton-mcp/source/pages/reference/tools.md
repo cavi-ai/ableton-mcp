@@ -38,7 +38,7 @@ The server publishes 190 tools. Mutations of the Live Set require `expectedState
 | `get_plugin_integration_context` | Read product-aware integration state for a loaded supported third-party synth: Serum 2, Omnisphere, or VPS Avenger. Reports installed Live browser variants, preferred VST3 candidate, exact configured and writable parameter IDs, matching local NKS catalog coverage, product-specific preset-browser navigation, and explicit hidden-state/preset-recall boundaries. Read-only. | `trackId`, `deviceId` |
 | `get_preset` | Read one exact NKS preset catalog record. | `presetId` |
 | `get_preset_metadata` | Read user tags, favorite state, and revision for one preset. | `presetId` |
-| `get_producer_chain_blueprint` | Return one ordered factory-device chain or shared-instrument-bus topology with exact browser paths, stage roles, execution tools, and explicit limitations. | `target` |
+| `get_producer_chain_blueprint` | Return one ordered factory-device chain or shared-bus topology with exact browser paths, stage roles, execution tools, and explicit limitations. | `target` |
 | `get_set_mixer` | Read master and return-bus mixer state. | none |
 | `get_song_grid_reference` | Read a signature-aware one-bar step map for straight 16ths, eighth triplets, and sixteenth triplets from current Live tempo and meter. Distinguishes the one bar downbeat, meter beat starts, and 4-denominator eighth offbeats; includes non-binding 4/4 hip-hop, house, and trap placements, perceived half-time versus actual tempo change, and related MCP tool references. No song edits. | none |
 | `get_song_musical_context` | Read key, scale, time signature, quantization, groove, swing, and Arrangement loop context. | none |
@@ -49,7 +49,7 @@ The server publishes 190 tools. Mutations of the Live Set require `expectedState
 | `get_transport_context` | Read transport playback, metronome, and count-in state. | none |
 | `get_transport_recording_context` | Read playhead, Arrangement and Session recording modes, automation arm, and native Capture MIDI readiness with MIDI track IDs. | none |
 | `inspect_clip_groove_postconditions` | Read current native context and inspect extraction or baking postconditions against a supplied pre-action get_clip_groove_context snapshot. Does not execute the UI action, prove provenance, or validate audible equivalence. Extraction expects one appended groove and unchanged source/timing; baking expects removed assignment and unchanged unrelated timing/shared context. | `trackId`, `clipId`, `operation`, `before` |
-| `inspect_producer_bus` | Read an existing Group Track, its ordered bus FX, child instrument identities, group membership and actual output routing against one layered-system blueprint. Reports mismatches without edits. | `target`, `busTrackId`, `children` |
+| `inspect_producer_bus` | Read an existing Group Track, its ordered bus FX, child source types or instrument identities, group membership and actual output routing against one layered-system blueprint. Reports mismatches without edits; does not identify the child audio content. | `target`, `busTrackId`, `children` |
 | `inspect_producer_chain` | Read the devices on one exact track and compare their factory profiles and order with a named producer-chain blueprint. No devices are loaded or changed. | `target`, `trackId` |
 | `list_arrangement_clips` | Read timeline clip IDs, types, and start/end positions in beats for one track. | `trackId` |
 | `list_arrangement_cue_points` | List Arrangement cue points with stable IDs and beat positions. | none |

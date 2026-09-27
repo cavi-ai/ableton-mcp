@@ -443,7 +443,7 @@ test("producer chain catalog covers core tracks, buses, returns and layered inst
   assert.deepEqual(result.blueprints.map(({ id }) => id), [
     "bass", "drums", "vocals", "guitar", "keys", "synth", "mix-bus", "mastering",
     "reverb-return", "delay-return", "layered-bass-system", "layered-synth-system",
-    "layered-drums-system", "layered-keys-system"
+    "layered-drums-system", "layered-keys-system", "layered-vocals-system", "layered-guitar-system"
   ]);
   for (const blueprint of result.blueprints) {
     assert.ok(blueprint.topology);

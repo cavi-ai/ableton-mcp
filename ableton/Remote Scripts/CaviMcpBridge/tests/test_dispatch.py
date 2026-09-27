@@ -562,12 +562,21 @@ class DispatchTest(unittest.TestCase):
 
         self.assertEqual(observed["tracks"], [
             {"id": "track-0", "name": "Bass Bus", "mute": False, "solo": False, "armed": False,
-             "volume": 0.75, "pan": 0.0, "isGroup": True, "isGrouped": False,
+             "volume": 0.75, "pan": 0.0, "type": "group", "isGroup": True, "isGrouped": False,
              "groupTrackId": None, "foldState": 1},
             {"id": "track-1", "name": "Sub Bass", "mute": False, "solo": False, "armed": False,
-             "volume": 0.75, "pan": 0.0, "isGroup": False, "isGrouped": True,
+             "volume": 0.75, "pan": 0.0, "type": "midi", "isGroup": False, "isGrouped": True,
              "groupTrackId": "track-0", "foldState": None},
         ])
+
+    def test_list_tracks_reports_audio_source_type(self):
+        song = Song()
+        song.tracks[1].has_midi_input = False
+        song.tracks[1].has_audio_input = True
+
+        observed = dispatch_request(song, {"method": "list_tracks"}, 3)
+
+        self.assertEqual(observed["tracks"][1]["type"], "audio")
 
     def test_group_fold_and_batch_bus_routing_apply_exact_existing_targets(self):
         song = Song()

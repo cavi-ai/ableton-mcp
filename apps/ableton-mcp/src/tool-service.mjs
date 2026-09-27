@@ -449,7 +449,8 @@ export class ToolService {
     }
     if (name === "inspect_producer_bus") {
       const blueprint = getProducerChainBlueprint(args.target);
-      if (blueprint.topology !== "shared-instrument-bus") throw new Error("target must be a shared-instrument-bus blueprint");
+      if (!["shared-instrument-bus", "shared-audio-bus"].includes(blueprint.topology))
+        throw new Error("target must be a shared-bus blueprint");
       if (!Array.isArray(args.children) || args.children.length !== blueprint.children.length ||
         new Set(args.children.map(({ role }) => role)).size !== args.children.length ||
         new Set(args.children.map(({ trackId }) => trackId)).size !== args.children.length ||
@@ -474,17 +475,22 @@ export class ToolService {
         if (!track) throw new Error(`unknown child track ${trackId}`);
         const childDevices = await read("list_devices", trackId);
         const routing = await read("get_track_routing", trackId);
+        const observedInstrumentProfileIds = childDevices.devices.map((device) => getFactoryDeviceProfile(device)?.id).filter(Boolean);
+        const instrumentMatches = expected.instrumentProfileId
+          ? observedInstrumentProfileIds.includes(expected.instrumentProfileId) : null;
+        const expectedSourceType = expected.sourceType ?? "midi";
+        const sourceMatches = track.type === expectedSourceType && (instrumentMatches ?? true);
         children.push({ role: expected.role, trackId,
+          expectedSourceType, observedSourceType: track.type ?? null, sourceMatches,
           expectedInstrumentProfileId: expected.instrumentProfileId,
-          observedInstrumentProfileIds: childDevices.devices.map((device) => getFactoryDeviceProfile(device)?.id).filter(Boolean),
-          instrumentMatches: childDevices.devices.some((device) => getFactoryDeviceProfile(device)?.id === expected.instrumentProfileId),
+          observedInstrumentProfileIds, instrumentMatches,
           grouped: track.groupTrackId === args.busTrackId,
           routed: routing.output?.type?.id === args.busTrackId });
       }
       return { target: args.target, busTrackId: args.busTrackId, stateVersion: trackList.stateVersion,
         busChain, children,
-        matchesBlueprint: busChain.matchesRequiredOrder && children.every(({ instrumentMatches, grouped, routed }) => instrumentMatches && grouped && routed),
-        limitation: "Sequential read-only observations; state-version equality guards against intervening Live edits but does not prove signal flow, sound quality or hidden plugin state." };
+        matchesBlueprint: busChain.matchesRequiredOrder && children.every(({ sourceMatches, grouped, routed }) => sourceMatches && grouped && routed),
+        limitation: "Sequential read-only observations; state-version equality guards against intervening Live edits but does not prove source content, audible signal flow, sound quality or hidden plugin state." };
     }
     if (name === "list_factory_device_profiles") return { profiles: listFactoryDeviceProfiles() };
     if (name === "get_factory_coverage") {
