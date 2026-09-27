@@ -3127,18 +3127,57 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "set_return_mixer":
         index = int(params["returnTrackId"].removeprefix("return-"))
         track = song.return_tracks[index]
-        if track.name != params["beforeReturn"]["name"]:
-            raise ValueError("return track identity changed")
+        if _return_mixer_record(track, index) != params.get("beforeReturn"):
+            raise ValueError("return track changed after planning")
         changes = params["changes"]
-        if "volume" in changes:
-            track.mixer_device.volume.value = changes["volume"]["value"]
-        if "pan" in changes:
-            track.mixer_device.panning.value = changes["pan"]["value"]
-        if "mute" in changes:
-            track.mute = changes["mute"]["value"]
-        if "solo" in changes:
-            track.solo = changes["solo"]["value"]
-        return {"stateVersion": state_version + 1, "return": _return_mixer_record(track, index)}
+        if not isinstance(changes, dict) or not changes or set(changes) - {"volume", "pan", "mute", "solo"}:
+            raise ValueError("invalid return mixer changes")
+        for key in ("volume", "pan"):
+            if key not in changes:
+                continue
+            change, bounds = changes[key], params["beforeReturn"][key]
+            requested, value = change.get("requestedValue"), change.get("value")
+            if change.get("previousValue") != bounds["value"] or \
+                    type(requested) not in (int, float) or not math.isfinite(requested) or \
+                    type(value) not in (int, float) or not math.isfinite(value) or \
+                    value != max(bounds["min"], min(bounds["max"], requested)):
+                raise ValueError(f"return {key} value outside signed native range")
+        for key in ("mute", "solo"):
+            if key in changes and (changes[key].get("previousValue") != params["beforeReturn"][key] or
+                                   type(changes[key].get("value")) is not bool):
+                raise ValueError(f"return {key} state is invalid")
+        writes = []
+        def write(target, attribute, value):
+            previous = getattr(target, attribute)
+            if previous != value:
+                writes.append((target, attribute, previous))
+                setattr(target, attribute, value)
+        song.begin_undo_step()
+        try:
+            if "volume" in changes:
+                write(track.mixer_device.volume, "value", changes["volume"]["value"])
+            if "pan" in changes:
+                write(track.mixer_device.panning, "value", changes["pan"]["value"])
+            for key in ("mute", "solo"):
+                if key in changes:
+                    write(track, key, changes[key]["value"])
+            observed = _return_mixer_record(track, index)
+            if any((observed[key]["value"] if key in ("volume", "pan") else observed[key]) != changes[key]["value"]
+                   for key in changes):
+                raise ValueError("Live did not apply the complete return mixer change")
+        except Exception as error:
+            rollback_errors = []
+            for target, attribute, previous in reversed(writes):
+                try:
+                    setattr(target, attribute, previous)
+                except Exception as rollback_error:
+                    rollback_errors.append(rollback_error)
+            if rollback_errors:
+                raise RuntimeError(f"return mixer change failed: {error}; rollback failed: {rollback_errors}; use Live undo") from error
+            raise
+        finally:
+            song.end_undo_step()
+        return {"stateVersion": state_version + 1, "return": observed}
     if method == "get_device_sidechain_routing":
         return _device_sidechain_routing(song, params["trackId"], params["deviceId"], state_version)
     if method == "set_device_sidechain_routing":

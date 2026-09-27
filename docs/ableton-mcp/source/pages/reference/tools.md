@@ -186,7 +186,7 @@ The server publishes 204 tools. Mutations of the Live Set require `expectedState
 | `set_preset_metadata` | Plan or update user tags and favorite state for one preset with an exact revision guard. | `expectedMetadataRevision`, `presetId` |
 | `set_rack_chain_mixer` | Plan or apply exact rack-chain volume, pan, mute, solo, and send levels using native ranges and guarded hierarchy state. | `expectedStateVersion`, `trackId`, `deviceId`, `chainId` |
 | `set_rack_chain_note_routing` | Plan or reassign a Drum Rack chain to a MIDI pad note and optionally change its instrument output note. Occupied destinations layer chains rather than replace sounds. | `expectedStateVersion`, `trackId`, `deviceId`, `chainId` |
-| `set_return_mixer` | Plan or apply guarded return-bus volume, pan, mute, or solo changes. | `expectedStateVersion`, `returnTrackId` |
+| `set_return_mixer` | Plan or apply return-bus volume, pan, mute, or solo changes. The native write rechecks the complete signed Return state and groups changes in one undo step with rollback on failure. | `expectedStateVersion`, `returnTrackId` |
 | `set_scene_launch_quantization` | Plan or apply a guarded per-scene clip-launch quantization override from list_scenes. The global setting stays in song musical context; only the selected scene changes. | `expectedStateVersion`, `sceneId`, `launchQuantization` |
 | `set_scene_musical_context` | Plan or set an exact Session scene tempo and/or time-signature override. Disabled overrides inherit the song context; enabled overrides take effect when the scene is launched. | `expectedStateVersion`, `sceneId` |
 | `set_song_musical_context` | Plan or apply guarded song key, scale, timing, quantization, groove, swing, or loop changes. | `expectedStateVersion` |

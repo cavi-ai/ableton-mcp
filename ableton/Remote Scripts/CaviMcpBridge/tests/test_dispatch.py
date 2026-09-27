@@ -1721,7 +1721,8 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(master["master"]["volume"]["value"], 0.5)
         returned = dispatch_request(song, {"method": "set_return_mixer", "params": {
             "returnTrackId": "return-0", "beforeReturn": observed["returns"][0],
-            "changes": {"pan": {"value": 0.5}, "mute": {"value": True}},
+            "changes": {"pan": {"previousValue": 0.0, "requestedValue": 0.5, "value": 0.5},
+                        "mute": {"previousValue": False, "value": True}},
         }}, 4)
         self.assertTrue(returned["return"]["mute"])
         self.assertEqual(returned["return"]["pan"]["value"], 0.5)
@@ -1779,6 +1780,40 @@ class DispatchTest(unittest.TestCase):
                 }}}, 3)
         self.assertEqual(song.master_track.current_output_sub_routing, "1/2")
         self.assertEqual(song.master_track.mixer_device.volume.value, 0.8)
+
+    def test_return_mixer_rejects_stale_volume_before_mute_change(self):
+        song = Song()
+        before = dispatch_request(song, {"method": "get_set_mixer"}, 3)["returns"][0]
+        song.return_tracks[0].mixer_device.volume.value = 0.4
+        with self.assertRaisesRegex(ValueError, "return track changed"):
+            dispatch_request(song, {"method": "set_return_mixer", "params": {
+                "returnTrackId": "return-0", "beforeReturn": before,
+                "changes": {"mute": {"previousValue": False, "value": True}}}}, 3)
+        self.assertFalse(song.return_tracks[0].mute)
+
+    def test_return_mixer_rolls_back_volume_after_failed_pan_write(self):
+        song = Song()
+        class FailingPan:
+            min, max = -1.0, 1.0
+            @property
+            def value(self):
+                return 0.0
+            @value.setter
+            def value(self, next_value):
+                raise RuntimeError("pan write failed")
+        track = song.return_tracks[0]
+        track.mixer_device.panning = FailingPan()
+        boundaries = []
+        song.begin_undo_step = lambda: boundaries.append("begin")
+        song.end_undo_step = lambda: boundaries.append("end")
+        before = dispatch_request(song, {"method": "get_set_mixer"}, 3)["returns"][0]
+        with self.assertRaisesRegex(RuntimeError, "pan write failed"):
+            dispatch_request(song, {"method": "set_return_mixer", "params": {
+                "returnTrackId": "return-0", "beforeReturn": before,
+                "changes": {"volume": {"previousValue": 0.6, "requestedValue": 0.4, "value": 0.4},
+                            "pan": {"previousValue": 0.0, "requestedValue": 0.25, "value": 0.25}}}}, 3)
+        self.assertEqual(track.mixer_device.volume.value, 0.6)
+        self.assertEqual(boundaries, ["begin", "end"])
 
     def test_create_return_track_appends_named_bus_and_rejects_stale_bus_list(self):
         song = Song()
