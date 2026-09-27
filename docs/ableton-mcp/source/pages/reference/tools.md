@@ -133,7 +133,7 @@ The server publishes 189 tools. Mutations of the Live Set require `expectedState
 | `edit_drum_pattern_clip` | Plan or apply guarded replacement of selected drum lanes and bars in an existing MIDI clip. Preserves unrelated notes and verifies the complete native note set. | `expectedStateVersion`, `trackId`, `clipId`, `grid`, `startBar`, `bars`, `lanes` |
 | `humanize_midi_notes` | Plan or apply guarded deterministic MIDI timing and velocity humanization with exact clip, grid, and complete native note readback. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `seed`, `gridBeats`, `maxTimingOffsetBeats`, `maxVelocityOffset` |
 | `jump_to_arrangement_cue_point` | Plan or move the playhead to one exact Arrangement cue point. | `expectedStateVersion`, `cuePointId` |
-| `launch_clip` | Plan or launch one exact Session clip slot. | `expectedStateVersion`, `trackId`, `clipId` |
+| `launch_clip` | Plan or launch one exact Session clip slot, optionally overriding launch quantization for this launch only. Empty armed slots retain native recording behavior without an override. | `expectedStateVersion`, `trackId`, `clipId` |
 | `launch_scene` | Plan or launch one exact Session scene. Optional forceLegato launches all scene clips immediately in Legato, overriding their clip launch modes. | `expectedStateVersion`, `sceneId` |
 | `load_browser_item` | Plan or load one exact Live browser item onto a guarded ordinary, Return, or Main track. | `expectedStateVersion`, `trackId`, `root`, `path` |
 | `load_factory_browser_item` | Plan or load one exact factory browser item onto a guarded ordinary, Return, or Main track. | `expectedStateVersion`, `trackId`, `root`, `path` |

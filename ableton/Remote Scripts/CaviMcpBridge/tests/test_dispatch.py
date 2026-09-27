@@ -260,6 +260,7 @@ class ClipSlot:
     def __init__(self, has_clip=True):
         self.has_clip = has_clip
         self.clip = Clip() if has_clip else None
+        self.last_launch_quantization = None
 
     def create_clip(self, length):
         if self.has_clip:
@@ -268,7 +269,8 @@ class ClipSlot:
         self.clip = Clip()
         self.clip.length = length
 
-    def fire(self):
+    def fire(self, launch_quantization=None):
+        self.last_launch_quantization = launch_quantization
         self.clip.fire()
 
     def stop(self):
@@ -3010,6 +3012,14 @@ class DispatchTest(unittest.TestCase):
         self.assertTrue(song.scenes[0].last_force_legato)
         dispatch_request(song, {"method": "launch_clip", "params": {"trackId": "track-0", "clipId": "track-0:clip-0"}}, 5)
         self.assertTrue(song.tracks[0].clip_slots[0].clip.is_playing)
+        launched = dispatch_request(song, {"method": "launch_clip", "params": {"trackId": "track-0", "clipId": "track-0:clip-0",
+                                                               "launchQuantization": 12}}, 5)
+        self.assertEqual(launched["launchQuantizationOverride"], 12)
+        self.assertEqual(song.tracks[0].clip_slots[0].last_launch_quantization, 12)
+        self.assertEqual(song.tracks[0].clip_slots[0].clip.launch_quantization, 0)
+        with self.assertRaisesRegex(ValueError, "launchQuantization"):
+            dispatch_request(song, {"method": "launch_clip", "params": {"trackId": "track-0", "clipId": "track-0:clip-0",
+                                                        "launchQuantization": 99}}, 5)
         dispatch_request(song, {"method": "arm_track", "params": {"trackId": "track-0", "armed": True}}, 6)
         self.assertTrue(song.tracks[0].arm)
 

@@ -4757,10 +4757,20 @@ def dispatch_request(song, request, state_version, application=None):
     if method in ("launch_clip", "stop_clip"):
         _, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
         if method == "launch_clip":
-            slot.fire()
+            if "launchQuantization" in params:
+                value = params["launchQuantization"]
+                if type(value) is not int or value < 0 or value >= len(CLIP_QUANTIZATION_NAMES):
+                    raise ValueError("launchQuantization must be a native clip launch quantization value")
+                slot.fire(launch_quantization=value)
+            else:
+                slot.fire()
         else:
             slot.stop()
-        return {"stateVersion": state_version + 1, "trackId": params["trackId"], "clipId": params["clipId"], "isPlaying": slot.clip.is_playing if slot.has_clip else False}
+        observed = {"stateVersion": state_version + 1, "trackId": params["trackId"], "clipId": params["clipId"],
+                    "isPlaying": slot.clip.is_playing if slot.has_clip else False}
+        if method == "launch_clip" and "launchQuantization" in params:
+            observed["launchQuantizationOverride"] = params["launchQuantization"]
+        return observed
     if method == "panic":
         song.stop_playing()
         return {"stateVersion": state_version + 1, "isPlaying": song.is_playing}

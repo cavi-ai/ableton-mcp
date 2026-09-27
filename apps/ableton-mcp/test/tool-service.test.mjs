@@ -1723,6 +1723,26 @@ test("scene launch carries an explicit legato override through the guarded plan"
   await assert.rejects(() => service.call("launch_scene", { ...args, forceLegato: "yes" }), /forceLegato must be boolean/);
 });
 
+test("clip launch signs a one-shot quantization override", async () => {
+  const { service, calls } = fixture();
+  const args = { trackId: "track-0", clipId: "track-0:clip-0", expectedStateVersion: 4, launchQuantization: "1_16" };
+  const dry = await service.call("launch_clip", args);
+  assert.equal(dry.plan.launchQuantization, 12);
+  const result = await service.call("launch_clip", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.requested.launchQuantization, 12);
+  assert.equal(calls.at(-1).params.launchQuantization, 12);
+  await assert.rejects(() => service.call("launch_clip", { ...args, launchQuantization: "bad" }), /launchQuantization must be one of/);
+});
+
+test("clip launch without an override retains the empty-slot recording path", async () => {
+  const { service, calls } = fixture();
+  const args = { trackId: "track-0", clipId: "track-0:clip-1", expectedStateVersion: 4 };
+  const dry = await service.call("launch_clip", args);
+  assert.equal(calls.at(-1).method, "get_live_state");
+  assert.equal(dry.plan.clipId, args.clipId);
+});
+
 test("transport context exposes and guards metronome and count-in changes", async () => {
   const { service, calls } = fixture();
   const observed = await service.call("get_transport_context");

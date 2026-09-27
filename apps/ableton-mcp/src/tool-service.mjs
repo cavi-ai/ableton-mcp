@@ -3434,9 +3434,16 @@ export class ToolService {
     if (name === "launch_scene" && args.forceLegato !== undefined && typeof args.forceLegato !== "boolean") {
       throw new Error("forceLegato must be boolean");
     }
-    const current = await this.bridge.request("get_live_state", {});
-    assertExpectedState(args, current);
+    const clipOverride = name === "launch_clip" && args.launchQuantization !== undefined;
+    const current = clipOverride
+      ? await this.bridge.request("get_clip_timing", { trackId: args.trackId, clipId: args.clipId })
+      : await this.bridge.request("get_live_state", {});
+    assertExpectedState(clipOverride ? args : { expectedStateVersion: args.expectedStateVersion }, current);
+    if (clipOverride && current.clipId !== args.clipId) throw new Error("clipId mismatch");
     const plan = { method: name, ...args };
+    if (clipOverride) {
+      plan.launchQuantization = normalizeChoice(args.launchQuantization, "launchQuantization", current.launchQuantization.choices);
+    }
     delete plan.dryRun;
     delete plan.confirmationToken;
     delete plan.planHash;
