@@ -684,6 +684,9 @@ def _snapshot_device(device, device_id):
     record = {**_device_record(device, device_id),
               "parameters": [_parameter_record(parameter, index)
                              for index, parameter in enumerate(device.parameters)]}
+    if device.can_have_drum_pads:
+        record["drumPads"] = [{"note": int(pad.note), "mute": bool(pad.mute), "solo": bool(pad.solo)}
+                              for pad in device.drum_pads if pad.chains]
     if device.can_have_chains:
         for key, chains in (("chains", device.chains), ("returnChains", getattr(device, "return_chains", ()))):
             prefix = "chain" if key == "chains" else "return-chain"
@@ -698,6 +701,9 @@ def _snapshot_device(device, device_id):
 
 
 def _persisted_device_chain(record, format_name=None):
+    def has_drum_pads(device):
+        return bool(device.get("drumPads")) or any(has_drum_pads(child) for key in ("chains", "returnChains")
+                                                    for chain in device.get(key, ()) for child in chain["devices"])
     def has_chain_controls(device):
         for key in ("chains", "returnChains"):
             for chain in device.get(key, ()):
@@ -709,7 +715,8 @@ def _persisted_device_chain(record, format_name=None):
                     return True
         return False
     if format_name is None:
-        format_name = ("cavi-device-chain-v3" if any(has_chain_controls(device) for device in record["devices"])
+        format_name = ("cavi-device-chain-v4" if any(has_drum_pads(device) for device in record["devices"])
+                       else "cavi-device-chain-v3" if any(has_chain_controls(device) for device in record["devices"])
                        else "cavi-device-chain-v2" if any("chains" in device for device in record["devices"])
                        else "cavi-device-chain-v1")
     def persisted_device(device):
@@ -724,7 +731,7 @@ def _persisted_device_chain(record, format_name=None):
                     chains = []
                     for chain in device[key]:
                         saved = {"name": chain["name"], "devices": [persisted_device(child) for child in chain["devices"]]}
-                        if format_name == "cavi-device-chain-v3":
+                        if format_name in ("cavi-device-chain-v3", "cavi-device-chain-v4"):
                             mixer = chain["mixer"]
                             saved["mixer"] = {"volume": mixer["volume"]["value"] if mixer["volume"] else None,
                                               "pan": mixer["pan"]["value"] if mixer["pan"] else None,
@@ -733,6 +740,8 @@ def _persisted_device_chain(record, format_name=None):
                             saved["noteRouting"] = dict(chain["noteRouting"])
                         chains.append(saved)
                     result[key] = chains
+        if format_name == "cavi-device-chain-v4" and "drumPads" in device:
+            result["drumPads"] = [dict(pad) for pad in device["drumPads"]]
         return result
     return {
         "format": format_name,
@@ -785,6 +794,43 @@ def _apply_snapshot_chain_controls(chain, saved, write):
     for key, attribute in (("inputNote", "in_note"), ("outputNote", "out_note")):
         if saved["noteRouting"][key] is not None:
             write(chain, attribute, saved["noteRouting"][key])
+
+
+def _validate_snapshot_drum_pads(saved, native):
+    expected, observed = saved.get("drumPads"), native.get("drumPads")
+    if observed is None:
+        if expected is not None:
+            raise ValueError("drum pad topology mismatch")
+        return
+    if not isinstance(expected, list) or len(expected) != len(observed):
+        raise ValueError("drum pad topology mismatch")
+    for target, current in zip(expected, observed):
+        if (type(target.get("note")) is not int or target["note"] != current["note"] or
+                type(target.get("mute")) is not bool or type(target.get("solo")) is not bool or
+                (target["mute"] and target["solo"])):
+            raise ValueError("drum pad state or topology is invalid")
+
+
+def _apply_snapshot_drum_pads(device, saved, restore):
+    if "drumPads" not in saved:
+        return
+    pads = [pad for pad in device.drum_pads if pad.chains]
+    restore.extend((pad, bool(pad.solo), bool(pad.mute)) for pad in pads)
+    for pad, target in zip(pads, saved["drumPads"]):
+        pad.solo = target["solo"]
+    for pad, target in zip(pads, saved["drumPads"]):
+        pad.mute = target["mute"]
+
+
+def _restore_snapshot_drum_pads(restore):
+    errors = []
+    for attribute, index in (("solo", 1), ("mute", 2)):
+        for record in restore:
+            try:
+                setattr(record[0], attribute, record[index])
+            except Exception as error:
+                errors.append(error)
+    return errors
 
 
 def _device_type(device):
@@ -3263,7 +3309,7 @@ def dispatch_request(song, request, state_version, application=None):
             raise ValueError("device chain changed after planning")
         target = params["target"]
         format_name = target.get("format")
-        if format_name not in ("cavi-device-chain-v1", "cavi-device-chain-v2", "cavi-device-chain-v3") or not isinstance(target.get("devices"), list) or len(target["devices"]) != len(current["devices"]):
+        if format_name not in ("cavi-device-chain-v1", "cavi-device-chain-v2", "cavi-device-chain-v3", "cavi-device-chain-v4") or not isinstance(target.get("devices"), list) or len(target["devices"]) != len(current["devices"]):
             raise ValueError("device chain topology mismatch")
         if format_name != "cavi-device-chain-v1" and not any("chains" in device for device in current["devices"]):
             raise ValueError("device chain topology mismatch")
@@ -3283,6 +3329,8 @@ def dispatch_request(song, request, state_version, application=None):
                     raise ValueError("device parameter value outside native range")
                 if value != native["value"] and not native["enabled"]:
                     raise ValueError(f"parameter {native['id']} is disabled")
+            if format_name == "cavi-device-chain-v4":
+                _validate_snapshot_drum_pads(saved_device, native_device)
             if format_name != "cavi-device-chain-v1":
                 for key in ("chains", "returnChains"):
                     native_chains = native_device.get(key)
@@ -3296,13 +3344,13 @@ def dispatch_request(song, request, state_version, application=None):
                                 not isinstance(saved_chain.get("devices"), list) or
                                 len(saved_chain["devices"]) != len(native_chain["devices"])):
                             raise ValueError("device chain topology mismatch")
-                        if format_name == "cavi-device-chain-v3":
+                        if format_name in ("cavi-device-chain-v3", "cavi-device-chain-v4"):
                             _validate_snapshot_chain_controls(saved_chain, native_chain)
                         for saved_child, native_child in zip(saved_chain["devices"], native_chain["devices"]):
                             validate_device(saved_child, native_child)
         for saved_device, native_device in zip(target["devices"], current["devices"]):
             validate_device(saved_device, native_device)
-        writes = []
+        writes, pad_restore = [], []
         def write(target_object, attribute, value):
             previous = getattr(target_object, attribute)
             if previous != value:
@@ -3318,10 +3366,12 @@ def dispatch_request(song, request, state_version, application=None):
                     for key, native_chains in (("chains", device.chains), ("returnChains", getattr(device, "return_chains", ()))) if device.can_have_chains else ():
                         for chain, saved_chain in zip(native_chains, saved_device[key]):
                             write(chain, "name", saved_chain["name"])
-                            if format_name == "cavi-device-chain-v3":
+                            if format_name in ("cavi-device-chain-v3", "cavi-device-chain-v4"):
                                 _apply_snapshot_chain_controls(chain, saved_chain, write)
                             for child, saved_child in zip(chain.devices, saved_chain["devices"]):
                                 apply_device(child, saved_child)
+                if format_name == "cavi-device-chain-v4":
+                    _apply_snapshot_drum_pads(device, saved_device, pad_restore)
             for device, saved_device in zip(owner.devices, target["devices"]):
                 apply_device(device, saved_device)
             result = _device_chain_snapshot(song, owner_id, state_version + 1)
@@ -3335,6 +3385,7 @@ def dispatch_request(song, request, state_version, application=None):
                     setattr(target_object, attribute, previous)
                 except Exception as rollback_error:
                     rollback_errors.append(rollback_error)
+            rollback_errors.extend(_restore_snapshot_drum_pads(pad_restore))
             if rollback_errors:
                 details = "; ".join(str(item) for item in rollback_errors)
                 raise RuntimeError(f"device chain recall failed: {error}; rollback failed: {details}; use Live undo") from error
@@ -3347,7 +3398,7 @@ def dispatch_request(song, request, state_version, application=None):
         current = _track_state_snapshot(song, track_id, state_version)
         if current != params["before"]:
             raise ValueError("track state changed after planning")
-        if target.get("format") not in ("cavi-track-state-v1", "cavi-track-state-v2", "cavi-track-state-v3"):
+        if target.get("format") not in ("cavi-track-state-v1", "cavi-track-state-v2", "cavi-track-state-v3", "cavi-track-state-v4"):
             raise ValueError("invalid track snapshot format")
         nested = target["format"] != "cavi-track-state-v1"
         persisted = _persisted_track_state(current, target["format"])
@@ -3395,6 +3446,8 @@ def dispatch_request(song, request, state_version, application=None):
                     raise ValueError("snapshot parameter value outside native range")
                 if saved["value"] != native["value"] and not native["enabled"]:
                     raise ValueError(f"parameter {native['id']} is disabled")
+            if target["format"] == "cavi-track-state-v4":
+                _validate_snapshot_drum_pads(saved_device, native_device)
             if nested:
                 for key in ("chains", "returnChains"):
                     native_chains, saved_chains = native_device.get(key), saved_device.get(key)
@@ -3407,14 +3460,14 @@ def dispatch_request(song, request, state_version, application=None):
                                 not isinstance(saved_chain.get("devices"), list) or
                                 len(saved_chain["devices"]) != len(native_chain["devices"])):
                             raise ValueError("snapshot device topology mismatch")
-                        if target["format"] == "cavi-track-state-v3":
+                        if target["format"] in ("cavi-track-state-v3", "cavi-track-state-v4"):
                             _validate_snapshot_chain_controls(saved_chain, native_chain)
                         for saved_child, native_child in zip(saved_chain["devices"], native_chain["devices"]):
                             validate_device(saved_child, native_child)
         for saved_device, native_device in zip(target["devices"], current["devices"]):
             validate_device(saved_device, native_device)
         _, track = _track(song, track_id)
-        writes = []
+        writes, pad_restore = [], []
         route_previous = {}
         def write(owner, attribute, value):
             previous = getattr(owner, attribute)
@@ -3464,10 +3517,12 @@ def dispatch_request(song, request, state_version, application=None):
                     for key, native_chains in (("chains", device.chains), ("returnChains", getattr(device, "return_chains", ()))):
                         for chain, saved_chain in zip(native_chains, saved_device[key]):
                             write(chain, "name", saved_chain["name"])
-                            if target["format"] == "cavi-track-state-v3":
+                            if target["format"] in ("cavi-track-state-v3", "cavi-track-state-v4"):
                                 _apply_snapshot_chain_controls(chain, saved_chain, write)
                             for child, saved_child in zip(chain.devices, saved_chain["devices"]):
                                 apply_device(child, saved_child)
+                if target["format"] == "cavi-track-state-v4":
+                    _apply_snapshot_drum_pads(device, saved_device, pad_restore)
             for device, saved_device in zip(track.devices, target["devices"]):
                 apply_device(device, saved_device)
             result = _track_state_snapshot(song, track_id, state_version + 1)
@@ -3480,6 +3535,7 @@ def dispatch_request(song, request, state_version, application=None):
                     setattr(owner, attribute, previous)
                 except Exception as rollback_error:
                     rollback_errors.append(rollback_error)
+            rollback_errors.extend(_restore_snapshot_drum_pads(pad_restore))
             for attribute in ("current_input_routing", "current_output_routing",
                               "current_input_sub_routing", "current_output_sub_routing"):
                 if attribute in route_previous:

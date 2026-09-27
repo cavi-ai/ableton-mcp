@@ -2930,7 +2930,7 @@ class DispatchTest(unittest.TestCase):
         rack = DrumRack()
         song.tracks[0].devices = [rack]
         before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
-        target = _persisted_track_state(before)
+        target = _persisted_track_state(before, "cavi-track-state-v2")
         self.assertEqual(target["format"], "cavi-track-state-v2")
         target["devices"][0]["chains"][0]["devices"][0]["parameters"][0]["value"] = 0.8
         result = dispatch_request(song, {"method": "set_track_state_snapshot", "params": {
@@ -2948,7 +2948,7 @@ class DispatchTest(unittest.TestCase):
         chain.in_note, chain.out_note = 36, 36
         song.tracks[0].devices = [rack]
         before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
-        target = _persisted_track_state(before)
+        target = _persisted_track_state(before, "cavi-track-state-v3")
         self.assertEqual(target["format"], "cavi-track-state-v3")
         saved = target["devices"][0]["chains"][0]
         saved["mixer"]["volume"] = 0.6
@@ -3151,7 +3151,7 @@ class DispatchTest(unittest.TestCase):
         song.tracks[0].devices = [rack]
         before = dispatch_request(song, {"method": "get_device_chain_snapshot", "params": {"trackId": "track-0"}}, 6)
         self.assertEqual(before["devices"][0]["chains"][0]["devices"][0]["name"], "Kick")
-        target = _persisted_device_chain(before)
+        target = _persisted_device_chain(before, "cavi-device-chain-v2")
         self.assertEqual(target["format"], "cavi-device-chain-v2")
         target["devices"][0]["chains"][0]["devices"][0]["parameters"][0]["value"] = 0.8
         result = dispatch_request(song, {"method": "set_device_chain_snapshot", "params": {
@@ -3176,7 +3176,7 @@ class DispatchTest(unittest.TestCase):
         chain.in_note, chain.out_note = 36, 36
         song.tracks[0].devices = [rack]
         before = dispatch_request(song, {"method": "get_device_chain_snapshot", "params": {"trackId": "track-0"}}, 6)
-        target = _persisted_device_chain(before)
+        target = _persisted_device_chain(before, "cavi-device-chain-v3")
         self.assertEqual(target["format"], "cavi-device-chain-v3")
         saved = target["devices"][0]["chains"][0]
         saved["mixer"]["volume"] = 0.6
@@ -3202,6 +3202,42 @@ class DispatchTest(unittest.TestCase):
             }}, 7)
         self.assertEqual(chain.mixer_device.volume.value, 0.6)
         self.assertEqual(chain.in_note, 38)
+
+    def test_drum_pad_snapshot_captures_and_restores_populated_pad_state(self):
+        song = Song()
+        rack = DrumRack()
+        rack.drum_pads[0].mute = True
+        song.tracks[0].devices = [rack]
+        before = dispatch_request(song, {"method": "get_device_chain_snapshot", "params": {"trackId": "track-0"}}, 6)
+        target = _persisted_device_chain(before)
+        self.assertEqual(target["format"], "cavi-device-chain-v4")
+        self.assertEqual(target["devices"][0]["drumPads"], [{"note": 36, "mute": True, "solo": False}])
+        target["devices"][0]["drumPads"][0]["mute"] = False
+        result = dispatch_request(song, {"method": "set_device_chain_snapshot", "params": {
+            "trackId": "track-0", "before": before, "target": target}}, 6)
+        self.assertFalse(rack.drum_pads[0].mute)
+        self.assertEqual(result["devices"][0]["drumPads"][0]["mute"], False)
+        self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
+
+    def test_track_snapshot_captures_drum_pad_state(self):
+        song = Song()
+        rack = DrumRack()
+        rack.drum_pads[0].solo = True
+        song.tracks[0].devices = [rack]
+        before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
+        target = _persisted_track_state(before)
+        self.assertEqual(target["format"], "cavi-track-state-v4")
+        self.assertEqual(target["devices"][0]["drumPads"], [{"note": 36, "mute": False, "solo": True}])
+        target["devices"][0]["drumPads"][0]["solo"] = False
+        result = dispatch_request(song, {"method": "set_track_state_snapshot", "params": {
+            "trackId": "track-0", "before": before, "target": target}}, 6)
+        self.assertFalse(rack.drum_pads[0].solo)
+        self.assertFalse(result["devices"][0]["drumPads"][0]["solo"])
+        invalid = _persisted_track_state(result)
+        invalid["devices"][0]["drumPads"][0]["note"] = 37
+        with self.assertRaisesRegex(ValueError, "drum pad state or topology"):
+            dispatch_request(song, {"method": "set_track_state_snapshot", "params": {
+                "trackId": "track-0", "before": result, "target": invalid}}, 7)
 
     def test_v2_device_chain_recall_preserves_newer_rack_controls(self):
         song = Song()

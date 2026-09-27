@@ -8,7 +8,7 @@ function snapshotPath(directory, name) {
 }
 
 export class SnapshotLibrary {
-  constructor({ directory, formats = ["cavi-track-state-v1", "cavi-track-state-v2", "cavi-track-state-v3"] }) {
+  constructor({ directory, formats = ["cavi-track-state-v1", "cavi-track-state-v2", "cavi-track-state-v3", "cavi-track-state-v4"] }) {
     if (typeof directory !== "string" || !directory) throw new Error("snapshot directory is required");
     this.directory = directory;
     this.formats = new Set(formats);

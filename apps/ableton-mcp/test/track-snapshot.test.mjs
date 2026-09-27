@@ -124,6 +124,26 @@ test('track snapshot saves rack mixer and Drum Rack note routing for guarded rec
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+test('track snapshot captures populated Drum Rack pad state for guarded recall', async () => {
+  const { service, native } = fixture();
+  native.devices[0].name = 'Drum Rack';
+  native.devices[0].className = 'InstrumentGroupDevice';
+  native.devices[0].chains = [{ name: 'Kick', devices: [],
+    mixer: { volume: null, pan: null, sends: [], mute: null, solo: null },
+    noteRouting: { inputNote: null, outputNote: null } }];
+  native.devices[0].returnChains = [];
+  native.devices[0].drumPads = [{ note: 36, mute: true, solo: false }];
+  const captured = await service.call('capture_track_state_snapshot', { trackId: 'track-0' });
+  assert.equal(captured.snapshot.format, 'cavi-track-state-v4');
+  assert.deepEqual(captured.snapshot.devices[0].drumPads, [{ note: 36, mute: true, solo: false }]);
+  validateToolArguments('recall_track_state_snapshot', { trackId: 'track-0', expectedStateVersion: 7,
+    snapshot: captured.snapshot });
+  native.devices[0].drumPads[0].mute = false;
+  const dry = await service.call('recall_track_state_snapshot', { trackId: 'track-0', expectedStateVersion: 7,
+    snapshot: captured.snapshot });
+  assert.equal(dry.plan.target.devices[0].drumPads[0].mute, true);
+});
+
 test('track snapshot rejects a native callback response for another target', async () => {
   const { service } = fixture();
   const original = service.bridge.request.bind(service.bridge);
