@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from bridge import SocketBridge, dispatch_request, _device_type, _new_midi_note, _persisted_device_chain, _set_fingerprint, _track_topology_signature
+from bridge import SocketBridge, dispatch_request, _device_type, _new_midi_note, _persisted_device_chain, _persisted_track_state, _set_fingerprint, _track_topology_signature
 
 
 class Parameter:
@@ -2922,6 +2922,33 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(result["routing"]["output"]["type"]["name"], "Main")
         self.assertEqual([device["id"] for device in result["devices"]], ["track-0:device-0"])
         self.assertEqual(result["devices"][0]["parameters"][0]["originalName"], "Filter Freq")
+
+    def test_track_state_snapshot_recalls_nested_rack_parameter_in_one_undo_step(self):
+        song = Song()
+        rack = DrumRack()
+        song.tracks[0].devices = [rack]
+        before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
+        target = _persisted_track_state(before)
+        self.assertEqual(target["format"], "cavi-track-state-v2")
+        target["devices"][0]["chains"][0]["devices"][0]["parameters"][0]["value"] = 0.8
+        result = dispatch_request(song, {"method": "set_track_state_snapshot", "params": {
+            "trackId": "track-0", "before": before, "target": target,
+        }}, 6)
+        self.assertEqual(result["devices"][0]["chains"][0]["devices"][0]["parameters"][0]["value"], 0.8)
+        self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
+
+    def test_legacy_track_snapshot_does_not_change_nested_rack_state(self):
+        song = Song()
+        rack = DrumRack()
+        song.tracks[0].devices = [rack]
+        before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
+        target = _persisted_track_state(before, "cavi-track-state-v1")
+        target["track"]["name"] = "Legacy Capture"
+        dispatch_request(song, {"method": "set_track_state_snapshot", "params": {
+            "trackId": "track-0", "before": before, "target": target,
+        }}, 6)
+        self.assertEqual(song.tracks[0].name, "Legacy Capture")
+        self.assertEqual(rack.chains[0].devices[0].name, "Kick")
 
     def test_track_state_recall_applies_complete_target_in_one_undo_step(self):
         song = Song()

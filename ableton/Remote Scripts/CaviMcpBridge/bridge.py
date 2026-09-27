@@ -646,16 +646,21 @@ def _track_state_snapshot(song, track_id, state_version):
         "mixer": {"volume": _value_record(track.mixer_device.volume), "pan": _value_record(track.mixer_device.panning),
                   "mute": bool(track.mute), "solo": bool(track.solo), "sends": _send_records(song, track)},
         "routing": {"input": routing["input"], "output": routing["output"], "monitoring": routing["monitoring"]},
-        "devices": [{**_device_record(device, f"{track_id}:device-{index}"),
-                     "parameters": [_parameter_record(parameter, parameter_index)
-                                    for parameter_index, parameter in enumerate(device.parameters)]}
+        "devices": [_snapshot_device(device, f"{track_id}:device-{index}")
                     for index, device in enumerate(track.devices)],
     }
 
 
-def _persisted_track_state(record):
+def _persisted_track_state(record, format_name=None):
+    device_chain = _persisted_device_chain(record)
+    if format_name is None:
+        format_name = "cavi-track-state-v2" if device_chain["format"] == "cavi-device-chain-v2" else "cavi-track-state-v1"
+    devices = device_chain["devices"]
+    if format_name == "cavi-track-state-v1":
+        devices = [{key: device[key] for key in ("name", "className", "type", "parameters")}
+                   for device in devices]
     return {
-        "format": "cavi-track-state-v1",
+        "format": format_name,
         "track": {"name": record["track"]["name"], "type": record["track"]["type"], "isGroup": record["track"]["isGroup"]},
         "mixer": {"volume": record["mixer"]["volume"]["value"], "pan": record["mixer"]["pan"]["value"],
                   "mute": record["mixer"]["mute"], "solo": record["mixer"]["solo"],
@@ -665,11 +670,7 @@ def _persisted_track_state(record):
                     "outputTypeId": record["routing"]["output"]["type"]["id"],
                     "outputChannelId": record["routing"]["output"]["channel"]["id"],
                     "monitoring": record["routing"]["monitoring"]["value"] if record["routing"]["monitoring"] else None},
-        "devices": [{"name": device["name"], "className": device["className"], "type": device["type"],
-                     "parameters": [{"originalName": parameter["originalName"], "min": parameter["min"], "max": parameter["max"],
-                                     "quantized": parameter["quantized"], "valueItems": parameter["valueItems"], "value": parameter["value"]}
-                                    for parameter in device["parameters"]]}
-                    for device in record["devices"]],
+        "devices": devices,
     }
 
 
@@ -3273,9 +3274,12 @@ def dispatch_request(song, request, state_version, application=None):
         current = _track_state_snapshot(song, track_id, state_version)
         if current != params["before"]:
             raise ValueError("track state changed after planning")
-        if target.get("format") != "cavi-track-state-v1":
+        if target.get("format") not in ("cavi-track-state-v1", "cavi-track-state-v2"):
             raise ValueError("invalid track snapshot format")
-        persisted = _persisted_track_state(current)
+        nested = target["format"] == "cavi-track-state-v2"
+        persisted = _persisted_track_state(current, target["format"])
+        if nested and not any("chains" in device for device in current["devices"]):
+            raise ValueError("snapshot device topology mismatch")
         if target["track"]["type"] != persisted["track"]["type"] or target["track"]["isGroup"] != persisted["track"]["isGroup"]:
             raise ValueError("snapshot track type is incompatible")
         if len(target["mixer"]["sends"]) != len(current["mixer"]["sends"]):
@@ -3308,7 +3312,7 @@ def dispatch_request(song, request, state_version, application=None):
             raise ValueError("snapshot routing monitoring is unavailable")
         if len(target["devices"]) != len(current["devices"]):
             raise ValueError("snapshot device topology mismatch")
-        for saved_device, native_device in zip(target["devices"], current["devices"]):
+        def validate_device(saved_device, native_device):
             if saved_device["className"] != native_device["className"] or saved_device["type"] != native_device["type"] or len(saved_device["parameters"]) != len(native_device["parameters"]):
                 raise ValueError("snapshot device topology mismatch")
             for saved, native in zip(saved_device["parameters"], native_device["parameters"]):
@@ -3318,6 +3322,22 @@ def dispatch_request(song, request, state_version, application=None):
                     raise ValueError("snapshot parameter value outside native range")
                 if saved["value"] != native["value"] and not native["enabled"]:
                     raise ValueError(f"parameter {native['id']} is disabled")
+            if nested:
+                for key in ("chains", "returnChains"):
+                    native_chains, saved_chains = native_device.get(key), saved_device.get(key)
+                    if native_chains is None and saved_chains is None:
+                        continue
+                    if not isinstance(saved_chains, list) or native_chains is None or len(saved_chains) != len(native_chains):
+                        raise ValueError("snapshot device topology mismatch")
+                    for saved_chain, native_chain in zip(saved_chains, native_chains):
+                        if (not isinstance(saved_chain.get("name"), str) or not saved_chain["name"].strip() or
+                                not isinstance(saved_chain.get("devices"), list) or
+                                len(saved_chain["devices"]) != len(native_chain["devices"])):
+                            raise ValueError("snapshot device topology mismatch")
+                        for saved_child, native_child in zip(saved_chain["devices"], native_chain["devices"]):
+                            validate_device(saved_child, native_child)
+        for saved_device, native_device in zip(target["devices"], current["devices"]):
+            validate_device(saved_device, native_device)
         _, track = _track(song, track_id)
         writes = []
         route_previous = {}
@@ -3361,12 +3381,20 @@ def dispatch_request(song, request, state_version, application=None):
                     write_route(attribute, selected["name"])
             if target["routing"]["monitoring"] is not None:
                 write(track, "current_monitoring_state", target["routing"]["monitoring"])
-            for device, saved_device in zip(track.devices, target["devices"]):
+            def apply_device(device, saved_device):
                 write(device, "name", saved_device["name"])
                 for parameter, saved in zip(device.parameters, saved_device["parameters"]):
                     write(parameter, "value", saved["value"])
+                if nested and device.can_have_chains:
+                    for key, native_chains in (("chains", device.chains), ("returnChains", getattr(device, "return_chains", ()))):
+                        for chain, saved_chain in zip(native_chains, saved_device[key]):
+                            write(chain, "name", saved_chain["name"])
+                            for child, saved_child in zip(chain.devices, saved_chain["devices"]):
+                                apply_device(child, saved_child)
+            for device, saved_device in zip(track.devices, target["devices"]):
+                apply_device(device, saved_device)
             result = _track_state_snapshot(song, track_id, state_version + 1)
-            if _persisted_track_state(result) != target:
+            if _persisted_track_state(result, target["format"]) != target:
                 raise ValueError("Live did not apply the complete track snapshot")
         except Exception as error:
             rollback_errors = []

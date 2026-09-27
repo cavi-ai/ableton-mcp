@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ToolService } from '../src/tool-service.mjs';
 import { SnapshotLibrary } from '../src/snapshot-library.mjs';
+import { validateToolArguments } from '../src/tool-validation.mjs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
@@ -62,6 +63,36 @@ test('track snapshot captures one consistent JSON state for mixer routing and or
     originalName: 'GainLo', min: 0, max: 1, quantized: false, valueItems: [], value: 0.8
   }] }]);
   assert.equal(result.stateVersion, 7);
+});
+
+test('track snapshot saves nested rack state and plans compatible nested recall', async () => {
+  const directory = await mkdtemp(`${tmpdir()}/cavi-nested-track-test-`);
+  try {
+    const { service, native } = fixture(new SnapshotLibrary({ directory }));
+    native.devices[0].name = 'Audio Effect Rack';
+    native.devices[0].className = 'AudioEffectGroupDevice';
+    native.devices[0].chains = [{ name: 'Parallel', devices: [{
+      id: 'track-0:device-0/chain-0/device-0', name: 'EQ Three', className: 'FilterEQ3',
+      type: 'audio_effect', parameters: structuredClone(native.devices[0].parameters),
+    }] }];
+    native.devices[0].returnChains = [];
+    await service.call('save_track_state_snapshot', { trackId: 'track-0', name: 'nested-rack' });
+    const loaded = await service.call('load_track_state_snapshot', { name: 'nested-rack' });
+    assert.equal(loaded.snapshot.format, 'cavi-track-state-v2');
+    assert.equal(loaded.snapshot.devices[0].chains[0].devices[0].name, 'EQ Three');
+    validateToolArguments('recall_track_state_snapshot', {
+      trackId: 'track-0', expectedStateVersion: 7, snapshot: loaded.snapshot,
+    });
+    native.devices[0].chains[0].devices[0].parameters[0].value = 0.2;
+    const dry = await service.call('recall_track_state_snapshot', {
+      trackId: 'track-0', expectedStateVersion: 7, snapshot: loaded.snapshot,
+    });
+    assert.equal(dry.plan.target.devices[0].chains[0].devices[0].parameters[0].value, 0.8);
+    native.devices[0].chains[0].devices[0].className = 'Compressor2';
+    await assert.rejects(() => service.call('recall_track_state_snapshot', {
+      trackId: 'track-0', expectedStateVersion: 7, snapshot: loaded.snapshot,
+    }), /topology mismatch/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
 test('track snapshot rejects a native callback response for another target', async () => {
