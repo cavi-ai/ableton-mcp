@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { createHash } from "node:crypto";
+import { buildSerumPilot } from "./serum-pilot.mjs";
 
 function candidatesFor(database, productSlug) {
   const candidates = database.prepare(`SELECT id, source_fingerprint AS fingerprint FROM presets
@@ -7,6 +8,26 @@ function candidatesFor(database, productSlug) {
       AND COALESCE(json_extract(json, '$.missing'), 0) = 0 ORDER BY id`).all(productSlug);
   return { eligible: candidates.length,
     fingerprint: createHash("sha256").update(JSON.stringify(candidates)).digest("hex") };
+}
+
+const isUserSource = record => record.sourceRelativePath.split("/")
+  .some(part => part.toLowerCase() === "user");
+
+function serumPilotState(database) {
+  const records = database.prepare(`SELECT json FROM presets WHERE product_slug = ?
+    AND COALESCE(json_extract(json, '$.missing'), 0) = 0 ORDER BY id`).all("serum-2")
+    .map(row => JSON.parse(row.json));
+  if (records.some(record => typeof record.sourceRelativePath !== "string" || !record.sourceRelativePath))
+    throw new Error("Serum pilot requires catalog source-relative paths");
+  const factory = records.filter(record => !isUserSource(record));
+  const factoryIds = new Set(factory.map(record => record.id));
+  const pilotIds = new Set(factory.length ? buildSerumPilot(factory).jobs.map(job => job.id) : []);
+  const validated = factory.filter(record => pilotIds.has(record.id) && record.state === "validated" &&
+    record.evidence?.some(item => item.state === "validated")).length;
+  const gateOpen = pilotIds.size > 0 && validated === pilotIds.size;
+  const queueable = factory.filter(record => record.state === "discovered" &&
+    (gateOpen || pilotIds.has(record.id))).length;
+  return { pilotIds, factoryIds, status: { total: pilotIds.size, validated, gateOpen, queueable } };
 }
 
 function selectedCandidates(database, productSlug, presetIds) {
@@ -21,6 +42,13 @@ function selectedCandidates(database, productSlug, presetIds) {
       AND COALESCE(json_extract(json, '$.missing'), 0) = 0
       AND id IN (${placeholders}) ORDER BY id`).all(productSlug, ...sortedIds);
   if (candidates.length !== sortedIds.length) throw new Error("presetIds must all be eligible discovered presets for productSlug");
+  if (productSlug === "serum-2") {
+    const { pilotIds, factoryIds, status } = serumPilotState(database);
+    if (sortedIds.some(id => !factoryIds.has(id)))
+      throw new Error("User-source presets are not Serum factory jobs");
+    if (!status.gateOpen && sortedIds.some(id => !pilotIds.has(id)))
+      throw new Error("Serum pilot must be validated before enqueuing other factory presets");
+  }
   return { productSlug, presetIds: sortedIds, eligible: candidates.length,
     fingerprint: createHash("sha256").update(JSON.stringify(candidates)).digest("hex") };
 }
@@ -37,13 +65,14 @@ export class GenerationQueue {
     const database = new DatabaseSync(path, { readOnly: true });
     try {
       const { eligible, fingerprint } = candidatesFor(database, productSlug);
+      const pilot = productSlug === "serum-2" ? serumPilotState(database).status : undefined;
       const initialized = Boolean(database.prepare(`SELECT 1 FROM sqlite_master
         WHERE type = 'table' AND name = 'nks_generation_jobs'`).get());
       const jobs = initialized ? Object.fromEntries(database.prepare(`SELECT j.status, count(*) AS count
         FROM nks_generation_jobs j JOIN presets p ON p.id = j.preset_id
         WHERE p.product_slug = ? GROUP BY j.status ORDER BY j.status`).all(productSlug)
         .map(({ status, count }) => [status, count])) : {};
-      return { productSlug, eligible, fingerprint, initialized, jobs };
+      return { productSlug, eligible, fingerprint, initialized, jobs, ...(pilot && { pilot }) };
     } finally {
       database.close();
     }

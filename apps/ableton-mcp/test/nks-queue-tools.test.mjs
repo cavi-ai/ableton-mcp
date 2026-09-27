@@ -12,7 +12,8 @@ test("NKS queue status is read-only and enqueue needs a current single-use confi
   const path = join(await mkdtemp(join(tmpdir(), "nks-mcp-queue-")), "catalog.sqlite");
   const catalog = Catalog.open(path);
   catalog.upsert({ id: "serum-2:a", productSlug: "serum-2", name: "A", bank: "Factory",
-    subBank: "Bass", author: "Xfer", sourceFingerprint: "sha256:a", state: "discovered", evidence: [] });
+    subBank: "Bass", sourcePath: "/factory/Factory/Bass/A.fxp", sourceRelativePath: "Factory/Bass/A.fxp",
+    author: "Xfer", sourceFingerprint: "sha256:a", state: "discovered", evidence: [] });
   catalog.close();
   const service = new ToolService({ catalog: Catalog.open(path), generationQueuePath: path });
   const initial = await service.call("get_nks_generation_status", { productSlug: "serum-2" });
@@ -43,7 +44,8 @@ test("NKS enqueue refuses a stale catalog plan and never marks presets saved", a
   const path = join(await mkdtemp(join(tmpdir(), "nks-mcp-queue-")), "catalog.sqlite");
   const catalog = Catalog.open(path);
   const record = { id: "serum-2:a", productSlug: "serum-2", name: "A", bank: "Factory",
-    subBank: "Bass", author: "Xfer", sourceFingerprint: "sha256:a", state: "discovered", evidence: [] };
+    subBank: "Bass", sourcePath: "/factory/Factory/Bass/A.fxp", sourceRelativePath: "Factory/Bass/A.fxp",
+    author: "Xfer", sourceFingerprint: "sha256:a", state: "discovered", evidence: [] };
   catalog.upsert(record);
   const service = new ToolService({ catalog, generationQueuePath: path });
   const plan = await service.call("enqueue_nks_generation_jobs", { productSlug: "serum-2", presetIds: [record.id] });
@@ -60,6 +62,7 @@ test("NKS enqueue limits jobs to selected IDs and rejects invalid selections", a
   const catalog = Catalog.open(path);
   for (const id of ["serum-2:a", "serum-2:b", "serum-2:c"]) catalog.upsert({
     id, productSlug: "serum-2", name: id, bank: "Factory", subBank: "Bass",
+    sourcePath: `/factory/Factory/Bass/${id}.fxp`, sourceRelativePath: `Factory/Bass/${id}.fxp`,
     author: "Xfer", sourceFingerprint: `sha256:${id}`, state: "discovered", evidence: [] });
   const service = new ToolService({ catalog, generationQueuePath: path });
   for (const presetIds of [[], ["serum-2:b", "serum-2:b"], ["other:a"], Array(101).fill("serum-2:a")])
@@ -83,7 +86,8 @@ test("MCP worker tools lease, renew, retry, and complete only with verified cata
   const path = join(await mkdtemp(join(tmpdir(), "nks-mcp-worker-")), "catalog.sqlite");
   const catalog = Catalog.open(path);
   const record = { id: "serum-2:a", productSlug: "serum-2", name: "A", bank: "Factory",
-    subBank: "Bass", author: "Xfer", sourceFingerprint: "sha256:a", state: "discovered", evidence: [] };
+    subBank: "Bass", sourcePath: "/factory/Factory/Bass/A.fxp", sourceRelativePath: "Factory/Bass/A.fxp",
+    author: "Xfer", sourceFingerprint: "sha256:a", state: "discovered", evidence: [] };
   catalog.upsert(record);
   const service = new ToolService({ catalog, generationQueuePath: path });
   const plan = await service.call("enqueue_nks_generation_jobs", { productSlug: "serum-2", presetIds: [record.id] });

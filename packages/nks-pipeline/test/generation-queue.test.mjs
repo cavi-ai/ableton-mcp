@@ -12,6 +12,7 @@ async function fixture() {
   const catalog = Catalog.open(path);
   for (const id of ["serum-2:b", "serum-2:a"]) catalog.upsert({
     id, productSlug: "serum-2", name: id, bank: "Factory", subBank: "Bass",
+    sourcePath: `/factory/Factory/Bass/${id}.fxp`, sourceRelativePath: `Factory/Bass/${id}.fxp`,
     author: "Xfer Records", sourceFingerprint: `sha256:${id}`, state: "discovered", evidence: []
   });
   catalog.close();
@@ -60,4 +61,52 @@ test("generation queue retries stale leases, quarantines exhausted attempts and 
   assert.deepEqual(reopened.events("serum-2:a").map(event => event.kind), ["leased", "stale_lease", "leased", "done"]);
   assert.deepEqual(reopened.events("serum-2:b").map(event => event.kind), ["leased", "failed", "leased", "quarantined"]);
   reopened.close();
+});
+
+test("Serum queue cannot enqueue outside the deterministic pilot until every pilot preset is validated", async () => {
+  const path = join(await mkdtemp(join(tmpdir(), "nks-pilot-gate-")), "catalog.sqlite");
+  const catalog = Catalog.open(path);
+  const records = Array.from({ length: 30 }, (_, index) => {
+    const suffix = String(index).padStart(2, "0");
+    return { id: `serum-2:${suffix}`, productSlug: "serum-2", name: `Preset ${suffix}`,
+      sourcePath: `/factory/Factory/Bass/Preset ${suffix}.fxp`,
+      sourceRelativePath: `Factory/Bass/Preset ${suffix}.fxp`, bank: "Factory", subBank: "Bass",
+      author: "Xfer Records", sourceFingerprint: `sha256:${suffix}`, state: "discovered", evidence: [] };
+  });
+  for (const record of records) catalog.upsert(record);
+  const outside = "serum-2:24";
+  assert.deepEqual(GenerationQueue.inspect(path, "serum-2").pilot,
+    { total: 25, validated: 0, gateOpen: false, queueable: 25 });
+  assert.throws(() => GenerationQueue.inspectSelection(path, "serum-2", [outside]), /pilot/);
+  const queue = GenerationQueue.open(path);
+  assert.throws(() => queue.enqueue("serum-2", [outside]), /pilot/);
+  assert.equal(queue.get(outside), undefined);
+  assert.equal(queue.enqueue("serum-2", ["serum-2:00"]), 1);
+  for (const record of records.filter(({ id }) => id !== outside && !["serum-2:25", "serum-2:26", "serum-2:27", "serum-2:28"].includes(id)))
+    catalog.upsert({ ...record, state: "validated", evidence: [{ state: "validated" }] });
+  assert.deepEqual(GenerationQueue.inspect(path, "serum-2").pilot,
+    { total: 25, validated: 25, gateOpen: true, queueable: 5 });
+  assert.equal(GenerationQueue.inspectSelection(path, "serum-2", [outside]).eligible, 1);
+  assert.equal(queue.enqueue("serum-2", [outside]), 1);
+  queue.close();
+  catalog.close();
+});
+
+test("Serum queue never treats User-source presets as factory jobs", async () => {
+  const path = join(await mkdtemp(join(tmpdir(), "nks-factory-only-")), "catalog.sqlite");
+  const catalog = Catalog.open(path);
+  const base = { productSlug: "serum-2", bank: "Factory", subBank: "Bass",
+    author: "Xfer Records", state: "discovered", evidence: [] };
+  catalog.upsert({ ...base, id: "serum-2:factory", name: "Factory",
+    sourcePath: "/factory/Factory/Bass/Factory.fxp", sourceRelativePath: "Factory/Bass/Factory.fxp",
+    sourceFingerprint: "sha256:factory", state: "validated", evidence: [{ state: "validated" }] });
+  catalog.upsert({ ...base, id: "serum-2:user", name: "Personal",
+    sourcePath: "/factory/User/Personal.fxp", sourceRelativePath: "User/Personal.fxp",
+    sourceFingerprint: "sha256:user" });
+  assert.throws(() => GenerationQueue.inspectSelection(path, "serum-2", ["serum-2:user"]), /User.*factory/);
+  const queue = GenerationQueue.open(path);
+  assert.throws(() => queue.enqueue("serum-2", ["serum-2:user"]), /User.*factory/);
+  assert.equal(queue.get("serum-2:user"), undefined);
+  queue.close();
+  catalog.close();
 });

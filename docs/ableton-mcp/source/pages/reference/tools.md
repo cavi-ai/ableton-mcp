@@ -36,7 +36,7 @@ The server publishes 202 tools. Mutations of the Live Set require `expectedState
 | `get_midi_clip_notes` | Read standard MIDI notes from one exact Session or Arrangement MIDI clip; Arrangement responses include timeline identity. | `trackId`, `clipId` |
 | `get_midi_clip_notes_extended` | Read stable note IDs, probability, release velocity, deviation, and other per-note fields from one exact Session or Arrangement MIDI clip; Arrangement responses include timeline identity. | `trackId`, `clipId` |
 | `get_nks_generation_job` | Read one durable NKS generation job and its ordered event history without creating or changing the queue. | `presetId` |
-| `get_nks_generation_status` | Read eligible discovered preset count and durable generation job counts for one product. Does not create a queue or contact Live. | `productSlug` |
+| `get_nks_generation_status` | Read discovered preset and durable job counts for one product. Serum 2 also reports pilot size, validated count, gate state, and currently queueable factory count. Does not create a queue or contact Live. | `productSlug` |
 | `get_plugin_integration_context` | Read product-aware integration state for a loaded supported third-party synth: Serum 2, Omnisphere, or VPS Avenger. Reports installed Live browser variants, preferred VST3 candidate, exact configured and writable parameter IDs, source-inventory versus validated NKS lifecycle counts when available, product-specific preset-browser navigation, and explicit hidden-state/preset-recall boundaries. Read-only. | `trackId`, `deviceId` |
 | `get_preset` | Read one exact NKS preset catalog record. | `presetId` |
 | `get_preset_metadata` | Read user tags, favorite state, and revision for one preset. | `presetId` |
@@ -139,7 +139,7 @@ The server publishes 202 tools. Mutations of the Live Set require `expectedState
 | `duplicate_clip_loop` | Plan or duplicate the current loop region of one exact clip. | `expectedStateVersion`, `trackId`, `clipId` |
 | `duplicate_session_object` | Plan or duplicate an exact track, Session scene, or clip, optionally naming a duplicated track. | `expectedStateVersion`, `targetType`, `targetId` |
 | `edit_drum_pattern_clip` | Plan or apply guarded replacement of selected drum lanes and bars in an existing MIDI clip. Preserves unrelated notes and verifies the complete native note set. | `expectedStateVersion`, `trackId`, `clipId`, `grid`, `startBar`, `bars`, `lanes` |
-| `enqueue_nks_generation_jobs` | Plan or enqueue only the explicitly selected eligible discovered presets for NKS generation, in batches of at most 100, using a single-use confirmation. Does not generate or mark any preset saved. | `productSlug`, `presetIds` |
+| `enqueue_nks_generation_jobs` | Plan or enqueue only explicitly selected eligible discovered presets, in batches of at most 100, using a single-use confirmation. Serum 2 is limited to its deterministic factory pilot until every pilot record is validated. Does not generate or mark any preset saved. | `productSlug`, `presetIds` |
 | `heartbeat_nks_generation_job` | Extend an unexpired NKS generation lease owned by this worker. | `presetId`, `workerId` |
 | `humanize_midi_notes` | Plan or apply guarded deterministic MIDI timing and velocity humanization with exact clip, grid, and complete native note readback. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `seed`, `gridBeats`, `maxTimingOffsetBeats`, `maxVelocityOffset` |
 | `jump_to_arrangement_cue_point` | Plan or move the playhead to one exact Arrangement cue point. | `expectedStateVersion`, `cuePointId` |
