@@ -186,6 +186,31 @@ test("local Splice metadata keeps one identity across configured root and nested
   } finally { library.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test("legacy nested-folder Splice metadata remains readable and moves to the canonical key on edit", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "splice-legacy-metadata-"));
+  const nested = join(directory, "Pack");
+  const library = new BrowserMetadataLibrary({ path: join(directory, "metadata.sqlite") });
+  const service = new ToolService({ browserMetadata: library, spliceRoots: [directory] });
+  try {
+    await mkdir(nested);
+    const sample = join(nested, "Kick.wav");
+    await writeFile(sample, "audio");
+    const legacyItem = { root: "local_splice", path: [await realpath(nested), "Kick.wav"], uri: await realpath(sample) };
+    library.set(legacyItem, 0, { favorite: true, tags: ["drums"] });
+    const canonicalPath = [await realpath(directory), "Pack/Kick.wav"];
+    const current = await service.call("get_browser_item_metadata", { root: "local_splice", path: canonicalPath });
+    assert.deepEqual(current.metadata, { favorite: true, tags: ["drums"], revision: 1 });
+    const found = await service.call("search_local_splice_samples", { rootPath: nested, query: "kick", includeMetadata: true });
+    assert.deepEqual(found.samples[0].metadata, current.metadata);
+    const args = { root: "local_splice", path: canonicalPath, expectedMetadataRevision: 1, tags: ["drums", "one-shot"] };
+    const dry = await service.call("set_browser_item_metadata", args);
+    const applied = await service.call("set_browser_item_metadata", { ...args, dryRun: false,
+      confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+    assert.deepEqual(applied.observed, { favorite: true, tags: ["drums", "one-shot"], revision: 2 });
+    assert.deepEqual(library.search({ root: "local_splice" }).map(item => item.path), [canonicalPath]);
+  } finally { library.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test("private tags and favorites bind to an observed local audio sample without Live", async () => {
   const directory = await mkdtemp(join(tmpdir(), "local-sample-metadata-"));
   const library = new BrowserMetadataLibrary({ path: join(directory, "metadata.sqlite") });
