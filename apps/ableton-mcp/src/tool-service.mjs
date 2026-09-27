@@ -1022,6 +1022,12 @@ export class ToolService {
           before.warpMarkers.markers.some(marker => Math.abs(marker.beatTime - targetBeatTime) < 1e-6) ||
           actions.some(action => Math.abs(action.targetBeatTime - targetBeatTime) < 1e-6)) continue;
         const existing = before.warpMarkers.markers.find(marker => Math.abs(marker.sampleTime - candidate.sourceSeconds) < 1e-6);
+        if (existing) {
+          const index = before.warpMarkers.markers.indexOf(existing);
+          if (index === before.warpMarkers.markers.length - 1 ||
+            (index > 0 && targetBeatTime <= before.warpMarkers.markers[index - 1].beatTime) ||
+            (index < before.warpMarkers.markers.length - 2 && targetBeatTime >= before.warpMarkers.markers[index + 1].beatTime)) continue;
+        }
         actions.push({ sourceSeconds: candidate.sourceSeconds, strength: candidate.strength, currentBeatTime,
           targetBeatTime, method: existing ? "move_audio_warp_marker" : "add_audio_warp_marker",
           ...(existing ? { beatTime: existing.beatTime } : { beatTime: targetBeatTime, sampleTime: candidate.sourceSeconds }) });
