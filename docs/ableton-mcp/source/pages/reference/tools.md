@@ -181,7 +181,7 @@ The server publishes 204 tools. Mutations of the Live Set require `expectedState
 | `set_drum_pad_state` | Plan or mute/solo an exact populated Drum Rack pad by MIDI note with a guarded rack snapshot. Does not assign sounds to pads. | `expectedStateVersion`, `trackId`, `deviceId`, `note` |
 | `set_groove` | Plan or apply guarded Groove Pool base-grid, name and percentage edits. Timing, random, pre-quantization use 0–100; velocity uses -100–100. Affects every clip using this shared groove; does not bake or extract a groove. | `expectedStateVersion`, `grooveId` |
 | `set_group_fold_state` | Plan or apply the folded state of one exact existing group track. | `expectedStateVersion`, `trackId`, `folded` |
-| `set_master_mixer` | Plan or apply guarded master mixer and available hardware output-channel changes. | `expectedStateVersion` |
+| `set_master_mixer` | Plan or apply master mixer and available hardware output-channel changes. The native write rechecks the signed mixer state, validates bounded values, and groups all writes in one undo step with rollback on failure. | `expectedStateVersion` |
 | `set_midi_note_properties` | Plan or apply guarded per-note timing, velocity, probability, mute, and pitch changes by stable note ID on one exact Session or Arrangement MIDI clip. | `expectedStateVersion`, `trackId`, `clipId`, `changes` |
 | `set_preset_metadata` | Plan or update user tags and favorite state for one preset with an exact revision guard. | `expectedMetadataRevision`, `presetId` |
 | `set_rack_chain_mixer` | Plan or apply exact rack-chain volume, pan, mute, solo, and send levels using native ranges and guarded hierarchy state. | `expectedStateVersion`, `trackId`, `deviceId`, `chainId` |

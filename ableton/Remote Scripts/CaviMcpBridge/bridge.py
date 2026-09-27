@@ -3067,18 +3067,63 @@ def dispatch_request(song, request, state_version, application=None):
                 "return": {"id": f"return-{index}", "name": song.return_tracks[index].name}}
     if method == "set_master_mixer":
         mixer = song.master_track.mixer_device
-        if "outputChannelId" in params["changes"]:
-            routing = _set_mixer(song, state_version)["master"]["outputRouting"]
-            identifier = params["changes"]["outputChannelId"]["value"]["id"]
-            selected = next((option for option in routing["availableChannels"] if option["id"] == identifier), None)
-            if not routing["supported"] or selected is None:
-                raise ValueError("master output channel is unavailable")
-            song.master_track.current_output_sub_routing = selected["name"]
+        if params.get("beforeMaster") != _set_mixer(song, state_version)["master"]:
+            raise ValueError("master mixer changed after planning")
+        changes = params["changes"]
         properties = {"volume": "volume", "pan": "panning", "cueVolume": "cue_volume", "crossfader": "crossfader"}
-        for key, attribute in properties.items():
-            if key in params["changes"]:
-                getattr(mixer, attribute).value = params["changes"][key]["value"]
-        return _set_mixer(song, state_version + 1)
+        if not isinstance(changes, dict) or not changes or set(changes) - (set(properties) | {"outputChannelId"}):
+            raise ValueError("invalid master mixer changes")
+        for key in properties:
+            if key not in changes:
+                continue
+            change, bounds = changes[key], params["beforeMaster"][key]
+            requested, value = change.get("requestedValue"), change.get("value")
+            if change.get("previousValue") != bounds["value"] or \
+                    type(requested) not in (int, float) or not math.isfinite(requested) or \
+                    type(value) not in (int, float) or not math.isfinite(value) or \
+                    value != max(bounds["min"], min(bounds["max"], requested)):
+                raise ValueError(f"master {key} value outside signed native range")
+        selected = None
+        if "outputChannelId" in changes:
+            routing = params["beforeMaster"]["outputRouting"]
+            routing_change = changes["outputChannelId"]
+            if routing_change.get("previous") != routing["channel"] or not isinstance(routing_change.get("value"), dict):
+                raise ValueError("master output routing changed after planning")
+            identifier = routing_change["value"].get("id")
+            selected = next((option for option in routing["availableChannels"] if option["id"] == identifier), None)
+            if not routing["supported"] or selected is None or routing_change["value"] != selected:
+                raise ValueError("master output channel is unavailable")
+        writes = []
+        def write(target, attribute, value):
+            previous = getattr(target, attribute)
+            if previous != value:
+                writes.append((target, attribute, previous))
+                setattr(target, attribute, value)
+        song.begin_undo_step()
+        try:
+            if selected is not None:
+                write(song.master_track, "current_output_sub_routing", selected["name"])
+            for key, attribute in properties.items():
+                if key in changes:
+                    write(getattr(mixer, attribute), "value", changes[key]["value"])
+            result = _set_mixer(song, state_version + 1)
+            master = result["master"]
+            if any(master[key]["value"] != changes[key]["value"] for key in properties if key in changes) or \
+                    (selected is not None and master["outputRouting"]["channel"]["id"] != selected["id"]):
+                raise ValueError("Live did not apply the complete master mixer change")
+        except Exception as error:
+            rollback_errors = []
+            for target, attribute, previous in reversed(writes):
+                try:
+                    setattr(target, attribute, previous)
+                except Exception as rollback_error:
+                    rollback_errors.append(rollback_error)
+            if rollback_errors:
+                raise RuntimeError(f"master mixer change failed: {error}; rollback failed: {rollback_errors}; use Live undo") from error
+            raise
+        finally:
+            song.end_undo_step()
+        return result
     if method == "set_return_mixer":
         index = int(params["returnTrackId"].removeprefix("return-"))
         track = song.return_tracks[index]

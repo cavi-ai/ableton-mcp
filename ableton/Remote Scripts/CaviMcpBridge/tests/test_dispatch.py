@@ -1708,13 +1708,15 @@ class DispatchTest(unittest.TestCase):
         observed = dispatch_request(song, {"method": "get_set_mixer"}, 3)
         self.assertEqual(observed["master"]["cueVolume"]["value"], 0.7)
         self.assertEqual(observed["master"]["outputRouting"]["channel"]["id"], "1/2")
-        routed = dispatch_request(song, {"method": "set_master_mixer", "params": {"changes": {
-            "outputChannelId": {"value": {"id": "3/4", "name": "3/4"}},
+        routed = dispatch_request(song, {"method": "set_master_mixer", "params": {"beforeMaster": observed["master"], "changes": {
+            "outputChannelId": {"previous": observed["master"]["outputRouting"]["channel"],
+                                "value": {"id": "3/4", "name": "3/4"}},
         }}}, 3)
         self.assertEqual(routed["master"]["outputRouting"]["channel"]["id"], "3/4")
         self.assertEqual(observed["returns"][0]["name"], "Reverb")
-        master = dispatch_request(song, {"method": "set_master_mixer", "params": {"changes": {
-            "volume": {"value": 0.5}, "crossfader": {"value": -0.25},
+        master = dispatch_request(song, {"method": "set_master_mixer", "params": {"beforeMaster": routed["master"], "changes": {
+            "volume": {"previousValue": 0.8, "requestedValue": 0.5, "value": 0.5},
+            "crossfader": {"previousValue": 0.0, "requestedValue": -0.25, "value": -0.25},
         }}}, 3)
         self.assertEqual(master["master"]["volume"]["value"], 0.5)
         returned = dispatch_request(song, {"method": "set_return_mixer", "params": {
@@ -1723,6 +1725,60 @@ class DispatchTest(unittest.TestCase):
         }}, 4)
         self.assertTrue(returned["return"]["mute"])
         self.assertEqual(returned["return"]["pan"]["value"], 0.5)
+
+    def test_master_mixer_rejects_stale_plan_before_routing_output(self):
+        song = Song()
+        before = dispatch_request(song, {"method": "get_set_mixer"}, 3)["master"]
+        song.master_track.mixer_device.volume.value = 0.65
+        with self.assertRaisesRegex(ValueError, "master mixer changed"):
+            dispatch_request(song, {"method": "set_master_mixer", "params": {
+                "beforeMaster": before, "changes": {
+                    "outputChannelId": {"previous": before["outputRouting"]["channel"],
+                                        "value": {"id": "3/4", "name": "3/4"}},
+                    "pan": {"previousValue": 0.0, "requestedValue": 0.25, "value": 0.25}
+                }}}, 3)
+        self.assertEqual(song.master_track.current_output_sub_routing, "1/2")
+        self.assertEqual(song.master_track.mixer_device.panning.value, 0.0)
+
+    def test_master_mixer_rolls_back_output_and_volume_after_failed_control_write(self):
+        song = Song()
+        class FailingValue:
+            min, max = -1.0, 1.0
+            @property
+            def value(self):
+                return 0.0
+            @value.setter
+            def value(self, next_value):
+                raise RuntimeError("crossfader write failed")
+        song.master_track.mixer_device.crossfader = FailingValue()
+        boundaries = []
+        song.begin_undo_step = lambda: boundaries.append("begin")
+        song.end_undo_step = lambda: boundaries.append("end")
+        before = dispatch_request(song, {"method": "get_set_mixer"}, 3)["master"]
+        with self.assertRaisesRegex(RuntimeError, "crossfader write failed"):
+            dispatch_request(song, {"method": "set_master_mixer", "params": {
+                "beforeMaster": before, "changes": {
+                    "outputChannelId": {"previous": before["outputRouting"]["channel"],
+                                        "value": {"id": "3/4", "name": "3/4"}},
+                    "volume": {"previousValue": 0.8, "requestedValue": 0.5, "value": 0.5},
+                    "crossfader": {"previousValue": 0.0, "requestedValue": -0.25, "value": -0.25}
+                }}}, 3)
+        self.assertEqual(song.master_track.current_output_sub_routing, "1/2")
+        self.assertEqual(song.master_track.mixer_device.volume.value, 0.8)
+        self.assertEqual(boundaries, ["begin", "end"])
+
+    def test_master_mixer_rejects_out_of_range_value_before_any_write(self):
+        song = Song()
+        before = dispatch_request(song, {"method": "get_set_mixer"}, 3)["master"]
+        with self.assertRaisesRegex(ValueError, "master volume.*range"):
+            dispatch_request(song, {"method": "set_master_mixer", "params": {
+                "beforeMaster": before, "changes": {
+                    "outputChannelId": {"previous": before["outputRouting"]["channel"],
+                                        "value": {"id": "3/4", "name": "3/4"}},
+                    "volume": {"previousValue": 0.8, "requestedValue": 2.0, "value": 2.0}
+                }}}, 3)
+        self.assertEqual(song.master_track.current_output_sub_routing, "1/2")
+        self.assertEqual(song.master_track.mixer_device.volume.value, 0.8)
 
     def test_create_return_track_appends_named_bus_and_rejects_stale_bus_list(self):
         song = Song()
