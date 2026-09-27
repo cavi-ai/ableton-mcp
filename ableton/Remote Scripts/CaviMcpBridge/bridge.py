@@ -2707,6 +2707,46 @@ def dispatch_request(song, request, state_version, application=None):
             track.current_output_routing = name
             routes.append(_track_routing(song, track_id, state_version + 1))
         return {"stateVersion": state_version + 1, "busTrackId": params["busTrackId"], "routes": routes}
+    if method == "route_tracks_to_return_bus":
+        if params.get("expectedStateVersion") != state_version:
+            raise ValueError("Return-bus routing state version changed")
+        return_id = params["returnTrackId"]
+        if not isinstance(return_id, str) or not return_id.startswith("return-"):
+            raise ValueError("invalid Return-bus ID")
+        _, return_track = _device_owner(song, return_id)
+        return_index = int(return_id.removeprefix("return-"))
+        if params.get("beforeReturn") != _return_mixer_record(return_track, return_index):
+            raise ValueError("Return bus changed")
+        value = params.get("sendValue")
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1:
+            raise ValueError("invalid send value")
+        changes, seen = [], set()
+        for route in params["routes"]:
+            track_id = route["trackId"]
+            if track_id in seen:
+                raise ValueError("duplicate source track")
+            seen.add(track_id)
+            _, track = _track(song, track_id)
+            before_mixer = dispatch_request(song, {"method": "get_track_mixer", "params": {"trackId": track_id}}, state_version)
+            before_routing = _track_routing(song, track_id, state_version)
+            if route.get("beforeMixer") != before_mixer or route.get("beforeRouting") != before_routing:
+                raise ValueError("source mixer or routing changed")
+            sends = [send for send in before_mixer["sends"] if send["id"] == route["sendId"] and send["returnTrackId"] == return_id]
+            choices = [choice for choice in before_routing["output"]["availableTypes"]
+                       if choice["id"] == route["outputTypeId"] and choice["name"] == "Sends Only"]
+            if len(sends) != 1 or len(choices) != 1 or not sends[0]["min"] <= value <= sends[0]["max"]:
+                raise ValueError("Return send or Sends Only routing unavailable")
+            send_index = int(route["sendId"].removeprefix("send-"))
+            changes.append((track_id, track, track.mixer_device.sends[send_index], choices[0]["name"]))
+        if not changes:
+            raise ValueError("no source tracks")
+        with _undo_step(song):
+            for _, track, send, output_name in changes:
+                send.value = value
+                track.current_output_routing = output_name
+        return {"stateVersion": state_version + 1, "returnTrackId": return_id,
+                "routes": [{"trackId": track_id, "sendValue": value, "outputTypeId": params["routes"][index]["outputTypeId"]}
+                           for index, (track_id, _, _, _) in enumerate(changes)]}
     if method == "list_browser_roots":
         roots = []
         for root in BROWSER_ROOTS:

@@ -990,6 +990,7 @@ export class ToolService {
     if (name === "set_device_sidechain_routing") return this.#setDeviceSidechainRouting(args);
     if (name === "set_group_fold_state") return this.#setGroupFoldState(args);
     if (name === "route_tracks_to_bus") return this.#routeTracksToBus(args);
+    if (name === "route_tracks_to_return_bus") return this.#routeTracksToReturnBus(args);
     if (name === "load_browser_item" || name === "load_factory_browser_item") return this.#loadBrowserItem(name, args);
     if (name === "set_master_mixer" || name === "set_return_mixer") return this.#setBusMixer(name, args);
     if (name === "undo" || name === "redo") return this.#historyMutation(name, args);
@@ -3429,6 +3430,30 @@ export class ToolService {
       method: "route_tracks_to_bus", expectedStateVersion: args.expectedStateVersion,
       busTrackId: args.busTrackId, bus, routes
     }, args);
+  }
+
+  async #routeTracksToReturnBus(args) {
+    requireExpectedState(args);
+    if (!Array.isArray(args.trackIds) || !args.trackIds.length || args.trackIds.length > 64 || new Set(args.trackIds).size !== args.trackIds.length) throw new Error("trackIds must be 1-64 unique IDs");
+    if (!/^return-(0|[1-9]\d*)$/.test(args.returnTrackId)) throw new Error("returnTrackId must be canonical");
+    if (typeof args.sendValue !== "number" || !Number.isFinite(args.sendValue) || args.sendValue < 0 || args.sendValue > 1) throw new Error("sendValue must be between 0 and 1");
+    const mixer = await this.bridge.request("get_set_mixer", {});
+    assertExpectedState(args, mixer);
+    const beforeReturn = mixer.returns?.find(({ id }) => id === args.returnTrackId);
+    if (!beforeReturn) throw new Error(`unknown returnTrackId ${args.returnTrackId}`);
+    const routes = [];
+    for (const trackId of args.trackIds) {
+      const beforeMixer = await this.bridge.request("get_track_mixer", { trackId });
+      const beforeRouting = await this.bridge.request("get_track_routing", { trackId });
+      assertExpectedState(args, beforeMixer);
+      assertExpectedState(args, beforeRouting);
+      const sends = beforeMixer.sends?.filter((send) => send.returnTrackId === args.returnTrackId) ?? [];
+      const choices = beforeRouting.output?.availableTypes?.filter((choice) => choice.name === "Sends Only") ?? [];
+      if (sends.length !== 1 || choices.length !== 1) throw new Error(`Return send or Sends Only routing unavailable for ${trackId}`);
+      if (args.sendValue < sends[0].min || args.sendValue > sends[0].max) throw new Error(`sendValue outside native range for ${trackId}`);
+      routes.push({ trackId, sendId: sends[0].id, outputTypeId: choices[0].id, beforeMixer, beforeRouting });
+    }
+    return this.#confirmedMutation({ method: "route_tracks_to_return_bus", expectedStateVersion: args.expectedStateVersion, returnTrackId: args.returnTrackId, sendValue: args.sendValue, beforeReturn, routes }, args);
   }
 
   async #loadBrowserItem(method, args) {

@@ -657,6 +657,44 @@ class DispatchTest(unittest.TestCase):
                     {"trackId": "track-1", "outputTypeId": "missing"}]}}, 3)
         self.assertIs(source.current_output_routing, original)
 
+    def test_return_bus_routes_multiple_tracks_with_prevalidated_send_and_output(self):
+        song = Song()
+        route = SimpleNamespace(identifier="sends-only", display_name="Sends Only")
+        for track in song.tracks:
+            track.available_output_routing_types.append(route)
+        before_return = dispatch_request(song, {"method": "get_set_mixer"}, 3)["returns"][0]
+        routes = [{"trackId": f"track-{index}", "sendId": "send-0", "outputTypeId": "sends-only",
+                   "beforeMixer": dispatch_request(song, {"method": "get_track_mixer", "params": {"trackId": f"track-{index}"}}, 3),
+                   "beforeRouting": dispatch_request(song, {"method": "get_track_routing", "params": {"trackId": f"track-{index}"}}, 3)}
+                  for index in range(2)]
+        result = dispatch_request(song, {"method": "route_tracks_to_return_bus", "params": {
+            "expectedStateVersion": 3, "returnTrackId": "return-0", "beforeReturn": before_return,
+            "sendValue": 1.0, "routes": routes,
+        }}, 3)
+        self.assertEqual(result["stateVersion"], 4)
+        self.assertEqual([track.current_output_routing for track in song.tracks], ["Sends Only", "Sends Only"])
+        self.assertEqual([track.mixer_device.sends[0].value for track in song.tracks], [1.0, 1.0])
+
+    def test_return_bus_prevalidation_prevents_partial_routing(self):
+        song = Song()
+        route = SimpleNamespace(identifier="sends-only", display_name="Sends Only")
+        for track in song.tracks:
+            track.available_output_routing_types.append(route)
+        before_return = dispatch_request(song, {"method": "get_set_mixer"}, 3)["returns"][0]
+        routes = [{"trackId": f"track-{index}", "sendId": "send-0", "outputTypeId": "sends-only",
+                   "beforeMixer": dispatch_request(song, {"method": "get_track_mixer", "params": {"trackId": f"track-{index}"}}, 3),
+                   "beforeRouting": dispatch_request(song, {"method": "get_track_routing", "params": {"trackId": f"track-{index}"}}, 3)}
+                  for index in range(2)]
+        song.tracks[1].available_output_routing_types.pop()
+        original = song.tracks[0].mixer_device.sends[0].value
+        with self.assertRaisesRegex(ValueError, "source mixer or routing changed"):
+            dispatch_request(song, {"method": "route_tracks_to_return_bus", "params": {
+                "expectedStateVersion": 3, "returnTrackId": "return-0", "beforeReturn": before_return,
+                "sendValue": 1.0, "routes": routes,
+            }}, 3)
+        self.assertEqual(song.tracks[0].mixer_device.sends[0].value, original)
+        self.assertNotEqual(song.tracks[0].current_output_routing, "Sends Only")
+
     def test_transport_recording_context_reads_and_writes_exact_modes(self):
         song = Song()
         observed = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)

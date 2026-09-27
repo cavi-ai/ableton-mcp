@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 193 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 194 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (85)
 
@@ -94,7 +94,7 @@ The server publishes 193 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search downloaded Splice audio assets under an explicit local directory in stable relative-path order. Offset and nextOffset page through matching files. Optional private MCP tags/favorites join by exact local identity. Read-only; not cloud catalog search, download, or sync. Returns exact local source paths for analyze_audio_file. | `rootPath`, `query` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (96)
+## Mutations (97)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -158,6 +158,7 @@ The server publishes 193 tools. Mutations of the Live Set require `expectedState
 | `rename_rack_chain` | Plan or rename an exact rack chain with a guarded hierarchy snapshot. For return chains, name is a raw label; Live adds the return letter prefix. Use observed name for display, not verbatim restoration. | `expectedStateVersion`, `trackId`, `deviceId`, `chainId`, `name` |
 | `rename_session_object` | Plan or rename an exact track, Return Track, scene, or Session clip. Return names are raw labels; Live prefixes the displayed bus letter. | `expectedStateVersion`, `targetType`, `targetId`, `name` |
 | `route_tracks_to_bus` | Plan or route existing tracks to one exact existing group bus using Live's available routing choices. | `expectedStateVersion`, `trackIds`, `busTrackId` |
+| `route_tracks_to_return_bus` | Plan or route existing tracks to one exact Return bus using matching sends and Sends Only outputs. Prevalidates all sources; Live applies one undo step but runtime failures can interrupt it. | `expectedStateVersion`, `trackIds`, `returnTrackId`, `sendValue` |
 | `save_track_state_snapshot` | Capture one exact track state and save its JSON to the configured private local snapshot library under a new name. Never overwrites; excludes clips, nested devices, hidden plugin state, samples, automation and mappings. | `trackId`, `name` |
 | `set_audio_clip_state` | Plan or apply guarded audio-clip gain, pitch offsets, warp, and marker changes. Use beats for warped clips and seconds for unwarped clips; change warping separately from markers. | `expectedStateVersion`, `trackId`, `clipId` |
 | `set_beat_repeat_enabled` | Plan or request one exact native Beat Repeat Repeat choice, Off or On. Native execution rechecks the complete device, routing, and transport snapshot before writing Repeat and reports its immediately observed value. Does not promise beat-scheduled execution, a captured buffer, or an audible effect. | `expectedStateVersion`, `trackId`, `deviceId`, `enabled` |

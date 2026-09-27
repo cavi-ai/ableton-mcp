@@ -1170,6 +1170,31 @@ test("group fold and bus routing mutations validate exact existing track identit
   await assert.rejects(() => service.call("route_tracks_to_bus", { expectedStateVersion: 4, trackIds: ["track-1"], busTrackId: "track-1" }), /cannot route.*itself/);
 });
 
+test("Return-bus routing signs sends and Sends Only choices for every source", async () => {
+  const calls = [];
+  const service = new ToolService({ bridge: { async request(method, params) {
+    calls.push({ method, params });
+    if (method === "get_set_mixer") return { stateVersion: 4, returns: [{ id: "return-0", name: "A-Bass Bus" }] };
+    if (method === "get_track_mixer") return { stateVersion: 4, trackId: params.trackId,
+      sends: [{ id: "send-0", returnTrackId: "return-0", name: "A-Bass Bus", value: 0, min: 0, max: 1 }] };
+    if (method === "get_track_routing") return { stateVersion: 4, trackId: params.trackId,
+      output: { type: { id: "main", name: "Main" }, availableTypes: [
+        { id: "main", name: "Main" }, { id: "sends-only", name: "Sends Only" }] } };
+    if (method === "route_tracks_to_return_bus") return { stateVersion: 5, returnTrackId: "return-0",
+      routes: params.routes.map(route => ({ trackId: route.trackId, sendValue: 1, outputTypeId: "sends-only" })) };
+    throw new Error(method);
+  } } });
+  const args = { expectedStateVersion: 4, trackIds: ["track-0", "track-1"], returnTrackId: "return-0", sendValue: 1 };
+  const dry = await service.call("route_tracks_to_return_bus", args);
+  assert.deepEqual(dry.plan.routes.map(route => [route.trackId, route.sendId, route.outputTypeId]), [
+    ["track-0", "send-0", "sends-only"], ["track-1", "send-0", "sends-only"]]);
+  assert.equal(dry.plan.beforeReturn.name, "A-Bass Bus");
+  const applied = await service.call("route_tracks_to_return_bus", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(applied.observed.routes.length, 2);
+  assert.equal(calls.filter(call => call.method === "route_tracks_to_return_bus").length, 1);
+});
+
 test("device listing forwards Return and Main owner IDs", async () => {
   const { service, calls } = fixture();
   for (const trackId of ["return-0", "master"]) {
