@@ -527,6 +527,21 @@ export class ToolService {
         limitation: "Paged top-level factory browser observations, not an atomic inventory or exhaustive preset/Pack/third-party catalog. Profile matches use browser names; verify native class identity and actual controls after loading. A profile or loadable item does not prove save/recall, modulation, signal flow, or complete device integration." };
     }
     if (name === "list_browser_roots") return this.bridge.request(name, {});
+    if (name === "search_browser_roots") {
+      if (typeof args.query !== "string" || !args.query.trim()) throw new Error("query must be a non-empty string");
+      const maxDepth = args.maxDepth ?? 6;
+      const limit = args.limit ?? 50;
+      const maxVisited = args.maxVisited ?? 10000;
+      if (!Number.isInteger(maxDepth) || maxDepth < 1 || maxDepth > 16) throw new Error("maxDepth must be an integer from 1 to 16");
+      if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new Error("limit must be an integer from 1 to 200");
+      if (!Number.isInteger(maxVisited) || maxVisited < 1 || maxVisited > 50000) throw new Error("maxVisited must be an integer from 1 to 50000");
+      if (args.roots !== undefined && (!Array.isArray(args.roots) || !args.roots.length ||
+          args.roots.some((root) => typeof root !== "string") || new Set(args.roots).size !== args.roots.length)) {
+        throw new Error("roots must be a non-empty array of unique browser root names");
+      }
+      return this.bridge.request(name, { ...(args.roots === undefined ? {} : { roots: args.roots }),
+        query: args.query.trim(), maxDepth, limit, maxVisited });
+    }
     if (name === "get_browser_items" || name === "get_factory_browser_items") {
       return this.bridge.request(name, normalizeBrowserPage(args));
     }

@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 191 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 192 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (83)
+## Read-only (84)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -89,6 +89,7 @@ The server publishes 191 tools. Mutations of the Live Set require `expectedState
 | `propose_audio_transient_warp` | Analyze bounded source-audio onset candidates and propose review-only marker actions toward a beat grid using native Live source-to-beat conversion. Reports signed offsets from the clip-relative beat grid for every candidate, including candidates skipped for marker actions. Heuristic, source-only, no edit or audible validation; individually dry-run actions against current state before applying. | `trackId`, `clipId`, `gridBeats` |
 | `search_browser_item_metadata` | Search saved private tags and favorites for Live browser items or local_splice samples. Results are not reverified against Live or the local filesystem and do not represent native collections. | none |
 | `search_browser_items` | Search a bounded subtree of Live's browser and return exact paths usable by load_browser_item. | `root`, `query` |
+| `search_browser_roots` | Search selected or all available Live browser roots in order, with exact root/path identities, unavailable roots, and explicit result or scan-limit truncation. Bounded native name search, not an exhaustive preset index or Splice cloud search. | `query` |
 | `search_local_splice_samples` | Search downloaded Splice audio assets under an explicit local directory in stable relative-path order. Offset and nextOffset page through matching files. Read-only; not cloud catalog search, download, or sync. Returns exact local source paths for analyze_audio_file. | `rootPath`, `query` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 

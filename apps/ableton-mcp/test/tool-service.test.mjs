@@ -576,6 +576,21 @@ test("browser root inventory forwards one read-only native request", async () =>
   assert.deepEqual(calls, [{ method: "list_browser_roots", params: {} }]);
 });
 
+test("cross-root browser search sends one bounded native query", async () => {
+  const calls = [];
+  const observed = { stateVersion: 7, results: [{ root: "plugins", path: ["Synth"] }], truncated: false };
+  const service = new ToolService({ bridge: { async request(method, params) {
+    calls.push({ method, params });
+    return observed;
+  } } });
+  assert.deepEqual(await service.call("search_browser_roots", {
+    roots: ["plugins", "user_library"], query: "synth", maxDepth: 3, limit: 20, maxVisited: 300,
+  }), observed);
+  assert.deepEqual(calls, [{ method: "search_browser_roots", params: {
+    roots: ["plugins", "user_library"], query: "synth", maxDepth: 3, limit: 20, maxVisited: 300,
+  } }]);
+});
+
 test("browser loading accepts guarded Return and Main device owners", async () => {
   const { service, calls } = fixture();
   for (const trackId of ["return-0", "master"]) {

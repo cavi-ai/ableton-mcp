@@ -2718,6 +2718,60 @@ def dispatch_request(song, request, state_version, application=None):
                 roots.append({"root": root, "available": True,
                               "item": _browser_item_record(item), "totalChildren": len(item.children)})
         return {"stateVersion": state_version, "roots": roots}
+    if method == "search_browser_roots":
+        roots = params.get("roots", BROWSER_ROOTS)
+        if (not isinstance(roots, (list, tuple)) or not roots
+                or any(root not in BROWSER_ROOTS for root in roots) or len(set(roots)) != len(roots)):
+            raise ValueError("browser roots must be unique known roots")
+        query = params.get("query")
+        max_depth = params.get("maxDepth")
+        limit = params.get("limit")
+        max_visited = params.get("maxVisited", 10000)
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError("browser query must be nonempty")
+        if not isinstance(max_depth, int) or isinstance(max_depth, bool) or not 1 <= max_depth <= 16:
+            raise ValueError("browser depth must be an integer from 1 to 16")
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 200:
+            raise ValueError("browser limit must be an integer from 1 to 200")
+        if not isinstance(max_visited, int) or isinstance(max_visited, bool) or not 1 <= max_visited <= 50000:
+            raise ValueError("browser scan budget must be an integer from 1 to 50000")
+        results, searched, unavailable = [], [], []
+        visited, reason = 0, None
+
+        def visit(parent, path, depth, found, root):
+            nonlocal visited, reason
+            if depth >= max_depth:
+                return
+            for child in parent.children:
+                if visited >= max_visited:
+                    reason = "scan_limit"
+                    return
+                visited += 1
+                child_path = path + [child.name]
+                if query.casefold() in child.name.casefold():
+                    found.append({"root": root, **_browser_item_record(child), "path": child_path})
+                    if len(results) + len(found) > limit:
+                        reason = "result_limit"
+                        return
+                if child.is_folder:
+                    visit(child, child_path, depth + 1, found, root)
+                    if reason:
+                        return
+
+        for root in roots:
+            try:
+                found = []
+                visit(_browser_item(application, root, []), [], 0, found, root)
+            except (AttributeError, RuntimeError):
+                unavailable.append(root)
+                continue
+            searched.append(root)
+            results.extend(found)
+            if reason:
+                break
+        return {"stateVersion": state_version, "query": query, "searchedRoots": searched,
+                "unavailableRoots": unavailable, "results": results[:limit],
+                "visitedItems": visited, "truncated": reason is not None, "truncationReason": reason}
     if method in ("get_browser_items", "get_factory_browser_items"):
         item = _browser_item(application, params["root"], params.get("path", []))
         children = item.children

@@ -505,6 +505,39 @@ class DispatchTest(unittest.TestCase):
         self.assertFalse(roots["packs"]["available"])
         self.assertIsNone(roots["packs"]["item"])
 
+    def test_search_browser_roots_reports_exact_paths_unavailable_roots_and_truncation(self):
+        result = dispatch_request(Song(), {"method": "search_browser_roots", "params": {
+            "roots": ["instruments", "packs", "user_folders"], "query": "r",
+            "maxDepth": 3, "limit": 2,
+        }}, 3, Application())
+        self.assertEqual(result["stateVersion"], 3)
+        self.assertEqual(result["searchedRoots"], ["instruments", "user_folders"])
+        self.assertEqual(result["unavailableRoots"], ["packs"])
+        self.assertTrue(result["truncated"])
+        self.assertEqual([(item["root"], item["path"]) for item in result["results"]], [
+            ("instruments", ["Drift"]), ("user_folders", ["Splice", "Drums"]),
+        ])
+
+    def test_search_browser_roots_rejects_unknown_or_duplicate_roots(self):
+        for roots in (["unknown"], ["plugins", "plugins"]):
+            with self.assertRaisesRegex(ValueError, "browser roots"):
+                dispatch_request(Song(), {"method": "search_browser_roots", "params": {
+                    "roots": roots, "query": "Drift", "maxDepth": 2, "limit": 10,
+                }}, 3, Application())
+
+    def test_search_browser_roots_caps_scanned_items(self):
+        application = Application()
+        application.browser.samples = BrowserItem("Samples", "query:samples", children=tuple(
+            BrowserItem(f"Sound-{index}", f"query:sound-{index}", True) for index in range(20)
+        ))
+        result = dispatch_request(Song(), {"method": "search_browser_roots", "params": {
+            "roots": ["samples"], "query": "missing", "maxDepth": 1, "limit": 10, "maxVisited": 3,
+        }}, 3, application)
+        self.assertEqual(result["visitedItems"], 3)
+        self.assertTrue(result["truncated"])
+        self.assertEqual(result["truncationReason"], "scan_limit")
+        self.assertEqual(result["results"], [])
+
     def test_audio_inspection_exposes_loaded_source_for_analysis(self):
         song = Song()
         clip = song.tracks[0].clip_slots[2].clip
