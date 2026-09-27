@@ -507,6 +507,22 @@ class DispatchTest(unittest.TestCase):
         self.assertFalse(roots["packs"]["available"])
         self.assertIsNone(roots["packs"]["item"])
 
+    def test_splice_browser_root_is_browsable_when_live_exposes_it(self):
+        application = Application()
+        application.browser.splice = BrowserItem("Splice", "query:splice", children=(
+            BrowserItem("Saved Loop.wav", "query:splice-loop", True),))
+        roots = dispatch_request(Song(), {"method": "list_browser_roots", "params": {}}, 3, application)["roots"]
+        splice = next(root for root in roots if root["root"] == "splice")
+        self.assertTrue(splice["available"])
+        listing = dispatch_request(Song(), {"method": "get_browser_items", "params": {
+            "root": "splice", "path": []}}, 3, application)
+        self.assertEqual(listing["children"][0]["uri"], "query:splice-loop")
+
+    def test_splice_browser_root_reports_unavailable_without_native_api(self):
+        roots = dispatch_request(Song(), {"method": "list_browser_roots", "params": {}}, 3, Application())["roots"]
+        splice = next(root for root in roots if root["root"] == "splice")
+        self.assertFalse(splice["available"])
+
     def test_legacy_libraries_vector_is_a_browsable_root(self):
         application = Application()
         application.browser.legacy_libraries = BrowserItemVector((
