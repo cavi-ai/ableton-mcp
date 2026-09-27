@@ -43,10 +43,12 @@ test("generation queue retries stale leases, quarantines exhausted attempts and 
   const catalog = Catalog.open(path);
   catalog.upsert({ id: "serum-2:a", productSlug: "serum-2", name: "serum-2:a", bank: "Factory",
     subBank: "Bass", author: "Xfer Records", sourceFingerprint: "sha256:serum-2:a",
+    sourceRelativePath: "Factory/Bass/serum-2:a.fxp",
     state: "nks_saved", evidence: [{ state: "nks_saved", artifact: { sha256: "abc" } }] });
   assert.throws(() => queue.completeSaved("serum-2:a", "worker-b", 1103), /verified artifact evidence/);
   catalog.upsert({ id: "serum-2:a", productSlug: "serum-2", name: "serum-2:a", bank: "Factory",
     subBank: "Bass", author: "Xfer Records", sourceFingerprint: "sha256:serum-2:a",
+    sourceRelativePath: "Factory/Bass/serum-2:a.fxp",
     state: "nks_saved", evidence: [{ state: "nks_saved", kind: "komplete_index_and_file_verified",
       artifact: { sha256: "a".repeat(64) } }] });
   catalog.close();
@@ -81,6 +83,13 @@ test("Serum queue cannot enqueue outside the deterministic pilot until every pil
   const queue = GenerationQueue.open(path);
   assert.throws(() => queue.enqueue("serum-2", [outside]), /pilot/);
   assert.equal(queue.get(outside), undefined);
+  queue.database.prepare(`INSERT INTO nks_generation_jobs
+    (preset_id, source_fingerprint, status, attempts) VALUES (?, ?, 'pending', 0)`)
+    .run(outside, "sha256:24");
+  assert.equal(queue.claim("worker-a", "serum-2", 1000), undefined);
+  assert.equal(queue.claim("worker-a", undefined, 1000), undefined);
+  assert.equal(queue.claim("worker-a", null, 1000), undefined);
+  queue.database.prepare("DELETE FROM nks_generation_jobs WHERE preset_id = ?").run(outside);
   assert.equal(queue.enqueue("serum-2", ["serum-2:00"]), 1);
   for (const record of records.filter(({ id }) => id !== outside && !["serum-2:25", "serum-2:26", "serum-2:27", "serum-2:28"].includes(id)))
     catalog.upsert({ ...record, state: "validated", evidence: [{ state: "validated" }] });
@@ -94,6 +103,7 @@ test("Serum queue cannot enqueue outside the deterministic pilot until every pil
     { total: 25, validated: 25, gateOpen: true, queueable: 5 });
   assert.equal(GenerationQueue.inspectSelection(path, "serum-2", [outside]).eligible, 1);
   assert.equal(queue.enqueue("serum-2", [outside]), 1);
+  assert.equal(queue.claim("worker-a", "serum-2", 1001).presetId, outside);
   queue.close();
   catalog.close();
 });
@@ -115,6 +125,10 @@ test("Serum queue never treats User-source presets as factory jobs", async () =>
   const queue = GenerationQueue.open(path);
   assert.throws(() => queue.enqueue("serum-2", ["serum-2:user"]), /User.*factory/);
   assert.equal(queue.get("serum-2:user"), undefined);
+  queue.database.prepare(`INSERT INTO nks_generation_jobs
+    (preset_id, source_fingerprint, status, attempts) VALUES (?, ?, 'pending', 0)`)
+    .run("serum-2:user", "sha256:user");
+  assert.equal(queue.claim("worker-a", "serum-2", 1000), undefined);
   queue.close();
   catalog.close();
 });

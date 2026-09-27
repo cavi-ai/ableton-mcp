@@ -184,6 +184,15 @@ export class GenerationQueue {
   claim(workerId, productSlug, now = Date.now()) {
     if (typeof workerId !== "string" || !workerId) throw new Error("workerId is required");
     return this.#transaction(() => {
+      const serum = productSlug == null || productSlug === "serum-2"
+        ? serumPilotState(this.database) : null;
+      const pilotIds = serum && !serum.status.gateOpen ? [...serum.pilotIds] : [];
+      const serumConstraint = serum?.status.gateOpen
+        ? `AND (p.product_slug != 'serum-2' OR
+          (lower(json_extract(p.json, '$.sourceRelativePath')) NOT LIKE 'user/%'
+            AND lower(json_extract(p.json, '$.sourceRelativePath')) NOT LIKE '%/user/%'))`
+        : serum ? `AND (p.product_slug != 'serum-2' OR j.preset_id IN
+          (${pilotIds.map(() => "?").join(", ") || "NULL"}))` : "";
       const stale = this.database.prepare(`SELECT preset_id AS presetId, worker_id AS workerId
         FROM nks_generation_jobs WHERE status = 'leased' AND lease_expires_at < ? ORDER BY preset_id`).all(now);
       for (const job of stale) this.#event(job.presetId, "stale_lease", job.workerId, now);
@@ -197,7 +206,9 @@ export class GenerationQueue {
           AND j.source_fingerprint = p.source_fingerprint
           AND COALESCE(json_extract(p.json, '$.missing'), 0) = 0
           AND (? IS NULL OR p.product_slug = ?)
-        ORDER BY j.preset_id LIMIT 1`).get(this.maxAttempts, productSlug ?? null, productSlug ?? null);
+          ${serumConstraint}
+        ORDER BY j.preset_id LIMIT 1`).get(this.maxAttempts, productSlug ?? null, productSlug ?? null,
+          ...pilotIds);
       if (!row) return undefined;
       this.database.prepare(`UPDATE nks_generation_jobs SET status = 'leased', attempts = attempts + 1,
         worker_id = ?, lease_expires_at = ?, last_error = NULL WHERE preset_id = ?`)
