@@ -205,6 +205,18 @@ export function collectFactoryDeviceProfileIds(devices) {
   return profileIds;
 }
 
+export function collectPluginProfileIds(devices) {
+  const profileIds = [];
+  const visit = (device) => {
+    const profileId = getPluginIntegrationProfile(device)?.id;
+    if (profileId) profileIds.push(profileId);
+    for (const chain of [...(device.chains ?? []), ...(device.returnChains ?? [])])
+      for (const child of chain.devices ?? []) visit(child);
+  };
+  for (const device of devices) visit(device);
+  return profileIds;
+}
+
 export function verifyProducerChain(target, devices) {
   const blueprint = getProducerChainBlueprint(target);
   if (!Array.isArray(devices)) throw new TypeError("devices must be an array");
@@ -244,3 +256,4 @@ export function verifyProducerChain(target, devices) {
   };
 }
 import { getFactoryDeviceProfile } from "./factory-device-knowledge.mjs";
+import { getPluginIntegrationProfile } from "./plugin-integrations.mjs";

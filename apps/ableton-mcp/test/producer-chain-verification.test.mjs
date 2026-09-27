@@ -86,7 +86,13 @@ test("inspect_producer_bus checks child instruments, grouping, routing and order
   const nested = await service.call("inspect_producer_bus", { target: "layered-bass-system", busTrackId: "track-0",
     children: [{ role: "sub", trackId: "track-1" }, { role: "body", trackId: "track-2" }, { role: "texture", trackId: "track-3" }] });
   assert.equal(nested.children[1].instrumentMatches, true);
-  assert.equal(calls.filter(({ method }) => method === "list_tracks").length, 2);
+  devices["track-2"] = [{ ...device("body-rack", "InstrumentGroupDevice", "Instrument Rack"),
+    chains: [{ id: "body-rack/chain-0", devices: [device("body-rack/chain-0/device-0", "PluginDevice", "Serum 2")] }], returnChains: [] }];
+  const plugin = await service.call("inspect_producer_bus", { target: "layered-bass-system", busTrackId: "track-0",
+    children: [{ role: "sub", trackId: "track-1" }, { role: "body", trackId: "track-2", pluginId: "serum-2" }, { role: "texture", trackId: "track-3" }] });
+  assert.equal(plugin.children[1].instrumentMatches, true);
+  assert.deepEqual(plugin.children[1].observedPluginIds, ["serum-2"]);
+  assert.equal(calls.filter(({ method }) => method === "list_tracks").length, 3);
   await assert.rejects(() => service.call("inspect_producer_bus", { target: "mastering", busTrackId: "track-0", children: [] }), /shared-bus/);
   await assert.rejects(() => service.call("inspect_producer_bus", { target: "layered-bass-system", busTrackId: "track-0",
     children: [{ role: "sub", trackId: "track-1" }, { role: "body", trackId: "track-1" }, { role: "texture", trackId: "track-3" }] }), /distinct track/);
@@ -129,6 +135,11 @@ test("inspect_producer_return_bus verifies layered sources, sends-only routing a
   const nested = await service.call("inspect_producer_return_bus", { target: "layered-bass-system", returnTrackId: "return-0",
     children: [{ role: "sub", trackId: "track-0" }, { role: "body", trackId: "track-1" }, { role: "texture", trackId: "track-2" }] });
   assert.equal(nested.children[1].instrumentMatches, true);
+  instruments["track-0"] = [device("device-0", "PluginDevice", "Omnisphere")];
+  const plugin = await service.call("inspect_producer_return_bus", { target: "layered-bass-system", returnTrackId: "return-0",
+    children: [{ role: "sub", trackId: "track-0", pluginId: "omnisphere" }, { role: "body", trackId: "track-1" }, { role: "texture", trackId: "track-2" }] });
+  assert.equal(plugin.children[0].instrumentMatches, true);
+  assert.deepEqual(plugin.children[0].observedPluginIds, ["omnisphere"]);
   tracks.stateVersion = 13;
   await assert.rejects(() => service.call("inspect_producer_return_bus", { target: "layered-bass-system", returnTrackId: "return-0",
     children: [{ role: "sub", trackId: "track-0" }, { role: "body", trackId: "track-1" }, { role: "texture", trackId: "track-2" }] }), /state version/);

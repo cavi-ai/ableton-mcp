@@ -8,7 +8,7 @@ import { inspectGroovePostconditions } from "./groove-workflow.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { CatalogService } from "./catalog-service.mjs";
 import { getFactoryDeviceProfile, groupDeviceParameters, listFactoryDeviceProfiles } from "./factory-device-knowledge.mjs";
-import { collectFactoryDeviceProfileIds, getProducerChainBlueprint, listProducerChainBlueprints, verifyProducerChain } from "./producer-chain-knowledge.mjs";
+import { collectFactoryDeviceProfileIds, collectPluginProfileIds, getProducerChainBlueprint, listProducerChainBlueprints, verifyProducerChain } from "./producer-chain-knowledge.mjs";
 import { getPluginIntegrationProfile } from "./plugin-integrations.mjs";
 import { enrichSongScaleContext, getLiveScaleReference, listLiveScaleReferences } from "./live-scale-reference.mjs";
 import { analyzeMidiNotesAgainstScale, planMidiScaleCorrections } from "./midi-scale-analysis.mjs";
@@ -480,20 +480,21 @@ export class ToolService {
       const busChain = verifyProducerChain(args.target, busDevices.devices);
       const children = [];
       for (const expected of blueprint.children) {
-        const { trackId } = args.children.find(({ role }) => role === expected.role);
+        const { trackId, pluginId = null } = args.children.find(({ role }) => role === expected.role);
         const track = trackList.tracks.find(({ id }) => id === trackId);
         if (!track) throw new Error(`unknown child track ${trackId}`);
         const childDevices = await read("list_devices", trackId);
         const routing = await read("get_track_routing", trackId);
         const observedInstrumentProfileIds = collectFactoryDeviceProfileIds(childDevices.devices);
-        const instrumentMatches = expected.instrumentProfileId
-          ? observedInstrumentProfileIds.includes(expected.instrumentProfileId) : null;
+        const observedPluginIds = collectPluginProfileIds(childDevices.devices);
+        const instrumentMatches = pluginId ? observedPluginIds.includes(pluginId)
+          : expected.instrumentProfileId ? observedInstrumentProfileIds.includes(expected.instrumentProfileId) : null;
         const expectedSourceType = expected.sourceType ?? "midi";
         const sourceMatches = track.type === expectedSourceType && (instrumentMatches ?? true);
         children.push({ role: expected.role, trackId,
           expectedSourceType, observedSourceType: track.type ?? null, sourceMatches,
-          expectedInstrumentProfileId: expected.instrumentProfileId,
-          observedInstrumentProfileIds, instrumentMatches,
+          expectedInstrumentProfileId: pluginId ? null : expected.instrumentProfileId, expectedPluginId: pluginId,
+          observedInstrumentProfileIds, observedPluginIds, instrumentMatches,
           grouped: track.groupTrackId === args.busTrackId,
           routed: routing.output?.type?.id === args.busTrackId });
       }
@@ -526,22 +527,24 @@ export class ToolService {
       const busChain = verifyProducerChain(args.target, busDevices.devices);
       const children = [];
       for (const expected of blueprint.children) {
-        const { trackId } = args.children.find(({ role }) => role === expected.role);
+        const { trackId, pluginId = null } = args.children.find(({ role }) => role === expected.role);
         const track = trackList.tracks.find(({ id }) => id === trackId);
         if (!track) throw new Error(`unknown child track ${trackId}`);
         const childDevices = await read("list_devices", trackId);
         const trackMixer = await read("get_track_mixer", trackId);
         const routing = await read("get_track_routing", trackId);
         const instrumentProfiles = collectFactoryDeviceProfileIds(childDevices.devices);
-        const instrumentMatches = expected.instrumentProfileId ? instrumentProfiles.includes(expected.instrumentProfileId) : null;
+        const observedPluginIds = collectPluginProfileIds(childDevices.devices);
+        const instrumentMatches = pluginId ? observedPluginIds.includes(pluginId)
+          : expected.instrumentProfileId ? instrumentProfiles.includes(expected.instrumentProfileId) : null;
         const expectedSourceType = expected.sourceType ?? "midi";
         const sourceMatches = track.type === expectedSourceType && (instrumentMatches ?? true);
         const sends = trackMixer.sends?.filter(({ returnTrackId }) => returnTrackId === args.returnTrackId) ?? [];
         const send = sends.length === 1 ? sends[0] : null;
         const sendsOnly = routing.output?.type?.name === "Sends Only";
         children.push({ role: expected.role, trackId, expectedSourceType, observedSourceType: track.type ?? null,
-          sourceMatches, expectedInstrumentProfileId: expected.instrumentProfileId,
-          observedInstrumentProfileIds: instrumentProfiles, instrumentMatches,
+          sourceMatches, expectedInstrumentProfileId: pluginId ? null : expected.instrumentProfileId,
+          expectedPluginId: pluginId, observedInstrumentProfileIds: instrumentProfiles, observedPluginIds, instrumentMatches,
           sendId: send?.id ?? null, sendValue: send?.value ?? null, sendsOnly,
           routed: sendsOnly && typeof send?.value === "number" && send.value > 0 });
       }
