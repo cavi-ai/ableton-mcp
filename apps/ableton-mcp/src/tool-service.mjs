@@ -451,7 +451,17 @@ export class ToolService {
 
   async call(name, args = {}) {
     if (name === "list_local_splice_roots") return listConfiguredSpliceRoots(this.spliceRoots);
-    if (name === "browse_local_splice_directory") return browseLocalSpliceDirectory(args, this.spliceRoots);
+    if (name === "browse_local_splice_directory") {
+      if (args.includeMetadata !== undefined && typeof args.includeMetadata !== "boolean") throw new Error("includeMetadata must be boolean");
+      const observed = await browseLocalSpliceDirectory(args, this.spliceRoots);
+      if (!args.includeMetadata) return observed;
+      const library = this.#browserMetadataLibrary();
+      const configuredRoots = await listConfiguredSpliceRoots(this.spliceRoots);
+      return { ...observed, entries: observed.entries.map((entry) => entry.type === "audio_file" ? {
+        ...entry, metadata: library.get(canonicalLocalSpliceMetadataItem({ root: "local_splice",
+          path: [observed.rootPath, entry.name], uri: entry.sourcePath }, configuredRoots)),
+      } : entry), metadataSource: "private_mcp" };
+    }
     if (name === "search_local_splice_samples") {
       if (args.includeMetadata !== undefined && typeof args.includeMetadata !== "boolean") throw new Error("includeMetadata must be boolean");
       const observed = await searchLocalSpliceSamples(args);

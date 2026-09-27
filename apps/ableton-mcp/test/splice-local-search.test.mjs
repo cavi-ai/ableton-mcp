@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ToolService } from "../src/tool-service.mjs";
 import { createRouter } from "../src/server.mjs";
+import { BrowserMetadataLibrary } from "../src/browser-metadata-library.mjs";
 
 test("local Splice search finds only audio assets under the selected root", async () => {
   const root = await mkdtemp(join(tmpdir(), "splice-search-"));
@@ -152,6 +153,34 @@ test("MCP browses local Splice folders so a truncated search can be narrowed", a
     assert.deepEqual(search.result.structuredContent.samples.map(sample => sample.relativePath), ["snare.wav"]);
     assert.equal(search.result.structuredContent.truncated, false);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("MCP folder browsing optionally joins private metadata for audio files", async () => {
+  const root = await mkdtemp(join(tmpdir(), "splice-browse-metadata-"));
+  const pack = join(root, "Pack");
+  const library = new BrowserMetadataLibrary({ path: join(root, "metadata.sqlite") });
+  try {
+    await mkdir(pack);
+    await mkdir(join(pack, "Subfolder"));
+    const sample = join(pack, "Kick.wav");
+    await writeFile(sample, "audio");
+    library.set({ root: "local_splice", path: [await realpath(root), "Pack/Kick.wav"], uri: await realpath(sample) }, 0,
+      { favorite: true, tags: ["drums"] });
+    const route = createRouter(new ToolService({ spliceRoots: [root], browserMetadata: library }));
+    const call = (id, includeMetadata) => route({ id, method: "tools/call", params: {
+      name: "browse_local_splice_directory", arguments: { rootPath: pack, includeMetadata },
+    } });
+    const joined = await call(1, true);
+    assert.equal(joined.error, undefined);
+    assert.deepEqual(joined.result.structuredContent.entries, [
+      { name: "Kick.wav", type: "audio_file", sourcePath: await realpath(sample),
+        metadata: { favorite: true, tags: ["drums"], revision: 1 } },
+      { name: "Subfolder", type: "directory", sourcePath: join(await realpath(pack), "Subfolder") },
+    ]);
+    assert.equal(joined.result.structuredContent.metadataSource, "private_mcp");
+    const plain = await call(2, false);
+    assert.equal(plain.result.structuredContent.entries[0].metadata, undefined);
+  } finally { library.close(); await rm(root, { recursive: true, force: true }); }
 });
 
 test("local Splice browsing refuses paths outside configured roots, including symlink escapes", async () => {
