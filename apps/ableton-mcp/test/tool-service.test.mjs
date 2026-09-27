@@ -184,6 +184,8 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
       if (method === "list_clips") return {
         stateVersion: 4,
         trackId: params.trackId,
+        armed: params.trackId === "track-0", canBeArmed: true, isFrozen: false,
+        launchQuantizationChoices: [{ value: 0, name: "global" }, { value: 12, name: "1_16" }],
         clips: params.trackId === "track-1" ? [
           { id: "track-1:clip-0", name: null, hasClip: false },
           { id: "track-1:clip-1", name: null, hasClip: false }
@@ -1741,6 +1743,22 @@ test("clip launch without an override retains the empty-slot recording path", as
   const dry = await service.call("launch_clip", args);
   assert.equal(calls.at(-1).method, "get_live_state");
   assert.equal(dry.plan.clipId, args.clipId);
+});
+
+test("fixed-length Session recording signs the empty armed slot and one-shot grid", async () => {
+  const { service, calls } = fixture();
+  const args = { trackId: "track-0", clipId: "track-0:clip-1", expectedStateVersion: 4,
+    recordLengthBeats: 4, launchQuantization: "1_16" };
+  const dry = await service.call("launch_clip", args);
+  assert.equal(dry.plan.recordLengthBeats, 4);
+  assert.equal(dry.plan.launchQuantization, 12);
+  const result = await service.call("launch_clip", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.requested.recordLengthBeats, 4);
+  assert.equal(calls.at(-1).params.launchQuantization, 12);
+  await assert.rejects(() => service.call("launch_clip", { ...args, recordLengthBeats: 0 }), /recordLengthBeats/);
+  await assert.rejects(() => service.call("launch_clip", { ...args, clipId: "track-0:clip-0" }), /empty/);
+  await assert.rejects(() => service.call("launch_clip", { ...args, trackId: "track-1", clipId: "track-1:clip-0" }), /armed/);
 });
 
 test("transport context exposes and guards metronome and count-in changes", async () => {

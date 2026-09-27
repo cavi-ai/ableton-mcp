@@ -3434,15 +3434,29 @@ export class ToolService {
     if (name === "launch_scene" && args.forceLegato !== undefined && typeof args.forceLegato !== "boolean") {
       throw new Error("forceLegato must be boolean");
     }
+    const recording = name === "launch_clip" && args.recordLengthBeats !== undefined;
+    if (recording && (typeof args.recordLengthBeats !== "number" || !Number.isFinite(args.recordLengthBeats) || args.recordLengthBeats <= 0)) {
+      throw new Error("recordLengthBeats must be a positive finite number");
+    }
     const clipOverride = name === "launch_clip" && args.launchQuantization !== undefined;
-    const current = clipOverride
+    const current = recording
+      ? await this.bridge.request("list_clips", { trackId: args.trackId })
+      : clipOverride
       ? await this.bridge.request("get_clip_timing", { trackId: args.trackId, clipId: args.clipId })
       : await this.bridge.request("get_live_state", {});
-    assertExpectedState(clipOverride ? args : { expectedStateVersion: args.expectedStateVersion }, current);
-    if (clipOverride && current.clipId !== args.clipId) throw new Error("clipId mismatch");
+    assertExpectedState(recording || clipOverride ? args : { expectedStateVersion: args.expectedStateVersion }, current);
+    if (recording) {
+      const slot = current.clips.find((clip) => clip.id === args.clipId);
+      if (!slot) throw new Error("unknown clip slot");
+      if (slot.hasClip) throw new Error("fixed-length recording requires an empty clip slot");
+      if (!current.canBeArmed || !current.armed) throw new Error("fixed-length recording requires an armed track");
+      if (current.isFrozen) throw new Error("fixed-length recording is unavailable on a frozen track");
+    }
+    if (!recording && clipOverride && current.clipId !== args.clipId) throw new Error("clipId mismatch");
     const plan = { method: name, ...args };
     if (clipOverride) {
-      plan.launchQuantization = normalizeChoice(args.launchQuantization, "launchQuantization", current.launchQuantization.choices);
+      plan.launchQuantization = normalizeChoice(args.launchQuantization, "launchQuantization",
+        recording ? current.launchQuantizationChoices : current.launchQuantization.choices);
     }
     delete plan.dryRun;
     delete plan.confirmationToken;

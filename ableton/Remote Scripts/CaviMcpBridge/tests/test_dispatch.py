@@ -261,6 +261,7 @@ class ClipSlot:
         self.has_clip = has_clip
         self.clip = Clip() if has_clip else None
         self.last_launch_quantization = None
+        self.last_record_length = None
 
     def create_clip(self, length):
         if self.has_clip:
@@ -269,8 +270,12 @@ class ClipSlot:
         self.clip = Clip()
         self.clip.length = length
 
-    def fire(self, launch_quantization=None):
+    def fire(self, record_length=None, launch_quantization=None):
         self.last_launch_quantization = launch_quantization
+        self.last_record_length = record_length
+        if record_length is not None and not self.has_clip:
+            self.has_clip = True
+            self.clip = Clip()
         self.clip.fire()
 
     def stop(self):
@@ -3022,6 +3027,25 @@ class DispatchTest(unittest.TestCase):
                                                         "launchQuantization": 99}}, 5)
         dispatch_request(song, {"method": "arm_track", "params": {"trackId": "track-0", "armed": True}}, 6)
         self.assertTrue(song.tracks[0].arm)
+
+    def test_fixed_length_recording_requires_armed_empty_slot(self):
+        song = Song()
+        slot = song.tracks[0].clip_slots[1]
+        self.assertFalse(slot.has_clip)
+        self.assertFalse(dispatch_request(song, {"method": "list_clips", "params": {"trackId": "track-0"}}, 7)["armed"])
+        params = {"trackId": "track-0", "clipId": "track-0:clip-1", "expectedStateVersion": 7,
+                  "recordLengthBeats": 4.0, "launchQuantization": 12}
+        with self.assertRaisesRegex(ValueError, "armed"):
+            dispatch_request(song, {"method": "launch_clip", "params": params}, 7)
+        song.tracks[0].arm = True
+        observed = dispatch_request(song, {"method": "launch_clip", "params": params}, 7)
+        self.assertEqual(observed["recordLengthBeats"], 4.0)
+        self.assertEqual(slot.last_record_length, 4.0)
+        self.assertEqual(slot.last_launch_quantization, 12)
+        with self.assertRaisesRegex(ValueError, "empty"):
+            dispatch_request(song, {"method": "launch_clip", "params": {**params, "clipId": "track-0:clip-0"}}, 7)
+        with self.assertRaisesRegex(ValueError, "changed"):
+            dispatch_request(song, {"method": "launch_clip", "params": {**params, "expectedStateVersion": 6}}, 7)
 
     def test_scene_launch_quantization_is_read_and_guarded(self):
         song = Song()

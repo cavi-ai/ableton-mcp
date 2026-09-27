@@ -391,6 +391,11 @@ def _clip_list(song, track_id, state_version):
     index, track = _track(song, track_id)
     return {
         "stateVersion": state_version, "trackId": track_id,
+        "armed": bool(track.arm) if getattr(track, "can_be_armed", True) else False,
+        "canBeArmed": bool(getattr(track, "can_be_armed", True)),
+        "isFrozen": bool(getattr(track, "is_frozen", False)),
+        "launchQuantizationChoices": [{"value": value, "name": name}
+                                      for value, name in enumerate(CLIP_QUANTIZATION_NAMES)],
         "clips": [{
             "id": f"track-{index}:clip-{slot_index}",
             "name": slot.clip.name if slot.has_clip else None,
@@ -4755,13 +4760,31 @@ def dispatch_request(song, request, state_version, application=None):
         song.scenes[index].fire(force_legato=force_legato)
         return {"stateVersion": state_version + 1, "sceneId": params["sceneId"], "forceLegato": force_legato}
     if method in ("launch_clip", "stop_clip"):
-        _, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
+        track, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
         if method == "launch_clip":
+            recording = "recordLengthBeats" in params
+            if recording:
+                if params.get("expectedStateVersion") != state_version:
+                    raise ValueError("session state version changed")
+                record_length = params["recordLengthBeats"]
+                if type(record_length) not in (int, float) or not math.isfinite(record_length) or record_length <= 0:
+                    raise ValueError("recordLengthBeats must be a positive finite number")
+                if slot.has_clip:
+                    raise ValueError("fixed-length recording requires an empty clip slot")
+                if not getattr(track, "can_be_armed", True) or not track.arm:
+                    raise ValueError("fixed-length recording requires an armed track")
+                if getattr(track, "is_frozen", False):
+                    raise ValueError("fixed-length recording is unavailable on a frozen track")
             if "launchQuantization" in params:
                 value = params["launchQuantization"]
                 if type(value) is not int or value < 0 or value >= len(CLIP_QUANTIZATION_NAMES):
                     raise ValueError("launchQuantization must be a native clip launch quantization value")
-                slot.fire(launch_quantization=value)
+                if recording:
+                    slot.fire(record_length=record_length, launch_quantization=value)
+                else:
+                    slot.fire(launch_quantization=value)
+            elif recording:
+                slot.fire(record_length=record_length)
             else:
                 slot.fire()
         else:
@@ -4770,6 +4793,8 @@ def dispatch_request(song, request, state_version, application=None):
                     "isPlaying": slot.clip.is_playing if slot.has_clip else False}
         if method == "launch_clip" and "launchQuantization" in params:
             observed["launchQuantizationOverride"] = params["launchQuantization"]
+        if method == "launch_clip" and "recordLengthBeats" in params:
+            observed["recordLengthBeats"] = params["recordLengthBeats"]
         return observed
     if method == "panic":
         song.stop_playing()
