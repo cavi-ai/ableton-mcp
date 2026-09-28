@@ -464,13 +464,24 @@ export class ToolService {
     }
     if (name === "search_local_splice_samples") {
       if (args.includeMetadata !== undefined && typeof args.includeMetadata !== "boolean") throw new Error("includeMetadata must be boolean");
-      const observed = await searchLocalSpliceSamples(args);
-      if (!args.includeMetadata) return observed;
-      const library = this.#browserMetadataLibrary();
-      const configuredRoots = await listConfiguredSpliceRoots(this.spliceRoots);
+      if (args.favorite !== undefined && typeof args.favorite !== "boolean") throw new Error("favorite must be boolean");
+      if (args.tags !== undefined && (!Array.isArray(args.tags) || args.tags.length > 32 ||
+          args.tags.some(tag => typeof tag !== "string" || !tag.trim() || tag.trim().length > 80)))
+        throw new Error("tags must be an array of at most 32 non-empty strings of at most 80 characters");
+      const requiredTags = args.tags?.map(tag => tag.trim().toLowerCase()) ?? [];
+      const filtering = args.favorite !== undefined || requiredTags.length > 0;
+      const library = args.includeMetadata || filtering ? this.#browserMetadataLibrary() : null;
+      const configuredRoots = library ? await listConfiguredSpliceRoots(this.spliceRoots) : null;
+      const itemFor = (sample, rootPath) => canonicalLocalSpliceMetadataItem({ root: "local_splice",
+        path: [rootPath, sample.relativePath], uri: sample.sourcePath }, configuredRoots);
+      const observed = await searchLocalSpliceSamples({ ...args, matchSample: filtering ? sample => {
+        const metadata = library.get(itemFor(sample, sample.rootPath));
+        return (args.favorite === undefined || metadata.favorite === args.favorite) &&
+          requiredTags.every(tag => metadata.tags.includes(tag));
+      } : undefined });
+      if (!args.includeMetadata && !filtering) return observed;
       return { ...observed, samples: observed.samples.map((sample) => ({ ...sample,
-        metadata: library.get(canonicalLocalSpliceMetadataItem({ root: "local_splice",
-          path: [observed.rootPath, sample.relativePath], uri: sample.sourcePath }, configuredRoots)) })),
+        metadata: library.get(itemFor(sample, observed.rootPath)) })),
         metadataSource: "private_mcp" };
     }
     if (name === "analyze_midi_feel") {
