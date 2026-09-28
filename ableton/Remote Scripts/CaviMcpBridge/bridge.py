@@ -2926,7 +2926,15 @@ def dispatch_request(song, request, state_version, application=None):
                        if _routing_id(option) == route_change["outputTypeId"]]
             if len(matches) != 1:
                 raise ValueError("bus output routing is missing or ambiguous")
-            destinations.append((track_id, track, _routing_option(matches[0])["name"], current["name"]))
+            previous_name = current["name"]
+            if current["id"] == "Group":
+                parent = getattr(track, "group_track", None) if bool(getattr(track, "is_grouped", False)) else None
+                parent_choices = [option for option in track.available_output_routing_types
+                                  if _routing_option(option)["name"] == getattr(parent, "name", None)]
+                if parent is None or len(parent_choices) != 1:
+                    raise ValueError("current Group route cannot be restored unambiguously")
+                previous_name = _routing_option(parent_choices[0])["name"]
+            destinations.append((track_id, track, _routing_option(matches[0])["name"], previous_name))
         if not destinations:
             raise ValueError("no source tracks")
         applied = []
@@ -2936,8 +2944,12 @@ def dispatch_request(song, request, state_version, application=None):
                     track.current_output_routing = name
                     applied.append((track, previous))
                 for route_change in params["routes"]:
+                    _, track = _track(song, route_change["trackId"])
                     observed = _track_routing(song, route_change["trackId"], state_version)["output"]["type"]
-                    if observed["id"] != route_change["outputTypeId"]:
+                    grouped_to_bus = (observed["id"] == "Group"
+                                      and bool(getattr(track, "is_grouped", False))
+                                      and getattr(track, "group_track", None) == bus)
+                    if observed["id"] != route_change["outputTypeId"] and not grouped_to_bus:
                         raise ValueError("native bus routing did not match the requested destination")
             except Exception as error:
                 try:

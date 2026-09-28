@@ -775,6 +775,33 @@ class DispatchTest(unittest.TestCase):
             }}, 3)
         self.assertEqual(first.current_output_routing, "Main")
 
+    def test_batch_bus_routing_accepts_native_group_alias_for_exact_parent(self):
+        class GroupAliasTrack(Track):
+            def __setattr__(self, name, value):
+                if name == "current_output_routing" and value == "Bass Bus":
+                    value = "Group"
+                super().__setattr__(name, value)
+
+        song = Song()
+        group = song.tracks[1]
+        group.name = "Bass Bus"
+        group.is_foldable = True
+        group.fold_state = 0
+        child = GroupAliasTrack()
+        child.is_grouped = True
+        child.group_track = group
+        child.available_output_routing_types.append(SimpleNamespace(identifier="bus", display_name="Bass Bus"))
+        song.tracks = [child, group]
+        bus = dispatch_request(song, {"method": "list_tracks"}, 3)["tracks"][1]
+        before = dispatch_request(song, {"method": "get_track_routing", "params": {"trackId": "track-0"}}, 3)
+
+        result = dispatch_request(song, {"method": "route_tracks_to_bus", "params": {
+            "expectedStateVersion": 3, "busTrackId": "track-1", "bus": bus,
+            "routes": [{"trackId": "track-0", "outputTypeId": "bus", "before": before["output"]["type"]}]
+        }}, 3)
+        self.assertEqual(result["routes"][0]["output"]["type"], {"id": "Group", "name": "Group"})
+        self.assertEqual(child.current_output_routing, "Group")
+
     def test_return_bus_routes_multiple_tracks_with_prevalidated_send_and_output(self):
         song = Song()
         route = SimpleNamespace(identifier="sends-only", display_name="Sends Only")
