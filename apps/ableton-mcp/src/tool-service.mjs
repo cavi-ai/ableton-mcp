@@ -1967,10 +1967,29 @@ export class ToolService {
       if (Object.keys(values).length) changes[group] = values;
     }
     if (!Object.keys(changes).length) throw new Error("at least one transport recording context change is required");
-    return this.#confirmedMutation({
+    const result = await this.#confirmedMutation({
       method: "set_transport_recording_context", expectedStateVersion: args.expectedStateVersion,
       before: observed, changes
     }, args);
+    if (result.dryRun) return result;
+    try {
+      const readback = await this.bridge.request("get_transport_recording_context", {});
+      const mismatches = [];
+      if (readback.stateVersion !== result.observed.stateVersion) mismatches.push("stateVersion");
+      for (const [key, value] of Object.entries(changes)) {
+        if (key === "arrangement" || key === "session") {
+          for (const [field, requested] of Object.entries(value)) {
+            if (readback[key]?.[field] !== requested) mismatches.push(`${key}.${field}`);
+          }
+        } else if (readback[key] !== value) mismatches.push(key);
+      }
+      return { ...result, immediateObserved: result.observed, observed: readback,
+        verification: { controlsConfirmed: mismatches.length === 0, mismatches,
+          scope: "separate native control readback; recorded content is not verified" } };
+    } catch (error) {
+      return { ...result, verification: { controlsConfirmed: false, mismatches: ["readback"],
+        readbackError: error.message, scope: "recorded content is not verified" } };
+    }
   }
 
   async #captureMidiSession(args) {

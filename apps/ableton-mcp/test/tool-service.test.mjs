@@ -987,6 +987,44 @@ test("transport recording context mutation validates and signs exact changes", a
   }), /currentSongTime/);
 });
 
+test("transport mutation verifies a separate settled native control readback", async () => {
+  const before = { stateVersion: 4, currentSongTime: 0, arrangement: { punchIn: false } };
+  const after = { stateVersion: 5, currentSongTime: 8, arrangement: { punchIn: true } };
+  let reads = 0;
+  const service = new ToolService({ bridge: { async request(method) {
+    if (method === "get_transport_recording_context") return ++reads === 3 ? after : before;
+    if (method === "set_transport_recording_context") return { ...before, stateVersion: 5 };
+    throw new Error(method);
+  } } });
+  const args = { expectedStateVersion: 4, currentSongTime: 8, arrangement: { punchIn: true } };
+  const dry = await service.call("set_transport_recording_context", args);
+  const result = await service.call("set_transport_recording_context", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(reads, 3);
+  assert.deepEqual(result.observed, after);
+  assert.equal(result.verification.controlsConfirmed, true);
+  assert.deepEqual(result.verification.mismatches, []);
+});
+
+test("transport mutation reports an unconfirmed control instead of claiming success", async () => {
+  const before = { stateVersion: 4, currentSongTime: 0, arrangement: { punchIn: false } };
+  let reads = 0;
+  const service = new ToolService({ bridge: { async request(method) {
+    if (method === "get_transport_recording_context") {
+      reads++;
+      return reads < 3 ? before : { ...before, stateVersion: 5 };
+    }
+    if (method === "set_transport_recording_context") return { ...before, stateVersion: 5 };
+    throw new Error(method);
+  } } });
+  const args = { expectedStateVersion: 4, currentSongTime: 8 };
+  const dry = await service.call("set_transport_recording_context", args);
+  const result = await service.call("set_transport_recording_context", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.verification.controlsConfirmed, false);
+  assert.deepEqual(result.verification.mismatches, ["currentSongTime"]);
+});
+
 test("Capture MIDI signs session scope and refuses an empty native capture buffer", async () => {
   const before = { stateVersion: 4, midiCapture: { available: true, midiTrackIds: ["track-0", "track-1"] } };
   const service = new ToolService({ bridge: { async request(method) {
