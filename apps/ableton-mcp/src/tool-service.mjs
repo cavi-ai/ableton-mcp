@@ -2571,6 +2571,7 @@ export class ToolService {
 
   async #browserMetadataIdentity(item, configuredRoots) {
     if (item.root !== "user_folders" || !Array.isArray(item.path) || item.path.length < 2 ||
+        item.path.slice(1).some(segment => typeof segment !== "string" || /[:#%]/u.test(segment)) ||
         typeof item.uri !== "string" || this.#browserMetadataLibrary().get(item).revision > 0) return item;
     const roots = configuredRoots ?? await listConfiguredSpliceRoots(this.spliceRoots);
     for (const root of roots.roots) {

@@ -221,6 +221,26 @@ test("a verified Live user-folder Splice sample shares private metadata with its
   } finally { library.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test("ambiguous user-folder URI delimiters never alias a local Splice file", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "splice-uri-delimiter-"));
+  const library = new BrowserMetadataLibrary({ path: join(directory, "metadata.sqlite") });
+  const service = new ToolService({ browserMetadata: library, spliceRoots: [directory], bridge: { async request(method) {
+    if (method !== "get_browser_items") throw new Error(method);
+    return { stateVersion: 3, item: { name: "Pack:Kick.wav", uri: `userfolder:${directory}#Pack:Kick.wav`,
+      loadable: true, folder: false } };
+  } } });
+  try {
+    const sample = join(directory, "Pack:Kick.wav");
+    await writeFile(sample, "audio");
+    library.set({ root: "local_splice", path: [await realpath(directory), "Pack:Kick.wav"], uri: await realpath(sample) },
+      0, { favorite: true, tags: ["one-shot"] });
+    const observed = await service.call("get_browser_item_metadata", {
+      root: "user_folders", path: ["samples", "Pack:Kick.wav"],
+    });
+    assert.deepEqual(observed.metadata, { favorite: false, tags: [], revision: 0 });
+  } finally { library.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test("legacy nested-folder Splice metadata remains readable and moves to the canonical key on edit", async () => {
   const directory = await mkdtemp(join(tmpdir(), "splice-legacy-metadata-"));
   const nested = join(directory, "Pack");
