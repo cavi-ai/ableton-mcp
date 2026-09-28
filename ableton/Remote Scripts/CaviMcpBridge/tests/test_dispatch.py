@@ -2417,6 +2417,28 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(song.groove_amount, 0.75)
         self.assertTrue(song.loop)
         self.assertEqual(song.loop_length, 12.0)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
+    def test_song_musical_context_rolls_back_prior_fields_if_native_setter_fails(self):
+        class RejectingSong(Song):
+            @property
+            def root_note(self):
+                return self.__dict__["_root_note"]
+
+            @root_note.setter
+            def root_note(self, value):
+                if value == 2:
+                    raise ValueError("root rejected")
+                self.__dict__["_root_note"] = value
+
+        song = RejectingSong()
+        with self.assertRaisesRegex(ValueError, "root rejected"):
+            dispatch_request(song, {"method": "set_song_musical_context", "params": {"changes": {
+                "timeSignature": {"numerator": 7, "denominator": 8},
+                "key": {"rootNote": 2},
+            }}}, 3)
+        self.assertEqual((song.signature_numerator, song.signature_denominator, song.root_note), (4, 4, 0))
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
     def test_unwarped_audio_clip_timing_reports_seconds_not_beats(self):
         song = Song()

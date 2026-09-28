@@ -3420,29 +3420,38 @@ def dispatch_request(song, request, state_version, application=None):
         return _audio_clip_state(song, track_id, clip_id, state_version + 1)
     if method == "set_song_musical_context":
         changes = params["changes"]
-        signature = changes.get("timeSignature", {})
-        if "numerator" in signature:
-            song.signature_numerator = int(signature["numerator"])
-        if "denominator" in signature:
-            song.signature_denominator = int(signature["denominator"])
-        key = changes.get("key", {})
-        for source, target in (("rootNote", "root_note"), ("scaleName", "scale_name"), ("scaleMode", "scale_mode")):
-            if source in key:
-                setattr(song, target, key[source])
-        quantization = changes.get("quantization", {})
-        if "clipTrigger" in quantization:
-            song.clip_trigger_quantization = int(quantization["clipTrigger"])
-        if "midiRecording" in quantization:
-            song.midi_recording_quantization = int(quantization["midiRecording"])
-        groove = changes.get("groove", {})
-        if "amount" in groove:
-            song.groove_amount = float(groove["amount"])
-        if "swingAmount" in groove:
-            song.swing_amount = float(groove["swingAmount"])
-        loop = changes.get("loop", {})
-        for source, target in (("enabled", "loop"), ("startBeats", "loop_start"), ("lengthBeats", "loop_length")):
-            if source in loop:
-                setattr(song, target, loop[source])
+        writes = []
+        def write(attribute, value):
+            previous = getattr(song, attribute)
+            if previous != value:
+                writes.append((attribute, previous))
+                setattr(song, attribute, value)
+        unchanged_type = lambda value: value
+        with _undo_step(song):
+            try:
+                for section, fields in (
+                    ("timeSignature", (("numerator", "signature_numerator", int),
+                                       ("denominator", "signature_denominator", int))),
+                    ("key", (("rootNote", "root_note", unchanged_type), ("scaleName", "scale_name", unchanged_type),
+                             ("scaleMode", "scale_mode", unchanged_type))),
+                    ("quantization", (("clipTrigger", "clip_trigger_quantization", int),
+                                      ("midiRecording", "midi_recording_quantization", int))),
+                    ("groove", (("amount", "groove_amount", float),
+                                ("swingAmount", "swing_amount", float))),
+                    ("loop", (("enabled", "loop", unchanged_type), ("startBeats", "loop_start", unchanged_type),
+                              ("lengthBeats", "loop_length", unchanged_type))),
+                ):
+                    requested = changes.get(section, {})
+                    for source, target, convert in fields:
+                        if source in requested:
+                            write(target, convert(requested[source]))
+            except Exception as error:
+                try:
+                    for attribute, previous in reversed(writes):
+                        setattr(song, attribute, previous)
+                except Exception as rollback_error:
+                    raise RuntimeError(f"song musical context edit failed: {error}; rollback failed: {rollback_error}; use Live undo") from error
+                raise
         return _song_musical_context(song, state_version + 1)
     if method == "list_tracks":
         return {"stateVersion": state_version, "tracks": [_track_record(song, track, i) for i, track in enumerate(song.tracks)]}
