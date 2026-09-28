@@ -744,7 +744,7 @@ class DispatchTest(unittest.TestCase):
         self.assertTrue(observed["session"]["overdub"])
         self.assertTrue(observed["midiCapture"]["available"])
         self.assertEqual(observed["midiCapture"]["midiTrackIds"], ["track-0", "track-1"])
-        changed = dispatch_request(song, {"method": "set_transport_recording_context", "params": {"changes": {
+        changed = dispatch_request(song, {"method": "set_transport_recording_context", "params": {"before": observed, "changes": {
             "currentSongTime": 32.0, "metronome": False,
             "arrangement": {"record": True, "overdub": True, "punchIn": False, "punchOut": True, "backToArranger": True},
             "session": {"record": True, "overdub": False}, "automationArm": True,
@@ -755,6 +755,66 @@ class DispatchTest(unittest.TestCase):
         self.assertTrue(song.back_to_arranger)
         self.assertFalse(song.overdub)
         self.assertTrue(song.session_automation_record)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
+    def test_transport_recording_context_rolls_back_before_record_if_setter_fails(self):
+        class RejectingSong(Song):
+            @property
+            def metronome(self):
+                return self.__dict__["_metronome"]
+
+            @metronome.setter
+            def metronome(self, value):
+                if value is True and self.__dict__.get("_reject_metronome", False):
+                    raise ValueError("metronome rejected")
+                self.__dict__["_metronome"] = value
+
+        song = RejectingSong()
+        song._reject_metronome = True
+        before = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
+        with self.assertRaisesRegex(ValueError, "metronome rejected"):
+            dispatch_request(song, {"method": "set_transport_recording_context", "params": {
+                "before": before, "changes": {"currentSongTime": 32.0, "metronome": True,
+                                               "arrangement": {"record": True}},
+            }}, 3)
+        self.assertEqual(song.current_song_time, 4.0)
+        self.assertFalse(song.record_mode)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
+    def test_transport_recording_context_rejects_external_change_at_native_boundary(self):
+        song = Song()
+        before = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
+        song.metronome = True
+        with self.assertRaisesRegex(ValueError, "changed after planning"):
+            dispatch_request(song, {"method": "set_transport_recording_context", "params": {
+                "before": before, "changes": {"currentSongTime": 32.0, "arrangement": {"record": True}},
+            }}, 3)
+        self.assertEqual(song.current_song_time, 4.0)
+        self.assertFalse(song.record_mode)
+        self.assertEqual(song.undo_boundaries, [])
+
+    def test_transport_recording_context_warns_if_record_stop_preceded_failure(self):
+        class RejectingSong(Song):
+            @property
+            def session_record(self):
+                return self.__dict__["_session_record"]
+
+            @session_record.setter
+            def session_record(self, value):
+                if value is True and self.__dict__.get("_reject_session_record", False):
+                    raise ValueError("session record rejected")
+                self.__dict__["_session_record"] = value
+
+        song = RejectingSong()
+        song.record_mode = True
+        song._reject_session_record = True
+        before = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
+        with self.assertRaisesRegex(RuntimeError, "recording may have captured content"):
+            dispatch_request(song, {"method": "set_transport_recording_context", "params": {
+                "before": before, "changes": {"arrangement": {"record": False}, "session": {"record": True}},
+            }}, 3)
+        self.assertTrue(song.record_mode)
+        self.assertFalse(song.session_record)
 
     def test_capture_midi_session_rechecks_readiness_and_reports_actual_clip_change(self):
         song = Song()

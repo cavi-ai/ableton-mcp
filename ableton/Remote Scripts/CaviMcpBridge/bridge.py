@@ -2751,16 +2751,43 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "get_transport_recording_context":
         return _transport_recording_context(song, state_version)
     if method == "set_transport_recording_context":
+        if _transport_recording_context(song, state_version) != params["before"]:
+            raise ValueError("transport recording context changed after planning")
         changes = params["changes"]
-        for source, target in {"currentSongTime": "current_song_time", "metronome": "metronome", "automationArm": "session_automation_record"}.items():
-            if source in changes:
-                setattr(song, target, changes[source])
-        for source, target in {"record": "record_mode", "overdub": "arrangement_overdub", "punchIn": "punch_in", "punchOut": "punch_out", "backToArranger": "back_to_arranger"}.items():
-            if source in changes.get("arrangement", {}):
-                setattr(song, target, changes["arrangement"][source])
-        for source, target in {"record": "session_record", "overdub": "overdub"}.items():
-            if source in changes.get("session", {}):
-                setattr(song, target, changes["session"][source])
+        writes = []
+        recording_command_applied = False
+        def write(attribute, value):
+            nonlocal recording_command_applied
+            previous = getattr(song, attribute)
+            if previous != value:
+                writes.append((attribute, previous))
+                setattr(song, attribute, value)
+                if attribute in ("record_mode", "session_record"):
+                    recording_command_applied = True
+        with _undo_step(song):
+            try:
+                for section, fields in (
+                    (changes, (("currentSongTime", "current_song_time"), ("metronome", "metronome"),
+                               ("automationArm", "session_automation_record"))),
+                    (changes.get("arrangement", {}), (("overdub", "arrangement_overdub"),
+                                                       ("punchIn", "punch_in"), ("punchOut", "punch_out"),
+                                                       ("backToArranger", "back_to_arranger"))),
+                    (changes.get("session", {}), (("overdub", "overdub"),)),
+                    (changes.get("arrangement", {}), (("record", "record_mode"),)),
+                    (changes.get("session", {}), (("record", "session_record"),)),
+                ):
+                    for source, target in fields:
+                        if source in section:
+                            write(target, section[source])
+            except Exception as error:
+                try:
+                    for attribute, previous in reversed(writes):
+                        setattr(song, attribute, previous)
+                except Exception as rollback_error:
+                    raise RuntimeError(f"transport recording edit failed: {error}; rollback failed: {rollback_error}; use Live undo") from error
+                if recording_command_applied:
+                    raise RuntimeError(f"transport recording edit failed: {error}; recording may have captured content despite control rollback") from error
+                raise
         return _transport_recording_context(song, state_version + 1)
     if method == "list_arrangement_cue_points":
         return _arrangement_cue_points(song, state_version)
