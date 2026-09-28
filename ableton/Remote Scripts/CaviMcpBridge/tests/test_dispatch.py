@@ -3615,6 +3615,8 @@ class DispatchTest(unittest.TestCase):
         song.tracks[0].fold_state = 0
         song.tracks[1].is_grouped = True
         song.tracks[1].group_track = song.tracks[0]
+        song.tracks[1].current_output_routing = "Group"
+        song.tracks[1].available_output_routing_types = [SimpleNamespace(identifier="parent", display_name="Bus")]
         records = []
         for index, name in enumerate(("Bus Recall", "Child Recall")):
             track_id = f"track-{index}"
