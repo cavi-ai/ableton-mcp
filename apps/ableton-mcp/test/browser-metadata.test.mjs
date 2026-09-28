@@ -241,6 +241,42 @@ test("ambiguous user-folder URI delimiters never alias a local Splice file", asy
   } finally { library.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test("Live browser pages and searches show metadata for verified local Splice samples", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "splice-browser-joins-"));
+  const library = new BrowserMetadataLibrary({ path: join(directory, "metadata.sqlite") });
+  const uri = `userfolder:${directory}#Pack:Kick.wav`;
+  const entry = { name: "Kick.wav", uri, loadable: true, folder: false };
+  const service = new ToolService({ browserMetadata: library, spliceRoots: [directory], bridge: { async request(method, params) {
+    if (method === "get_browser_items") return { root: "user_folders", path: params.path, stateVersion: 4,
+      item: { name: "Pack", uri: `userfolder:${directory}#Pack`, loadable: false, folder: true },
+      children: [entry], totalChildren: 1, nextOffset: null };
+    if (method === "search_browser_items") return { root: "user_folders", path: params.path, stateVersion: 4,
+      results: [{ ...entry, path: ["samples", "Pack", "Kick.wav"] }] };
+    if (method === "search_browser_roots") return { stateVersion: 4,
+      results: [{ ...entry, root: "user_folders", path: ["samples", "Pack", "Kick.wav"] }] };
+    throw new Error(method);
+  } } });
+  try {
+    await mkdir(join(directory, "Pack"));
+    const sample = join(directory, "Pack", "Kick.wav");
+    await writeFile(sample, "audio");
+    library.set({ root: "local_splice", path: [await realpath(directory), "Pack/Kick.wav"], uri: await realpath(sample) },
+      0, { favorite: true, tags: ["drums"] });
+    const page = await service.call("get_browser_items", {
+      root: "user_folders", path: ["samples", "Pack"], includeMetadata: true,
+    });
+    const subtree = await service.call("search_browser_items", {
+      root: "user_folders", path: ["samples"], query: "Kick", includeMetadata: true,
+    });
+    const crossRoot = await service.call("search_browser_roots", {
+      roots: ["user_folders"], query: "Kick", includeMetadata: true,
+    });
+    for (const metadata of [page.children[0].metadata, subtree.results[0].metadata, crossRoot.results[0].metadata]) {
+      assert.deepEqual(metadata, { favorite: true, tags: ["drums"], revision: 1 });
+    }
+  } finally { library.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test("legacy nested-folder Splice metadata remains readable and moves to the canonical key on edit", async () => {
   const directory = await mkdtemp(join(tmpdir(), "splice-legacy-metadata-"));
   const nested = join(directory, "Pack");
