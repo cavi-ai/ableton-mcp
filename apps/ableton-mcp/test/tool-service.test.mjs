@@ -845,6 +845,20 @@ test("Auto Shift context distinguishes song scale awareness from disabled manual
   });
 });
 
+test("Auto Shift context rejects a song key read from another Live state", async () => {
+  const device = { id: "track-5:device-0", name: "Auto Shift", className: "AutoShift" };
+  const bridge = { async request(method) {
+    if (method === "list_devices") return { stateVersion: 33, devices: [device] };
+    if (method === "list_device_parameters") return { stateVersion: 33, parameters: [] };
+    if (method === "get_song_musical_context") return { stateVersion: 34,
+      key: { rootNote: 7, rootName: "G", scaleName: "Minor", scaleMode: true } };
+    throw new Error(method);
+  } };
+  await assert.rejects(new ToolService({ bridge }).call("get_factory_device_context", {
+    trackId: "track-5", deviceId: device.id
+  }), /device context changed between reads/);
+});
+
 test("factory device context rejects parameters read after the device topology changed", async () => {
   const device = { id: "track-0:device-0", name: "EQ Eight", className: "Eq8" };
   const service = new ToolService({ catalog: {}, bridge: { async request(method) {
