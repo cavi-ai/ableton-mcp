@@ -4156,33 +4156,55 @@ def dispatch_request(song, request, state_version, application=None):
         start, end = float(loop.get(start_key, clip.loop_start)), float(loop.get(end_key, clip.loop_end))
         if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start:
             raise ValueError("loop positions must define a finite positive interval")
-        if start_key in loop or end_key in loop:
-            if start >= clip.loop_end:
-                clip.loop_end = end
-                clip.loop_start = start
-            else:
-                clip.loop_start = start
-                clip.loop_end = end
-        for source, target in (("enabled", "looping"),):
-            if source in loop:
-                setattr(clip, target, loop[source])
-        signature = changes.get("timeSignature", {})
-        if "numerator" in signature:
-            clip.signature_numerator = int(signature["numerator"])
-        if "denominator" in signature:
-            clip.signature_denominator = int(signature["denominator"])
-        if "launchQuantization" in changes:
-            clip.launch_quantization = int(changes["launchQuantization"])
-        if "launchLegato" in changes:
-            clip.legato = changes["launchLegato"]
-        if "mute" in changes:
-            clip.muted = changes["mute"]
-        if "quantization" in editor_grid:
-            clip.view.grid_quantization = Live.Clip.GridQuantization.values[editor_grid["quantization"]] if Live is not None else editor_grid["quantization"]
-        if "isTriplet" in editor_grid:
-            clip.view.grid_is_triplet = editor_grid["isTriplet"]
+        selected_groove = None
         if "grooveId" in changes:
-            clip.groove = _grooves(song)[int(changes["grooveId"].removeprefix("groove-"))]
+            matches = [groove for index, groove in enumerate(_grooves(song))
+                       if changes["grooveId"] == f"groove-{index}"]
+            if len(matches) != 1:
+                raise ValueError("unknown groove ID")
+            selected_groove = matches[0]
+        signature = changes.get("timeSignature", {})
+        writes = []
+        def write(owner, attribute, value):
+            previous = getattr(owner, attribute)
+            if previous != value:
+                setattr(owner, attribute, value)
+                writes.append((owner, attribute, previous))
+        with _undo_step(song):
+            try:
+                if start_key in loop or end_key in loop:
+                    if start >= clip.loop_end:
+                        write(clip, "loop_end", end)
+                        write(clip, "loop_start", start)
+                    else:
+                        write(clip, "loop_start", start)
+                        write(clip, "loop_end", end)
+                if "enabled" in loop:
+                    write(clip, "looping", loop["enabled"])
+                if "numerator" in signature:
+                    write(clip, "signature_numerator", int(signature["numerator"]))
+                if "denominator" in signature:
+                    write(clip, "signature_denominator", int(signature["denominator"]))
+                if "launchQuantization" in changes:
+                    write(clip, "launch_quantization", int(changes["launchQuantization"]))
+                if "launchLegato" in changes:
+                    write(clip, "legato", changes["launchLegato"])
+                if "mute" in changes:
+                    write(clip, "muted", changes["mute"])
+                if "quantization" in editor_grid:
+                    grid = Live.Clip.GridQuantization.values[editor_grid["quantization"]] if Live is not None else editor_grid["quantization"]
+                    write(clip.view, "grid_quantization", grid)
+                if "isTriplet" in editor_grid:
+                    write(clip.view, "grid_is_triplet", editor_grid["isTriplet"])
+                if "grooveId" in changes:
+                    write(clip, "groove", selected_groove)
+            except Exception as error:
+                try:
+                    for owner, attribute, previous in reversed(writes):
+                        setattr(owner, attribute, previous)
+                except Exception as rollback_error:
+                    raise RuntimeError(f"clip timing failed: {error}; rollback failed: {rollback_error}; use Live undo") from error
+                raise
         return _clip_timing(song, params["trackId"], params["clipId"], state_version + 1)
     if method == "duplicate_clip_loop":
         track_id, clip_id = params["trackId"], params["clipId"]

@@ -2467,6 +2467,39 @@ class DispatchTest(unittest.TestCase):
         self.assertTrue(clip.looping)
         self.assertEqual(clip.loop_end, 8.0)
 
+    def test_clip_timing_rejects_unknown_groove_before_changing_loop(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_clip_timing", "params": params}, 3)
+        with self.assertRaisesRegex(ValueError, "groove"):
+            dispatch_request(song, {"method": "set_clip_timing", "params": {
+                **params, "before": before,
+                "changes": {"loop": {"startBeats": 1, "endBeats": 5}, "grooveId": "groove-99"}
+            }}, 3)
+        self.assertEqual((clip.loop_start, clip.loop_end), (0.0, 4.0))
+        self.assertIsNone(clip.groove)
+
+    def test_clip_timing_restores_earlier_writes_when_native_groove_write_fails(self):
+        class GrooveWriteFails(Clip):
+            def __setattr__(self, name, value):
+                if name == "groove" and getattr(self, "fail_groove", False):
+                    raise RuntimeError("native groove write failed")
+                super().__setattr__(name, value)
+
+        song = Song()
+        clip = GrooveWriteFails()
+        clip.fail_groove = True
+        song.tracks[0].clip_slots[0].clip = clip
+        params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_clip_timing", "params": params}, 3)
+        with self.assertRaisesRegex(RuntimeError, "native groove write failed"):
+            dispatch_request(song, {"method": "set_clip_timing", "params": {
+                **params, "before": before,
+                "changes": {"loop": {"startBeats": 1, "endBeats": 5}, "grooveId": "groove-0"}
+            }}, 3)
+        self.assertEqual((clip.loop_start, clip.loop_end), (0.0, 4.0))
+
     def test_clip_timing_native_mute_is_guarded_and_rejects_stale_state(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip
