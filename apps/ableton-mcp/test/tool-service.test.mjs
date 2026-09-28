@@ -814,6 +814,37 @@ test("factory device context combines stable identity, knowledge, and live param
   assert.deepEqual(context.parameterGroups.frequency.map(({ id }) => id), ["cutoff"]);
 });
 
+test("Auto Shift context distinguishes song scale awareness from disabled manual scale values", async () => {
+  const device = { id: "track-5:device-0", name: "Auto Shift", className: "AutoShift",
+    classDisplayName: "Auto Shift", type: "audio_effect", active: true };
+  const parameters = [
+    { id: "parameter-3", name: "Scale Aware", originalName: "Scale Aware", value: 1,
+      displayValue: "On", enabled: true, quantized: true, valueItems: ["Off", "On"] },
+    { id: "parameter-18", name: "Root", originalName: "Root", value: 0,
+      displayValue: "C", enabled: false, quantized: true, valueItems: ["C", "D"] },
+    { id: "parameter-19", name: "Scale", originalName: "Scale", value: 0,
+      displayValue: "Custom", enabled: false, quantized: true, valueItems: ["Custom", "Major"] }
+  ];
+  const bridge = { async request(method) {
+    if (method === "list_devices") return { stateVersion: 33, trackId: "track-5", devices: [device] };
+    if (method === "list_device_parameters") return { stateVersion: 33, trackId: "track-5", deviceId: device.id, parameters };
+    if (method === "get_song_musical_context") return { stateVersion: 33,
+      key: { rootNote: 7, rootName: "G", scaleName: "Minor", scaleMode: true } };
+    throw new Error(method);
+  } };
+  const context = await new ToolService({ bridge }).call("get_factory_device_context", {
+    trackId: "track-5", deviceId: device.id
+  });
+  assert.deepEqual(context.scaleLink, {
+    songKey: { rootNote: 7, rootName: "G", scaleName: "Minor", scaleMode: true },
+    scaleAware: { id: "parameter-3", value: 1, displayValue: "On", enabled: true },
+    manualRoot: { id: "parameter-18", value: 0, displayValue: "C", enabled: false },
+    manualScale: { id: "parameter-19", value: 0, displayValue: "Custom", enabled: false },
+    effectiveScaleSource: "song-key",
+    limitation: "Song key linkage and exposed controls only; disabled manual Root/Scale readbacks do not identify the active correction scale or prove audible pitch correction."
+  });
+});
+
 test("factory device context rejects parameters read after the device topology changed", async () => {
   const device = { id: "track-0:device-0", name: "EQ Eight", className: "Eq8" };
   const service = new ToolService({ catalog: {}, bridge: { async request(method) {

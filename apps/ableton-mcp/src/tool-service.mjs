@@ -972,6 +972,25 @@ export class ToolService {
       const observed = await this.bridge.request("list_device_parameters", args);
       if (observed.stateVersion !== identity.stateVersion)
         throw new Error("device context changed between reads");
+      let scaleLink;
+      if (profile?.id === "auto-shift") {
+        const song = await this.bridge.request("get_song_musical_context", {});
+        if (song.stateVersion !== identity.stateVersion)
+          throw new Error("device context changed between reads");
+        const control = name => {
+          const parameter = observed.parameters.find(item => (item.originalName || item.name) === name);
+          return parameter ? { id: parameter.id, value: parameter.value,
+            displayValue: parameter.displayValue, enabled: parameter.enabled } : null;
+        };
+        const scaleAware = control("Scale Aware");
+        const linkedToSong = scaleAware?.displayValue === "On" && song.key?.scaleMode === true;
+        scaleLink = {
+          songKey: song.key ?? null, scaleAware,
+          manualRoot: control("Root"), manualScale: control("Scale"),
+          effectiveScaleSource: linkedToSong ? "song-key" : scaleAware?.displayValue === "Off" ? "manual" : "unresolved",
+          limitation: "Song key linkage and exposed controls only; disabled manual Root/Scale readbacks do not identify the active correction scale or prove audible pitch correction."
+        };
+      }
       const parameterGroups = groupDeviceParameters(profile, observed.parameters);
       const unmappedIds = parameterGroups.other.map(parameter => parameter.id);
       const configuredPluginControls = device.className === "PluginDevice"
@@ -985,6 +1004,7 @@ export class ToolService {
       return {
         stateVersion: observed.stateVersion, trackId: args.trackId, device,
         profile: profile || null,
+        ...(scaleLink ? { scaleLink } : {}),
         parameterGroups,
         parameterCoverage: { total: observed.parameters.length,
           mapped: observed.parameters.length - unmappedIds.length,
