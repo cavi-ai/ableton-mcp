@@ -1791,7 +1791,9 @@ export class ToolService {
     });
     for (const [key, choices] of [["inputTypeId", before.routing.input.availableTypes], ["outputTypeId", before.routing.output.availableTypes]]) {
       const value = snapshot.routing[key];
-      if (value !== null && !choices.some(({ id }) => id === value)) throw new Error(`snapshot routing ${key} is unavailable`);
+      const side = key === "inputTypeId" ? "input" : "output";
+      if (value !== null && value !== before.routing[side].type?.id && !choices.some(({ id }) => id === value))
+        throw new Error(`snapshot routing ${key} is unavailable`);
     }
     for (const [key, typeKey, side] of [["inputChannelId", "inputTypeId", "input"], ["outputChannelId", "outputTypeId", "output"]]) {
       const value = snapshot.routing[key];

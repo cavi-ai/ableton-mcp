@@ -3804,7 +3804,9 @@ def dispatch_request(song, request, state_version, application=None):
         for key, choices in routing_specs:
             identifier = target["routing"][key]
             selected = next((choice for choice in choices if choice["id"] == identifier), None) if identifier is not None else None
-            if identifier is not None and selected is None:
+            side = "input" if key == "inputTypeId" else "output"
+            current_option = current["routing"][side]["type"]
+            if identifier is not None and selected is None and (current_option is None or current_option["id"] != identifier):
                 raise ValueError(f"snapshot routing {key} is unavailable")
             if selected is not None and sum(choice["name"] == selected["name"] for choice in choices) > 1:
                 raise ValueError(f"snapshot routing {key} has an ambiguous routing label")

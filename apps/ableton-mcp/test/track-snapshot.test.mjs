@@ -157,7 +157,7 @@ test('group-system recall plan maps a saved nested hierarchy to compatible exist
       track: { name: track.name, type: track.type, isGroup: track.isGroup,
         isGrouped: track.isGrouped, groupTrackId: track.groupTrackId },
       mixer: { volume: 0.8, pan: 0, mute: false, solo: false, sends: [] },
-      routing: { inputTypeId: null, inputChannelId: null, outputTypeId: null,
+      routing: { inputTypeId: null, inputChannelId: null, outputTypeId: track.isGrouped ? 'Group' : null,
         outputChannelId: null, monitoring: null }, devices: [] } })) });
   let driftOnSecondChildRead = false;
   let childReads = 0;
@@ -179,7 +179,8 @@ test('group-system recall plan maps a saved nested hierarchy to compatible exist
         pan: { value: 0, min: -1, max: 1 },
         mute: false, solo: false, sends: [] },
       routing: { input: { type: null, channel: null, availableTypes: [], availableChannels: [] },
-        output: { type: null, channel: null, availableTypes: [], availableChannels: [] }, monitoring: null },
+        output: { type: track.isGrouped ? { id: 'Group', name: 'Group' } : null, channel: null,
+          availableTypes: track.isGrouped ? [{ id: 'Target Bus', name: 'Target Bus' }] : [], availableChannels: [] }, monitoring: null },
       devices: [] };
   } };
   const service = new ToolService({ bridge, groupSystemLibrary });
