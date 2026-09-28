@@ -675,8 +675,10 @@ class DispatchTest(unittest.TestCase):
 
         folded = dispatch_request(song, {"method": "set_group_fold_state", "params": {"trackId": "track-1", "folded": True}}, 3)
         self.assertEqual(folded["track"]["foldState"], 1)
+        before = dispatch_request(song, {"method": "get_track_routing", "params": {"trackId": "track-0"}}, 4)
         routed = dispatch_request(song, {"method": "route_tracks_to_bus", "params": {
-            "busTrackId": "track-1", "routes": [{"trackId": "track-0", "outputTypeId": "track-1"}]
+            "expectedStateVersion": 4, "busTrackId": "track-1", "bus": folded["track"],
+            "routes": [{"trackId": "track-0", "outputTypeId": "track-1", "before": before["output"]["type"]}]
         }}, 4)
         self.assertEqual(source.current_output_routing, "Bass Bus")
         self.assertEqual(routed["routes"][0]["output"]["type"]["name"], "Bass Bus")
@@ -686,15 +688,64 @@ class DispatchTest(unittest.TestCase):
         source, group = song.tracks
         song.tracks = [source, Track(), group]
         group.is_foldable = True
+        group.fold_state = 0
         source.available_output_routing_types.append(
             SimpleNamespace(identifier="bus", display_name="Bus"))
         original = source.current_output_routing
+        bus = dispatch_request(song, {"method": "list_tracks"}, 3)["tracks"][2]
+        before = dispatch_request(song, {"method": "get_track_routing", "params": {"trackId": "track-0"}}, 3)
+        other_before = dispatch_request(song, {"method": "get_track_routing", "params": {"trackId": "track-1"}}, 3)
         with self.assertRaises(ValueError):
             dispatch_request(song, {"method": "route_tracks_to_bus", "params": {
-                "busTrackId": "track-2", "routes": [
-                    {"trackId": "track-0", "outputTypeId": "bus"},
-                    {"trackId": "track-1", "outputTypeId": "missing"}]}}, 3)
+                "expectedStateVersion": 3, "busTrackId": "track-2", "bus": bus, "routes": [
+                    {"trackId": "track-0", "outputTypeId": "bus", "before": before["output"]["type"]},
+                    {"trackId": "track-1", "outputTypeId": "missing", "before": other_before["output"]["type"]}]}}, 3)
         self.assertIs(source.current_output_routing, original)
+
+    def test_batch_bus_routing_rejects_changed_source_without_mutation(self):
+        song = Song()
+        source, group = song.tracks
+        group.is_foldable = True
+        group.fold_state = 0
+        source.available_output_routing_types.append(SimpleNamespace(identifier="bus", display_name="Bass Bus"))
+        bus = dispatch_request(song, {"method": "list_tracks"}, 3)["tracks"][1]
+        before = dispatch_request(song, {"method": "get_track_routing", "params": {"trackId": "track-0"}}, 3)
+        source.current_output_routing = "No Output"
+
+        with self.assertRaisesRegex(ValueError, "source routing changed"):
+            dispatch_request(song, {"method": "route_tracks_to_bus", "params": {
+                "expectedStateVersion": 3, "busTrackId": "track-1", "bus": bus,
+                "routes": [{"trackId": "track-0", "outputTypeId": "bus", "before": before["output"]["type"]}]
+            }}, 3)
+        self.assertEqual(source.current_output_routing, "No Output")
+
+    def test_batch_bus_routing_rolls_back_earlier_sources_when_native_write_fails(self):
+        class FailingTrack(Track):
+            def __setattr__(self, name, value):
+                if name == "current_output_routing" and value == "Bass Bus":
+                    raise RuntimeError("native routing failed")
+                super().__setattr__(name, value)
+
+        song = Song()
+        first, group = song.tracks
+        second = FailingTrack()
+        song.tracks = [first, second, group]
+        group.is_foldable = True
+        group.fold_state = 0
+        group.name = "Bass Bus"
+        for source in (first, second):
+            source.available_output_routing_types.append(SimpleNamespace(identifier="bus", display_name="Bass Bus"))
+        bus = dispatch_request(song, {"method": "list_tracks"}, 3)["tracks"][2]
+        routes = []
+        for index in range(2):
+            before = dispatch_request(song, {"method": "get_track_routing", "params": {"trackId": f"track-{index}"}}, 3)
+            routes.append({"trackId": f"track-{index}", "outputTypeId": "bus", "before": before["output"]["type"]})
+
+        with self.assertRaisesRegex(RuntimeError, "native routing failed"):
+            dispatch_request(song, {"method": "route_tracks_to_bus", "params": {
+                "expectedStateVersion": 3, "busTrackId": "track-2", "bus": bus, "routes": routes
+            }}, 3)
+        self.assertEqual(first.current_output_routing, "Main")
 
     def test_return_bus_routes_multiple_tracks_with_prevalidated_send_and_output(self):
         song = Song()

@@ -2905,21 +2905,44 @@ def dispatch_request(song, request, state_version, application=None):
         track.fold_state = 1 if params["folded"] else 0
         return {"stateVersion": state_version + 1, "track": _track_record(song, track, track_index)}
     if method == "route_tracks_to_bus":
+        if params.get("expectedStateVersion") != state_version:
+            raise ValueError("bus routing state version changed")
         _, bus = _track(song, params["busTrackId"])
         if not bool(getattr(bus, "is_foldable", False)):
             raise ValueError("bus track is not a group")
-        routes = []
-        destinations = []
+        if params.get("bus") != _track_record(song, bus, int(params["busTrackId"].removeprefix("track-"))):
+            raise ValueError("bus track changed")
+        destinations, seen = [], set()
         for route_change in params["routes"]:
-            _, track = _track(song, route_change["trackId"])
+            track_id = route_change["trackId"]
+            if track_id in seen or track_id == params["busTrackId"]:
+                raise ValueError("duplicate source track or bus routed to itself")
+            seen.add(track_id)
+            _, track = _track(song, track_id)
+            current = _track_routing(song, track_id, state_version)["output"]["type"]
+            if route_change.get("before") != current:
+                raise ValueError("source routing changed")
             matches = [option for option in track.available_output_routing_types
                        if _routing_id(option) == route_change["outputTypeId"]]
             if len(matches) != 1:
                 raise ValueError("bus output routing is missing or ambiguous")
-            destinations.append((route_change["trackId"], track, _routing_option(matches[0])["name"]))
-        for track_id, track, name in destinations:
-            track.current_output_routing = name
-            routes.append(_track_routing(song, track_id, state_version + 1))
+            destinations.append((track_id, track, _routing_option(matches[0])["name"], current["name"]))
+        if not destinations:
+            raise ValueError("no source tracks")
+        applied = []
+        with _undo_step(song):
+            try:
+                for _, track, name, previous in destinations:
+                    track.current_output_routing = name
+                    applied.append((track, previous))
+            except Exception as error:
+                try:
+                    for track, previous in reversed(applied):
+                        track.current_output_routing = previous
+                except Exception as rollback_error:
+                    raise RuntimeError(f"bus routing failed: {error}; rollback failed: {rollback_error}; use Live undo") from error
+                raise
+        routes = [_track_routing(song, track_id, state_version + 1) for track_id, _, _, _ in destinations]
         return {"stateVersion": state_version + 1, "busTrackId": params["busTrackId"], "routes": routes}
     if method == "route_tracks_to_return_bus":
         if params.get("expectedStateVersion") != state_version:
