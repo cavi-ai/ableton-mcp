@@ -1047,6 +1047,20 @@ export class ToolService {
         converted.points.some((point, index) => point.sourceSeconds !== candidates[index].sourceSeconds || !Number.isFinite(point.beatTime)))) {
         throw new Error("native conversion does not match the observed audio clip");
       }
+      let meter;
+      if (args.includeMusicalRoles) {
+        const timing = await this.bridge.request("get_clip_timing", target);
+        if (timing.trackId !== target.trackId || timing.clipId !== target.clipId || timing.stateVersion !== before.stateVersion)
+          throw new Error("clip timing changed during transient proposal");
+        const { numerator, denominator } = timing.timeSignature ?? {};
+        const barBeats = numerator * 4 / denominator;
+        const slotsPerBar = Math.round(barBeats / args.gridBeats);
+        if (!Number.isInteger(numerator) || numerator < 1 || ![1, 2, 4, 8, 16].includes(denominator) ||
+          !Number.isFinite(slotsPerBar) || slotsPerBar < 1 || slotsPerBar > 4096 ||
+          Math.abs(slotsPerBar * args.gridBeats - barBeats) > 1e-6)
+          throw new Error("clip meter is unavailable or grid does not divide a bar");
+        meter = { numerator, denominator, barBeats, slotsPerBar };
+      }
       const after = await this.bridge.request("get_audio_clip_state", target);
       if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error("audio clip changed during transient proposal; retry against current state");
       const actions = [], gridAlignment = [];
@@ -1054,9 +1068,15 @@ export class ToolService {
         const candidate = candidates[index], currentBeatTime = converted.points[index].beatTime;
         const targetBeatTime = Math.round(currentBeatTime / args.gridBeats) * args.gridBeats;
         const inClipRegion = currentBeatTime >= before.markers.startBeats && currentBeatTime <= before.markers.endBeats;
+        const slotIndex = Math.round(targetBeatTime / args.gridBeats);
+        const slotInBar = meter ? ((slotIndex % meter.slotsPerBar) + meter.slotsPerBar) % meter.slotsPerBar : null;
         gridAlignment.push({ sourceSeconds: candidate.sourceSeconds, strength: candidate.strength,
           currentBeatTime, nearestGridBeatTime: targetBeatTime,
-          signedOffsetBeats: Math.round((currentBeatTime - targetBeatTime) * 1e6) / 1e6, inClipRegion });
+          signedOffsetBeats: Math.round((currentBeatTime - targetBeatTime) * 1e6) / 1e6, inClipRegion,
+          ...(meter ? { barIndex: Math.floor(slotIndex / meter.slotsPerBar), slotInBar,
+            barDownbeat: slotInBar === 0,
+            quarterPulse: Math.abs(targetBeatTime - Math.round(targetBeatTime)) < 1e-6,
+            halfBeatUpbeat: Math.abs(targetBeatTime - Math.floor(targetBeatTime) - 0.5) < 1e-6 } : {}) });
         if (!inClipRegion ||
           targetBeatTime <= before.markers.startBeats || targetBeatTime >= before.markers.endBeats ||
           Math.abs(targetBeatTime - currentBeatTime) < 1e-6 ||
@@ -1074,6 +1094,7 @@ export class ToolService {
           ...(existing ? { beatTime: existing.beatTime } : { beatTime: targetBeatTime, sampleTime: candidate.sourceSeconds }) });
       }
       return { ...target, stateVersion: after.stateVersion, gridBeats: args.gridBeats,
+        ...(meter ? { meter } : {}),
         nativeConversion: true, sourcePath: before.source.path, sourceWindow: measurement.window,
         candidateCount: candidates.length, gridAlignment, actions,
         limitation: "Heuristic source-only candidates and review-only actions. Each marker must be dry-run against fresh Live state; neighbor/BPM constraints may reject it. Does not modify or audibly validate the clip." };

@@ -262,6 +262,8 @@ test("transient warp proposal uses native beats and returns reviewable source-pr
         assert.deepEqual(target, { trackId: "track-2", clipId: "track-2:clip-0" });
         return clipState;
       }
+      if (method === "get_clip_timing") return { stateVersion: 4, ...target,
+        timeSignature: { numerator: 4, denominator: 4 } };
       assert.equal(method, "get_audio_source_beat_times");
       assert.deepEqual(target, { trackId: "track-2", clipId: "track-2:clip-0", sourceSeconds: [0.2, 0.6] });
       return { stateVersion: 4, trackId: "track-2", clipId: "track-2:clip-0", sourcePath,
@@ -269,11 +271,16 @@ test("transient warp proposal uses native beats and returns reviewable source-pr
     } } });
     const reply = await createRouter(service)({ id: 1, method: "tools/call", params: {
       name: "propose_audio_transient_warp", arguments: { trackId: "track-2", clipId: "track-2:clip-0",
-        gridBeats: 0.5, startSeconds: 0.1, durationSeconds: 0.8 } } });
+        gridBeats: 0.5, startSeconds: 0.1, durationSeconds: 0.8, includeMusicalRoles: true } } });
     assert.equal(reply.error, undefined);
     const proposal = reply.result.structuredContent;
     assert.equal(proposal.stateVersion, 4);
     assert.equal(proposal.nativeConversion, true);
+    assert.deepEqual(proposal.meter, { numerator: 4, denominator: 4, barBeats: 4, slotsPerBar: 8 });
+    assert.deepEqual(proposal.gridAlignment.map(({ barIndex, slotInBar, barDownbeat, quarterPulse, halfBeatUpbeat }) =>
+      ({ barIndex, slotInBar, barDownbeat, quarterPulse, halfBeatUpbeat })), [
+      { barIndex: 0, slotInBar: 1, barDownbeat: false, quarterPulse: false, halfBeatUpbeat: true },
+      { barIndex: 0, slotInBar: 2, barDownbeat: false, quarterPulse: true, halfBeatUpbeat: false }]);
     assert.ok(Array.isArray(proposal.gridAlignment));
     assert.deepEqual(proposal.gridAlignment.map(({ sourceSeconds, currentBeatTime, nearestGridBeatTime,
       signedOffsetBeats, inClipRegion }) => ({ sourceSeconds, currentBeatTime, nearestGridBeatTime,
