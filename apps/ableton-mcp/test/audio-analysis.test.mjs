@@ -320,6 +320,32 @@ test("transient warp proposal does not recommend moving a marker across its neig
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+test("transient warp proposal leaves a slot alone when another onset is already on grid", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cavi-warp-collision-"));
+  try {
+    const sourcePath = join(directory, "pulses.wav");
+    await promisify(execFile)("ffmpeg", ["-nostdin", "-v", "error", "-f", "lavfi", "-i",
+      "aevalsrc=if(between(t\\,0.45\\,0.47)\\,0.4\\,if(between(t\\,0.6\\,0.62)\\,0.8\\,0)):s=48000:d=1",
+      "-c:a", "pcm_f32le", sourcePath]);
+    const state = { stateVersion: 4, trackId: "track-2", clipId: "track-2:clip-0",
+      source: { path: sourcePath }, warping: true,
+      markers: { unit: "beats", startBeats: 0, endBeats: 2 },
+      warpMarkers: { supported: true, markers: [{ sampleTime: 0, beatTime: 0 }, { sampleTime: 1, beatTime: 2 }] } };
+    const service = new ToolService({ bridge: { async request(method, target) {
+      if (method === "get_audio_clip_state") return state;
+      assert.equal(method, "get_audio_source_beat_times");
+      assert.deepEqual(target.sourceSeconds, [0.45, 0.6]);
+      return { stateVersion: 4, trackId: state.trackId, clipId: state.clipId, sourcePath,
+        conversion: "native", points: [{ sourceSeconds: 0.45, beatTime: 0.75 },
+          { sourceSeconds: 0.6, beatTime: 1 }] };
+    } } });
+    const proposal = await service.call("propose_audio_transient_warp", {
+      trackId: state.trackId, clipId: state.clipId, gridBeats: 0.5 });
+    assert.equal(proposal.gridAlignment.length, 2);
+    assert.deepEqual(proposal.actions, []);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("pitch analysis reports time-varying notes and unvoiced frames across the source window", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cavi-pitch-trajectory-"));
   try {

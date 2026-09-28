@@ -1063,6 +1063,17 @@ export class ToolService {
       }
       const after = await this.bridge.request("get_audio_clip_state", target);
       if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error("audio clip changed during transient proposal; retry against current state");
+      const preferredBySlot = new Map();
+      for (let index = 0; index < candidates.length; index++) {
+        const beatTime = converted.points[index].beatTime;
+        if (beatTime < before.markers.startBeats || beatTime > before.markers.endBeats) continue;
+        const slot = Math.round(beatTime / args.gridBeats);
+        const offset = Math.abs(beatTime - slot * args.gridBeats);
+        const previous = preferredBySlot.get(slot);
+        if (!previous || offset < previous.offset - 1e-9 ||
+          (Math.abs(offset - previous.offset) <= 1e-9 && candidates[index].strength > previous.strength))
+          preferredBySlot.set(slot, { index, offset, strength: candidates[index].strength });
+      }
       const actions = [], gridAlignment = [];
       for (let index = 0; index < candidates.length; index++) {
         const candidate = candidates[index], currentBeatTime = converted.points[index].beatTime;
@@ -1077,7 +1088,7 @@ export class ToolService {
             barDownbeat: slotInBar === 0,
             quarterPulse: Math.abs(targetBeatTime - Math.round(targetBeatTime)) < 1e-6,
             halfBeatUpbeat: Math.abs(targetBeatTime - Math.floor(targetBeatTime) - 0.5) < 1e-6 } : {}) });
-        if (!inClipRegion ||
+        if (!inClipRegion || preferredBySlot.get(slotIndex)?.index !== index ||
           targetBeatTime <= before.markers.startBeats || targetBeatTime >= before.markers.endBeats ||
           Math.abs(targetBeatTime - currentBeatTime) < 1e-6 ||
           before.warpMarkers.markers.some(marker => Math.abs(marker.beatTime - targetBeatTime) < 1e-6) ||
