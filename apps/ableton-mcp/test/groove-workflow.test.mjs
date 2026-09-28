@@ -20,6 +20,20 @@ test("bake inspection observes removed assignment without inventing action prove
   assert.throws(() => inspectGroovePostconditions("bake", before, after), /shared musical context/);
 });
 
+test("remove inspection requires the groove assignment alone to change", () => {
+  const before = snapshot(), after = snapshot();
+  after.timing.grooveId = null;
+  const result = inspectGroovePostconditions("remove", before, after);
+  assert.equal(result.postconditionsObserved, true);
+  assert.equal(result.sourceContentChanged, false);
+  assert.equal(result.actionProvenanceVerified, false);
+  after.source.content.notes[0].start = 0.5;
+  assert.throws(() => inspectGroovePostconditions("remove", before, after), /source content changed/);
+  after.source.content.notes[0].start = 0.25;
+  after.timing.loop.endBeats = 8;
+  assert.throws(() => inspectGroovePostconditions("remove", before, after), /unrelated clip timing changed/);
+});
+
 test("extraction inspection requires unchanged source and exactly one appended groove", () => {
   const before = snapshot(), after = snapshot();
   after.musicalContext.groove.pool.push({ id: "groove-1", name: "Extracted" });
