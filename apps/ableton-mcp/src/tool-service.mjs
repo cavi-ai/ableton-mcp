@@ -878,8 +878,9 @@ export class ToolService {
         query: args.query.trim(), maxDepth, limit, maxVisited });
       if (!args.includeMetadata) return observed;
       const library = this.#browserMetadataLibrary();
-      return { ...observed, results: observed.results.map((item) => ({ ...item,
-        metadata: typeof item.uri === "string" && item.uri ? library.get(item) : null })),
+      const spliceRoots = await listConfiguredSpliceRoots(this.spliceRoots);
+      return { ...observed, results: await Promise.all(observed.results.map(async (item) => ({ ...item,
+        metadata: typeof item.uri === "string" && item.uri ? library.get(await this.#browserMetadataIdentity(item, spliceRoots)) : null }))),
         metadataSource: "private_mcp", nativeLiveCollectionsModified: false };
     }
     if (name === "get_browser_items" || name === "get_factory_browser_items") {
@@ -890,9 +891,10 @@ export class ToolService {
       if (observed.root !== request.root || JSON.stringify(observed.path) !== JSON.stringify(request.path) ||
           !Array.isArray(observed.children)) throw new Error("invalid browser page observation");
       const library = this.#browserMetadataLibrary();
-      return { ...observed, children: observed.children.map(child => ({ ...child,
+      const spliceRoots = await listConfiguredSpliceRoots(this.spliceRoots);
+      return { ...observed, children: await Promise.all(observed.children.map(async child => ({ ...child,
         metadata: typeof child.uri === "string" && child.uri && typeof child.name === "string" && child.name
-          ? library.get({ root: request.root, path: [...request.path, child.name], uri: child.uri }) : null })),
+          ? library.get(await this.#browserMetadataIdentity({ root: request.root, path: [...request.path, child.name], uri: child.uri }, spliceRoots)) : null }))),
         metadataSource: "private_mcp", nativeLiveCollectionsModified: false };
     }
     if (name === "search_browser_items") {
@@ -901,8 +903,9 @@ export class ToolService {
       if (!args.includeMetadata) return observed;
       if (observed.root !== args.root || !Array.isArray(observed.results)) throw new Error("invalid browser search observation");
       const library = this.#browserMetadataLibrary();
-      return { ...observed, results: observed.results.map(item => ({ ...item,
-        metadata: typeof item.uri === "string" && item.uri ? library.get({ ...item, root: observed.root }) : null })),
+      const spliceRoots = await listConfiguredSpliceRoots(this.spliceRoots);
+      return { ...observed, results: await Promise.all(observed.results.map(async item => ({ ...item,
+        metadata: typeof item.uri === "string" && item.uri ? library.get(await this.#browserMetadataIdentity({ ...item, root: observed.root }, spliceRoots)) : null }))),
         metadataSource: "private_mcp", nativeLiveCollectionsModified: false };
     }
     if (name === "get_plugin_integration_context") {
@@ -2566,20 +2569,36 @@ export class ToolService {
     return typeof this.browserMetadata === "function" ? this.browserMetadata() : this.browserMetadata;
   }
 
+  async #browserMetadataIdentity(item, configuredRoots) {
+    if (item.root !== "user_folders" || !Array.isArray(item.path) || item.path.length < 2 ||
+        typeof item.uri !== "string" || this.#browserMetadataLibrary().get(item).revision > 0) return item;
+    const roots = configuredRoots ?? await listConfiguredSpliceRoots(this.spliceRoots);
+    for (const root of roots.roots) {
+      if (!root.available || ![root.rootPath, root.configuredPath].some(path =>
+        item.uri === `userfolder:${path}#${item.path.slice(1).join(":")}`)) continue;
+      try {
+        return canonicalLocalSpliceMetadataItem(
+          await observeLocalSpliceSample(root.rootPath, item.path.slice(1).join("/")), roots);
+      } catch { return item; }
+    }
+    return item;
+  }
+
   async #getBrowserItemMetadata(args) {
     const item = await this.#observeBrowserMetadataItem(args);
-    return { item, metadata: this.#browserMetadataLibrary().get(item), nativeLiveCollectionsModified: false };
+    return { item, metadata: this.#browserMetadataLibrary().get(await this.#browserMetadataIdentity(item)), nativeLiveCollectionsModified: false };
   }
 
   async #setBrowserItemMetadata(args) {
     const item = await this.#observeBrowserMetadataItem(args);
+    const metadataIdentity = await this.#browserMetadataIdentity(item);
     const changes = { favorite: args.favorite, tags: args.tags };
-    const update = this.#browserMetadataLibrary().plan(item, args.expectedMetadataRevision, changes);
-    const plan = { method: "set_browser_item_metadata", item, expectedMetadataRevision: args.expectedMetadataRevision,
+    const update = this.#browserMetadataLibrary().plan(metadataIdentity, args.expectedMetadataRevision, changes);
+    const plan = { method: "set_browser_item_metadata", item, metadataIdentity, expectedMetadataRevision: args.expectedMetadataRevision,
       before: update.before, after: update.after, nativeLiveCollectionsModified: false };
     if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
     this.#consumeConfirmation(plan, args);
-    const observed = this.#browserMetadataLibrary().set(item, args.expectedMetadataRevision, changes);
+    const observed = this.#browserMetadataLibrary().set(metadataIdentity, args.expectedMetadataRevision, changes);
     return { dryRun: false, requested: plan, observed, nativeLiveCollectionsModified: false, timestamp: new Date().toISOString() };
   }
 
