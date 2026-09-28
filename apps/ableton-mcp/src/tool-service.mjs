@@ -1136,7 +1136,8 @@ export class ToolService {
           bucket.push(hit);
           buckets.set(slot, bucket);
         }
-        feelSummary = { gridBeats: args.gridBeats, bars: args.feelBars, barBeats: meter.barBeats,
+        feelSummary = { format: "cavi-audio-feel-v1", gridBeats: args.gridBeats, bars: args.feelBars, barBeats: meter.barBeats,
+          nativeGrooveId: null,
           cycleBeats, slotCount, source: { ...target, stateVersion: after.stateVersion,
             sourcePath: before.source.path },
           slots: [...buckets].sort(([left], [right]) => left - right).map(([slot, hits]) => {

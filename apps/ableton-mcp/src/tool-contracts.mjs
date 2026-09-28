@@ -45,6 +45,25 @@ const midiFeelTemplate = object({
   ["slot", "hitCount", "meanOffsetBeats", "meanVelocity"]), "Nonempty measured slots from analyze_midi_feel."),
     minItems: 1, maxItems: 4096 }
 }, ["format", "grid", "bars", "barBeats", "nativeGrooveId", "source", "slots"]);
+const audioFeelTemplate = object({
+  format: { const: "cavi-audio-feel-v1" },
+  gridBeats: number("Measured source-audio grid spacing in quarter-note beats.", { exclusiveMinimum: 0, maximum: 16 }),
+  bars: { type: "integer", minimum: 1, maximum: 8 },
+  barBeats: number("Quarter-note beats per source bar.", { exclusiveMinimum: 0 }),
+  cycleBeats: number("Measured cycle length in quarter-note beats.", { exclusiveMinimum: 0 }),
+  slotCount: { type: "integer", minimum: 1, maximum: 4096 },
+  nativeGrooveId: { type: "null" },
+  source: object({ trackId: ids.trackId, clipId: ids.clipId,
+    stateVersion: { type: "integer", minimum: 1 }, sourcePath: string("Measured local audio source path.") },
+  ["trackId", "clipId", "stateVersion", "sourcePath"]),
+  slots: { ...array(object({ slot: { type: "integer", minimum: 0 },
+    hitCount: { type: "integer", minimum: 1 }, reliableTimingHits: { type: "integer", minimum: 0 },
+    meanOffsetBeats: { type: ["number", "null"] },
+    meanStrength: number("Measured source onset strength; not MIDI velocity.", { minimum: 0, maximum: 1 }) },
+  ["slot", "hitCount", "reliableTimingHits", "meanOffsetBeats", "meanStrength"]),
+  "Nonempty measured source-audio feel slots."), minItems: 1, maxItems: 4096 },
+  limitation: string("Measurement boundary and source-audio limitations.")
+}, ["format", "gridBeats", "bars", "barBeats", "nativeGrooveId", "source", "slots"]);
 const device = object({ trackId: ids.deviceOwnerId, deviceId: ids.deviceId }, ["trackId", "deviceId"]);
 const snapshotParameter = object({ originalName: string("Native parameter identity in index order."),
   min: number("Native minimum."), max: number("Native maximum."), quantized: boolean("Native quantization."),
@@ -468,7 +487,7 @@ const contracts = {
   analyze_midi_feel: { description: "Measure stored MIDI note timing offsets and velocity accents by straight-sixteenth, eighth-triplet, or sixteenth-triplet slot over one to eight bars in the clip's meter. Read-only; reports any assigned native groove but cannot measure its playback effect or extract a Live Groove Pool pattern.", inputSchema: object({ trackId: ids.trackId, clipId: ids.clipId, grid: { type: "string", enum: ["straight16", "eighthTriplet", "sixteenthTriplet"] }, bars: { type: "integer", minimum: 1, maximum: 8, description: "Number of clip-meter bars in the repeating analysis cycle; defaults to one." } }, ["trackId", "clipId", "grid"]) },
   save_midi_feel_template: { description: "Analyze one exact MIDI clip and save its stored-note timing and velocity template in the private named local library. Never overwrites. Rejects clips assigned a native groove; does not capture Groove Pool playback effects.", inputSchema: object({ name: string("New local template name; letters, numbers, dot, underscore and hyphen only."), trackId: ids.trackId, clipId: ids.clipId, grid: { type: "string", enum: ["straight16", "eighthTriplet", "sixteenthTriplet"] }, bars: { type: "integer", minimum: 1, maximum: 8 } }, ["name", "trackId", "clipId", "grid"]) },
   load_midi_feel_template: { description: "Load a named stored-MIDI feel template from the private local library for review or guarded transfer. Does not change Live or retrieve native Groove Pool patterns.", inputSchema: object({ name: string("Exact saved MIDI feel template name.") }, ["name"]) },
-  apply_midi_feel_template: { description: "Plan or transfer a compact stored-MIDI feel template from analyze_midi_feel onto exact target note IDs with independent 0..1 timing and velocity blends. Preserves note IDs, durations and expression metadata through guarded per-note edits. Rejects a target with an assigned native groove; this is not Live Groove Pool baking.", inputSchema: guarded({ trackId: ids.trackId, clipId: ids.clipId, template: midiFeelTemplate,
+  apply_midi_feel_template: { description: "Plan or transfer a stored-MIDI feel template or measured source-audio feel summary onto exact target note IDs. MIDI templates support timing and velocity blends; audio feel is timing-only and requires velocityAmount zero because audio strength is not MIDI velocity. Preserves note IDs, durations and expression metadata through guarded per-note edits. Rejects a target with an assigned native groove; this is not Live Groove Pool baking.", inputSchema: guarded({ trackId: ids.trackId, clipId: ids.clipId, template: { oneOf: [midiFeelTemplate, audioFeelTemplate] },
     timingAmount: number("Blend toward template timing; zero preserves each target start.", { minimum: 0, maximum: 1 }),
     velocityAmount: number("Blend toward template mean velocity; zero preserves each target velocity.", { minimum: 0, maximum: 1 }),
     noteIds: { ...array({ type: "integer" }, "Optional exact target note IDs; omit to transfer to all notes at populated slots."), minItems: 1, maxItems: 4096, uniqueItems: true }

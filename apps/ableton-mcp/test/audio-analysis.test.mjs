@@ -281,6 +281,8 @@ test("transient warp proposal uses native beats and returns reviewable source-pr
     assert.equal(proposal.stateVersion, 4);
     assert.equal(proposal.nativeConversion, true);
     assert.deepEqual(proposal.meter, { numerator: 4, denominator: 4, barBeats: 4, slotsPerBar: 8 });
+    assert.equal(proposal.feelSummary.format, "cavi-audio-feel-v1");
+    assert.equal(proposal.feelSummary.nativeGrooveId, null);
     assert.deepEqual(proposal.feelSummary.slots.map(({ slot, hitCount, meanOffsetBeats }) =>
       ({ slot, hitCount, meanOffsetBeats })), [
       { slot: 1, hitCount: 1, meanOffsetBeats: -0.1 },

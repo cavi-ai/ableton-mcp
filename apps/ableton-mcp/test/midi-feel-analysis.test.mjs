@@ -30,3 +30,21 @@ test("MIDI feel transfer refuses a template without source identity", () => {
     template, timingAmount: 1, velocityAmount: 1
   }), /source identity/);
 });
+
+test("audio feel transfers reliable timing only and never infers MIDI velocity", () => {
+  const observed = { stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-0", lengthBeats: 4,
+    notes: [{ noteId: 7, pitch: 42, start: 0.25, duration: 0.1, velocity: 50 },
+      { noteId: 8, pitch: 42, start: 0.5, duration: 0.1, velocity: 60 }] };
+  const timing = { timeSignature: { numerator: 4, denominator: 4 }, grooveId: null };
+  const template = { format: "cavi-audio-feel-v1", gridBeats: 0.25, bars: 1, barBeats: 4,
+    nativeGrooveId: null,
+    source: { trackId: "track-1", clipId: "track-1:clip-0", stateVersion: 4, sourcePath: "/audio/source.wav" },
+    slots: [{ slot: 1, hitCount: 1, reliableTimingHits: 1, meanOffsetBeats: 0.04, meanStrength: 0.7 },
+      { slot: 2, hitCount: 1, reliableTimingHits: 0, meanOffsetBeats: null, meanStrength: 0.5 }] };
+  assert.deepEqual(planMidiFeelTransfer(observed, timing, {
+    template, timingAmount: 1, velocityAmount: 0
+  }), [{ noteId: 7, start: 0.29 }]);
+  assert.throws(() => planMidiFeelTransfer(observed, timing, {
+    template, timingAmount: 1, velocityAmount: 0.2
+  }), /audio feel.*velocity/i);
+});
