@@ -766,7 +766,8 @@ export class ToolService {
           expectedInstrumentProfileId: pluginId ? null : expected.instrumentProfileId, expectedPluginId: pluginId,
           observedInstrumentProfileIds, observedPluginIds, instrumentMatches,
           grouped: track.groupTrackId === args.busTrackId,
-          routed: routing.output?.type?.id === args.busTrackId });
+          routed: routing.output?.type?.id === args.busTrackId ||
+            (track.groupTrackId === args.busTrackId && routing.output?.type?.id === "Group") });
       }
       return { target: args.target, busTrackId: args.busTrackId, stateVersion: trackList.stateVersion,
         busChain, children,
