@@ -3657,6 +3657,7 @@ class DispatchTest(unittest.TestCase):
 
     def test_track_state_recall_applies_complete_target_in_one_undo_step(self):
         song = Song()
+        song.tracks[0].devices[0].class_name = "Operator"
         before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
         target = {
             "format": "cavi-track-state-v1",
@@ -3665,7 +3666,7 @@ class DispatchTest(unittest.TestCase):
                       "sends": [{"id": "send-0", "name": "Reverb", "value": 0.6}]},
             "routing": {"inputTypeId": "all-ins", "inputChannelId": "all-channels",
                         "outputTypeId": "main", "outputChannelId": "post-mixer", "monitoring": 1},
-            "devices": [{"name": "Saved Device", "className": "PluginDevice", "type": "unknown",
+            "devices": [{"name": "Saved Device", "className": "Operator", "type": "unknown",
                          "parameters": [{"originalName": "Filter Freq", "min": 0.0, "max": 1.0,
                                          "quantized": False, "valueItems": [], "value": 0.9},
                                         {"originalName": "Filter Type", "min": 0.0, "max": 2.0,
@@ -3683,6 +3684,7 @@ class DispatchTest(unittest.TestCase):
 
     def test_track_state_recall_rolls_back_prior_writes_on_failure(self):
         song = Song()
+        song.tracks[0].devices[0].class_name = "Operator"
         before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
         target = {
             "format": "cavi-track-state-v1",
@@ -3691,7 +3693,7 @@ class DispatchTest(unittest.TestCase):
                       "sends": [{"id": "send-0", "name": "Reverb", "value": 0.2}]},
             "routing": {"inputTypeId": "all-ins", "inputChannelId": "all-channels",
                         "outputTypeId": "main", "outputChannelId": "post-mixer", "monitoring": 1},
-            "devices": [{"name": "Device", "className": "PluginDevice", "type": "unknown",
+            "devices": [{"name": "Device", "className": "Operator", "type": "unknown",
                          "parameters": [{"originalName": "Filter Freq", "min": 0.0, "max": 1.0,
                                          "quantized": False, "valueItems": [], "value": 0.9},
                                         {"originalName": "Filter Type", "min": 0.0, "max": 2.0,
@@ -3786,6 +3788,7 @@ class DispatchTest(unittest.TestCase):
                 song = Song()
                 owner = song.return_tracks[0] if owner_id == "return-0" else song.master_track
                 owner.devices = [Device()]
+                owner.devices[0].class_name = "Operator"
                 before = dispatch_request(song, {"method": "get_device_chain_snapshot", "params": {"trackId": owner_id}}, 6)
                 target = _persisted_device_chain(before)
                 target["devices"][0]["name"] = "Saved Device"
@@ -3797,6 +3800,22 @@ class DispatchTest(unittest.TestCase):
                 self.assertEqual(owner.devices[0].name, "Saved Device")
                 self.assertEqual(owner.devices[0].parameters[0].value, 0.25)
                 self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
+
+    def test_native_snapshots_reject_plugin_device_rename_before_undo(self):
+        for getter, setter, persist in (
+            ("get_device_chain_snapshot", "set_device_chain_snapshot", _persisted_device_chain),
+            ("get_track_state_snapshot", "set_track_state_snapshot", _persisted_track_state),
+        ):
+            with self.subTest(setter=setter):
+                song = Song()
+                before = dispatch_request(song, {"method": getter, "params": {"trackId": "track-0"}}, 6)
+                target = persist(before)
+                target["devices"][0]["name"] = "Bass Texture"
+                with self.assertRaisesRegex(ValueError, "plug-in device name.*cannot be changed"):
+                    dispatch_request(song, {"method": setter, "params": {
+                        "trackId": "track-0", "before": before, "target": target}}, 6)
+                self.assertEqual(song.tracks[0].devices[0].name, "Serum 2")
+                self.assertEqual(song.undo_boundaries, [])
 
     def test_return_chain_snapshot_restores_mixer_and_fx_in_one_undo_step(self):
         song = Song()

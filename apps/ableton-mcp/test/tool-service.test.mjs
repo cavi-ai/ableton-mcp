@@ -1360,6 +1360,23 @@ test("device chain snapshots capture and recall exact bus topology", async () =>
   assert.equal(mutations.length, 1);
 });
 
+test("device chain recall rejects a plug-in rename before issuing confirmation", async () => {
+  const observed = { stateVersion: 9, trackId: "track-0", devices: [{
+    id: "track-0:device-0", name: "Serum 2", className: "PluginDevice", type: "instrument",
+    parameters: [{ id: "parameter-0", originalName: "Device On", min: 0, max: 1,
+      quantized: true, valueItems: ["Off", "On"], value: 1, enabled: true }]
+  }] };
+  const service = new ToolService({ bridge: { async request(method) {
+    if (method === "get_device_chain_snapshot") return structuredClone(observed);
+    throw new Error(`unexpected bridge request ${method}`);
+  } } });
+  const { snapshot } = await service.call("capture_device_chain_snapshot", { trackId: "track-0" });
+  snapshot.devices[0].name = "Bass Texture";
+  await assert.rejects(() => service.call("recall_device_chain_snapshot", {
+    trackId: "track-0", expectedStateVersion: 9, snapshot
+  }), /plug-in device name.*cannot be changed/);
+});
+
 test("device chain snapshots capture and validate nested rack topology", async () => {
   const parameter = { id: "parameter-0", originalName: "Cutoff", min: 0, max: 1,
     quantized: false, valueItems: [], value: 0.4, enabled: true };

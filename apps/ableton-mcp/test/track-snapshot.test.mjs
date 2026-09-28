@@ -193,6 +193,18 @@ test('track recall rejects incompatible type, device order, parameter layout and
   await assert.rejects(recall, /stateVersion/);
 });
 
+test('track recall rejects a plug-in device rename before issuing confirmation', async () => {
+  const { service, native } = fixture();
+  native.devices[0].name = 'Serum 2';
+  native.devices[0].className = 'PluginDevice';
+  native.devices[0].type = 'instrument';
+  const { snapshot } = await service.call('capture_track_state_snapshot', { trackId: 'track-0' });
+  snapshot.devices[0].name = 'Bass Texture';
+  await assert.rejects(() => service.call('recall_track_state_snapshot', {
+    trackId: 'track-0', expectedStateVersion: 7, snapshot
+  }), /plug-in device name.*cannot be changed/);
+});
+
 test('track recall rejects a captured child after its parent group changes', async () => {
   const { service, native } = fixture();
   native.track.isGrouped = true;

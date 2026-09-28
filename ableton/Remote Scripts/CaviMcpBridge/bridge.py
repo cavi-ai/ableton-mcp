@@ -3570,6 +3570,8 @@ def dispatch_request(song, request, state_version, application=None):
                     not isinstance(saved_device.get("parameters"), list) or
                     len(saved_device["parameters"]) != len(native_device["parameters"])):
                 raise ValueError("device chain topology mismatch")
+            if native_device["className"] == "PluginDevice" and saved_device["name"] != native_device["name"]:
+                raise ValueError("plug-in device name cannot be changed by snapshot recall in Live")
             for saved, native in zip(saved_device["parameters"], native_device["parameters"]):
                 if any(saved.get(field) != native[field] for field in ("originalName", "min", "max", "quantized", "valueItems")):
                     raise ValueError("device parameter layout mismatch")
@@ -3710,6 +3712,8 @@ def dispatch_request(song, request, state_version, application=None):
         def validate_device(saved_device, native_device):
             if saved_device["className"] != native_device["className"] or saved_device["type"] != native_device["type"] or len(saved_device["parameters"]) != len(native_device["parameters"]):
                 raise ValueError("snapshot device topology mismatch")
+            if native_device["className"] == "PluginDevice" and saved_device["name"] != native_device["name"]:
+                raise ValueError("plug-in device name cannot be changed by snapshot recall in Live")
             for saved, native in zip(saved_device["parameters"], native_device["parameters"]):
                 if any(saved[field] != native[field] for field in ("originalName", "min", "max", "quantized", "valueItems")):
                     raise ValueError("snapshot parameter layout mismatch")

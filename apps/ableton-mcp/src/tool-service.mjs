@@ -162,6 +162,8 @@ function validateChainDevice(saved, native, format, label = "device chain") {
       !Array.isArray(saved.parameters) || saved.parameters.length !== native.parameters.length) {
     throw new Error(`${label} topology mismatch`);
   }
+  if (native.className === "PluginDevice" && saved.name !== native.name)
+    throw new Error("plug-in device name cannot be changed by snapshot recall in Live");
   saved.parameters.forEach((parameter, index) => {
     const current = native.parameters[index];
     for (const field of ["originalName", "min", "max", "quantized", "valueItems"]) {
