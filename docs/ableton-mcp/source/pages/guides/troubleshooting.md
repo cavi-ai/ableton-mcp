@@ -22,7 +22,7 @@ Selecting the Control Surface again restarts the bridge and recreates the socket
 
 The socket file exists, but no bridge owns it. This usually follows a Live crash. Select the Control Surface again, or restart Live.
 
-## `outdated bridge: expected 0.1.0` or missing capabilities
+## `outdated bridge: expected {{PRODUCT_VERSION}}` or missing capabilities
 
 Live loaded an older copy of the script. On macOS, a copy inside the application bundle takes precedence over the User Library copy. See [Installation](../introduction/installation.md#an-older-copy-inside-the-application-bundle).
 

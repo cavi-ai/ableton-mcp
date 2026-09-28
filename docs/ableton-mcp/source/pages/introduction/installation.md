@@ -43,4 +43,4 @@ Then restart Live. This modifies the application bundle; the default install doe
 npm run cli -- doctor --json
 ```
 
-`ok: true` means the bridge answered on the socket, reports version 0.1.0, and advertises every capability the server needs. If it doesn't, see [Troubleshooting](../guides/troubleshooting.md).
+`ok: true` means the bridge answered on the socket, reports version {{PRODUCT_VERSION}}, and advertises every capability the server needs. If it doesn't, see [Troubleshooting](../guides/troubleshooting.md).

@@ -17,7 +17,7 @@ try:
 except ImportError:
     from protocol import decode_lines, encode_message
 
-BRIDGE_VERSION = "0.1.0"
+BRIDGE_VERSION = "0.2.0"
 with open(os.path.join(os.path.dirname(__file__), "capabilities.json"), encoding="utf-8") as capability_file:
     CAPABILITIES = tuple(json.load(capability_file))
 
@@ -2541,7 +2541,8 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "get_live_state":
         groove_pool = getattr(song, "groove_pool", None)
         return {"stateVersion": state_version, "setFingerprint": fingerprint, "tempo": song.tempo, "isPlaying": song.is_playing,
-                "filePath": getattr(song, "file_path", None), "bridgeVersion": BRIDGE_VERSION, "capabilities": list(CAPABILITIES),
+                "filePath": getattr(song, "file_path", None), "bridgeVersion": BRIDGE_VERSION,
+                "scriptDirectory": os.path.realpath(os.path.dirname(__file__)), "capabilities": list(CAPABILITIES),
                 "nativeApiSupport": {"groupTracks": callable(getattr(song, "group_tracks", None)),
                                      "ungroupTrack": callable(getattr(song, "ungroup_track", None)),
                                      "groovePoolCreate": groove_pool is not None and callable(getattr(groove_pool, "create_groove", None))}}

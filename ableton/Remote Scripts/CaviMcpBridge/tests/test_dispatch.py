@@ -3564,6 +3564,10 @@ class DispatchTest(unittest.TestCase):
         result = dispatch_request(song, {"method": "get_live_state"}, 4)
         self.assertEqual(result["filePath"], "/tmp/Untitled.als")
 
+    def test_live_state_identifies_the_loaded_remote_script_directory(self):
+        result = dispatch_request(Song(), {"method": "get_live_state"}, 4)
+        self.assertEqual(result["scriptDirectory"], os.path.realpath(os.path.dirname(os.path.dirname(__file__))))
+
     def test_track_state_snapshot_is_one_native_callback_with_ordered_device_parameters(self):
         song = Song()
         result = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
@@ -4163,7 +4167,7 @@ class DispatchTest(unittest.TestCase):
         song = Song()
         status = dispatch_request(song, {"method": "get_live_state", "params": {}}, 4)
         self.assertEqual(status["stateVersion"], 4)
-        self.assertEqual(status["bridgeVersion"], "0.1.0")
+        self.assertEqual(status["bridgeVersion"], "0.2.0")
         self.assertIn("list_scenes", status["capabilities"])
         self.assertIn("create_rack_chain", status["capabilities"])
         self.assertIn("move_device_to_chain", status["capabilities"])
