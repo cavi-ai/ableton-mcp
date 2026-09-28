@@ -1059,15 +1059,19 @@ export class ToolService {
         preceding.points.some((point, index) => point.sourceSeconds !== precedingSeconds[index] || !Number.isFinite(point.beatTime))))
         throw new Error("native detector-resolution conversion does not match the observed audio clip");
       let meter;
-      if (args.includeMusicalRoles) {
+      if (args.feelBars !== undefined && (!Number.isInteger(args.feelBars) || args.feelBars < 1 || args.feelBars > 8))
+        throw new Error("feelBars must be an integer from one to eight");
+      if (args.includeMusicalRoles || args.feelBars !== undefined) {
         const timing = await this.bridge.request("get_clip_timing", target);
         if (timing.trackId !== target.trackId || timing.clipId !== target.clipId || timing.stateVersion !== before.stateVersion)
           throw new Error("clip timing changed during transient proposal");
+        if (args.feelBars !== undefined && timing.grooveId != null)
+          throw new Error("assigned native groove playback cannot be captured as source-audio feel");
         const { numerator, denominator } = timing.timeSignature ?? {};
         const barBeats = numerator * 4 / denominator;
         const slotsPerBar = Math.round(barBeats / args.gridBeats);
         if (!Number.isInteger(numerator) || numerator < 1 || ![1, 2, 4, 8, 16].includes(denominator) ||
-          !Number.isFinite(slotsPerBar) || slotsPerBar < 1 || slotsPerBar > 4096 ||
+          !Number.isFinite(slotsPerBar) || slotsPerBar < 1 || slotsPerBar * (args.feelBars ?? 1) > 4096 ||
           Math.abs(slotsPerBar * args.gridBeats - barBeats) > 1e-6)
           throw new Error("clip meter is unavailable or grid does not divide a bar");
         meter = { numerator, denominator, barBeats, slotsPerBar };
@@ -1118,8 +1122,34 @@ export class ToolService {
           targetBeatTime, method: existing ? "move_audio_warp_marker" : "add_audio_warp_marker",
           ...(existing ? { beatTime: existing.beatTime } : { beatTime: targetBeatTime, sampleTime: candidate.sourceSeconds }) });
       }
+      let feelSummary;
+      if (args.feelBars !== undefined) {
+        const cycleBeats = meter.barBeats * args.feelBars;
+        const slotCount = meter.slotsPerBar * args.feelBars;
+        const buckets = new Map();
+        for (let index = 0; index < gridAlignment.length; index++) {
+          const hit = gridAlignment[index];
+          const absoluteSlot = Math.round(hit.nearestGridBeatTime / args.gridBeats);
+          if (!hit.inClipRegion || preferredBySlot.get(absoluteSlot)?.index !== index) continue;
+          const slot = ((absoluteSlot % slotCount) + slotCount) % slotCount;
+          const bucket = buckets.get(slot) ?? [];
+          bucket.push(hit);
+          buckets.set(slot, bucket);
+        }
+        feelSummary = { gridBeats: args.gridBeats, bars: args.feelBars, barBeats: meter.barBeats,
+          cycleBeats, slotCount, source: { ...target, stateVersion: after.stateVersion,
+            sourcePath: before.source.path },
+          slots: [...buckets].sort(([left], [right]) => left - right).map(([slot, hits]) => {
+            const reliable = hits.filter(hit => !hit.withinDetectorResolution);
+            return { slot, hitCount: hits.length, reliableTimingHits: reliable.length,
+              meanOffsetBeats: reliable.length ? reliable.reduce((sum, hit) => sum + hit.signedOffsetBeats, 0) / reliable.length : null,
+              meanStrength: hits.reduce((sum, hit) => sum + hit.strength, 0) / hits.length };
+          }),
+          limitation: "Source-audio onset feel from the measured window only. Offsets within one detector hop are unresolvable and excluded from timing means; strength is not MIDI velocity. Not native Groove Pool extraction, playback-groove measurement, or an applied template." };
+      }
       return { ...target, stateVersion: after.stateVersion, gridBeats: args.gridBeats,
         ...(meter ? { meter } : {}),
+        ...(feelSummary ? { feelSummary } : {}),
         nativeConversion: true, sourcePath: before.source.path, sourceWindow: measurement.window,
         candidateCount: candidates.length, gridAlignment, actions,
         limitation: "Heuristic source-only candidates and review-only actions. Offsets no larger than one 10-ms detector hop in native beat coordinates are reported but not proposed as marker edits. Each remaining marker must be dry-run against fresh Live state; neighbor/BPM constraints may reject it. Does not modify or audibly validate the clip." };

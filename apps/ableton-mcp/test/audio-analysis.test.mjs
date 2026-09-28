@@ -275,12 +275,18 @@ test("transient warp proposal uses native beats and returns reviewable source-pr
     } } });
     const reply = await createRouter(service)({ id: 1, method: "tools/call", params: {
       name: "propose_audio_transient_warp", arguments: { trackId: "track-2", clipId: "track-2:clip-0",
-        gridBeats: 0.5, startSeconds: 0.1, durationSeconds: 0.8, includeMusicalRoles: true } } });
+        gridBeats: 0.5, startSeconds: 0.1, durationSeconds: 0.8, includeMusicalRoles: true, feelBars: 1 } } });
     assert.equal(reply.error, undefined);
     const proposal = reply.result.structuredContent;
     assert.equal(proposal.stateVersion, 4);
     assert.equal(proposal.nativeConversion, true);
     assert.deepEqual(proposal.meter, { numerator: 4, denominator: 4, barBeats: 4, slotsPerBar: 8 });
+    assert.deepEqual(proposal.feelSummary.slots.map(({ slot, hitCount, meanOffsetBeats }) =>
+      ({ slot, hitCount, meanOffsetBeats })), [
+      { slot: 1, hitCount: 1, meanOffsetBeats: -0.1 },
+      { slot: 2, hitCount: 1, meanOffsetBeats: 0.2 }]);
+    assert.deepEqual(proposal.feelSummary.source, {
+      trackId: "track-2", clipId: "track-2:clip-0", stateVersion: 4, sourcePath });
     assert.deepEqual(proposal.gridAlignment.map(({ barIndex, slotInBar, barDownbeat, quarterPulse, halfBeatUpbeat }) =>
       ({ barIndex, slotInBar, barDownbeat, quarterPulse, halfBeatUpbeat })), [
       { barIndex: 0, slotInBar: 1, barDownbeat: false, quarterPulse: false, halfBeatUpbeat: true },
