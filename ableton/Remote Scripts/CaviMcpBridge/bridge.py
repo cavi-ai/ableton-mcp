@@ -3270,26 +3270,40 @@ def dispatch_request(song, request, state_version, application=None):
             end = _change_value(changes["endMarker" + suffix]) if "endMarker" + suffix in changes else clip.end_marker
             if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start:
                 raise ValueError("invalid audio marker interval")
+        writes = []
+        def write(attribute, value):
+            previous = getattr(clip, attribute)
+            if previous != value:
+                setattr(clip, attribute, value)
+                writes.append((attribute, previous))
         with _undo_step(song):
-            for source, target in (("gain", "gain"), ("pitchCoarse", "pitch_coarse"),
-                                   ("pitchFine", "pitch_fine"), ("warping", "warping"),
-                                   ("warpMode", "warp_mode")):
-                if source in changes:
-                    setattr(clip, target, _change_value(changes[source]))
-            if requested_markers:
-                if not clip.looping:
-                    if start >= clip.loop_end:
-                        clip.loop_end = end
-                        clip.loop_start = start
+            try:
+                for source, target in (("gain", "gain"), ("pitchCoarse", "pitch_coarse"),
+                                       ("pitchFine", "pitch_fine"), ("warping", "warping"),
+                                       ("warpMode", "warp_mode")):
+                    if source in changes:
+                        write(target, _change_value(changes[source]))
+                if requested_markers:
+                    if not clip.looping:
+                        if start >= clip.loop_end:
+                            write("loop_end", end)
+                            write("loop_start", start)
+                        else:
+                            write("loop_start", start)
+                            write("loop_end", end)
+                    if start >= clip.end_marker:
+                        write("end_marker", end)
+                        write("start_marker", start)
                     else:
-                        clip.loop_start = start
-                        clip.loop_end = end
-                if start >= clip.end_marker:
-                    clip.end_marker = end
-                    clip.start_marker = start
-                else:
-                    clip.start_marker = start
-                    clip.end_marker = end
+                        write("start_marker", start)
+                        write("end_marker", end)
+            except Exception as error:
+                try:
+                    for attribute, previous in reversed(writes):
+                        setattr(clip, attribute, previous)
+                except Exception as rollback_error:
+                    raise RuntimeError(f"audio clip edit failed: {error}; rollback failed: {rollback_error}; use Live undo") from error
+                raise
         return _audio_clip_state(song, track_id, clip_id, state_version + 1)
     if method == "crop_audio_clip":
         track_id, clip_id = params["trackId"], params["clipId"]

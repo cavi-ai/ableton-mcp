@@ -1911,6 +1911,26 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(changed["pitch"], {"coarse": -12, "fine": 17})
         self.assertEqual(changed["markers"], {"unit": "beats", "startBeats": 1.0, "endBeats": 7.0})
 
+    def test_audio_clip_state_restores_gain_when_native_warp_mode_write_fails(self):
+        class WarpModeWriteFails(AudioClip):
+            def __setattr__(self, name, value):
+                if name == "warp_mode" and getattr(self, "fail_warp_mode", False):
+                    raise RuntimeError("native warp mode write failed")
+                super().__setattr__(name, value)
+
+        song = Song()
+        clip = WarpModeWriteFails()
+        clip.fail_warp_mode = True
+        song.tracks[0].clip_slots[2].clip = clip
+        params = {"trackId": "track-0", "clipId": "track-0:clip-2"}
+        before = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
+        with self.assertRaisesRegex(RuntimeError, "native warp mode write failed"):
+            dispatch_request(song, {"method": "set_audio_clip_state", "params": {
+                **params, "before": before,
+                "changes": {"gain": {"value": 0.8}, "warpMode": {"value": 6}}
+            }}, 3)
+        self.assertEqual(clip.gain, 0.5)
+
     def test_device_sidechain_routing_reads_native_ids_and_unsupported_devices(self):
         song = Song()
         params = {"trackId": "track-0", "deviceId": "track-0:device-0"}
