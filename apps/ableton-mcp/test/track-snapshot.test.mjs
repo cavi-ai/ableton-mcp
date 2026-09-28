@@ -66,6 +66,60 @@ test('track snapshot captures one consistent JSON state for mixer routing and or
   assert.equal(result.stateVersion, 7);
 });
 
+test('group-system capture saves the parent, nested group and descendant tracks in Live order', async () => {
+  const directory = await mkdtemp(`${tmpdir()}/cavi-group-system-test-`);
+  const tracks = [
+    { id: 'track-0', name: 'Bass Bus', type: 'group', isGroup: true, isGrouped: false, groupTrackId: null },
+    { id: 'track-1', name: 'Sub Bus', type: 'group', isGroup: true, isGrouped: true, groupTrackId: 'track-0' },
+    { id: 'track-2', name: 'Sub Bass', type: 'midi', isGroup: false, isGrouped: true, groupTrackId: 'track-1' },
+    { id: 'track-3', name: 'Top Bass', type: 'midi', isGroup: false, isGrouped: true, groupTrackId: 'track-0' },
+    { id: 'track-4', name: 'Unrelated', type: 'audio', isGroup: false, isGrouped: false, groupTrackId: null },
+  ];
+  const bridge = { async request(method, args) {
+    if (method === 'list_tracks') return { stateVersion: 7, tracks: structuredClone(tracks) };
+    if (method !== 'get_track_state_snapshot') throw new Error(method);
+    const track = tracks.find(item => item.id === args.trackId);
+    return { stateVersion: 7, trackId: track.id, track: structuredClone(track),
+      mixer: { volume: { value: 0.8 }, pan: { value: 0 }, mute: false, solo: false, sends: [] },
+      routing: { input: { type: null, channel: null }, output: { type: null, channel: null }, monitoring: null },
+      devices: [] };
+  } };
+  const groupSystemLibrary = new SnapshotLibrary({ directory, formats: ['cavi-group-system-v1'] });
+  const service = new ToolService({ bridge, groupSystemLibrary });
+  try {
+    const capture = await service.call('capture_group_system_snapshot', { busTrackId: 'track-0' });
+    assert.equal(capture.snapshot.format, 'cavi-group-system-v1');
+    assert.deepEqual(capture.snapshot.tracks.map(item => item.sourceTrackId), ['track-0', 'track-1', 'track-2', 'track-3']);
+    assert.deepEqual(capture.snapshot.tracks.map(item => item.snapshot.track.groupTrackId),
+      [null, 'track-0', 'track-1', 'track-0']);
+    const saved = await service.call('save_group_system_snapshot', { busTrackId: 'track-0', name: 'layered-bass' });
+    assert.equal(saved.name, 'layered-bass');
+    const loaded = await service.call('load_group_system_snapshot', { name: 'layered-bass' });
+    assert.deepEqual(loaded.snapshot, capture.snapshot);
+    assert.deepEqual((await service.call('list_saved_snapshots', { kind: 'group-system' })).names, ['layered-bass']);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('group-system capture rejects a changed child snapshot instead of saving mixed Live states', async () => {
+  const tracks = [
+    { id: 'track-0', name: 'Bus', type: 'group', isGroup: true, isGrouped: false, groupTrackId: null },
+    { id: 'track-1', name: 'Bass', type: 'midi', isGroup: false, isGrouped: true, groupTrackId: 'track-0' },
+  ];
+  const service = new ToolService({ bridge: { async request(method, args) {
+    if (method === 'list_tracks') return { stateVersion: 7, tracks };
+    if (method === 'get_track_state_snapshot') return {
+      stateVersion: args.trackId === 'track-1' ? 8 : 7, trackId: args.trackId,
+      track: tracks.find(track => track.id === args.trackId),
+      mixer: { volume: { value: 0.8 }, pan: { value: 0 }, mute: false, solo: false, sends: [] },
+      routing: { input: { type: null, channel: null }, output: { type: null, channel: null }, monitoring: null },
+      devices: [],
+    };
+    throw new Error(method);
+  } } });
+  await assert.rejects(() => service.call('capture_group_system_snapshot', { busTrackId: 'track-0' }),
+    /state.*changed/i);
+});
+
 test('track snapshot saves nested rack state and plans compatible nested recall', async () => {
   const directory = await mkdtemp(`${tmpdir()}/cavi-nested-track-test-`);
   try {
