@@ -385,6 +385,8 @@ def _audio_clip_state(song, track_id, clip_id, state_version):
         "gain": {"value": float(clip.gain), "min": 0.0, "max": 1.0, "displayValue": clip.gain_display_string},
         "pitch": {"coarse": int(clip.pitch_coarse), "fine": int(clip.pitch_fine)},
         "warping": bool(clip.warping), "warpMode": _enum_record(clip.warp_mode, AUDIO_WARP_MODE_NAMES),
+        "fades": {"supported": hasattr(clip, "fades"),
+                  "enabled": bool(clip.fades) if hasattr(clip, "fades") else None},
         "warpMarkers": {"supported": hasattr(clip, "warp_markers"), "markers": [
             {"sampleTime": float(marker.sample_time), "beatTime": float(marker.beat_time)}
             for marker in getattr(clip, "warp_markers", ())

@@ -2232,6 +2232,16 @@ class DispatchTest(unittest.TestCase):
         result = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
         self.assertEqual(result["warpMarkers"], {"supported": True, "markers": []})
 
+    def test_audio_state_reports_native_fade_switch_only_when_available(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[2].clip
+        params = {"trackId": "track-0", "clipId": "track-0:clip-2"}
+        result = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
+        self.assertEqual(result["fades"], {"supported": False, "enabled": None})
+        clip.fades = True
+        result = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
+        self.assertEqual(result["fades"], {"supported": True, "enabled": True})
+
     def test_audio_mutation_rejects_native_warp_marker_changes_after_planning(self):
         song = Song()
         clip = song.tracks[0].clip_slots[2].clip
