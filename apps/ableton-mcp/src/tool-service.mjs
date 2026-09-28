@@ -2059,6 +2059,11 @@ export class ToolService {
       if (observed.launchLegato?.supported !== true) throw new Error("clip launch Legato is unavailable");
       changes.launchLegato = args.launchLegato;
     }
+    if (args.mute !== undefined) {
+      if (typeof args.mute !== "boolean") throw new Error("mute must be boolean");
+      if (observed.mute?.supported !== true) throw new Error("clip mute is unavailable");
+      changes.mute = args.mute;
+    }
     if (args.editorGrid !== undefined) {
       if (!args.editorGrid || typeof args.editorGrid !== "object" || Array.isArray(args.editorGrid)) throw new Error("editorGrid must be an object");
       const editorGrid = {};

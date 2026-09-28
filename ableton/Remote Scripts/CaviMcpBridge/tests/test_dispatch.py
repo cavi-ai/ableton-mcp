@@ -2467,6 +2467,33 @@ class DispatchTest(unittest.TestCase):
         self.assertTrue(clip.looping)
         self.assertEqual(clip.loop_end, 8.0)
 
+    def test_clip_timing_native_mute_is_guarded_and_rejects_stale_state(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        clip.muted = False
+        params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_clip_timing", "params": params}, 3)
+        self.assertEqual(before["mute"], {"supported": True, "enabled": False})
+        changed = dispatch_request(song, {"method": "set_clip_timing", "params": {
+            **params, "before": before, "changes": {"mute": True}
+        }}, 3)
+        self.assertEqual(changed["mute"], {"supported": True, "enabled": True})
+        with self.assertRaisesRegex(ValueError, "timing changed"):
+            dispatch_request(song, {"method": "set_clip_timing", "params": {
+                **params, "before": before, "changes": {"mute": False}
+            }}, 3)
+        self.assertTrue(clip.muted)
+
+    def test_clip_timing_rejects_mute_without_native_property(self):
+        song = Song()
+        params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_clip_timing", "params": params}, 3)
+        self.assertEqual(before["mute"], {"supported": False})
+        with self.assertRaisesRegex(ValueError, "clip mute is unavailable"):
+            dispatch_request(song, {"method": "set_clip_timing", "params": {
+                **params, "before": before, "changes": {"mute": True}
+            }}, 3)
+
     def test_rack_chain_hierarchy_reports_native_mixer_ranges(self):
         song = Song()
         song.begin_undo_step = lambda: None

@@ -339,6 +339,8 @@ def _clip_timing(song, track_id, clip_id, state_version):
         },
         "launchLegato": {"supported": True, "enabled": bool(clip.legato)}
         if timeline is None and hasattr(clip, "legato") else {"supported": False},
+        "mute": {"supported": True, "enabled": bool(clip.muted)}
+        if hasattr(clip, "muted") else {"supported": False},
         "grooveId": groove_id,
         "availableGrooves": [_groove_record(groove, index) for index, groove in enumerate(grooves)],
     }
@@ -4130,6 +4132,11 @@ def dispatch_request(song, request, state_version, application=None):
                 raise ValueError("clip launch Legato is unavailable")
             if type(changes["launchLegato"]) is not bool:
                 raise ValueError("launchLegato must be boolean")
+        if "mute" in changes:
+            if not hasattr(clip, "muted"):
+                raise ValueError("clip mute is unavailable")
+            if type(changes["mute"]) is not bool:
+                raise ValueError("mute must be boolean")
         editor_grid = changes.get("editorGrid", {})
         if "quantization" in editor_grid:
             grid_value = editor_grid["quantization"]
@@ -4168,6 +4175,8 @@ def dispatch_request(song, request, state_version, application=None):
             clip.launch_quantization = int(changes["launchQuantization"])
         if "launchLegato" in changes:
             clip.legato = changes["launchLegato"]
+        if "mute" in changes:
+            clip.muted = changes["mute"]
         if "quantization" in editor_grid:
             clip.view.grid_quantization = Live.Clip.GridQuantization.values[editor_grid["quantization"]] if Live is not None else editor_grid["quantization"]
         if "isTriplet" in editor_grid:
