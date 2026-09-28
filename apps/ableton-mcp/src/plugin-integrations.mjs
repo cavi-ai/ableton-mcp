@@ -48,6 +48,6 @@ const profiles = [
 
 export function getPluginIntegrationProfile(device) {
   if (device?.className !== "PluginDevice") return undefined;
-  const name = (device.name || "").trim().toLowerCase();
+  const name = (device.classDisplayName || device.name || "").trim().toLowerCase();
   return profiles.find(profile => profile.aliases.some(alias => alias.toLowerCase() === name));
 }
