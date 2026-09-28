@@ -186,6 +186,97 @@ test("local Splice metadata keeps one identity across configured root and nested
   } finally { library.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test("a verified Live user-folder Splice sample shares private metadata with its local sample", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "splice-live-metadata-"));
+  const sample = join(directory, "Pack", "Kick.wav");
+  const library = new BrowserMetadataLibrary({ path: join(directory, "metadata.sqlite") });
+  let liveUri = `userfolder:${directory}#Pack:Kick.wav`;
+  const service = new ToolService({ browserMetadata: library, spliceRoots: [directory], bridge: { async request(method) {
+    if (method !== "get_browser_items") throw new Error(method);
+    return { root: "user_folders", path: ["samples", "Pack", "Kick.wav"], stateVersion: 7,
+      item: { name: "Kick.wav", uri: liveUri, loadable: true, folder: false }, children: [] };
+  } } });
+  try {
+    await mkdir(join(directory, "Pack"));
+    await writeFile(sample, "audio");
+    const local = { root: "local_splice", path: [directory, "Pack/Kick.wav"] };
+    const live = { root: "user_folders", path: ["samples", "Pack", "Kick.wav"] };
+    const dry = await service.call("set_browser_item_metadata", { ...local, expectedMetadataRevision: 0, favorite: true, tags: ["drums"] });
+    await service.call("set_browser_item_metadata", { ...local, expectedMetadataRevision: 0, favorite: true, tags: ["drums"],
+      dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+    assert.deepEqual((await service.call("get_browser_item_metadata", live)).metadata,
+      { favorite: true, tags: ["drums"], revision: 1 });
+    const liveDry = await service.call("set_browser_item_metadata", { ...live, expectedMetadataRevision: 1, tags: ["drums", "one-shot"] });
+    await service.call("set_browser_item_metadata", { ...live, expectedMetadataRevision: 1, tags: ["drums", "one-shot"],
+      dryRun: false, confirmationToken: liveDry.confirmation.token, planHash: liveDry.confirmation.planHash });
+    assert.deepEqual((await service.call("get_browser_item_metadata", local)).metadata,
+      { favorite: true, tags: ["drums", "one-shot"], revision: 2 });
+    liveUri = `userfolder:${directory}#Other:Kick.wav`;
+    assert.deepEqual((await service.call("get_browser_item_metadata", live)).metadata,
+      { favorite: false, tags: [], revision: 0 });
+    liveUri = `userfolder:${directory}#Pack:Kick.wav`;
+    library.set({ ...live, uri: liveUri }, 0, { favorite: false, tags: ["legacy"] });
+    assert.deepEqual((await service.call("get_browser_item_metadata", live)).metadata,
+      { favorite: false, tags: ["legacy"], revision: 1 });
+  } finally { library.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("ambiguous user-folder URI delimiters never alias a local Splice file", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "splice-uri-delimiter-"));
+  const library = new BrowserMetadataLibrary({ path: join(directory, "metadata.sqlite") });
+  const service = new ToolService({ browserMetadata: library, spliceRoots: [directory], bridge: { async request(method) {
+    if (method !== "get_browser_items") throw new Error(method);
+    return { stateVersion: 3, item: { name: "Pack:Kick.wav", uri: `userfolder:${directory}#Pack:Kick.wav`,
+      loadable: true, folder: false } };
+  } } });
+  try {
+    const sample = join(directory, "Pack:Kick.wav");
+    await writeFile(sample, "audio");
+    library.set({ root: "local_splice", path: [await realpath(directory), "Pack:Kick.wav"], uri: await realpath(sample) },
+      0, { favorite: true, tags: ["one-shot"] });
+    const observed = await service.call("get_browser_item_metadata", {
+      root: "user_folders", path: ["samples", "Pack:Kick.wav"],
+    });
+    assert.deepEqual(observed.metadata, { favorite: false, tags: [], revision: 0 });
+  } finally { library.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("Live browser pages and searches show metadata for verified local Splice samples", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "splice-browser-joins-"));
+  const library = new BrowserMetadataLibrary({ path: join(directory, "metadata.sqlite") });
+  const uri = `userfolder:${directory}#Pack:Kick.wav`;
+  const entry = { name: "Kick.wav", uri, loadable: true, folder: false };
+  const service = new ToolService({ browserMetadata: library, spliceRoots: [directory], bridge: { async request(method, params) {
+    if (method === "get_browser_items") return { root: "user_folders", path: params.path, stateVersion: 4,
+      item: { name: "Pack", uri: `userfolder:${directory}#Pack`, loadable: false, folder: true },
+      children: [entry], totalChildren: 1, nextOffset: null };
+    if (method === "search_browser_items") return { root: "user_folders", path: params.path, stateVersion: 4,
+      results: [{ ...entry, path: ["samples", "Pack", "Kick.wav"] }] };
+    if (method === "search_browser_roots") return { stateVersion: 4,
+      results: [{ ...entry, root: "user_folders", path: ["samples", "Pack", "Kick.wav"] }] };
+    throw new Error(method);
+  } } });
+  try {
+    await mkdir(join(directory, "Pack"));
+    const sample = join(directory, "Pack", "Kick.wav");
+    await writeFile(sample, "audio");
+    library.set({ root: "local_splice", path: [await realpath(directory), "Pack/Kick.wav"], uri: await realpath(sample) },
+      0, { favorite: true, tags: ["drums"] });
+    const page = await service.call("get_browser_items", {
+      root: "user_folders", path: ["samples", "Pack"], includeMetadata: true,
+    });
+    const subtree = await service.call("search_browser_items", {
+      root: "user_folders", path: ["samples"], query: "Kick", includeMetadata: true,
+    });
+    const crossRoot = await service.call("search_browser_roots", {
+      roots: ["user_folders"], query: "Kick", includeMetadata: true,
+    });
+    for (const metadata of [page.children[0].metadata, subtree.results[0].metadata, crossRoot.results[0].metadata]) {
+      assert.deepEqual(metadata, { favorite: true, tags: ["drums"], revision: 1 });
+    }
+  } finally { library.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test("legacy nested-folder Splice metadata remains readable and moves to the canonical key on edit", async () => {
   const directory = await mkdtemp(join(tmpdir(), "splice-legacy-metadata-"));
   const nested = join(directory, "Pack");
