@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 217 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 218 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (95)
+## Read-only (96)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -78,6 +78,7 @@ The server publishes 217 tools. Mutations of the Live Set require `expectedState
 | `plan_drum_pattern_edit` | Plan replacement of explicitly selected drum lanes and bars in an existing MIDI clip while preserving unrelated notes. Empty activeSteps clears that lane in the range. | `trackId`, `clipId`, `grid`, `startBar`, `bars`, `lanes` |
 | `plan_drum_variation` | Plan deterministic bounded timing and velocity humanization plus an optional explicit final-bar fill. Preserves unrelated notes and rejects collisions. | `trackId`, `clipId`, `grid`, `startBar`, `bars`, `laneNotes`, `seed`, `timingAmount`, `velocityAmount`, `preserveAccentsAbove` |
 | `plan_grid_envelope_pattern` | Read current Live grid and return exact on/off Session clip envelope steps for a straight or triplet rhythm, including Beat Repeat Repeat. No Live edits. Supply the exact native on/off values; set_clip_parameter_envelope validates the destination clip and parameter before any write. Rejects grid/bar misalignment. | `grid`, `bars`, `activeSteps`, `onValue`, `offValue` |
+| `plan_group_system_recall` | Read a saved group-system capture and check a one-to-one mapping onto existing tracks in matching Live order and group hierarchy. Validates each exposed track state for individual guarded recall; does not mutate Live or perform a multi-track transaction. | `name`, `busTrackId`, `mapping` |
 | `plan_midi_chord_arpeggiation` | Plan deterministic up, down, up-down, or seeded-random arpeggiation of complete chord onsets. | `trackId`, `clipId`, `noteIds`, `mode`, `stepBeats`, `gate`, `seed` |
 | `plan_midi_chord_doubling` | Plan exact bass, top, or outer octave chord doublings across complete selected onsets. | `trackId`, `clipId`, `noteIds`, `mode` |
 | `plan_midi_chord_inversion` | Plan deterministic octave rotation of complete chord onsets while preserving all non-pitch note state. | `trackId`, `clipId`, `noteIds`, `direction`, `steps` |
