@@ -747,6 +747,34 @@ class DispatchTest(unittest.TestCase):
             }}, 3)
         self.assertEqual(first.current_output_routing, "Main")
 
+    def test_batch_bus_routing_rejects_silent_native_write_and_rolls_back(self):
+        class IgnoringTrack(Track):
+            def __setattr__(self, name, value):
+                if name == "current_output_routing" and value == "Bass Bus":
+                    return
+                super().__setattr__(name, value)
+
+        song = Song()
+        first, group = song.tracks
+        second = IgnoringTrack()
+        song.tracks = [first, second, group]
+        group.is_foldable = True
+        group.fold_state = 0
+        group.name = "Bass Bus"
+        for source in (first, second):
+            source.available_output_routing_types.append(SimpleNamespace(identifier="bus", display_name="Bass Bus"))
+        bus = dispatch_request(song, {"method": "list_tracks"}, 3)["tracks"][2]
+        routes = []
+        for index in range(2):
+            before = dispatch_request(song, {"method": "get_track_routing", "params": {"trackId": f"track-{index}"}}, 3)
+            routes.append({"trackId": f"track-{index}", "outputTypeId": "bus", "before": before["output"]["type"]})
+
+        with self.assertRaisesRegex(ValueError, "native bus routing did not match"):
+            dispatch_request(song, {"method": "route_tracks_to_bus", "params": {
+                "expectedStateVersion": 3, "busTrackId": "track-2", "bus": bus, "routes": routes
+            }}, 3)
+        self.assertEqual(first.current_output_routing, "Main")
+
     def test_return_bus_routes_multiple_tracks_with_prevalidated_send_and_output(self):
         song = Song()
         route = SimpleNamespace(identifier="sends-only", display_name="Sends Only")

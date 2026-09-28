@@ -2935,6 +2935,10 @@ def dispatch_request(song, request, state_version, application=None):
                 for _, track, name, previous in destinations:
                     track.current_output_routing = name
                     applied.append((track, previous))
+                for route_change in params["routes"]:
+                    observed = _track_routing(song, route_change["trackId"], state_version)["output"]["type"]
+                    if observed["id"] != route_change["outputTypeId"]:
+                        raise ValueError("native bus routing did not match the requested destination")
             except Exception as error:
                 try:
                     for track, previous in reversed(applied):
