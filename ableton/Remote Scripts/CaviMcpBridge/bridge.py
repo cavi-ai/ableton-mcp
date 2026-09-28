@@ -3734,7 +3734,7 @@ def dispatch_request(song, request, state_version, application=None):
             seen = set()
             parent = getattr(track, "group_track", None) if bool(getattr(track, "is_grouped", False)) else None
             while parent is not None:
-                if parent is root:
+                if parent == root:
                     return True
                 if parent in seen:
                     raise ValueError("group-system hierarchy contains a cycle")
@@ -3742,9 +3742,9 @@ def dispatch_request(song, request, state_version, application=None):
                 parent = getattr(parent, "group_track", None) if bool(getattr(parent, "is_grouped", False)) else None
             return False
         actual_ids = [f"track-{index}" for index, track in enumerate(song.tracks)
-                      if track is root or belongs_to_root(track)]
+                      if track == root or belongs_to_root(track)]
         if actual_ids != track_ids:
-            raise ValueError("group-system target topology changed after planning")
+            raise ValueError(f"group-system target topology changed after planning: expected {track_ids}, found {actual_ids}")
         context = _GroupRecallContext()
         song.begin_undo_step()
         try:
