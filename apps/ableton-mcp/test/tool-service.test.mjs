@@ -2080,6 +2080,8 @@ test("audio quantization signs grid amount and full native before-state", async 
   assert.equal(mutations, 0);
   assert.equal(dry.plan.grid, "1_8_triplet");
   assert.equal(dry.plan.beforeSwingAmount, 0);
+  assert.match(dry.plan.impactWarning, /insert.*warp markers/i);
+  assert.match(dry.plan.impactWarning, /move.*existing.*anchors/i);
   const result = await service.call("quantize_audio_clip", { ...args, dryRun: false,
     confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
   assert.deepEqual(result.observed.warpMarkers.markers, [{ sampleTime: 0.13, beatTime: 0 }]);

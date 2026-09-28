@@ -2339,7 +2339,8 @@ export class ToolService {
     assertExpectedState({ expectedStateVersion: args.expectedStateVersion }, context);
     const beforeSwingAmount = finiteRange(context.groove?.swingAmount, "observed swing amount", 0, 1);
     const result = await this.#confirmedMutation({ method: "quantize_audio_clip", trackId: args.trackId, clipId: args.clipId,
-      expectedStateVersion: args.expectedStateVersion, before, beforeSwingAmount, grid: args.grid, amount }, args);
+      expectedStateVersion: args.expectedStateVersion, before, beforeSwingAmount, grid: args.grid, amount,
+      impactWarning: "Live quantization may insert many warp markers and move existing source start/end anchors. Duplicate the clip first when the original edit must be preserved; inspect warpMarkerChanges after applying." }, args);
     if (result.dryRun) return result;
     return { ...result, warpMarkerChanges: summarizeWarpMarkerChanges(before, result.observed) };
   }
