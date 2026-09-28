@@ -120,6 +120,27 @@ test('group-system capture rejects a changed child snapshot instead of saving mi
     /state.*changed/i);
 });
 
+test('group-system capture rejects a same-version Live UI change during capture', async () => {
+  const tracks = [
+    { id: 'track-0', name: 'Bus', type: 'group', isGroup: true, isGrouped: false, groupTrackId: null },
+    { id: 'track-1', name: 'Bass', type: 'midi', isGroup: false, isGrouped: true, groupTrackId: 'track-0' },
+  ];
+  let childReads = 0;
+  const service = new ToolService({ bridge: { async request(method, args) {
+    if (method === 'list_tracks') return { stateVersion: 7, tracks: structuredClone(tracks) };
+    if (method !== 'get_track_state_snapshot') throw new Error(method);
+    const track = tracks.find(item => item.id === args.trackId);
+    if (args.trackId === 'track-1') childReads++;
+    return { stateVersion: 7, trackId: track.id, track: structuredClone(track),
+      mixer: { volume: { value: childReads > 1 ? 0.6 : 0.8 }, pan: { value: 0 },
+        mute: false, solo: false, sends: [] },
+      routing: { input: { type: null, channel: null }, output: { type: null, channel: null }, monitoring: null },
+      devices: [] };
+  } } });
+  await assert.rejects(() => service.call('capture_group_system_snapshot', { busTrackId: 'track-0' }),
+    /state.*changed/i);
+});
+
 test('group-system recall plan maps a saved nested hierarchy to compatible existing tracks without writing Live', async () => {
   const directory = await mkdtemp(`${tmpdir()}/cavi-group-plan-test-`);
   const source = [
@@ -138,12 +159,16 @@ test('group-system recall plan maps a saved nested hierarchy to compatible exist
       mixer: { volume: 0.8, pan: 0, mute: false, solo: false, sends: [] },
       routing: { inputTypeId: null, inputChannelId: null, outputTypeId: null,
         outputChannelId: null, monitoring: null }, devices: [] } })) });
+  let driftOnSecondChildRead = false;
+  let childReads = 0;
   const bridge = { async request(method, args) {
     if (method === 'list_tracks') return { stateVersion: 7, tracks: structuredClone(target) };
     if (method !== 'get_track_state_snapshot') throw new Error(`unexpected write or request: ${method}`);
     const track = target.find(item => item.id === args.trackId);
+    if (args.trackId === 'track-6') childReads++;
     return { stateVersion: 7, trackId: track.id, track: structuredClone(track),
-      mixer: { volume: { value: 0.7, min: 0, max: 1 }, pan: { value: 0, min: -1, max: 1 },
+      mixer: { volume: { value: driftOnSecondChildRead && childReads > 1 ? 0.6 : 0.7, min: 0, max: 1 },
+        pan: { value: 0, min: -1, max: 1 },
         mute: false, solo: false, sends: [] },
       routing: { input: { type: null, channel: null, availableTypes: [], availableChannels: [] },
         output: { type: null, channel: null, availableTypes: [], availableChannels: [] }, monitoring: null },
@@ -165,6 +190,11 @@ test('group-system recall plan maps a saved nested hierarchy to compatible exist
       isGrouped: true, groupTrackId: 'track-5' });
     await assert.rejects(() => service.call('plan_group_system_recall', { name: 'bass', busTrackId: 'track-5', mapping }),
       /topology/i);
+    target.pop();
+    driftOnSecondChildRead = true;
+    childReads = 0;
+    await assert.rejects(() => service.call('plan_group_system_recall', { name: 'bass', busTrackId: 'track-5', mapping }),
+      /state.*changed/i);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 

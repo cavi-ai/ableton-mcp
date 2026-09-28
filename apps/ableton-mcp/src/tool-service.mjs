@@ -1606,6 +1606,12 @@ export class ToolService {
     const after = await this.bridge.request("list_tracks", {});
     if (after.stateVersion !== before.stateVersion || JSON.stringify(after.tracks) !== JSON.stringify(before.tracks))
       throw new Error("group system state changed during capture");
+    for (const item of tracks) {
+      const repeated = await this.#captureTrackStateSnapshot({ trackId: item.sourceTrackId });
+      if (repeated.stateVersion !== before.stateVersion ||
+          JSON.stringify(repeated.snapshot) !== JSON.stringify(item.snapshot))
+        throw new Error("group system state changed during capture");
+    }
     return { busTrackId: args.busTrackId, stateVersion: before.stateVersion,
       snapshot: { format: "cavi-group-system-v1", tracks },
       limitation: "Read-only ordered topology and exposed track state. Not a native Group Track preset; does not create or recall tracks, devices, clips, samples, hidden plugin state, automation or mappings." };
@@ -1644,6 +1650,7 @@ export class ToolService {
     const actualOrder = before.tracks.filter(track => mappedIds.includes(track.id)).map(track => track.id);
     if (JSON.stringify(actualOrder) !== JSON.stringify(mappedIds)) throw new Error("group-system target topology order mismatch");
     const tracks = [];
+    const nativeBefore = new Map();
     for (const item of snapshot.tracks) {
       const targetTrackId = map.get(item.sourceTrackId);
       const native = targetById.get(targetTrackId);
@@ -1657,6 +1664,10 @@ export class ToolService {
       const target = structuredClone(item.snapshot);
       target.track.groupTrackId = targetParentId;
       if (item.sourceTrackId === sourceIds[0]) target.track.isGrouped = Boolean(native.isGrouped);
+      const observed = await this.bridge.request("get_track_state_snapshot", { trackId: targetTrackId });
+      if (observed.stateVersion !== before.stateVersion || observed.trackId !== targetTrackId ||
+          observed.track?.id !== targetTrackId) throw new Error("group system state changed during recall planning");
+      nativeBefore.set(targetTrackId, observed);
       try {
         const planned = await this.#recallTrackStateSnapshot({ trackId: targetTrackId, snapshot: target,
           expectedStateVersion: before.stateVersion, dryRun: true });
@@ -1669,6 +1680,12 @@ export class ToolService {
     const after = await this.bridge.request("list_tracks", {});
     if (after.stateVersion !== before.stateVersion || JSON.stringify(after.tracks) !== JSON.stringify(before.tracks))
       throw new Error("group system state changed during recall planning");
+    for (const targetTrackId of mappedIds) {
+      const repeated = await this.bridge.request("get_track_state_snapshot", { trackId: targetTrackId });
+      if (repeated.stateVersion !== before.stateVersion ||
+          JSON.stringify(repeated) !== JSON.stringify(nativeBefore.get(targetTrackId)))
+        throw new Error("group system state changed during recall planning");
+    }
     return { dryRun: true, stateVersion: before.stateVersion, busTrackId: args.busTrackId, tracks,
       limitation: "Read-only compatibility plan for existing tracks. Does not apply a multi-track transaction or recreate tracks/devices." };
   }
