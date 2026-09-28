@@ -1,6 +1,12 @@
 # Changelog
 
-## 0.1.0 — unreleased
+## 0.2.0 — in preparation
+
+- Expanded producer workflows, including guarded group-system snapshot recall.
+- Added bridge script origin to Live state and CLI diagnostics to identify the loaded Remote Script copy.
+- Kept Live Set mutations behind state-version and confirmation-token guards.
+
+## 0.1.0 — 2026-09-23
 
 - MCP server, CLI, and Ableton Live Remote Script bridge
 - Guarded mutations: dry-run plans, state versions, single-use confirmation tokens

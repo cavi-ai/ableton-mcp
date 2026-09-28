@@ -120,6 +120,104 @@ test('group-system capture rejects a changed child snapshot instead of saving mi
     /state.*changed/i);
 });
 
+test('group-system capture rejects a same-version Live UI change during capture', async () => {
+  const tracks = [
+    { id: 'track-0', name: 'Bus', type: 'group', isGroup: true, isGrouped: false, groupTrackId: null },
+    { id: 'track-1', name: 'Bass', type: 'midi', isGroup: false, isGrouped: true, groupTrackId: 'track-0' },
+  ];
+  let childReads = 0;
+  const service = new ToolService({ bridge: { async request(method, args) {
+    if (method === 'list_tracks') return { stateVersion: 7, tracks: structuredClone(tracks) };
+    if (method !== 'get_track_state_snapshot') throw new Error(method);
+    const track = tracks.find(item => item.id === args.trackId);
+    if (args.trackId === 'track-1') childReads++;
+    return { stateVersion: 7, trackId: track.id, track: structuredClone(track),
+      mixer: { volume: { value: childReads > 1 ? 0.6 : 0.8 }, pan: { value: 0 },
+        mute: false, solo: false, sends: [] },
+      routing: { input: { type: null, channel: null }, output: { type: null, channel: null }, monitoring: null },
+      devices: [] };
+  } } });
+  await assert.rejects(() => service.call('capture_group_system_snapshot', { busTrackId: 'track-0' }),
+    /state.*changed/i);
+});
+
+test('group-system recall plan maps a saved nested hierarchy to compatible existing tracks without writing Live', async () => {
+  const directory = await mkdtemp(`${tmpdir()}/cavi-group-plan-test-`);
+  const source = [
+    { id: 'track-0', name: 'Bass Bus', type: 'group', isGroup: true, isGrouped: false, groupTrackId: null },
+    { id: 'track-1', name: 'Sub Bass', type: 'midi', isGroup: false, isGrouped: true, groupTrackId: 'track-0' },
+  ];
+  const target = [
+    { id: 'track-5', name: 'Target Bus', type: 'group', isGroup: true, isGrouped: false, groupTrackId: null },
+    { id: 'track-6', name: 'Target Bass', type: 'midi', isGroup: false, isGrouped: true, groupTrackId: 'track-5' },
+  ];
+  const groupSystemLibrary = new SnapshotLibrary({ directory, formats: ['cavi-group-system-v1'] });
+  await groupSystemLibrary.save('bass', { format: 'cavi-group-system-v1', tracks: source.map(track => ({
+    sourceTrackId: track.id, snapshot: { format: 'cavi-track-state-v1',
+      track: { name: track.name, type: track.type, isGroup: track.isGroup,
+        isGrouped: track.isGrouped, groupTrackId: track.groupTrackId },
+      mixer: { volume: 0.8, pan: 0, mute: false, solo: false, sends: [] },
+      routing: { inputTypeId: null, inputChannelId: null, outputTypeId: null,
+        outputChannelId: null, monitoring: null }, devices: [] } })) });
+  let driftOnSecondChildRead = false;
+  let childReads = 0;
+  let batchWrites = 0;
+  const bridge = { async request(method, args) {
+    if (method === 'list_tracks') return { stateVersion: 7, tracks: structuredClone(target) };
+    if (method === 'set_group_system_snapshot') {
+      batchWrites++;
+      assert.deepEqual(args.tracks.map(item => item.trackId), ['track-5', 'track-6']);
+      target[0].name = args.tracks[0].target.track.name;
+      target[1].name = args.tracks[1].target.track.name;
+      return { stateVersion: 8, tracks: args.tracks.map(item => ({ trackId: item.trackId })) };
+    }
+    if (method !== 'get_track_state_snapshot') throw new Error(`unexpected write or request: ${method}`);
+    const track = target.find(item => item.id === args.trackId);
+    if (args.trackId === 'track-6') childReads++;
+    return { stateVersion: 7, trackId: track.id, track: structuredClone(track),
+      mixer: { volume: { value: driftOnSecondChildRead && childReads > 1 ? 0.6 : 0.7, min: 0, max: 1 },
+        pan: { value: 0, min: -1, max: 1 },
+        mute: false, solo: false, sends: [] },
+      routing: { input: { type: null, channel: null, availableTypes: [], availableChannels: [] },
+        output: { type: null, channel: null, availableTypes: [], availableChannels: [] }, monitoring: null },
+      devices: [] };
+  } };
+  const service = new ToolService({ bridge, groupSystemLibrary });
+  try {
+    const mapping = [{ sourceTrackId: 'track-0', targetTrackId: 'track-5' },
+      { sourceTrackId: 'track-1', targetTrackId: 'track-6' }];
+    const result = await service.call('plan_group_system_recall', { name: 'bass', busTrackId: 'track-5', mapping });
+    assert.equal(result.dryRun, true);
+    assert.deepEqual(result.tracks.map(item => [item.sourceTrackId, item.targetTrackId, item.status]),
+      [['track-0', 'track-5', 'compatible'], ['track-1', 'track-6', 'compatible']]);
+    assert.equal(result.tracks[1].target.track.groupTrackId, 'track-5');
+    const preview = await service.call('recall_group_system_snapshot', { name: 'bass', busTrackId: 'track-5',
+      mapping, expectedStateVersion: 7 });
+    assert.equal(preview.dryRun, true);
+    assert.equal(batchWrites, 0);
+    await assert.rejects(() => service.call('recall_group_system_snapshot', { name: 'bass', busTrackId: 'track-5',
+      mapping, expectedStateVersion: 7, dryRun: false }), /confirmation/i);
+    const applied = await service.call('recall_group_system_snapshot', { name: 'bass', busTrackId: 'track-5',
+      mapping, expectedStateVersion: 7, dryRun: false,
+      confirmationToken: preview.confirmation.token, planHash: preview.confirmation.planHash });
+    assert.equal(applied.dryRun, false);
+    assert.equal(batchWrites, 1);
+    assert.deepEqual(target.map(track => track.name), ['Bass Bus', 'Sub Bass']);
+    await assert.rejects(() => service.call('plan_group_system_recall', { name: 'bass', busTrackId: 'track-5',
+      mapping: [{ sourceTrackId: 'track-0', targetTrackId: 'track-5' },
+        { sourceTrackId: 'track-1', targetTrackId: 'track-5' }] }), /mapping|topology/i);
+    target.push({ id: 'track-7', name: 'Extra Child', type: 'midi', isGroup: false,
+      isGrouped: true, groupTrackId: 'track-5' });
+    await assert.rejects(() => service.call('plan_group_system_recall', { name: 'bass', busTrackId: 'track-5', mapping }),
+      /topology/i);
+    target.pop();
+    driftOnSecondChildRead = true;
+    childReads = 0;
+    await assert.rejects(() => service.call('plan_group_system_recall', { name: 'bass', busTrackId: 'track-5', mapping }),
+      /state.*changed/i);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test('track snapshot saves nested rack state and plans compatible nested recall', async () => {
   const directory = await mkdtemp(`${tmpdir()}/cavi-nested-track-test-`);
   try {

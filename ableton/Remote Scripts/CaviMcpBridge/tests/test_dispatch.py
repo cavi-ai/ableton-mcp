@@ -3564,6 +3564,10 @@ class DispatchTest(unittest.TestCase):
         result = dispatch_request(song, {"method": "get_live_state"}, 4)
         self.assertEqual(result["filePath"], "/tmp/Untitled.als")
 
+    def test_live_state_identifies_the_loaded_remote_script_directory(self):
+        result = dispatch_request(Song(), {"method": "get_live_state"}, 4)
+        self.assertEqual(result["scriptDirectory"], os.path.realpath(os.path.dirname(os.path.dirname(__file__))))
+
     def test_track_state_snapshot_is_one_native_callback_with_ordered_device_parameters(self):
         song = Song()
         result = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
@@ -3604,6 +3608,95 @@ class DispatchTest(unittest.TestCase):
             "trackId": "track-0", "before": before, "target": target}}, 6)
         self.assertEqual(result["track"]["name"], "Changed")
         self.assertEqual(result["track"]["groupTrackId"], "track-1")
+
+    def test_group_system_recall_applies_two_tracks_in_one_undo_step(self):
+        song = Song()
+        song.tracks[0].is_foldable = True
+        song.tracks[0].fold_state = 0
+        song.tracks[1].is_grouped = True
+        song.tracks[1].group_track = song.tracks[0]
+        records = []
+        for index, name in enumerate(("Bus Recall", "Child Recall")):
+            track_id = f"track-{index}"
+            before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": track_id}}, 6)
+            target = _persisted_track_state(before)
+            target["track"].update({"name": name, "isGrouped": before["track"]["isGrouped"],
+                                    "groupTrackId": before["track"]["groupTrackId"]})
+            records.append({"trackId": track_id, "before": before, "target": target})
+        result = dispatch_request(song, {"method": "set_group_system_snapshot", "params": {
+            "expectedStateVersion": 6, "tracks": records}}, 6)
+        self.assertEqual([track.name for track in song.tracks[:2]], ["Bus Recall", "Child Recall"])
+        self.assertEqual([item["trackId"] for item in result["tracks"]], ["track-0", "track-1"])
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
+    def test_group_system_recall_rolls_back_child_when_bus_fails(self):
+        song = Song()
+        class LoggingTrack(Track):
+            def __init__(self):
+                self.name_writes = []
+                super().__init__()
+            @property
+            def name(self):
+                return self._name
+            @name.setter
+            def name(self, value):
+                self._name = value
+                self.name_writes.append(value)
+        song.tracks[1] = LoggingTrack()
+        song.tracks[0].is_foldable = True
+        song.tracks[0].fold_state = 0
+        song.tracks[1].is_grouped = True
+        song.tracks[1].group_track = song.tracks[0]
+        records = []
+        for index in range(2):
+            track_id = f"track-{index}"
+            before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": track_id}}, 6)
+            target = _persisted_track_state(before)
+            target["track"].update({"name": f"Changed {index}", "isGrouped": before["track"]["isGrouped"],
+                                    "groupTrackId": before["track"]["groupTrackId"]})
+            records.append({"trackId": track_id, "before": before, "target": target})
+        records[0]["target"]["mixer"]["volume"] = 2.0
+        original_names = [track.name for track in song.tracks[:2]]
+        with self.assertRaisesRegex(ValueError, "outside native range"):
+            dispatch_request(song, {"method": "set_group_system_snapshot", "params": {
+                "expectedStateVersion": 6, "tracks": records}}, 6)
+        self.assertEqual([track.name for track in song.tracks[:2]], original_names)
+        self.assertIn("Changed 1", song.tracks[1].name_writes)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
+    def test_group_system_recall_applies_children_before_renaming_their_bus_route(self):
+        song = Song()
+        child = song.tracks[1]
+        class RenamingBus(Track):
+            def __init__(self):
+                self.child = child
+                super().__init__()
+            @property
+            def name(self):
+                return self._name
+            @name.setter
+            def name(self, value):
+                self._name = value
+                self.child.available_output_routing_types[0].display_name = value
+        bus = RenamingBus()
+        bus.is_foldable = True
+        bus.fold_state = 0
+        bus.name = "Old Bus"
+        song.tracks[0] = bus
+        child.is_grouped = True
+        child.group_track = bus
+        records = []
+        for index, name in enumerate(("New Bus", "New Child")):
+            track_id = f"track-{index}"
+            before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": track_id}}, 6)
+            target = _persisted_track_state(before)
+            target["track"].update({"name": name, "isGrouped": before["track"]["isGrouped"],
+                                    "groupTrackId": before["track"]["groupTrackId"]})
+            records.append({"trackId": track_id, "before": before, "target": target})
+        result = dispatch_request(song, {"method": "set_group_system_snapshot", "params": {
+            "expectedStateVersion": 6, "tracks": records}}, 6)
+        self.assertEqual([track.name for track in song.tracks[:2]], ["New Bus", "New Child"])
+        self.assertEqual([item["trackId"] for item in result["tracks"]], ["track-0", "track-1"])
 
     def test_track_state_snapshot_recalls_nested_rack_parameter_in_one_undo_step(self):
         song = Song()
@@ -4074,7 +4167,7 @@ class DispatchTest(unittest.TestCase):
         song = Song()
         status = dispatch_request(song, {"method": "get_live_state", "params": {}}, 4)
         self.assertEqual(status["stateVersion"], 4)
-        self.assertEqual(status["bridgeVersion"], "0.1.0")
+        self.assertEqual(status["bridgeVersion"], "0.2.0")
         self.assertIn("list_scenes", status["capabilities"])
         self.assertIn("create_rack_chain", status["capabilities"])
         self.assertIn("move_device_to_chain", status["capabilities"])

@@ -99,6 +99,7 @@ export async function runCli(argv, dependencies = {}) {
         socket: config.socketPath,
         connected: Boolean(bridgeState),
         version: bridgeState?.bridgeVersion,
+        scriptDirectory: bridgeState?.scriptDirectory || null,
         capabilities: bridgeState?.capabilities || [],
         missingCapabilities,
         ...(reason ? { reason } : {})

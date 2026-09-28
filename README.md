@@ -56,7 +56,7 @@ For a smaller initial tool catalog, set `ABLETON_MCP_TOOL_PROFILE=core` in the M
 - **Audio analysis**: loudness, true peak, spectrum, pitch, transients and tuning of local audio files.
 - **Optional NKS preset catalog**: search, tags and favorites for presets discovered from your plug-in libraries.
 
-It publishes 217 tools, 9 concrete resources, 13 resource templates and 5 prompt templates. When Live's Remote Script API doesn't expose something, such as Arrangement automation, Group Track creation, or freezing, the tool reports that boundary and fails closed.
+It publishes 219 tools, 9 concrete resources, 13 resource templates and 5 prompt templates. When Live's Remote Script API doesn't expose something, such as Arrangement automation, Group Track creation, or freezing, the tool reports that boundary and fails closed.
 
 ## Documentation
 
@@ -96,7 +96,7 @@ npm run verify:package
 
 ## Project status
 
-Version 0.1.0 is unreleased. The tool surface can still change before 1.0.
+Version 0.1.0 is released. Version 0.2.0 is in preparation. The tool surface can still change before 1.0.
 
 ## Contributing
 

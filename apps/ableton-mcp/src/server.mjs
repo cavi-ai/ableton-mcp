@@ -201,6 +201,8 @@ const toolNames = [
   "capture_group_system_snapshot",
   "save_group_system_snapshot",
   "load_group_system_snapshot",
+  "plan_group_system_recall",
+  "recall_group_system_snapshot",
   "save_track_state_snapshot",
   "load_track_state_snapshot",
   "recall_track_state_snapshot",

@@ -570,6 +570,18 @@ export class ToolService {
       if (!this.groupSystemLibrary) throw new Error("group-system snapshot library is not configured");
       return this.groupSystemLibrary.load(args.name);
     }
+    if (name === "plan_group_system_recall") return this.#planGroupSystemRecall(args);
+    if (name === "recall_group_system_snapshot") {
+      requireExpectedState(args);
+      const checked = await this.#planGroupSystemRecall(args);
+      assertExpectedState(args, checked);
+      if (checked.tracks.every(track => track.status === "unchanged"))
+        throw new Error("group-system snapshot already matches; no changes required");
+      const plan = { method: "set_group_system_snapshot", expectedStateVersion: args.expectedStateVersion,
+        tracks: checked.tracks.map(track => ({ trackId: track.targetTrackId,
+          before: track.before, target: track.target })) };
+      return this.#confirmedMutation(plan, args);
+    }
     if (name === "save_track_state_snapshot") {
       if (!this.snapshotLibrary) throw new Error("track snapshot library is not configured");
       const capture = await this.#captureTrackStateSnapshot(args);
@@ -1605,9 +1617,92 @@ export class ToolService {
     const after = await this.bridge.request("list_tracks", {});
     if (after.stateVersion !== before.stateVersion || JSON.stringify(after.tracks) !== JSON.stringify(before.tracks))
       throw new Error("group system state changed during capture");
+    for (const item of tracks) {
+      const repeated = await this.#captureTrackStateSnapshot({ trackId: item.sourceTrackId });
+      if (repeated.stateVersion !== before.stateVersion ||
+          JSON.stringify(repeated.snapshot) !== JSON.stringify(item.snapshot))
+        throw new Error("group system state changed during capture");
+    }
     return { busTrackId: args.busTrackId, stateVersion: before.stateVersion,
       snapshot: { format: "cavi-group-system-v1", tracks },
       limitation: "Read-only ordered topology and exposed track state. Not a native Group Track preset; does not create or recall tracks, devices, clips, samples, hidden plugin state, automation or mappings." };
+  }
+
+  async #planGroupSystemRecall(args) {
+    if (!this.groupSystemLibrary) throw new Error("group-system snapshot library is not configured");
+    const { snapshot } = await this.groupSystemLibrary.load(args.name);
+    if (!Array.isArray(snapshot.tracks) || !snapshot.tracks.length || !Array.isArray(args.mapping) ||
+        args.mapping.length !== snapshot.tracks.length) throw new Error("group-system mapping must cover every saved track");
+    const sourceIds = snapshot.tracks.map(item => item.sourceTrackId);
+    const map = new Map(args.mapping.map(item => [item.sourceTrackId, item.targetTrackId]));
+    if (new Set(sourceIds).size !== sourceIds.length || map.size !== sourceIds.length ||
+        new Set(map.values()).size !== sourceIds.length || sourceIds.some(id => !map.has(id)))
+      throw new Error("group-system mapping must be one-to-one and cover every saved track");
+    if (map.get(sourceIds[0]) !== args.busTrackId || !snapshot.tracks[0].snapshot?.track?.isGroup)
+      throw new Error("group-system root mapping is incompatible");
+    const before = await this.bridge.request("list_tracks", {});
+    if (!Array.isArray(before.tracks)) throw new Error("invalid track hierarchy observation");
+    const targetById = new Map(before.tracks.map(track => [track.id, track]));
+    if (!targetById.get(args.busTrackId)?.isGroup) throw new Error("target bus must be an existing Group Track");
+    const mappedIds = sourceIds.map(id => map.get(id));
+    const descendants = before.tracks.filter(track => {
+      const visited = new Set([track.id]);
+      let parentId = track.groupTrackId;
+      while (parentId) {
+        if (parentId === args.busTrackId) return true;
+        if (visited.has(parentId)) throw new Error("group-system target topology contains a cycle");
+        visited.add(parentId);
+        parentId = targetById.get(parentId)?.groupTrackId;
+      }
+      return false;
+    });
+    if (descendants.length + 1 !== mappedIds.length || descendants.some(track => !mappedIds.includes(track.id)))
+      throw new Error("group-system target topology has unmapped descendants");
+    const actualOrder = before.tracks.filter(track => mappedIds.includes(track.id)).map(track => track.id);
+    if (JSON.stringify(actualOrder) !== JSON.stringify(mappedIds)) throw new Error("group-system target topology order mismatch");
+    const tracks = [];
+    const nativeBefore = new Map();
+    for (const item of snapshot.tracks) {
+      const targetTrackId = map.get(item.sourceTrackId);
+      const native = targetById.get(targetTrackId);
+      const savedTrack = item.snapshot?.track;
+      const targetParentId = item.sourceTrackId === sourceIds[0] ? native?.groupTrackId ?? null
+        : map.get(savedTrack?.groupTrackId);
+      if (!native || !savedTrack || targetParentId === undefined ||
+          native.groupTrackId !== targetParentId || native.type !== savedTrack.type ||
+          Boolean(native.isGroup) !== Boolean(savedTrack.isGroup))
+        throw new Error("group-system target topology is incompatible");
+      const target = structuredClone(item.snapshot);
+      target.track.groupTrackId = targetParentId;
+      if (item.sourceTrackId === sourceIds[0]) target.track.isGrouped = Boolean(native.isGrouped);
+      const observed = await this.bridge.request("get_track_state_snapshot", { trackId: targetTrackId });
+      if (observed.stateVersion !== before.stateVersion || observed.trackId !== targetTrackId ||
+          observed.track?.id !== targetTrackId) throw new Error("group system state changed during recall planning");
+      nativeBefore.set(targetTrackId, observed);
+      try {
+        const planned = await this.#recallTrackStateSnapshot({ trackId: targetTrackId, snapshot: target,
+          expectedStateVersion: before.stateVersion, dryRun: true });
+        if (JSON.stringify(planned.plan.before) !== JSON.stringify(observed))
+          throw new Error("group system state changed during recall planning");
+        tracks.push({ sourceTrackId: item.sourceTrackId, targetTrackId, status: "compatible",
+          before: observed, target: planned.plan.target });
+      } catch (error) {
+        if (!/snapshot already matches; no track changes required/.test(error.message)) throw error;
+        tracks.push({ sourceTrackId: item.sourceTrackId, targetTrackId, status: "unchanged",
+          before: observed, target });
+      }
+    }
+    const after = await this.bridge.request("list_tracks", {});
+    if (after.stateVersion !== before.stateVersion || JSON.stringify(after.tracks) !== JSON.stringify(before.tracks))
+      throw new Error("group system state changed during recall planning");
+    for (const targetTrackId of mappedIds) {
+      const repeated = await this.bridge.request("get_track_state_snapshot", { trackId: targetTrackId });
+      if (repeated.stateVersion !== before.stateVersion ||
+          JSON.stringify(repeated) !== JSON.stringify(nativeBefore.get(targetTrackId)))
+        throw new Error("group system state changed during recall planning");
+    }
+    return { dryRun: true, stateVersion: before.stateVersion, busTrackId: args.busTrackId, tracks,
+      limitation: "Read-only compatibility plan for existing tracks. Does not apply a multi-track transaction or recreate tracks/devices." };
   }
 
   async #captureDeviceChainSnapshot(args) {

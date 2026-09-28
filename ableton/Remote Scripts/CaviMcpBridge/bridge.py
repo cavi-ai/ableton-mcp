@@ -17,7 +17,7 @@ try:
 except ImportError:
     from protocol import decode_lines, encode_message
 
-BRIDGE_VERSION = "0.1.0"
+BRIDGE_VERSION = "0.2.0"
 with open(os.path.join(os.path.dirname(__file__), "capabilities.json"), encoding="utf-8") as capability_file:
     CAPABILITIES = tuple(json.load(capability_file))
 
@@ -855,6 +855,30 @@ def _restore_snapshot_drum_pads(restore):
         for record in restore:
             try:
                 setattr(record[0], attribute, record[index])
+            except Exception as error:
+                errors.append(error)
+    return errors
+
+
+class _GroupRecallContext:
+    def __init__(self):
+        self.journals = []
+
+
+def _rollback_track_state_journal(journal):
+    track, writes, pad_restore, route_previous = journal
+    errors = []
+    for owner, attribute, previous in reversed(writes):
+        try:
+            setattr(owner, attribute, previous)
+        except Exception as error:
+            errors.append(error)
+    errors.extend(_restore_snapshot_drum_pads(pad_restore))
+    for attribute in ("current_input_routing", "current_output_routing",
+                      "current_input_sub_routing", "current_output_sub_routing"):
+        if attribute in route_previous:
+            try:
+                setattr(track, attribute, route_previous[attribute])
             except Exception as error:
                 errors.append(error)
     return errors
@@ -2517,7 +2541,8 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "get_live_state":
         groove_pool = getattr(song, "groove_pool", None)
         return {"stateVersion": state_version, "setFingerprint": fingerprint, "tempo": song.tempo, "isPlaying": song.is_playing,
-                "filePath": getattr(song, "file_path", None), "bridgeVersion": BRIDGE_VERSION, "capabilities": list(CAPABILITIES),
+                "filePath": getattr(song, "file_path", None), "bridgeVersion": BRIDGE_VERSION,
+                "scriptDirectory": os.path.realpath(os.path.dirname(__file__)), "capabilities": list(CAPABILITIES),
                 "nativeApiSupport": {"groupTracks": callable(getattr(song, "group_tracks", None)),
                                      "ungroupTrack": callable(getattr(song, "ungroup_track", None)),
                                      "groovePoolCreate": groove_pool is not None and callable(getattr(groove_pool, "create_groove", None))}}
@@ -3689,7 +3714,59 @@ def dispatch_request(song, request, state_version, application=None):
         finally:
             song.end_undo_step()
         return result
+    if method == "set_group_system_snapshot":
+        records = params.get("tracks")
+        if (params.get("expectedStateVersion") != state_version or not isinstance(records, list) or
+                not 1 <= len(records) <= 128):
+            raise ValueError("invalid group-system recall request or state version")
+        track_ids = [record.get("trackId") for record in records if isinstance(record, dict)]
+        if (len(track_ids) != len(records) or not all(isinstance(track_id, str) for track_id in track_ids) or
+                len(set(track_ids)) != len(track_ids)):
+            raise ValueError("group-system track mapping is invalid")
+        root_id = track_ids[0]
+        _, root = _track(song, root_id)
+        if not bool(getattr(root, "is_foldable", False)):
+            raise ValueError("group-system root is not a Group Track")
+        for record in records:
+            if _track_state_snapshot(song, record["trackId"], state_version) != record.get("before"):
+                raise ValueError("group system state changed after planning")
+        def belongs_to_root(track):
+            seen = set()
+            parent = getattr(track, "group_track", None) if bool(getattr(track, "is_grouped", False)) else None
+            while parent is not None:
+                if parent is root:
+                    return True
+                if parent in seen:
+                    raise ValueError("group-system hierarchy contains a cycle")
+                seen.add(parent)
+                parent = getattr(parent, "group_track", None) if bool(getattr(parent, "is_grouped", False)) else None
+            return False
+        actual_ids = [f"track-{index}" for index, track in enumerate(song.tracks)
+                      if track is root or belongs_to_root(track)]
+        if actual_ids != track_ids:
+            raise ValueError("group-system target topology changed after planning")
+        context = _GroupRecallContext()
+        song.begin_undo_step()
+        try:
+            results = [None] * len(records)
+            for index in reversed(range(len(records))):
+                results[index] = dispatch_request(song, {"method": "set_track_state_snapshot", "params": {
+                    **records[index], "_groupRecallContext": context}}, state_version, application)
+            return {"stateVersion": state_version + 1, "tracks": results}
+        except Exception as error:
+            rollback_errors = []
+            for journal in reversed(context.journals):
+                rollback_errors.extend(_rollback_track_state_journal(journal))
+            if rollback_errors:
+                details = "; ".join(str(item) for item in rollback_errors)
+                raise RuntimeError(f"group-system recall failed: {error}; rollback failed: {details}; use Live undo") from error
+            raise
+        finally:
+            song.end_undo_step()
     if method == "set_track_state_snapshot":
+        group_context = params.get("_groupRecallContext")
+        if group_context is not None and not isinstance(group_context, _GroupRecallContext):
+            raise ValueError("invalid group-system recall context")
         track_id, target = params["trackId"], params["target"]
         current = _track_state_snapshot(song, track_id, state_version)
         if current != params["before"]:
@@ -3783,7 +3860,8 @@ def dispatch_request(song, request, state_version, application=None):
             if previous != value:
                 route_previous.setdefault(attribute, previous)
                 setattr(track, attribute, value)
-        song.begin_undo_step()
+        if group_context is None:
+            song.begin_undo_step()
         try:
             write(track, "name", target["track"]["name"])
             write(track.mixer_device.volume, "value", target["mixer"]["volume"])
@@ -3837,26 +3915,16 @@ def dispatch_request(song, request, state_version, application=None):
             if observed_target != target:
                 raise ValueError("Live did not apply the complete track snapshot")
         except Exception as error:
-            rollback_errors = []
-            for owner, attribute, previous in reversed(writes):
-                try:
-                    setattr(owner, attribute, previous)
-                except Exception as rollback_error:
-                    rollback_errors.append(rollback_error)
-            rollback_errors.extend(_restore_snapshot_drum_pads(pad_restore))
-            for attribute in ("current_input_routing", "current_output_routing",
-                              "current_input_sub_routing", "current_output_sub_routing"):
-                if attribute in route_previous:
-                    try:
-                        setattr(track, attribute, route_previous[attribute])
-                    except Exception as rollback_error:
-                        rollback_errors.append(rollback_error)
+            rollback_errors = _rollback_track_state_journal((track, writes, pad_restore, route_previous))
             if rollback_errors:
                 details = "; ".join(str(item) for item in rollback_errors)
                 raise RuntimeError(f"track recall failed: {error}; rollback failed: {details}; use Live undo") from error
             raise
         finally:
-            song.end_undo_step()
+            if group_context is None:
+                song.end_undo_step()
+        if group_context is not None:
+            group_context.journals.append((track, writes, pad_restore, route_previous))
         return result
     if method == "create_track":
         index, kind, name = params.get("index"), params.get("type"), params.get("name")
