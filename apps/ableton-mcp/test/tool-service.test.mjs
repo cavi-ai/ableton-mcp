@@ -1246,6 +1246,42 @@ test("group fold and bus routing mutations validate exact existing track identit
   await assert.rejects(() => service.call("route_tracks_to_bus", { expectedStateVersion: 4, trackIds: ["track-1"], busTrackId: "track-1" }), /cannot route.*itself/);
 });
 
+test("group-bus routing refuses name-only selection when multiple groups share that name", async () => {
+  const service = new ToolService({ bridge: { async request(method) {
+    if (method === "list_tracks") return { stateVersion: 4, tracks: [
+      { id: "track-0", name: "Source", isGroup: false },
+      { id: "track-1", name: "Bass Bus", isGroup: true },
+      { id: "track-2", name: "Bass Bus", isGroup: true }
+    ] };
+    if (method === "get_track_routing") return { stateVersion: 4, output: {
+      type: { id: "main", name: "Main" },
+      availableTypes: [{ id: "track-2", name: "Bass Bus" }]
+    } };
+    throw new Error(`unexpected ${method}`);
+  } } });
+  await assert.rejects(service.call("route_tracks_to_bus", {
+    expectedStateVersion: 4, trackIds: ["track-0"], busTrackId: "track-1"
+  }), /not an unambiguous output routing choice/);
+});
+
+test("group-bus routing refuses a different track identity even when its label matches", async () => {
+  const service = new ToolService({ bridge: { async request(method) {
+    if (method === "list_tracks") return { stateVersion: 4, tracks: [
+      { id: "track-0", name: "Source", isGroup: false },
+      { id: "track-1", name: "Bass Bus", isGroup: true },
+      { id: "track-2", name: "Other", isGroup: false }
+    ] };
+    if (method === "get_track_routing") return { stateVersion: 4, output: {
+      type: { id: "main", name: "Main" },
+      availableTypes: [{ id: "track-2", name: "Bass Bus" }]
+    } };
+    throw new Error(`unexpected ${method}`);
+  } } });
+  await assert.rejects(service.call("route_tracks_to_bus", {
+    expectedStateVersion: 4, trackIds: ["track-0"], busTrackId: "track-1"
+  }), /not an unambiguous output routing choice/);
+});
+
 test("Return-bus routing signs sends and Sends Only choices for every source", async () => {
   const calls = [];
   const service = new ToolService({ bridge: { async request(method, params) {

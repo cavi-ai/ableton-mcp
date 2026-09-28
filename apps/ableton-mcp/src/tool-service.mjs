@@ -4107,7 +4107,11 @@ export class ToolService {
       if (!observed.tracks.some(({ id }) => id === trackId)) throw new Error(`unknown trackId ${trackId}`);
       const routing = await this.bridge.request("get_track_routing", { trackId });
       assertExpectedState(args, routing);
-      const matches = routing.output.availableTypes.filter(({ id, name }) => id === args.busTrackId || name === bus.name);
+      const identityMatches = routing.output.availableTypes.filter(({ id }) => id === args.busTrackId);
+      const nameIsUnique = observed.tracks.filter(({ isGroup, name }) => isGroup && name === bus.name).length === 1;
+      const matches = identityMatches.length ? identityMatches
+        : nameIsUnique ? routing.output.availableTypes.filter(({ id, name }) =>
+          name === bus.name && !observed.tracks.some(({ id: trackId }) => trackId === id)) : [];
       if (matches.length !== 1) throw new Error(`group bus ${args.busTrackId} is not an unambiguous output routing choice for ${trackId}`);
       routes.push({ trackId, outputTypeId: matches[0].id, before: routing.output.type });
     }
