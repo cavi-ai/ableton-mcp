@@ -16,7 +16,7 @@ export class UnixBridgeClient {
       const timer = setTimeout(() => {
         socket.destroy();
         reject(new Error(`bridge request timed out: ${method}`));
-      }, this.timeoutMs);
+      }, method === "set_group_system_snapshot" ? Math.max(this.timeoutMs, 60000) : this.timeoutMs);
       const finish = (callback, value) => {
         clearTimeout(timer);
         socket.end();

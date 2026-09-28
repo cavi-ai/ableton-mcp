@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 218 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 219 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (96)
 
@@ -71,7 +71,7 @@ The server publishes 218 tools. Mutations of the Live Set require `expectedState
 | `list_scenes` | List stable Session scene identities, names, and per-scene launch quantization. | none |
 | `list_tracks` | List stable Ableton track identities, mixer state, and existing group hierarchy. | none |
 | `load_device_chain_snapshot` | Read a named local device-chain snapshot for review and guarded recall onto an already compatible track, Return, or Main device owner. Does not mutate Live. | `name` |
-| `load_group_system_snapshot` | Read one saved group-system JSON capture for review. Does not mutate Live or recreate its tracks; each contained track snapshot can be recalled only onto compatible existing topology using recall_track_state_snapshot. | `name` |
+| `load_group_system_snapshot` | Read one saved group-system JSON capture for review or guarded recall onto compatible existing topology. Loading the JSON does not mutate Live or recreate tracks. | `name` |
 | `load_midi_feel_template` | Load a named stored-MIDI feel template from the private local library for review or guarded transfer. Does not change Live or retrieve native Groove Pool patterns. | `name` |
 | `load_track_state_snapshot` | Read a previously saved local track-state JSON capture for review and explicit guarded recall onto an already compatible track. Does not mutate Live. | `name` |
 | `plan_drum_pattern` | Plan explicit multi-lane drum notes against the current Live meter on a straight-sixteenth, eighth-triplet, or sixteenth-triplet grid. Supports per-lane accents without treating style examples as universal rules. | `grid`, `bars`, `lanes` |
@@ -105,7 +105,7 @@ The server publishes 218 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (108)
+## Mutations (109)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -168,6 +168,7 @@ The server publishes 218 tools. Mutations of the Live Set require `expectedState
 | `randomize_rack_macros` | Plan or invoke Live's native randomization of eligible mapped rack macros. Binds exact rack and parameter state, then reports observed values. No seed or predictable outcome is available. | `expectedStateVersion`, `trackId`, `deviceId` |
 | `recall_device_chain_snapshot` | Plan or recall Return or master mixer, available master output channel, exposed device parameters, rack-chain mixer, Drum Rack note routing and populated pad mute/solo onto exactly compatible topology in one guarded Live undo step. Legacy v1-v5 captures remain supported. Does not create, delete, or load devices or restore hidden plugin state. | `expectedStateVersion`, `trackId`, `snapshot` |
 | `recall_device_parameter_snapshot` | Guarded recall of parameter JSON onto a matching native device class and exact ordered parameter layout. Supports ordinary, Return, and Main tracks; rejects incompatible bounds/choices and disabled changed controls. Does not restore hidden state. | `expectedStateVersion`, `trackId`, `deviceId`, `snapshot` |
+| `recall_group_system_snapshot` | Plan or apply a saved group-system capture onto one-to-one mapped compatible existing Group Track and descendants. One guarded native callback and Live undo step restore exposed track mixer, routing, device and rack state; on failure the bridge attempts rollback across every changed track. Does not recreate tracks/devices/clips or hidden plugin state. | `expectedStateVersion`, `name`, `busTrackId`, `mapping` |
 | `recall_rack_macro_variation` | Plan or recall one existing rack macro variation by zero-based index. Binds exact rack and current parameter state; Live exposes observed values after recall, not the saved variation contents beforehand. | `expectedStateVersion`, `trackId`, `deviceId`, `variationIndex` |
 | `recall_track_state_snapshot` | Plan or recall captured track-state JSON onto exactly compatible topology and group membership (when captured). Restores track and rack-chain mixer, sends, routing, Drum Rack note routing, populated pad mute/solo and exposed nested parameters in one guarded native undo step; older snapshots without group context remain supported. Does not load devices, clips, samples, hidden state, automation or mappings. | `expectedStateVersion`, `trackId`, `snapshot` |
 | `redo` | Plan or apply one guarded Ableton redo operation. | `expectedStateVersion` |

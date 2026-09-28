@@ -161,8 +161,16 @@ test('group-system recall plan maps a saved nested hierarchy to compatible exist
         outputChannelId: null, monitoring: null }, devices: [] } })) });
   let driftOnSecondChildRead = false;
   let childReads = 0;
+  let batchWrites = 0;
   const bridge = { async request(method, args) {
     if (method === 'list_tracks') return { stateVersion: 7, tracks: structuredClone(target) };
+    if (method === 'set_group_system_snapshot') {
+      batchWrites++;
+      assert.deepEqual(args.tracks.map(item => item.trackId), ['track-5', 'track-6']);
+      target[0].name = args.tracks[0].target.track.name;
+      target[1].name = args.tracks[1].target.track.name;
+      return { stateVersion: 8, tracks: args.tracks.map(item => ({ trackId: item.trackId })) };
+    }
     if (method !== 'get_track_state_snapshot') throw new Error(`unexpected write or request: ${method}`);
     const track = target.find(item => item.id === args.trackId);
     if (args.trackId === 'track-6') childReads++;
@@ -183,6 +191,18 @@ test('group-system recall plan maps a saved nested hierarchy to compatible exist
     assert.deepEqual(result.tracks.map(item => [item.sourceTrackId, item.targetTrackId, item.status]),
       [['track-0', 'track-5', 'compatible'], ['track-1', 'track-6', 'compatible']]);
     assert.equal(result.tracks[1].target.track.groupTrackId, 'track-5');
+    const preview = await service.call('recall_group_system_snapshot', { name: 'bass', busTrackId: 'track-5',
+      mapping, expectedStateVersion: 7 });
+    assert.equal(preview.dryRun, true);
+    assert.equal(batchWrites, 0);
+    await assert.rejects(() => service.call('recall_group_system_snapshot', { name: 'bass', busTrackId: 'track-5',
+      mapping, expectedStateVersion: 7, dryRun: false }), /confirmation/i);
+    const applied = await service.call('recall_group_system_snapshot', { name: 'bass', busTrackId: 'track-5',
+      mapping, expectedStateVersion: 7, dryRun: false,
+      confirmationToken: preview.confirmation.token, planHash: preview.confirmation.planHash });
+    assert.equal(applied.dryRun, false);
+    assert.equal(batchWrites, 1);
+    assert.deepEqual(target.map(track => track.name), ['Bass Bus', 'Sub Bass']);
     await assert.rejects(() => service.call('plan_group_system_recall', { name: 'bass', busTrackId: 'track-5',
       mapping: [{ sourceTrackId: 'track-0', targetTrackId: 'track-5' },
         { sourceTrackId: 'track-1', targetTrackId: 'track-5' }] }), /mapping|topology/i);

@@ -571,6 +571,17 @@ export class ToolService {
       return this.groupSystemLibrary.load(args.name);
     }
     if (name === "plan_group_system_recall") return this.#planGroupSystemRecall(args);
+    if (name === "recall_group_system_snapshot") {
+      requireExpectedState(args);
+      const checked = await this.#planGroupSystemRecall(args);
+      assertExpectedState(args, checked);
+      if (checked.tracks.every(track => track.status === "unchanged"))
+        throw new Error("group-system snapshot already matches; no changes required");
+      const plan = { method: "set_group_system_snapshot", expectedStateVersion: args.expectedStateVersion,
+        tracks: checked.tracks.map(track => ({ trackId: track.targetTrackId,
+          before: track.before, target: track.target })) };
+      return this.#confirmedMutation(plan, args);
+    }
     if (name === "save_track_state_snapshot") {
       if (!this.snapshotLibrary) throw new Error("track snapshot library is not configured");
       const capture = await this.#captureTrackStateSnapshot(args);
@@ -1671,10 +1682,14 @@ export class ToolService {
       try {
         const planned = await this.#recallTrackStateSnapshot({ trackId: targetTrackId, snapshot: target,
           expectedStateVersion: before.stateVersion, dryRun: true });
-        tracks.push({ sourceTrackId: item.sourceTrackId, targetTrackId, status: "compatible", target: planned.plan.target });
+        if (JSON.stringify(planned.plan.before) !== JSON.stringify(observed))
+          throw new Error("group system state changed during recall planning");
+        tracks.push({ sourceTrackId: item.sourceTrackId, targetTrackId, status: "compatible",
+          before: observed, target: planned.plan.target });
       } catch (error) {
         if (!/snapshot already matches; no track changes required/.test(error.message)) throw error;
-        tracks.push({ sourceTrackId: item.sourceTrackId, targetTrackId, status: "unchanged", target });
+        tracks.push({ sourceTrackId: item.sourceTrackId, targetTrackId, status: "unchanged",
+          before: observed, target });
       }
     }
     const after = await this.bridge.request("list_tracks", {});
