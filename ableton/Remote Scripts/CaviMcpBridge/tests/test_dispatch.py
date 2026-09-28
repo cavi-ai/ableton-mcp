@@ -2463,7 +2463,7 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(observed["groove"]["pool"][0]["velocityAmount"], -25.0)
         self.assertEqual(observed["loop"], {"enabled": False, "startBeats": 0.0, "lengthBeats": 8.0})
 
-        changed = dispatch_request(song, {"method": "set_song_musical_context", "params": {"changes": {
+        changed = dispatch_request(song, {"method": "set_song_musical_context", "params": {"before": observed, "changes": {
             "timeSignature": {"numerator": 7, "denominator": 8},
             "key": {"rootNote": 2, "scaleName": "Dorian", "scaleMode": True},
             "quantization": {"clipTrigger": 7, "midiRecording": 2},
@@ -2492,13 +2492,25 @@ class DispatchTest(unittest.TestCase):
                 self.__dict__["_root_note"] = value
 
         song = RejectingSong()
+        before = dispatch_request(song, {"method": "get_song_musical_context"}, 3)
         with self.assertRaisesRegex(ValueError, "root rejected"):
             dispatch_request(song, {"method": "set_song_musical_context", "params": {"changes": {
                 "timeSignature": {"numerator": 7, "denominator": 8},
                 "key": {"rootNote": 2},
-            }}}, 3)
+            }, "before": before}}, 3)
         self.assertEqual((song.signature_numerator, song.signature_denominator, song.root_note), (4, 4, 0))
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
+    def test_song_musical_context_rejects_external_change_at_native_boundary(self):
+        song = Song()
+        before = dispatch_request(song, {"method": "get_song_musical_context"}, 3)
+        song.signature_denominator = 8
+        with self.assertRaisesRegex(ValueError, "changed after planning"):
+            dispatch_request(song, {"method": "set_song_musical_context", "params": {
+                "before": before, "changes": {"timeSignature": {"numerator": 7}},
+            }}, 3)
+        self.assertEqual(song.signature_numerator, 4)
+        self.assertEqual(song.undo_boundaries, [])
 
     def test_unwarped_audio_clip_timing_reports_seconds_not_beats(self):
         song = Song()

@@ -3446,6 +3446,8 @@ def dispatch_request(song, request, state_version, application=None):
             clip.move_warp_marker(beat, target - beat)
         return _audio_clip_state(song, track_id, clip_id, state_version + 1)
     if method == "set_song_musical_context":
+        if _song_musical_context(song, state_version) != params["before"]:
+            raise ValueError("song musical context changed after planning")
         changes = params["changes"]
         writes = []
         def write(attribute, value):
