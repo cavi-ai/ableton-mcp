@@ -552,8 +552,8 @@ test("factory browser listing is read-only and exact-path device loading is guar
     ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash
   });
   assert.equal(live.observed.loadedItem.name, "Drift");
-  assert.deepEqual(calls.slice(-3).map(({ method }) => method), [
-    "list_devices", "get_factory_browser_items", "load_factory_browser_item"
+  assert.deepEqual(calls.slice(-4).map(({ method }) => method), [
+    "list_devices", "list_clips", "get_factory_browser_items", "load_factory_browser_item"
   ]);
 });
 
@@ -567,9 +567,22 @@ test("Live browser exposes plug-ins and user content through canonical guarded t
     ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash
   });
   assert.equal(live.observed.loadedItem.name, "Drift");
-  assert.deepEqual(calls.slice(-4).map(({ method }) => method), [
-    "get_browser_items", "list_devices", "get_browser_items", "load_browser_item"
+  assert.deepEqual(calls.slice(-5).map(({ method }) => method), [
+    "get_browser_items", "list_devices", "list_clips", "get_browser_items", "load_browser_item"
   ]);
+});
+
+test("browser load plan signs clip occupancy when targeting an ordinary track", async () => {
+  const { service } = fixture();
+  const dry = await service.call("load_browser_item", {
+    expectedStateVersion: 4, trackId: "track-0", root: "user_folders",
+    path: ["Splice", "Drums", "Snare.wav"]
+  });
+  assert.deepEqual(dry.plan.beforeClipTopology, [
+    { id: "track-0:clip-0", hasClip: true, name: "Loop" },
+    { id: "track-0:clip-1", hasClip: false, name: null }
+  ]);
+  assert.match(dry.plan.loadBehavior.warning, /Session clip/);
 });
 
 test("browser root inventory forwards one read-only native request", async () => {
@@ -2067,6 +2080,8 @@ test("audio quantization signs grid amount and full native before-state", async 
   assert.equal(mutations, 0);
   assert.equal(dry.plan.grid, "1_8_triplet");
   assert.equal(dry.plan.beforeSwingAmount, 0);
+  assert.match(dry.plan.impactWarning, /insert.*warp markers/i);
+  assert.match(dry.plan.impactWarning, /move.*existing.*anchors/i);
   const result = await service.call("quantize_audio_clip", { ...args, dryRun: false,
     confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
   assert.deepEqual(result.observed.warpMarkers.markers, [{ sampleTime: 0.13, beatTime: 0 }]);

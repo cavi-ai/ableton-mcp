@@ -290,6 +290,9 @@ const profiles = [
     trigger: [/^mode /, /^retrigger mode /, /^sensitivity /], fade: [/^fade /, /^xfade /],
     delay: [/^delay /], output: ["send gain", "dry wet"]
   }, notes: ["Spectral Time combines a spectral freeze buffer with a separate frequency-domain delay. On enables the freeze stage and Frozen captures or holds material; these are distinct from the complete device power parameter.", "Unit selects milliseconds or beat modulation for spectral capture timing. Sync Interval and S.Rate ms are separate synchronized and free-rate controls; Mode, Retrigger Mode, and Sensitivity govern manual or onset/sync retriggering.", "Fade Type selects crossfade or envelope behavior. Fade In, XFade, and Fade Out shape transitions around spectral captures and should be interpreted using their native display values.", "The delay stage exposes power, time mode, free/synchronized/16th timing, feedback, tilt, spray, mask, stereo spread, frequency shift, and its own mix. Timing controls are mode-dependent, so read enabled state after changing Delay Mode.", "Send Gain drives the processed path and Dry Wet is the final blend. Freeze and feedback can accumulate sustained energy; monitor gain and use displayValue for time, rhythmic divisions, Hz, dB, and percentages."] }
+  ,{ id: "max-for-live-scratch", name: "Scratch", type: "audio_effect", family: "scratch-performance", match: ["scratch"], requiredClassName: "mxdeviceaudioeffect", roles: {
+    global: ["device on"], anchor: ["anchor"], engagement: ["arm", "gate"], motion: ["jog"], snapping: ["snap"]
+  }, notes: ["Scratch is identified only when Live reports both its exact factory name and the generic Max Audio Effect class. A renamed instance cannot be identified reliably from exposed parameters alone.", "Anchor is displayed in milliseconds; Arm and Gate are distinct switches. Jog is a bipolar -4 to 4 control. Read fresh values and display text before writing by stable parameter ID.", "Snap exposes two native choices labeled val1 and val2 in the tested Live instance; their meaning is not established by this parameter surface. Max patch internals, buffer state, audible pitch and beat alignment are not readable here. Do not claim a scratch gesture was produced solely from a parameter write."] }
   ,{ id: "spectrum", name: "Spectrum", type: "audio_effect", family: "analyzer", match: ["spectrumanalyzer", "spectrum"], roles: {
     global: ["device on"]
   }, notes: ["Spectrum is a read-only frequency analyzer in Live's device UI. The public device parameter surface exposes only Device On; graph scale, block size, channel, averaging, and visual range are not automatable parameters through this API.", "Do not infer analyzer settings or spectral measurements from this profile. Use the dedicated bounded audio-analysis tools for machine-readable spectrum, spectrogram, pitch, harmonic, or resonance-candidate evidence."] }
@@ -364,7 +367,7 @@ const profiles = [
   }, notes: ["Velocity reshapes incoming note-on velocity, release velocity, or both according to Operation. Drive shifts the response and Compand expands or compresses its dynamics; Random adds bounded variation.", "Mode selects Clip, Gate, or Fixed behavior. Preserve the native enum identity because the same range controls have different musical consequences under each mode.", "Lowest and Range define the accepted input-velocity window. Out Low and Out Hi define the output window, enabling compression, expansion, gating, or fixed-value remapping without losing either boundary.", "Velocity transforms live MIDI and does not rewrite source clip velocity values. Record or inspect downstream notes when exact generated note-on and release velocities matter."] }
 ];
 
-const publicProfile = ({ match, roles, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });
+const publicProfile = ({ match, roles, requiredClassName, ...profile }) => ({ ...profile, parameterRoles: Object.keys(roles) });
 const normalize = (value) => String(value || "").trim().toLowerCase();
 
 export function listFactoryDeviceProfiles() {
@@ -374,7 +377,8 @@ export function listFactoryDeviceProfiles() {
 export function getFactoryDeviceProfile(identity = {}) {
   const values = [identity.className, identity.classDisplayName, identity.name].map(normalize).filter(Boolean);
   for (const value of values) {
-    const profile = profiles.find((candidate) => candidate.match.includes(value));
+    const profile = profiles.find((candidate) => candidate.match.includes(value) &&
+      (!candidate.requiredClassName || candidate.requiredClassName === normalize(identity.className)));
     if (profile) return publicProfile(profile);
   }
   return undefined;

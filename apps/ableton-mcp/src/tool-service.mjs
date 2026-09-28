@@ -2339,7 +2339,8 @@ export class ToolService {
     assertExpectedState({ expectedStateVersion: args.expectedStateVersion }, context);
     const beforeSwingAmount = finiteRange(context.groove?.swingAmount, "observed swing amount", 0, 1);
     const result = await this.#confirmedMutation({ method: "quantize_audio_clip", trackId: args.trackId, clipId: args.clipId,
-      expectedStateVersion: args.expectedStateVersion, before, beforeSwingAmount, grid: args.grid, amount }, args);
+      expectedStateVersion: args.expectedStateVersion, before, beforeSwingAmount, grid: args.grid, amount,
+      impactWarning: "Live quantization may insert many warp markers and move existing source start/end anchors. Duplicate the clip first when the original edit must be preserved; inspect warpMarkerChanges after applying." }, args);
     if (result.dryRun) return result;
     return { ...result, warpMarkerChanges: summarizeWarpMarkerChanges(before, result.observed) };
   }
@@ -4173,6 +4174,10 @@ export class ToolService {
     if (!browserPath.path.length) throw new Error("Live browser item is not loadable");
     const observed = await this.bridge.request("list_devices", { trackId: args.trackId });
     assertExpectedState(args, observed);
+    const clips = /^track-\d+$/.test(args.trackId)
+      ? await this.bridge.request("list_clips", { trackId: args.trackId }) : null;
+    if (clips) assertExpectedState(args, clips);
+    const beforeClipTopology = clips?.clips.map(({ id, hasClip, name }) => ({ id, hasClip, name })) ?? null;
     const listMethod = method === "load_browser_item" ? "get_browser_items" : "get_factory_browser_items";
     const listing = await this.bridge.request(listMethod, browserPath);
     if (!listing.item.loadable) throw new Error(`Live browser item ${listing.item.name} is not loadable`);
@@ -4180,10 +4185,11 @@ export class ToolService {
       method, trackId: args.trackId,
       expectedStateVersion: args.expectedStateVersion,
       root: browserPath.root, path: browserPath.path, item: listing.item,
+      beforeClipTopology,
       loadBehavior: {
         mayReplaceExistingDevices: observed.devices.length > 0,
         existingDeviceIds: observed.devices.map(({ id }) => id),
-        warning: "Live browser loading may replace an existing instrument or rack rather than append. Inspect the existing device hierarchy in before; use a separate staging track and move_device_to_chain to build additional rack layers."
+        warning: "Live browser loading may replace an existing instrument or rack, or insert or replace a Session clip when loading audio. Inspect before and beforeClipTopology; use an empty staging track to avoid changing existing content."
       },
       before: observed
     }, args);

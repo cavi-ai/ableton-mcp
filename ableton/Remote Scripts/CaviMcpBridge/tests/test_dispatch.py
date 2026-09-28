@@ -1480,6 +1480,33 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(application.loaded[0].name, "Drift")
         self.assertEqual(loaded["stateVersion"], 4)
 
+    def test_browser_audio_load_reports_created_session_clip(self):
+        song, application = Song(), Application()
+        track = song.tracks[1]
+        application.browser.load_item = lambda item: track.clip_slots[0].create_clip(16)
+        loaded = dispatch_request(song, {"method": "load_browser_item", "params": {
+            "root": "user_folders", "path": ["Splice", "Drums", "Snare.wav"], "trackId": "track-1",
+            "before": dispatch_request(song, {"method": "list_devices", "params": {"trackId": "track-1"}}, 3),
+        }}, 3, application)
+        self.assertEqual(loaded["deviceChainEffect"]["kind"], "unconfirmed")
+        self.assertEqual(loaded["clipEffect"], {
+            "kind": "inserted", "clipId": "track-1:clip-0", "insertedIndex": 0,
+            "removedIndices": [],
+        })
+
+    def test_browser_load_rejects_changed_clip_occupancy(self):
+        song, application = Song(), Application()
+        before = [{"id": "track-1:clip-0", "hasClip": False, "name": None},
+                  {"id": "track-1:clip-1", "hasClip": False, "name": None}]
+        song.tracks[1].clip_slots[0].create_clip(4)
+        with self.assertRaisesRegex(ValueError, "target Session clips changed"):
+            dispatch_request(song, {"method": "load_browser_item", "params": {
+                "root": "user_folders", "path": ["Splice", "Drums", "Snare.wav"],
+                "trackId": "track-1", "beforeClipTopology": before,
+                "before": dispatch_request(song, {"method": "list_devices", "params": {"trackId": "track-1"}}, 3),
+            }}, 3, application)
+        self.assertEqual(application.loaded, [])
+
     def test_browser_load_targets_return_and_master_device_owners(self):
         song = Song()
         application = Application()

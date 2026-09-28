@@ -190,7 +190,7 @@ test("Operator separates native oscillator, pitch, filter and LFO envelopes", ()
 test("factory-device catalog covers foundational instruments and effects", () => {
   assert.deepEqual(listFactoryDeviceProfiles().map(({ id }) => id), [
     "eq-three", "utility", "saturator", "simpler", "sampler", "drum-rack", "analog", "drift", "operator", "wavetable",
-    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper", "overdrive", "pedal", "redux", "resonators", "shaper", "shifter", "spectral-resonator", "spectral-time", "spectrum", "surround-panner", "tuner", "vinyl-distortion", "vocoder", "cc-control", "chord", "envelope-midi", "expression-control", "midi-monitor", "mpe-control", "note-echo", "note-length", "pitch", "random", "scale", "shaper-midi", "velocity"
+    "eq-eight", "delay", "echo", "reverb", "hybrid-reverb", "auto-shift", "glue-compressor", "limiter", "instrument-rack", "audio-effect-rack", "midi-effect-rack", "arpeggiator", "compressor", "gate", "auto-filter", "channel-eq", "multiband-dynamics", "drum-buss", "roar", "meld", "drum-sampler", "collision", "tension", "electric", "impulse", "ds-kick", "ds-snare", "ds-clap", "ds-tom", "ds-hh", "ds-cymbal", "ds-fm", "ds-clang", "external-instrument", "amp", "cabinet", "beat-repeat", "chorus-ensemble", "phaser-flanger", "align-delay", "auto-pan-tremolo", "corpus", "dynamic-tube", "envelope-follower", "erosion", "external-audio-effect", "filter-delay", "grain-delay", "lfo", "looper", "overdrive", "pedal", "redux", "resonators", "shaper", "shifter", "spectral-resonator", "spectral-time", "max-for-live-scratch", "spectrum", "surround-panner", "tuner", "vinyl-distortion", "vocoder", "cc-control", "chord", "envelope-midi", "expression-control", "midi-monitor", "mpe-control", "note-echo", "note-length", "pitch", "random", "scale", "shaper-midi", "velocity"
   ]);
 });
 
@@ -1334,4 +1334,16 @@ test("parameter grouping preserves live IDs while assigning producer roles", () 
   assert.deepEqual(grouped.feedback.map(({ id }) => id), ["parameter-2"]);
   assert.deepEqual(grouped.delayTime.map(({ id }) => id), ["parameter-3"]);
   assert.deepEqual(grouped.global.map(({ id }) => id), ["parameter-4"]);
+});
+
+test("Max for Live Scratch groups its observed controls without treating generic Max devices as Scratch", () => {
+  const profile = getFactoryDeviceProfile({ className: "MxDeviceAudioEffect", name: "Scratch" });
+  assert.equal(profile?.id, "max-for-live-scratch");
+  const names = ["Device On", "Anchor", "Arm", "Gate", "Jog", "Snap", "Future Control"];
+  const groups = groupDeviceParameters(profile, names.map((name, index) => ({ id: `parameter-${index}`, originalName: name, name })));
+  for (const [role, ids] of Object.entries({ global: [0], anchor: [1], engagement: [2, 3], motion: [4], snapping: [5], other: [6] })) {
+    assert.deepEqual(groups[role].map(({ id }) => id), ids.map(index => `parameter-${index}`), role);
+  }
+  assert.equal(getFactoryDeviceProfile({ className: "MxDeviceAudioEffect", name: "Renamed Scratch" }), undefined);
+  assert.equal(getFactoryDeviceProfile({ className: "Vst3PluginDevice", name: "Scratch" }), undefined);
 });

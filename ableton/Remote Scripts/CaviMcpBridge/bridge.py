@@ -3103,7 +3103,15 @@ def dispatch_request(song, request, state_version, application=None):
         current_devices = dispatch_request(song, {"method": "list_devices", "params": {"trackId": params["trackId"]}}, state_version)
         if current_devices != params["before"]:
             raise ValueError("target device chain changed")
+        if params.get("beforeClipTopology") is not None:
+            current_clips = [{"id": f"{params['trackId']}:clip-{index}",
+                              "hasClip": bool(slot.has_clip),
+                              "name": slot.clip.name if slot.has_clip else None}
+                             for index, slot in enumerate(track.clip_slots)]
+            if current_clips != params["beforeClipTopology"]:
+                raise ValueError("target Session clips changed")
         before_objects = tuple(getattr(track, "devices", ()))
+        before_clips = tuple(slot.clip if slot.has_clip else None for slot in track.clip_slots) if hasattr(track, "clip_slots") else None
         previous_track = song.view.selected_track
         try:
             song.view.selected_track = track
@@ -3129,8 +3137,29 @@ def dispatch_request(song, request, state_version, application=None):
         effect = {"kind": kind, "insertedIndex": added[0] if len(added) == 1 else None,
                   "deviceId": f"{params['trackId']}:device-{added[0]}" if len(added) == 1 else None,
                   "removedIndices": removed, "oldOrderPreserved": old_order_preserved}
+        clip_effect = None
+        if before_clips is not None:
+            after_clips = tuple(slot.clip if slot.has_clip else None for slot in track.clip_slots)
+            clip_added = [index for index, clip in enumerate(after_clips)
+                          if clip is not None and (index >= len(before_clips) or before_clips[index] is None
+                              or clip != before_clips[index])]
+            clip_removed = [index for index, clip in enumerate(before_clips)
+                            if clip is not None and (index >= len(after_clips) or after_clips[index] is None
+                                or clip != after_clips[index])]
+            clip_kind = "unconfirmed"
+            if len(clip_added) == 1 and not clip_removed:
+                clip_kind = "inserted"
+            elif len(clip_added) == 1 and clip_removed == clip_added:
+                clip_kind = "replaced"
+            elif clip_added or clip_removed or len(before_clips) != len(after_clips):
+                clip_kind = "complex_change"
+            clip_effect = {"kind": clip_kind,
+                           "clipId": f"{params['trackId']}:clip-{clip_added[0]}" if len(clip_added) == 1 else None,
+                           "insertedIndex": clip_added[0] if len(clip_added) == 1 else None,
+                           "removedIndices": clip_removed}
         return {"stateVersion": state_version + 1, "trackId": params["trackId"],
                 "loadedItem": _browser_item_record(item), "deviceChainEffect": effect,
+                "clipEffect": clip_effect,
                 "deviceChain": dispatch_request(song, {"method": "list_devices", "params": {"trackId": params["trackId"]}}, state_version + 1)}
     if method == "get_set_mixer":
         return _set_mixer(song, state_version)
