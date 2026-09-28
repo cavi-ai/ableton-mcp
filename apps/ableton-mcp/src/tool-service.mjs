@@ -439,12 +439,13 @@ function normalizeBrowserSearch(args) {
 }
 
 export class ToolService {
-  constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, deviceChainLibrary, midiFeelLibrary, browserMetadata, spliceRoots = [], generationQueuePath }) {
+  constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, deviceChainLibrary, groupSystemLibrary, midiFeelLibrary, browserMetadata, spliceRoots = [], generationQueuePath }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
     this.snapshotLibrary = snapshotLibrary;
     this.deviceChainLibrary = deviceChainLibrary;
+    this.groupSystemLibrary = groupSystemLibrary;
     this.midiFeelLibrary = midiFeelLibrary;
     this.browserMetadata = browserMetadata;
     this.spliceRoots = spliceRoots;
@@ -512,6 +513,7 @@ export class ToolService {
     }
     if (name === "list_saved_snapshots") {
       const library = { track: this.snapshotLibrary, "device-chain": this.deviceChainLibrary,
+        "group-system": this.groupSystemLibrary,
         "midi-feel": this.midiFeelLibrary }[args.kind];
       if (!library) throw new Error("requested snapshot library is not configured");
       return { kind: args.kind, names: await library.list() };
@@ -557,6 +559,17 @@ export class ToolService {
     }
     if (name === "recall_device_chain_snapshot") return this.#recallDeviceChainSnapshot(args);
     if (name === "capture_track_state_snapshot") return this.#captureTrackStateSnapshot(args);
+    if (name === "capture_group_system_snapshot") return this.#captureGroupSystemSnapshot(args);
+    if (name === "save_group_system_snapshot") {
+      if (!this.groupSystemLibrary) throw new Error("group-system snapshot library is not configured");
+      const capture = await this.#captureGroupSystemSnapshot(args);
+      return { ...await this.groupSystemLibrary.save(args.name, capture.snapshot),
+        busTrackId: args.busTrackId, stateVersion: capture.stateVersion, limitation: capture.limitation };
+    }
+    if (name === "load_group_system_snapshot") {
+      if (!this.groupSystemLibrary) throw new Error("group-system snapshot library is not configured");
+      return this.groupSystemLibrary.load(args.name);
+    }
     if (name === "save_track_state_snapshot") {
       if (!this.snapshotLibrary) throw new Error("track snapshot library is not configured");
       const capture = await this.#captureTrackStateSnapshot(args);
@@ -1557,6 +1570,44 @@ export class ToolService {
         monitoring: routing.monitoring?.value ?? null },
       devices: persistedChainSnapshot(observed.devices, deviceFormat).devices
     }, limitation: "Captures group membership, mixer, routing, ordered devices, exposed nested rack parameters, chain mixer, Drum Rack note routing and populated pad mute/solo. Not a native track preset: excludes clips, hidden plugin state, samples, automation and mappings." };
+  }
+
+  async #captureGroupSystemSnapshot(args) {
+    const before = await this.bridge.request("list_tracks", {});
+    if (!Array.isArray(before.tracks)) throw new Error("invalid track hierarchy observation");
+    const byId = new Map(before.tracks.map(track => [track.id, track]));
+    const bus = byId.get(args.busTrackId);
+    if (!bus?.isGroup) throw new Error("busTrackId must identify an existing Group Track");
+    const belongsToBus = (track) => {
+      const visited = new Set([track.id]);
+      let parentId = track.groupTrackId;
+      while (parentId) {
+        if (parentId === args.busTrackId) return true;
+        if (visited.has(parentId)) throw new Error("group hierarchy contains a cycle");
+        visited.add(parentId);
+        const parent = byId.get(parentId);
+        if (!parent) throw new Error("group hierarchy contains an unknown parent");
+        parentId = parent.groupTrackId;
+      }
+      return false;
+    };
+    const members = before.tracks.filter(track => track.id === args.busTrackId || belongsToBus(track));
+    const tracks = [];
+    for (const track of members) {
+      const capture = await this.#captureTrackStateSnapshot({ trackId: track.id });
+      if (capture.stateVersion !== before.stateVersion ||
+          capture.snapshot.track.isGroup !== Boolean(track.isGroup) ||
+          capture.snapshot.track.groupTrackId !== (track.groupTrackId ?? null) ||
+          capture.snapshot.track.name !== track.name || capture.snapshot.track.type !== track.type)
+        throw new Error("group system state changed during capture");
+      tracks.push({ sourceTrackId: track.id, snapshot: capture.snapshot });
+    }
+    const after = await this.bridge.request("list_tracks", {});
+    if (after.stateVersion !== before.stateVersion || JSON.stringify(after.tracks) !== JSON.stringify(before.tracks))
+      throw new Error("group system state changed during capture");
+    return { busTrackId: args.busTrackId, stateVersion: before.stateVersion,
+      snapshot: { format: "cavi-group-system-v1", tracks },
+      limitation: "Read-only ordered topology and exposed track state. Not a native Group Track preset; does not create or recall tracks, devices, clips, samples, hidden plugin state, automation or mappings." };
   }
 
   async #captureDeviceChainSnapshot(args) {

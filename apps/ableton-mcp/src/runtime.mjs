@@ -31,6 +31,8 @@ export function createConfiguredService(environment = process.env, { persistentC
   return {
     service: new ToolService({ bridge, catalog, confirmations, spliceRoots, generationQueuePath: catalogPath,
       snapshotLibrary: new SnapshotLibrary({ directory: snapshotDirectory }),
+      groupSystemLibrary: new SnapshotLibrary({ directory: join(snapshotDirectory, "group-systems"),
+        formats: ["cavi-group-system-v1"] }),
       deviceChainLibrary: new SnapshotLibrary({ directory: join(snapshotDirectory, "device-chains"),
         formats: ["cavi-device-chain-v1", "cavi-device-chain-v2", "cavi-device-chain-v3", "cavi-device-chain-v4", "cavi-device-chain-v5", "cavi-device-chain-v6"] }),
       midiFeelLibrary: new SnapshotLibrary({ directory: join(snapshotDirectory, "midi-feel"),

@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 214 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 217 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (93)
+## Read-only (95)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -16,6 +16,7 @@ The server publishes 214 tools. Mutations of the Live Set require `expectedState
 | `browse_local_splice_directory` | Page through immediate subfolders and audio files inside a configured local Splice root. Optionally join private MCP tags and favorites for audio files. Returned folder paths can be searched individually when a broad search is truncated. Skips symlinks and non-audio files; not Splice cloud browsing, downloads, or license verification. | `rootPath` |
 | `capture_device_chain_snapshot` | Capture ordered devices, nested rack topology, exposed parameters, Return or master mixer, available master output channel, chain mixer, Drum Rack note routing and populated pad mute/solo as persistable JSON. Not a native rack or preset; excludes hidden plugin state, samples, automation, and mappings. | `trackId` |
 | `capture_device_parameter_snapshot` | Capture exposed device parameters as persistable JSON, with a consistent live identity check. Not a native preset: excludes hidden plugin state, samples, automation and mappings. | `trackId`, `deviceId` |
+| `capture_group_system_snapshot` | Capture an existing Group Track, nested groups and all descendant tracks in Live order as persistable JSON. Every track snapshot and the final hierarchy must match one state version. Read-only; does not save clips, samples, hidden plug-in state, automation or mappings, or create/recall tracks. | `busTrackId` |
 | `capture_track_state_snapshot` | Capture one consistent, persistable JSON snapshot of group membership, track mixer, routing, ordered devices, nested rack parameters, chain mixer, Drum Rack note routing and populated pad mute/solo. Not a native track preset; excludes clips, hidden state, samples, automation and mappings. | `trackId` |
 | `get_audio_clip_state` | Read gain, pitch, warp, marker, and native fade-switch availability for one exact Session or Arrangement audio clip, including timeline identity for Arrangement clips. Unsupported fade controls report supported=false, not a simulated value. | `trackId`, `clipId` |
 | `get_audio_source_beat_times` | Read native warped clip-beat positions for source-audio seconds. Uses Live's sample-to-beat converter, not interpolation from sparse warp markers; does not edit the clip. | `trackId`, `clipId`, `sourceSeconds` |
@@ -66,10 +67,11 @@ The server publishes 214 tools. Mutations of the Live Set require `expectedState
 | `list_live_scales` | List Ableton Live 12 scale names with semitone intervals and musical families for exact scale selection. Read-only. | none |
 | `list_local_splice_roots` | List existing local Splice folders and cache paths, including detected macOS defaults and explicitly configured roots. Does not search Splice cloud assets, verify licenses, or download files. | none |
 | `list_producer_chain_blueprints` | List deterministic producer starting points for ordered track, bus, return, mastering, and layered-instrument chains. | none |
-| `list_saved_snapshots` | List names of regular local capture files in the private track, device-chain, or MIDI-feel library. Does not validate capture contents or change Live; load a name to inspect its format and contents. | `kind` |
+| `list_saved_snapshots` | List names of regular local capture files in the private track, device-chain, group-system, or MIDI-feel library. Does not validate capture contents or change Live; load a name to inspect its format and contents. | `kind` |
 | `list_scenes` | List stable Session scene identities, names, and per-scene launch quantization. | none |
 | `list_tracks` | List stable Ableton track identities, mixer state, and existing group hierarchy. | none |
 | `load_device_chain_snapshot` | Read a named local device-chain snapshot for review and guarded recall onto an already compatible track, Return, or Main device owner. Does not mutate Live. | `name` |
+| `load_group_system_snapshot` | Read one saved group-system JSON capture for review. Does not mutate Live or recreate its tracks; each contained track snapshot can be recalled only onto compatible existing topology using recall_track_state_snapshot. | `name` |
 | `load_midi_feel_template` | Load a named stored-MIDI feel template from the private local library for review or guarded transfer. Does not change Live or retrieve native Groove Pool patterns. | `name` |
 | `load_track_state_snapshot` | Read a previously saved local track-state JSON capture for review and explicit guarded recall onto an already compatible track. Does not mutate Live. | `name` |
 | `plan_drum_pattern` | Plan explicit multi-lane drum notes against the current Live meter on a straight-sixteenth, eighth-triplet, or sixteenth-triplet grid. Supports per-lane accents without treating style examples as universal rules. | `grid`, `bars`, `lanes` |
@@ -102,7 +104,7 @@ The server publishes 214 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (107)
+## Mutations (108)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -175,6 +177,7 @@ The server publishes 214 tools. Mutations of the Live Set require `expectedState
 | `route_tracks_to_bus` | Plan or route existing tracks to one exact existing group bus using Live's available routing choices. | `expectedStateVersion`, `trackIds`, `busTrackId` |
 | `route_tracks_to_return_bus` | Plan or route existing tracks to one exact Return bus using matching sends and Sends Only outputs. Prevalidates all sources; Live applies one undo step but runtime failures can interrupt it. | `expectedStateVersion`, `trackIds`, `returnTrackId`, `sendValue` |
 | `save_device_chain_snapshot` | Capture a device chain including Return or master mixer, available master output channel, exposed rack-chain controls and populated Drum Rack pad mute/solo into the private named local chain library. Never overwrites. Does not save hidden plugin state, samples, automation, or mappings. | `trackId`, `name` |
+| `save_group_system_snapshot` | Capture an existing Group Track and descendants into a private named local JSON file. Never overwrites; preserves exposed mixer, routing, device and rack state but not clips, samples, hidden plug-in state, automation or mappings. | `busTrackId`, `name` |
 | `save_midi_feel_template` | Analyze one exact MIDI clip and save its stored-note timing and velocity template in the private named local library. Never overwrites. Rejects clips assigned a native groove; does not capture Groove Pool playback effects. | `name`, `trackId`, `clipId`, `grid` |
 | `save_track_state_snapshot` | Capture one exact track state and save its JSON to the private named local snapshot library. Never overwrites; excludes clips, hidden plugin state, samples, automation and mappings. | `trackId`, `name` |
 | `set_audio_clip_state` | Plan or apply guarded audio-clip gain, pitch offsets, warp, and marker changes. Use beats for warped clips and seconds for unwarped clips; change warping separately from markers. | `expectedStateVersion`, `trackId`, `clipId` |
