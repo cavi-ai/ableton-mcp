@@ -1047,6 +1047,17 @@ export class ToolService {
         converted.points.some((point, index) => point.sourceSeconds !== candidates[index].sourceSeconds || !Number.isFinite(point.beatTime)))) {
         throw new Error("native conversion does not match the observed audio clip");
       }
+      const hopSeconds = measurement.transients.hopSize / measurement.transients.sampleRate;
+      const precedingSeconds = candidates.map(candidate => Math.max(0,
+        Math.round((candidate.sourceSeconds - hopSeconds) * 1e9) / 1e9));
+      const preceding = candidates.length ? await this.bridge.request("get_audio_source_beat_times", {
+        ...target, sourceSeconds: precedingSeconds
+      }) : null;
+      if (preceding && (preceding.trackId !== target.trackId || preceding.clipId !== target.clipId ||
+        preceding.stateVersion !== before.stateVersion || preceding.sourcePath !== before.source.path ||
+        preceding.conversion !== "native" || preceding.points?.length !== candidates.length ||
+        preceding.points.some((point, index) => point.sourceSeconds !== precedingSeconds[index] || !Number.isFinite(point.beatTime))))
+        throw new Error("native detector-resolution conversion does not match the observed audio clip");
       let meter;
       if (args.includeMusicalRoles) {
         const timing = await this.bridge.request("get_clip_timing", target);
@@ -1081,14 +1092,17 @@ export class ToolService {
         const inClipRegion = currentBeatTime >= before.markers.startBeats && currentBeatTime <= before.markers.endBeats;
         const slotIndex = Math.round(targetBeatTime / args.gridBeats);
         const slotInBar = meter ? ((slotIndex % meter.slotsPerBar) + meter.slotsPerBar) % meter.slotsPerBar : null;
+        const detectorResolutionBeats = Math.abs(currentBeatTime - preceding.points[index].beatTime);
+        const withinDetectorResolution = Math.abs(targetBeatTime - currentBeatTime) <= detectorResolutionBeats + 1e-9;
         gridAlignment.push({ sourceSeconds: candidate.sourceSeconds, strength: candidate.strength,
           currentBeatTime, nearestGridBeatTime: targetBeatTime,
-          signedOffsetBeats: Math.round((currentBeatTime - targetBeatTime) * 1e6) / 1e6, inClipRegion,
+          signedOffsetBeats: Math.round((currentBeatTime - targetBeatTime) * 1e6) / 1e6,
+          detectorResolutionBeats, withinDetectorResolution, inClipRegion,
           ...(meter ? { barIndex: Math.floor(slotIndex / meter.slotsPerBar), slotInBar,
             barDownbeat: slotInBar === 0,
             quarterPulse: Math.abs(targetBeatTime - Math.round(targetBeatTime)) < 1e-6,
             halfBeatUpbeat: Math.abs(targetBeatTime - Math.floor(targetBeatTime) - 0.5) < 1e-6 } : {}) });
-        if (!inClipRegion || preferredBySlot.get(slotIndex)?.index !== index ||
+        if (!inClipRegion || withinDetectorResolution || preferredBySlot.get(slotIndex)?.index !== index ||
           targetBeatTime <= before.markers.startBeats || targetBeatTime >= before.markers.endBeats ||
           Math.abs(targetBeatTime - currentBeatTime) < 1e-6 ||
           before.warpMarkers.markers.some(marker => Math.abs(marker.beatTime - targetBeatTime) < 1e-6) ||
@@ -1108,7 +1122,7 @@ export class ToolService {
         ...(meter ? { meter } : {}),
         nativeConversion: true, sourcePath: before.source.path, sourceWindow: measurement.window,
         candidateCount: candidates.length, gridAlignment, actions,
-        limitation: "Heuristic source-only candidates and review-only actions. Each marker must be dry-run against fresh Live state; neighbor/BPM constraints may reject it. Does not modify or audibly validate the clip." };
+        limitation: "Heuristic source-only candidates and review-only actions. Offsets no larger than one 10-ms detector hop in native beat coordinates are reported but not proposed as marker edits. Each remaining marker must be dry-run against fresh Live state; neighbor/BPM constraints may reject it. Does not modify or audibly validate the clip." };
     }
     if (name === "get_device_sidechain_routing") return this.bridge.request("get_device_sidechain_routing", args);
     if (name === "analyze_audio_file") return analyzeAudioFile(args.sourcePath, args);
