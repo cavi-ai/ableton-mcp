@@ -8,7 +8,7 @@ function withoutVersions(value) {
 }
 
 export function inspectGroovePostconditions(operation, before, after) {
-  if (!["bake", "extract"].includes(operation)) throw new Error("unknown groove operation");
+  if (!["bake", "extract", "remove"].includes(operation)) throw new Error("unknown groove operation");
   for (const key of ["trackId", "clipId", "trackName", "clipName"]) {
     if (typeof before?.[key] !== "string" || before[key] !== after?.[key]) throw new Error("clip identity changed or missing");
   }
@@ -44,7 +44,8 @@ export function inspectGroovePostconditions(operation, before, after) {
     addedGroove = pool.at(-1);
     currentContext.groove.pool = pool.slice(0, -1);
   } else {
-    if (typeof before.timing.grooveId !== "string" || after.timing.grooveId !== null) throw new Error("bake groove assignment postcondition not observed");
+    if (typeof before.timing.grooveId !== "string" || after.timing.grooveId !== null) throw new Error(`${operation} groove assignment postcondition not observed`);
+    if (operation === "remove" && sourceContentChanged) throw new Error("remove source content changed");
     const previousTiming = withoutVersions(before.timing), currentTiming = withoutVersions(after.timing);
     delete previousTiming.grooveId;
     delete currentTiming.grooveId;

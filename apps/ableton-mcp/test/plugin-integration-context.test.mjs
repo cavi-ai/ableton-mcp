@@ -17,8 +17,15 @@ test("supported synth aliases resolve to stable product integration profiles", (
   assert.equal(getPluginIntegrationProfile({ name: "Serum 2", className: "InstrumentDevice" }), undefined);
 });
 
+test("Live's plug-in class display name takes precedence over the device label", () => {
+  assert.equal(getPluginIntegrationProfile({ name: "Bass Texture", className: "PluginDevice",
+    classDisplayName: "Serum 2" })?.id, "serum-2");
+  assert.equal(getPluginIntegrationProfile({ name: "Omnisphere", className: "PluginDevice",
+    classDisplayName: "Serum 2 FX" }), undefined);
+});
+
 test("plugin integration context joins installed variants, Live exposure, and NKS coverage", async () => {
-  const device = { id: "track-0:device-0", name: "Serum 2", className: "PluginDevice",
+  const device = { id: "track-0:device-0", name: "Bass Texture", className: "PluginDevice",
     classDisplayName: "Serum 2", type: "instrument", active: true };
   const parameters = [
     { id: "parameter-0", name: "Device On", originalName: "Device On", enabled: true },

@@ -328,6 +328,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         timeSignature: { numerator: 4, denominator: 4 },
         launchQuantization: { value: 0, name: "global", choices: [{ value: 0, name: "global" }, { value: 12, name: "1_16" }] },
         launchLegato: { supported: true, enabled: false },
+        mute: { supported: true, enabled: false },
         editorGrid: { quantization: { value: 8, name: "1_16", choices: [{ value: 7, name: "1_8" }, { value: 8, name: "1_16" }] }, isTriplet: false },
         grooveId: null, availableGrooves: [{ id: "groove-0", name: "Swing 16-65" }]
       };
@@ -813,6 +814,51 @@ test("factory device context combines stable identity, knowledge, and live param
   assert.deepEqual(context.parameterGroups.frequency.map(({ id }) => id), ["cutoff"]);
 });
 
+test("Auto Shift context distinguishes song scale awareness from disabled manual scale values", async () => {
+  const device = { id: "track-5:device-0", name: "Auto Shift", className: "AutoShift",
+    classDisplayName: "Auto Shift", type: "audio_effect", active: true };
+  const parameters = [
+    { id: "parameter-3", name: "Scale Aware", originalName: "Scale Aware", value: 1,
+      displayValue: "On", enabled: true, quantized: true, valueItems: ["Off", "On"] },
+    { id: "parameter-18", name: "Root", originalName: "Root", value: 0,
+      displayValue: "C", enabled: false, quantized: true, valueItems: ["C", "D"] },
+    { id: "parameter-19", name: "Scale", originalName: "Scale", value: 0,
+      displayValue: "Custom", enabled: false, quantized: true, valueItems: ["Custom", "Major"] }
+  ];
+  const bridge = { async request(method) {
+    if (method === "list_devices") return { stateVersion: 33, trackId: "track-5", devices: [device] };
+    if (method === "list_device_parameters") return { stateVersion: 33, trackId: "track-5", deviceId: device.id, parameters };
+    if (method === "get_song_musical_context") return { stateVersion: 33,
+      key: { rootNote: 7, rootName: "G", scaleName: "Minor", scaleMode: true } };
+    throw new Error(method);
+  } };
+  const context = await new ToolService({ bridge }).call("get_factory_device_context", {
+    trackId: "track-5", deviceId: device.id
+  });
+  assert.deepEqual(context.scaleLink, {
+    songKey: { rootNote: 7, rootName: "G", scaleName: "Minor", scaleMode: true },
+    scaleAware: { id: "parameter-3", value: 1, displayValue: "On", enabled: true },
+    manualRoot: { id: "parameter-18", value: 0, displayValue: "C", enabled: false },
+    manualScale: { id: "parameter-19", value: 0, displayValue: "Custom", enabled: false },
+    effectiveScaleSource: "song-key",
+    limitation: "Song key linkage and exposed controls only; disabled manual Root/Scale readbacks do not identify the active correction scale or prove audible pitch correction."
+  });
+});
+
+test("Auto Shift context rejects a song key read from another Live state", async () => {
+  const device = { id: "track-5:device-0", name: "Auto Shift", className: "AutoShift" };
+  const bridge = { async request(method) {
+    if (method === "list_devices") return { stateVersion: 33, devices: [device] };
+    if (method === "list_device_parameters") return { stateVersion: 33, parameters: [] };
+    if (method === "get_song_musical_context") return { stateVersion: 34,
+      key: { rootNote: 7, rootName: "G", scaleName: "Minor", scaleMode: true } };
+    throw new Error(method);
+  } };
+  await assert.rejects(new ToolService({ bridge }).call("get_factory_device_context", {
+    trackId: "track-5", deviceId: device.id
+  }), /device context changed between reads/);
+});
+
 test("factory device context rejects parameters read after the device topology changed", async () => {
   const device = { id: "track-0:device-0", name: "EQ Eight", className: "Eq8" };
   const service = new ToolService({ catalog: {}, bridge: { async request(method) {
@@ -986,6 +1032,44 @@ test("transport recording context mutation validates and signs exact changes", a
   }), /currentSongTime/);
 });
 
+test("transport mutation verifies a separate settled native control readback", async () => {
+  const before = { stateVersion: 4, currentSongTime: 0, arrangement: { punchIn: false } };
+  const after = { stateVersion: 5, currentSongTime: 8, arrangement: { punchIn: true } };
+  let reads = 0;
+  const service = new ToolService({ bridge: { async request(method) {
+    if (method === "get_transport_recording_context") return ++reads === 3 ? after : before;
+    if (method === "set_transport_recording_context") return { ...before, stateVersion: 5 };
+    throw new Error(method);
+  } } });
+  const args = { expectedStateVersion: 4, currentSongTime: 8, arrangement: { punchIn: true } };
+  const dry = await service.call("set_transport_recording_context", args);
+  const result = await service.call("set_transport_recording_context", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(reads, 3);
+  assert.deepEqual(result.observed, after);
+  assert.equal(result.verification.controlsConfirmed, true);
+  assert.deepEqual(result.verification.mismatches, []);
+});
+
+test("transport mutation reports an unconfirmed control instead of claiming success", async () => {
+  const before = { stateVersion: 4, currentSongTime: 0, arrangement: { punchIn: false } };
+  let reads = 0;
+  const service = new ToolService({ bridge: { async request(method) {
+    if (method === "get_transport_recording_context") {
+      reads++;
+      return reads < 3 ? before : { ...before, stateVersion: 5 };
+    }
+    if (method === "set_transport_recording_context") return { ...before, stateVersion: 5 };
+    throw new Error(method);
+  } } });
+  const args = { expectedStateVersion: 4, currentSongTime: 8 };
+  const dry = await service.call("set_transport_recording_context", args);
+  const result = await service.call("set_transport_recording_context", { ...args, dryRun: false,
+    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
+  assert.equal(result.verification.controlsConfirmed, false);
+  assert.deepEqual(result.verification.mismatches, ["currentSongTime"]);
+});
+
 test("Capture MIDI signs session scope and refuses an empty native capture buffer", async () => {
   const before = { stateVersion: 4, midiCapture: { available: true, midiTrackIds: ["track-0", "track-1"] } };
   const service = new ToolService({ bridge: { async request(method) {
@@ -1103,6 +1187,14 @@ test("clip timing signs the Session clip launch Legato switch", async () => {
   await assert.rejects(() => service.call("set_clip_timing", { ...base, launchLegato: "yes" }), /launchLegato must be boolean/);
 });
 
+test("clip timing signs native clip mute only when supported", async () => {
+  const { service } = fixture();
+  const base = { trackId: "track-0", clipId: "track-0:clip-0", expectedStateVersion: 4 };
+  const dry = await service.call("set_clip_timing", { ...base, mute: true });
+  assert.equal(dry.plan.changes.mute, true);
+  await assert.rejects(() => service.call("set_clip_timing", { ...base, mute: "yes" }), /mute must be boolean/);
+});
+
 test("clip timing signs exact editor grid choices and triplet mode", async () => {
   const { service } = fixture();
   const base = { trackId: "track-0", clipId: "track-0:clip-0", expectedStateVersion: 4 };
@@ -1199,6 +1291,42 @@ test("group fold and bus routing mutations validate exact existing track identit
   await assert.rejects(() => service.call("route_tracks_to_bus", { expectedStateVersion: 4, trackIds: ["track-1"], busTrackId: "track-1" }), /cannot route.*itself/);
 });
 
+test("group-bus routing refuses name-only selection when multiple groups share that name", async () => {
+  const service = new ToolService({ bridge: { async request(method) {
+    if (method === "list_tracks") return { stateVersion: 4, tracks: [
+      { id: "track-0", name: "Source", isGroup: false },
+      { id: "track-1", name: "Bass Bus", isGroup: true },
+      { id: "track-2", name: "Bass Bus", isGroup: true }
+    ] };
+    if (method === "get_track_routing") return { stateVersion: 4, output: {
+      type: { id: "main", name: "Main" },
+      availableTypes: [{ id: "track-2", name: "Bass Bus" }]
+    } };
+    throw new Error(`unexpected ${method}`);
+  } } });
+  await assert.rejects(service.call("route_tracks_to_bus", {
+    expectedStateVersion: 4, trackIds: ["track-0"], busTrackId: "track-1"
+  }), /not an unambiguous output routing choice/);
+});
+
+test("group-bus routing refuses a different track identity even when its label matches", async () => {
+  const service = new ToolService({ bridge: { async request(method) {
+    if (method === "list_tracks") return { stateVersion: 4, tracks: [
+      { id: "track-0", name: "Source", isGroup: false },
+      { id: "track-1", name: "Bass Bus", isGroup: true },
+      { id: "track-2", name: "Other", isGroup: false }
+    ] };
+    if (method === "get_track_routing") return { stateVersion: 4, output: {
+      type: { id: "main", name: "Main" },
+      availableTypes: [{ id: "track-2", name: "Bass Bus" }]
+    } };
+    throw new Error(`unexpected ${method}`);
+  } } });
+  await assert.rejects(service.call("route_tracks_to_bus", {
+    expectedStateVersion: 4, trackIds: ["track-0"], busTrackId: "track-1"
+  }), /not an unambiguous output routing choice/);
+});
+
 test("Return-bus routing signs sends and Sends Only choices for every source", async () => {
   const calls = [];
   const service = new ToolService({ bridge: { async request(method, params) {
@@ -1275,6 +1403,23 @@ test("device chain snapshots capture and recall exact bus topology", async () =>
     confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
   assert.equal(result.observed.devices[0].parameters[0].value, 0.5);
   assert.equal(mutations.length, 1);
+});
+
+test("device chain recall rejects a plug-in rename before issuing confirmation", async () => {
+  const observed = { stateVersion: 9, trackId: "track-0", devices: [{
+    id: "track-0:device-0", name: "Serum 2", className: "PluginDevice", type: "instrument",
+    parameters: [{ id: "parameter-0", originalName: "Device On", min: 0, max: 1,
+      quantized: true, valueItems: ["Off", "On"], value: 1, enabled: true }]
+  }] };
+  const service = new ToolService({ bridge: { async request(method) {
+    if (method === "get_device_chain_snapshot") return structuredClone(observed);
+    throw new Error(`unexpected bridge request ${method}`);
+  } } });
+  const { snapshot } = await service.call("capture_device_chain_snapshot", { trackId: "track-0" });
+  snapshot.devices[0].name = "Bass Texture";
+  await assert.rejects(() => service.call("recall_device_chain_snapshot", {
+    trackId: "track-0", expectedStateVersion: 9, snapshot
+  }), /plug-in device name.*cannot be changed/);
 });
 
 test("device chain snapshots capture and validate nested rack topology", async () => {

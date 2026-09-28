@@ -162,6 +162,8 @@ function validateChainDevice(saved, native, format, label = "device chain") {
       !Array.isArray(saved.parameters) || saved.parameters.length !== native.parameters.length) {
     throw new Error(`${label} topology mismatch`);
   }
+  if (native.className === "PluginDevice" && saved.name !== native.name)
+    throw new Error("plug-in device name cannot be changed by snapshot recall in Live");
   saved.parameters.forEach((parameter, index) => {
     const current = native.parameters[index];
     for (const field of ["originalName", "min", "max", "quantized", "valueItems"]) {
@@ -464,13 +466,24 @@ export class ToolService {
     }
     if (name === "search_local_splice_samples") {
       if (args.includeMetadata !== undefined && typeof args.includeMetadata !== "boolean") throw new Error("includeMetadata must be boolean");
-      const observed = await searchLocalSpliceSamples(args);
-      if (!args.includeMetadata) return observed;
-      const library = this.#browserMetadataLibrary();
-      const configuredRoots = await listConfiguredSpliceRoots(this.spliceRoots);
+      if (args.favorite !== undefined && typeof args.favorite !== "boolean") throw new Error("favorite must be boolean");
+      if (args.tags !== undefined && (!Array.isArray(args.tags) || args.tags.length > 32 ||
+          args.tags.some(tag => typeof tag !== "string" || !tag.trim() || tag.trim().length > 80)))
+        throw new Error("tags must be an array of at most 32 non-empty strings of at most 80 characters");
+      const requiredTags = args.tags?.map(tag => tag.trim().toLowerCase()) ?? [];
+      const filtering = args.favorite !== undefined || requiredTags.length > 0;
+      const library = args.includeMetadata || filtering ? this.#browserMetadataLibrary() : null;
+      const configuredRoots = library ? await listConfiguredSpliceRoots(this.spliceRoots) : null;
+      const itemFor = (sample, rootPath) => canonicalLocalSpliceMetadataItem({ root: "local_splice",
+        path: [rootPath, sample.relativePath], uri: sample.sourcePath }, configuredRoots);
+      const observed = await searchLocalSpliceSamples({ ...args, matchSample: filtering ? sample => {
+        const metadata = library.get(itemFor(sample, sample.rootPath));
+        return (args.favorite === undefined || metadata.favorite === args.favorite) &&
+          requiredTags.every(tag => metadata.tags.includes(tag));
+      } : undefined });
+      if (!args.includeMetadata && !filtering) return observed;
       return { ...observed, samples: observed.samples.map((sample) => ({ ...sample,
-        metadata: library.get(canonicalLocalSpliceMetadataItem({ root: "local_splice",
-          path: [observed.rootPath, sample.relativePath], uri: sample.sourcePath }, configuredRoots)) })),
+        metadata: library.get(itemFor(sample, observed.rootPath)) })),
         metadataSource: "private_mcp" };
     }
     if (name === "analyze_midi_feel") {
@@ -755,7 +768,8 @@ export class ToolService {
           expectedInstrumentProfileId: pluginId ? null : expected.instrumentProfileId, expectedPluginId: pluginId,
           observedInstrumentProfileIds, observedPluginIds, instrumentMatches,
           grouped: track.groupTrackId === args.busTrackId,
-          routed: routing.output?.type?.id === args.busTrackId });
+          routed: routing.output?.type?.id === args.busTrackId ||
+            (track.groupTrackId === args.busTrackId && routing.output?.type?.id === "Group") });
       }
       return { target: args.target, busTrackId: args.busTrackId, stateVersion: trackList.stateVersion,
         busChain, children,
@@ -958,6 +972,25 @@ export class ToolService {
       const observed = await this.bridge.request("list_device_parameters", args);
       if (observed.stateVersion !== identity.stateVersion)
         throw new Error("device context changed between reads");
+      let scaleLink;
+      if (profile?.id === "auto-shift") {
+        const song = await this.bridge.request("get_song_musical_context", {});
+        if (song.stateVersion !== identity.stateVersion)
+          throw new Error("device context changed between reads");
+        const control = name => {
+          const parameter = observed.parameters.find(item => (item.originalName || item.name) === name);
+          return parameter ? { id: parameter.id, value: parameter.value,
+            displayValue: parameter.displayValue, enabled: parameter.enabled } : null;
+        };
+        const scaleAware = control("Scale Aware");
+        const linkedToSong = scaleAware?.displayValue === "On" && song.key?.scaleMode === true;
+        scaleLink = {
+          songKey: song.key ?? null, scaleAware,
+          manualRoot: control("Root"), manualScale: control("Scale"),
+          effectiveScaleSource: linkedToSong ? "song-key" : scaleAware?.displayValue === "Off" ? "manual" : "unresolved",
+          limitation: "Song key linkage and exposed controls only; disabled manual Root/Scale readbacks do not identify the active correction scale or prove audible pitch correction."
+        };
+      }
       const parameterGroups = groupDeviceParameters(profile, observed.parameters);
       const unmappedIds = parameterGroups.other.map(parameter => parameter.id);
       const configuredPluginControls = device.className === "PluginDevice"
@@ -971,6 +1004,7 @@ export class ToolService {
       return {
         stateVersion: observed.stateVersion, trackId: args.trackId, device,
         profile: profile || null,
+        ...(scaleLink ? { scaleLink } : {}),
         parameterGroups,
         parameterCoverage: { total: observed.parameters.length,
           mapped: observed.parameters.length - unmappedIds.length,
@@ -1035,17 +1069,66 @@ export class ToolService {
         converted.points.some((point, index) => point.sourceSeconds !== candidates[index].sourceSeconds || !Number.isFinite(point.beatTime)))) {
         throw new Error("native conversion does not match the observed audio clip");
       }
+      const hopSeconds = measurement.transients.hopSize / measurement.transients.sampleRate;
+      const precedingSeconds = candidates.map(candidate => Math.max(0,
+        Math.round((candidate.sourceSeconds - hopSeconds) * 1e9) / 1e9));
+      const preceding = candidates.length ? await this.bridge.request("get_audio_source_beat_times", {
+        ...target, sourceSeconds: precedingSeconds
+      }) : null;
+      if (preceding && (preceding.trackId !== target.trackId || preceding.clipId !== target.clipId ||
+        preceding.stateVersion !== before.stateVersion || preceding.sourcePath !== before.source.path ||
+        preceding.conversion !== "native" || preceding.points?.length !== candidates.length ||
+        preceding.points.some((point, index) => point.sourceSeconds !== precedingSeconds[index] || !Number.isFinite(point.beatTime))))
+        throw new Error("native detector-resolution conversion does not match the observed audio clip");
+      let meter;
+      if (args.feelBars !== undefined && (!Number.isInteger(args.feelBars) || args.feelBars < 1 || args.feelBars > 8))
+        throw new Error("feelBars must be an integer from one to eight");
+      if (args.includeMusicalRoles || args.feelBars !== undefined) {
+        const timing = await this.bridge.request("get_clip_timing", target);
+        if (timing.trackId !== target.trackId || timing.clipId !== target.clipId || timing.stateVersion !== before.stateVersion)
+          throw new Error("clip timing changed during transient proposal");
+        if (args.feelBars !== undefined && timing.grooveId != null)
+          throw new Error("assigned native groove playback cannot be captured as source-audio feel");
+        const { numerator, denominator } = timing.timeSignature ?? {};
+        const barBeats = numerator * 4 / denominator;
+        const slotsPerBar = Math.round(barBeats / args.gridBeats);
+        if (!Number.isInteger(numerator) || numerator < 1 || ![1, 2, 4, 8, 16].includes(denominator) ||
+          !Number.isFinite(slotsPerBar) || slotsPerBar < 1 || slotsPerBar * (args.feelBars ?? 1) > 4096 ||
+          Math.abs(slotsPerBar * args.gridBeats - barBeats) > 1e-6)
+          throw new Error("clip meter is unavailable or grid does not divide a bar");
+        meter = { numerator, denominator, barBeats, slotsPerBar };
+      }
       const after = await this.bridge.request("get_audio_clip_state", target);
       if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error("audio clip changed during transient proposal; retry against current state");
+      const preferredBySlot = new Map();
+      for (let index = 0; index < candidates.length; index++) {
+        const beatTime = converted.points[index].beatTime;
+        if (beatTime < before.markers.startBeats || beatTime > before.markers.endBeats) continue;
+        const slot = Math.round(beatTime / args.gridBeats);
+        const offset = Math.abs(beatTime - slot * args.gridBeats);
+        const previous = preferredBySlot.get(slot);
+        if (!previous || offset < previous.offset - 1e-9 ||
+          (Math.abs(offset - previous.offset) <= 1e-9 && candidates[index].strength > previous.strength))
+          preferredBySlot.set(slot, { index, offset, strength: candidates[index].strength });
+      }
       const actions = [], gridAlignment = [];
       for (let index = 0; index < candidates.length; index++) {
         const candidate = candidates[index], currentBeatTime = converted.points[index].beatTime;
         const targetBeatTime = Math.round(currentBeatTime / args.gridBeats) * args.gridBeats;
         const inClipRegion = currentBeatTime >= before.markers.startBeats && currentBeatTime <= before.markers.endBeats;
+        const slotIndex = Math.round(targetBeatTime / args.gridBeats);
+        const slotInBar = meter ? ((slotIndex % meter.slotsPerBar) + meter.slotsPerBar) % meter.slotsPerBar : null;
+        const detectorResolutionBeats = Math.abs(currentBeatTime - preceding.points[index].beatTime);
+        const withinDetectorResolution = Math.abs(targetBeatTime - currentBeatTime) <= detectorResolutionBeats + 1e-9;
         gridAlignment.push({ sourceSeconds: candidate.sourceSeconds, strength: candidate.strength,
           currentBeatTime, nearestGridBeatTime: targetBeatTime,
-          signedOffsetBeats: Math.round((currentBeatTime - targetBeatTime) * 1e6) / 1e6, inClipRegion });
-        if (!inClipRegion ||
+          signedOffsetBeats: Math.round((currentBeatTime - targetBeatTime) * 1e6) / 1e6,
+          detectorResolutionBeats, withinDetectorResolution, inClipRegion,
+          ...(meter ? { barIndex: Math.floor(slotIndex / meter.slotsPerBar), slotInBar,
+            barDownbeat: slotInBar === 0,
+            quarterPulse: Math.abs(targetBeatTime - Math.round(targetBeatTime)) < 1e-6,
+            halfBeatUpbeat: Math.abs(targetBeatTime - Math.floor(targetBeatTime) - 0.5) < 1e-6 } : {}) });
+        if (!inClipRegion || withinDetectorResolution || preferredBySlot.get(slotIndex)?.index !== index ||
           targetBeatTime <= before.markers.startBeats || targetBeatTime >= before.markers.endBeats ||
           Math.abs(targetBeatTime - currentBeatTime) < 1e-6 ||
           before.warpMarkers.markers.some(marker => Math.abs(marker.beatTime - targetBeatTime) < 1e-6) ||
@@ -1061,10 +1144,38 @@ export class ToolService {
           targetBeatTime, method: existing ? "move_audio_warp_marker" : "add_audio_warp_marker",
           ...(existing ? { beatTime: existing.beatTime } : { beatTime: targetBeatTime, sampleTime: candidate.sourceSeconds }) });
       }
+      let feelSummary;
+      if (args.feelBars !== undefined) {
+        const cycleBeats = meter.barBeats * args.feelBars;
+        const slotCount = meter.slotsPerBar * args.feelBars;
+        const buckets = new Map();
+        for (let index = 0; index < gridAlignment.length; index++) {
+          const hit = gridAlignment[index];
+          const absoluteSlot = Math.round(hit.nearestGridBeatTime / args.gridBeats);
+          if (!hit.inClipRegion || preferredBySlot.get(absoluteSlot)?.index !== index) continue;
+          const slot = ((absoluteSlot % slotCount) + slotCount) % slotCount;
+          const bucket = buckets.get(slot) ?? [];
+          bucket.push(hit);
+          buckets.set(slot, bucket);
+        }
+        feelSummary = { format: "cavi-audio-feel-v1", gridBeats: args.gridBeats, bars: args.feelBars, barBeats: meter.barBeats,
+          nativeGrooveId: null,
+          cycleBeats, slotCount, source: { ...target, stateVersion: after.stateVersion,
+            sourcePath: before.source.path },
+          slots: [...buckets].sort(([left], [right]) => left - right).map(([slot, hits]) => {
+            const reliable = hits.filter(hit => !hit.withinDetectorResolution);
+            return { slot, hitCount: hits.length, reliableTimingHits: reliable.length,
+              meanOffsetBeats: reliable.length ? reliable.reduce((sum, hit) => sum + hit.signedOffsetBeats, 0) / reliable.length : null,
+              meanStrength: hits.reduce((sum, hit) => sum + hit.strength, 0) / hits.length };
+          }),
+          limitation: "Source-audio onset feel from the measured window only. Offsets within one detector hop are unresolvable and excluded from timing means; strength is not MIDI velocity. Not native Groove Pool extraction, playback-groove measurement, or an applied template." };
+      }
       return { ...target, stateVersion: after.stateVersion, gridBeats: args.gridBeats,
+        ...(meter ? { meter } : {}),
+        ...(feelSummary ? { feelSummary } : {}),
         nativeConversion: true, sourcePath: before.source.path, sourceWindow: measurement.window,
         candidateCount: candidates.length, gridAlignment, actions,
-        limitation: "Heuristic source-only candidates and review-only actions. Each marker must be dry-run against fresh Live state; neighbor/BPM constraints may reject it. Does not modify or audibly validate the clip." };
+        limitation: "Heuristic source-only candidates and review-only actions. Offsets no larger than one 10-ms detector hop in native beat coordinates are reported but not proposed as marker edits. Each remaining marker must be dry-run against fresh Live state; neighbor/BPM constraints may reject it. Does not modify or audibly validate the clip." };
     }
     if (name === "get_device_sidechain_routing") return this.bridge.request("get_device_sidechain_routing", args);
     if (name === "analyze_audio_file") return analyzeAudioFile(args.sourcePath, args);
@@ -1956,10 +2067,29 @@ export class ToolService {
       if (Object.keys(values).length) changes[group] = values;
     }
     if (!Object.keys(changes).length) throw new Error("at least one transport recording context change is required");
-    return this.#confirmedMutation({
+    const result = await this.#confirmedMutation({
       method: "set_transport_recording_context", expectedStateVersion: args.expectedStateVersion,
       before: observed, changes
     }, args);
+    if (result.dryRun) return result;
+    try {
+      const readback = await this.bridge.request("get_transport_recording_context", {});
+      const mismatches = [];
+      if (readback.stateVersion !== result.observed.stateVersion) mismatches.push("stateVersion");
+      for (const [key, value] of Object.entries(changes)) {
+        if (key === "arrangement" || key === "session") {
+          for (const [field, requested] of Object.entries(value)) {
+            if (readback[key]?.[field] !== requested) mismatches.push(`${key}.${field}`);
+          }
+        } else if (readback[key] !== value) mismatches.push(key);
+      }
+      return { ...result, immediateObserved: result.observed, observed: readback,
+        verification: { controlsConfirmed: mismatches.length === 0, mismatches,
+          scope: "separate native control readback; recorded content is not verified" } };
+    } catch (error) {
+      return { ...result, verification: { controlsConfirmed: false, mismatches: ["readback"],
+        readbackError: error.message, scope: "recorded content is not verified" } };
+    }
   }
 
   async #captureMidiSession(args) {
@@ -2047,6 +2177,11 @@ export class ToolService {
       if (typeof args.launchLegato !== "boolean") throw new Error("launchLegato must be boolean");
       if (observed.launchLegato?.supported !== true) throw new Error("clip launch Legato is unavailable");
       changes.launchLegato = args.launchLegato;
+    }
+    if (args.mute !== undefined) {
+      if (typeof args.mute !== "boolean") throw new Error("mute must be boolean");
+      if (observed.mute?.supported !== true) throw new Error("clip mute is unavailable");
+      changes.mute = args.mute;
     }
     if (args.editorGrid !== undefined) {
       if (!args.editorGrid || typeof args.editorGrid !== "object" || Array.isArray(args.editorGrid)) throw new Error("editorGrid must be an object");
@@ -3994,7 +4129,11 @@ export class ToolService {
       if (!observed.tracks.some(({ id }) => id === trackId)) throw new Error(`unknown trackId ${trackId}`);
       const routing = await this.bridge.request("get_track_routing", { trackId });
       assertExpectedState(args, routing);
-      const matches = routing.output.availableTypes.filter(({ id, name }) => id === args.busTrackId || name === bus.name);
+      const identityMatches = routing.output.availableTypes.filter(({ id }) => id === args.busTrackId);
+      const nameIsUnique = observed.tracks.filter(({ isGroup, name }) => isGroup && name === bus.name).length === 1;
+      const matches = identityMatches.length ? identityMatches
+        : nameIsUnique ? routing.output.availableTypes.filter(({ id, name }) =>
+          name === bus.name && !observed.tracks.some(({ id: trackId }) => trackId === id)) : [];
       if (matches.length !== 1) throw new Error(`group bus ${args.busTrackId} is not an unambiguous output routing choice for ${trackId}`);
       routes.push({ trackId, outputTypeId: matches[0].id, before: routing.output.type });
     }

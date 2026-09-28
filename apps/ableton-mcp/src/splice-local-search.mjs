@@ -64,9 +64,10 @@ export async function observeLocalSpliceSample(rootPath, relativePath) {
 }
 
 export async function searchLocalSpliceSamples({ rootPath, query, maxDepth = 8, offset = 0, limit = 100,
-  maxVisited = 50000 }) {
+  maxVisited = 50000, matchSample }) {
   if (typeof rootPath !== "string" || !isAbsolute(rootPath)) throw new Error("rootPath must be absolute");
-  if (typeof query !== "string" || !query.trim()) throw new Error("query must be non-empty");
+  if (query !== undefined && (typeof query !== "string" || !query.trim())) throw new Error("query must be non-empty");
+  if (query === undefined && !matchSample) throw new Error("query or metadata filter is required");
   if (!Number.isInteger(maxDepth) || maxDepth < 1 || maxDepth > 16) throw new Error("maxDepth must be 1 through 16");
   if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("offset must be a nonnegative safe integer");
   if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new Error("limit must be 1 through 200");
@@ -74,7 +75,7 @@ export async function searchLocalSpliceSamples({ rootPath, query, maxDepth = 8, 
     throw new Error("maxVisited must be 1 through 50000");
   const root = await realpath(rootPath);
   if (!(await stat(root)).isDirectory()) throw new Error("rootPath must be a directory");
-  const needle = query.trim().toLocaleLowerCase();
+  const needle = query?.trim().toLocaleLowerCase();
   const samples = [];
   let matched = 0;
   let visited = 0;
@@ -97,10 +98,11 @@ export async function searchLocalSpliceSamples({ rootPath, query, maxDepth = 8, 
         if (truncated) break;
       } else if (entry.isFile() && AUDIO_EXTENSIONS.has(extname(entry.name).toLowerCase())) {
         const relativeCandidate = relative(root, candidate);
-        if (!relativeCandidate.toLocaleLowerCase().includes(needle)) continue;
+        if (needle && !relativeCandidate.toLocaleLowerCase().includes(needle)) continue;
         const sourcePath = await realpath(candidate);
         const childPath = relative(root, sourcePath);
         if (childPath.startsWith(`..${sep}`) || childPath === ".." || isAbsolute(childPath)) continue;
+        if (matchSample && !await matchSample({ rootPath: root, relativePath: childPath.split(sep).join("/"), sourcePath })) continue;
         if (matched >= offset && samples.length < limit)
           samples.push({ relativePath: childPath.split(sep).join("/"), sourcePath });
         matched++;
@@ -110,7 +112,7 @@ export async function searchLocalSpliceSamples({ rootPath, query, maxDepth = 8, 
 
   await visit(root, 1);
   samples.sort((left, right) => compareNames(left.relativePath, right.relativePath));
-  return { rootPath: root, query: query.trim(), scope: "local_files_only", offset,
+  return { rootPath: root, query: query?.trim() ?? null, scope: "local_files_only", offset,
     visited, maxVisited, truncated,
     nextOffset: matched > offset + limit ? offset + limit : null, samples,
     limitation: "Searches local audio and cache files only; not Splice cloud catalog, license verification, downloads, or sync." };

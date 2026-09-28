@@ -60,6 +60,20 @@ test("core discovery is bounded and cannot call tools it does not advertise", as
   assert.throws(() => createRouter({}, { toolProfile: "unknown" }), /unknown tool profile/);
 });
 
+test("MCP accepts the complete measured audio feel summary as a timing-only transfer template", async () => {
+  const route = createRouter({ call: async (_name, args) => args });
+  const template = { format: "cavi-audio-feel-v1", gridBeats: 0.25, bars: 1, barBeats: 4,
+    cycleBeats: 4, slotCount: 16, nativeGrooveId: null,
+    source: { trackId: "track-1", clipId: "track-1:clip-0", stateVersion: 4, sourcePath: "/audio/source.wav" },
+    slots: [{ slot: 1, hitCount: 1, reliableTimingHits: 1, meanOffsetBeats: 0.04, meanStrength: 0.7 }],
+    limitation: "Source-audio timing only." };
+  const reply = await route({ id: 1, method: "tools/call", params: { name: "apply_midi_feel_template",
+    arguments: { trackId: "track-0", clipId: "track-0:clip-0", expectedStateVersion: 4,
+      template, timingAmount: 1, velocityAmount: 0 } } });
+  assert.equal(reply.error, undefined);
+  assert.deepEqual(reply.result.structuredContent.template, template);
+});
+
 test("every tool advertises MCP annotations matching its mutation class", async () => {
   const listed = await createRouter(new ToolService({}))({ id: 1, method: "tools/list" });
   for (const tool of listed.result.tools) {

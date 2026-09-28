@@ -88,7 +88,7 @@ test("inspect_producer_bus checks child instruments, grouping, routing and order
     if (method === "list_tracks") return tracks;
     if (method === "list_devices") return { stateVersion: 7, trackId: args.trackId, devices: devices[args.trackId] };
     if (method === "get_track_routing") return { stateVersion: 7, trackId: args.trackId,
-      output: { type: { id: args.trackId === "track-3" ? "main" : "track-0", name: "Output" } } };
+      output: { type: { id: args.trackId === "track-3" ? "Main" : args.trackId === "track-1" ? "Group" : "track-0", name: "Output" } } };
     throw new Error(method);
   } } });
   const result = await service.call("inspect_producer_bus", { target: "layered-bass-system", busTrackId: "track-0",

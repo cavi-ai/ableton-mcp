@@ -675,8 +675,10 @@ class DispatchTest(unittest.TestCase):
 
         folded = dispatch_request(song, {"method": "set_group_fold_state", "params": {"trackId": "track-1", "folded": True}}, 3)
         self.assertEqual(folded["track"]["foldState"], 1)
+        before = dispatch_request(song, {"method": "get_track_routing", "params": {"trackId": "track-0"}}, 4)
         routed = dispatch_request(song, {"method": "route_tracks_to_bus", "params": {
-            "busTrackId": "track-1", "routes": [{"trackId": "track-0", "outputTypeId": "track-1"}]
+            "expectedStateVersion": 4, "busTrackId": "track-1", "bus": folded["track"],
+            "routes": [{"trackId": "track-0", "outputTypeId": "track-1", "before": before["output"]["type"]}]
         }}, 4)
         self.assertEqual(source.current_output_routing, "Bass Bus")
         self.assertEqual(routed["routes"][0]["output"]["type"]["name"], "Bass Bus")
@@ -686,15 +688,119 @@ class DispatchTest(unittest.TestCase):
         source, group = song.tracks
         song.tracks = [source, Track(), group]
         group.is_foldable = True
+        group.fold_state = 0
         source.available_output_routing_types.append(
             SimpleNamespace(identifier="bus", display_name="Bus"))
         original = source.current_output_routing
+        bus = dispatch_request(song, {"method": "list_tracks"}, 3)["tracks"][2]
+        before = dispatch_request(song, {"method": "get_track_routing", "params": {"trackId": "track-0"}}, 3)
+        other_before = dispatch_request(song, {"method": "get_track_routing", "params": {"trackId": "track-1"}}, 3)
         with self.assertRaises(ValueError):
             dispatch_request(song, {"method": "route_tracks_to_bus", "params": {
-                "busTrackId": "track-2", "routes": [
-                    {"trackId": "track-0", "outputTypeId": "bus"},
-                    {"trackId": "track-1", "outputTypeId": "missing"}]}}, 3)
+                "expectedStateVersion": 3, "busTrackId": "track-2", "bus": bus, "routes": [
+                    {"trackId": "track-0", "outputTypeId": "bus", "before": before["output"]["type"]},
+                    {"trackId": "track-1", "outputTypeId": "missing", "before": other_before["output"]["type"]}]}}, 3)
         self.assertIs(source.current_output_routing, original)
+
+    def test_batch_bus_routing_rejects_changed_source_without_mutation(self):
+        song = Song()
+        source, group = song.tracks
+        group.is_foldable = True
+        group.fold_state = 0
+        source.available_output_routing_types.append(SimpleNamespace(identifier="bus", display_name="Bass Bus"))
+        bus = dispatch_request(song, {"method": "list_tracks"}, 3)["tracks"][1]
+        before = dispatch_request(song, {"method": "get_track_routing", "params": {"trackId": "track-0"}}, 3)
+        source.current_output_routing = "No Output"
+
+        with self.assertRaisesRegex(ValueError, "source routing changed"):
+            dispatch_request(song, {"method": "route_tracks_to_bus", "params": {
+                "expectedStateVersion": 3, "busTrackId": "track-1", "bus": bus,
+                "routes": [{"trackId": "track-0", "outputTypeId": "bus", "before": before["output"]["type"]}]
+            }}, 3)
+        self.assertEqual(source.current_output_routing, "No Output")
+
+    def test_batch_bus_routing_rolls_back_earlier_sources_when_native_write_fails(self):
+        class FailingTrack(Track):
+            def __setattr__(self, name, value):
+                if name == "current_output_routing" and value == "Bass Bus":
+                    raise RuntimeError("native routing failed")
+                super().__setattr__(name, value)
+
+        song = Song()
+        first, group = song.tracks
+        second = FailingTrack()
+        song.tracks = [first, second, group]
+        group.is_foldable = True
+        group.fold_state = 0
+        group.name = "Bass Bus"
+        for source in (first, second):
+            source.available_output_routing_types.append(SimpleNamespace(identifier="bus", display_name="Bass Bus"))
+        bus = dispatch_request(song, {"method": "list_tracks"}, 3)["tracks"][2]
+        routes = []
+        for index in range(2):
+            before = dispatch_request(song, {"method": "get_track_routing", "params": {"trackId": f"track-{index}"}}, 3)
+            routes.append({"trackId": f"track-{index}", "outputTypeId": "bus", "before": before["output"]["type"]})
+
+        with self.assertRaisesRegex(RuntimeError, "native routing failed"):
+            dispatch_request(song, {"method": "route_tracks_to_bus", "params": {
+                "expectedStateVersion": 3, "busTrackId": "track-2", "bus": bus, "routes": routes
+            }}, 3)
+        self.assertEqual(first.current_output_routing, "Main")
+
+    def test_batch_bus_routing_rejects_silent_native_write_and_rolls_back(self):
+        class IgnoringTrack(Track):
+            def __setattr__(self, name, value):
+                if name == "current_output_routing" and value == "Bass Bus":
+                    return
+                super().__setattr__(name, value)
+
+        song = Song()
+        first, group = song.tracks
+        second = IgnoringTrack()
+        song.tracks = [first, second, group]
+        group.is_foldable = True
+        group.fold_state = 0
+        group.name = "Bass Bus"
+        for source in (first, second):
+            source.available_output_routing_types.append(SimpleNamespace(identifier="bus", display_name="Bass Bus"))
+        bus = dispatch_request(song, {"method": "list_tracks"}, 3)["tracks"][2]
+        routes = []
+        for index in range(2):
+            before = dispatch_request(song, {"method": "get_track_routing", "params": {"trackId": f"track-{index}"}}, 3)
+            routes.append({"trackId": f"track-{index}", "outputTypeId": "bus", "before": before["output"]["type"]})
+
+        with self.assertRaisesRegex(ValueError, "native bus routing did not match"):
+            dispatch_request(song, {"method": "route_tracks_to_bus", "params": {
+                "expectedStateVersion": 3, "busTrackId": "track-2", "bus": bus, "routes": routes
+            }}, 3)
+        self.assertEqual(first.current_output_routing, "Main")
+
+    def test_batch_bus_routing_accepts_native_group_alias_for_exact_parent(self):
+        class GroupAliasTrack(Track):
+            def __setattr__(self, name, value):
+                if name == "current_output_routing" and value == "Bass Bus":
+                    value = "Group"
+                super().__setattr__(name, value)
+
+        song = Song()
+        group = song.tracks[1]
+        group.name = "Bass Bus"
+        group.is_foldable = True
+        group.fold_state = 0
+        child = GroupAliasTrack()
+        child.is_grouped = True
+        child.group_track = group
+        child.available_output_routing_types.append(SimpleNamespace(identifier="bus", display_name="Bass Bus"))
+        song.tracks = [child, group]
+        bus = dispatch_request(song, {"method": "list_tracks"}, 3)["tracks"][1]
+        before = dispatch_request(song, {"method": "get_track_routing", "params": {"trackId": "track-0"}}, 3)
+
+        result = dispatch_request(song, {"method": "route_tracks_to_bus", "params": {
+            "expectedStateVersion": 3, "busTrackId": "track-1", "bus": bus,
+            "routes": [{"trackId": "track-0", "outputTypeId": "bus", "before": before["output"]["type"]}]
+        }}, 3)
+        self.assertEqual(result["routes"][0]["output"]["type"], {"id": "Group", "name": "Group"})
+        self.assertEqual(child.current_output_routing, "Group")
 
     def test_return_bus_routes_multiple_tracks_with_prevalidated_send_and_output(self):
         song = Song()
@@ -744,7 +850,7 @@ class DispatchTest(unittest.TestCase):
         self.assertTrue(observed["session"]["overdub"])
         self.assertTrue(observed["midiCapture"]["available"])
         self.assertEqual(observed["midiCapture"]["midiTrackIds"], ["track-0", "track-1"])
-        changed = dispatch_request(song, {"method": "set_transport_recording_context", "params": {"changes": {
+        changed = dispatch_request(song, {"method": "set_transport_recording_context", "params": {"before": observed, "changes": {
             "currentSongTime": 32.0, "metronome": False,
             "arrangement": {"record": True, "overdub": True, "punchIn": False, "punchOut": True, "backToArranger": True},
             "session": {"record": True, "overdub": False}, "automationArm": True,
@@ -755,6 +861,66 @@ class DispatchTest(unittest.TestCase):
         self.assertTrue(song.back_to_arranger)
         self.assertFalse(song.overdub)
         self.assertTrue(song.session_automation_record)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
+    def test_transport_recording_context_rolls_back_before_record_if_setter_fails(self):
+        class RejectingSong(Song):
+            @property
+            def metronome(self):
+                return self.__dict__["_metronome"]
+
+            @metronome.setter
+            def metronome(self, value):
+                if value is True and self.__dict__.get("_reject_metronome", False):
+                    raise ValueError("metronome rejected")
+                self.__dict__["_metronome"] = value
+
+        song = RejectingSong()
+        song._reject_metronome = True
+        before = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
+        with self.assertRaisesRegex(ValueError, "metronome rejected"):
+            dispatch_request(song, {"method": "set_transport_recording_context", "params": {
+                "before": before, "changes": {"currentSongTime": 32.0, "metronome": True,
+                                               "arrangement": {"record": True}},
+            }}, 3)
+        self.assertEqual(song.current_song_time, 4.0)
+        self.assertFalse(song.record_mode)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
+    def test_transport_recording_context_rejects_external_change_at_native_boundary(self):
+        song = Song()
+        before = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
+        song.metronome = True
+        with self.assertRaisesRegex(ValueError, "changed after planning"):
+            dispatch_request(song, {"method": "set_transport_recording_context", "params": {
+                "before": before, "changes": {"currentSongTime": 32.0, "arrangement": {"record": True}},
+            }}, 3)
+        self.assertEqual(song.current_song_time, 4.0)
+        self.assertFalse(song.record_mode)
+        self.assertEqual(song.undo_boundaries, [])
+
+    def test_transport_recording_context_warns_if_record_stop_preceded_failure(self):
+        class RejectingSong(Song):
+            @property
+            def session_record(self):
+                return self.__dict__["_session_record"]
+
+            @session_record.setter
+            def session_record(self, value):
+                if value is True and self.__dict__.get("_reject_session_record", False):
+                    raise ValueError("session record rejected")
+                self.__dict__["_session_record"] = value
+
+        song = RejectingSong()
+        song.record_mode = True
+        song._reject_session_record = True
+        before = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
+        with self.assertRaisesRegex(RuntimeError, "recording may have captured content"):
+            dispatch_request(song, {"method": "set_transport_recording_context", "params": {
+                "before": before, "changes": {"arrangement": {"record": False}, "session": {"record": True}},
+            }}, 3)
+        self.assertTrue(song.record_mode)
+        self.assertFalse(song.session_record)
 
     def test_capture_midi_session_rechecks_readiness_and_reports_actual_clip_change(self):
         song = Song()
@@ -1911,6 +2077,26 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(changed["pitch"], {"coarse": -12, "fine": 17})
         self.assertEqual(changed["markers"], {"unit": "beats", "startBeats": 1.0, "endBeats": 7.0})
 
+    def test_audio_clip_state_restores_gain_when_native_warp_mode_write_fails(self):
+        class WarpModeWriteFails(AudioClip):
+            def __setattr__(self, name, value):
+                if name == "warp_mode" and getattr(self, "fail_warp_mode", False):
+                    raise RuntimeError("native warp mode write failed")
+                super().__setattr__(name, value)
+
+        song = Song()
+        clip = WarpModeWriteFails()
+        clip.fail_warp_mode = True
+        song.tracks[0].clip_slots[2].clip = clip
+        params = {"trackId": "track-0", "clipId": "track-0:clip-2"}
+        before = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
+        with self.assertRaisesRegex(RuntimeError, "native warp mode write failed"):
+            dispatch_request(song, {"method": "set_audio_clip_state", "params": {
+                **params, "before": before,
+                "changes": {"gain": {"value": 0.8}, "warpMode": {"value": 6}}
+            }}, 3)
+        self.assertEqual(clip.gain, 0.5)
+
     def test_device_sidechain_routing_reads_native_ids_and_unsupported_devices(self):
         song = Song()
         params = {"trackId": "track-0", "deviceId": "track-0:device-0"}
@@ -2232,6 +2418,16 @@ class DispatchTest(unittest.TestCase):
         result = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
         self.assertEqual(result["warpMarkers"], {"supported": True, "markers": []})
 
+    def test_audio_state_reports_native_fade_switch_only_when_available(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[2].clip
+        params = {"trackId": "track-0", "clipId": "track-0:clip-2"}
+        result = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
+        self.assertEqual(result["fades"], {"supported": False, "enabled": None})
+        clip.fades = True
+        result = dispatch_request(song, {"method": "get_audio_clip_state", "params": params}, 3)
+        self.assertEqual(result["fades"], {"supported": True, "enabled": True})
+
     def test_audio_mutation_rejects_native_warp_marker_changes_after_planning(self):
         song = Song()
         clip = song.tracks[0].clip_slots[2].clip
@@ -2373,7 +2569,7 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(observed["groove"]["pool"][0]["velocityAmount"], -25.0)
         self.assertEqual(observed["loop"], {"enabled": False, "startBeats": 0.0, "lengthBeats": 8.0})
 
-        changed = dispatch_request(song, {"method": "set_song_musical_context", "params": {"changes": {
+        changed = dispatch_request(song, {"method": "set_song_musical_context", "params": {"before": observed, "changes": {
             "timeSignature": {"numerator": 7, "denominator": 8},
             "key": {"rootNote": 2, "scaleName": "Dorian", "scaleMode": True},
             "quantization": {"clipTrigger": 7, "midiRecording": 2},
@@ -2387,6 +2583,40 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(song.groove_amount, 0.75)
         self.assertTrue(song.loop)
         self.assertEqual(song.loop_length, 12.0)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
+    def test_song_musical_context_rolls_back_prior_fields_if_native_setter_fails(self):
+        class RejectingSong(Song):
+            @property
+            def root_note(self):
+                return self.__dict__["_root_note"]
+
+            @root_note.setter
+            def root_note(self, value):
+                if value == 2:
+                    raise ValueError("root rejected")
+                self.__dict__["_root_note"] = value
+
+        song = RejectingSong()
+        before = dispatch_request(song, {"method": "get_song_musical_context"}, 3)
+        with self.assertRaisesRegex(ValueError, "root rejected"):
+            dispatch_request(song, {"method": "set_song_musical_context", "params": {"changes": {
+                "timeSignature": {"numerator": 7, "denominator": 8},
+                "key": {"rootNote": 2},
+            }, "before": before}}, 3)
+        self.assertEqual((song.signature_numerator, song.signature_denominator, song.root_note), (4, 4, 0))
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
+    def test_song_musical_context_rejects_external_change_at_native_boundary(self):
+        song = Song()
+        before = dispatch_request(song, {"method": "get_song_musical_context"}, 3)
+        song.signature_denominator = 8
+        with self.assertRaisesRegex(ValueError, "changed after planning"):
+            dispatch_request(song, {"method": "set_song_musical_context", "params": {
+                "before": before, "changes": {"timeSignature": {"numerator": 7}},
+            }}, 3)
+        self.assertEqual(song.signature_numerator, 4)
+        self.assertEqual(song.undo_boundaries, [])
 
     def test_unwarped_audio_clip_timing_reports_seconds_not_beats(self):
         song = Song()
@@ -2456,6 +2686,66 @@ class DispatchTest(unittest.TestCase):
             }}, 3)
         self.assertTrue(clip.looping)
         self.assertEqual(clip.loop_end, 8.0)
+
+    def test_clip_timing_rejects_unknown_groove_before_changing_loop(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_clip_timing", "params": params}, 3)
+        with self.assertRaisesRegex(ValueError, "groove"):
+            dispatch_request(song, {"method": "set_clip_timing", "params": {
+                **params, "before": before,
+                "changes": {"loop": {"startBeats": 1, "endBeats": 5}, "grooveId": "groove-99"}
+            }}, 3)
+        self.assertEqual((clip.loop_start, clip.loop_end), (0.0, 4.0))
+        self.assertIsNone(clip.groove)
+
+    def test_clip_timing_restores_earlier_writes_when_native_groove_write_fails(self):
+        class GrooveWriteFails(Clip):
+            def __setattr__(self, name, value):
+                if name == "groove" and getattr(self, "fail_groove", False):
+                    raise RuntimeError("native groove write failed")
+                super().__setattr__(name, value)
+
+        song = Song()
+        clip = GrooveWriteFails()
+        clip.fail_groove = True
+        song.tracks[0].clip_slots[0].clip = clip
+        params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_clip_timing", "params": params}, 3)
+        with self.assertRaisesRegex(RuntimeError, "native groove write failed"):
+            dispatch_request(song, {"method": "set_clip_timing", "params": {
+                **params, "before": before,
+                "changes": {"loop": {"startBeats": 1, "endBeats": 5}, "grooveId": "groove-0"}
+            }}, 3)
+        self.assertEqual((clip.loop_start, clip.loop_end), (0.0, 4.0))
+
+    def test_clip_timing_native_mute_is_guarded_and_rejects_stale_state(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        clip.muted = False
+        params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_clip_timing", "params": params}, 3)
+        self.assertEqual(before["mute"], {"supported": True, "enabled": False})
+        changed = dispatch_request(song, {"method": "set_clip_timing", "params": {
+            **params, "before": before, "changes": {"mute": True}
+        }}, 3)
+        self.assertEqual(changed["mute"], {"supported": True, "enabled": True})
+        with self.assertRaisesRegex(ValueError, "timing changed"):
+            dispatch_request(song, {"method": "set_clip_timing", "params": {
+                **params, "before": before, "changes": {"mute": False}
+            }}, 3)
+        self.assertTrue(clip.muted)
+
+    def test_clip_timing_rejects_mute_without_native_property(self):
+        song = Song()
+        params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_clip_timing", "params": params}, 3)
+        self.assertEqual(before["mute"], {"supported": False})
+        with self.assertRaisesRegex(ValueError, "clip mute is unavailable"):
+            dispatch_request(song, {"method": "set_clip_timing", "params": {
+                **params, "before": before, "changes": {"mute": True}
+            }}, 3)
 
     def test_rack_chain_hierarchy_reports_native_mixer_ranges(self):
         song = Song()
@@ -3367,6 +3657,7 @@ class DispatchTest(unittest.TestCase):
 
     def test_track_state_recall_applies_complete_target_in_one_undo_step(self):
         song = Song()
+        song.tracks[0].devices[0].class_name = "Operator"
         before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
         target = {
             "format": "cavi-track-state-v1",
@@ -3375,7 +3666,7 @@ class DispatchTest(unittest.TestCase):
                       "sends": [{"id": "send-0", "name": "Reverb", "value": 0.6}]},
             "routing": {"inputTypeId": "all-ins", "inputChannelId": "all-channels",
                         "outputTypeId": "main", "outputChannelId": "post-mixer", "monitoring": 1},
-            "devices": [{"name": "Saved Device", "className": "PluginDevice", "type": "unknown",
+            "devices": [{"name": "Saved Device", "className": "Operator", "type": "unknown",
                          "parameters": [{"originalName": "Filter Freq", "min": 0.0, "max": 1.0,
                                          "quantized": False, "valueItems": [], "value": 0.9},
                                         {"originalName": "Filter Type", "min": 0.0, "max": 2.0,
@@ -3393,6 +3684,7 @@ class DispatchTest(unittest.TestCase):
 
     def test_track_state_recall_rolls_back_prior_writes_on_failure(self):
         song = Song()
+        song.tracks[0].devices[0].class_name = "Operator"
         before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": "track-0"}}, 6)
         target = {
             "format": "cavi-track-state-v1",
@@ -3401,7 +3693,7 @@ class DispatchTest(unittest.TestCase):
                       "sends": [{"id": "send-0", "name": "Reverb", "value": 0.2}]},
             "routing": {"inputTypeId": "all-ins", "inputChannelId": "all-channels",
                         "outputTypeId": "main", "outputChannelId": "post-mixer", "monitoring": 1},
-            "devices": [{"name": "Device", "className": "PluginDevice", "type": "unknown",
+            "devices": [{"name": "Device", "className": "Operator", "type": "unknown",
                          "parameters": [{"originalName": "Filter Freq", "min": 0.0, "max": 1.0,
                                          "quantized": False, "valueItems": [], "value": 0.9},
                                         {"originalName": "Filter Type", "min": 0.0, "max": 2.0,
@@ -3496,6 +3788,7 @@ class DispatchTest(unittest.TestCase):
                 song = Song()
                 owner = song.return_tracks[0] if owner_id == "return-0" else song.master_track
                 owner.devices = [Device()]
+                owner.devices[0].class_name = "Operator"
                 before = dispatch_request(song, {"method": "get_device_chain_snapshot", "params": {"trackId": owner_id}}, 6)
                 target = _persisted_device_chain(before)
                 target["devices"][0]["name"] = "Saved Device"
@@ -3507,6 +3800,22 @@ class DispatchTest(unittest.TestCase):
                 self.assertEqual(owner.devices[0].name, "Saved Device")
                 self.assertEqual(owner.devices[0].parameters[0].value, 0.25)
                 self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
+
+    def test_native_snapshots_reject_plugin_device_rename_before_undo(self):
+        for getter, setter, persist in (
+            ("get_device_chain_snapshot", "set_device_chain_snapshot", _persisted_device_chain),
+            ("get_track_state_snapshot", "set_track_state_snapshot", _persisted_track_state),
+        ):
+            with self.subTest(setter=setter):
+                song = Song()
+                before = dispatch_request(song, {"method": getter, "params": {"trackId": "track-0"}}, 6)
+                target = persist(before)
+                target["devices"][0]["name"] = "Bass Texture"
+                with self.assertRaisesRegex(ValueError, "plug-in device name.*cannot be changed"):
+                    dispatch_request(song, {"method": setter, "params": {
+                        "trackId": "track-0", "before": before, "target": target}}, 6)
+                self.assertEqual(song.tracks[0].devices[0].name, "Serum 2")
+                self.assertEqual(song.undo_boundaries, [])
 
     def test_return_chain_snapshot_restores_mixer_and_fx_in_one_undo_step(self):
         song = Song()

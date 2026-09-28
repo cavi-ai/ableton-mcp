@@ -339,6 +339,8 @@ def _clip_timing(song, track_id, clip_id, state_version):
         },
         "launchLegato": {"supported": True, "enabled": bool(clip.legato)}
         if timeline is None and hasattr(clip, "legato") else {"supported": False},
+        "mute": {"supported": True, "enabled": bool(clip.muted)}
+        if hasattr(clip, "muted") else {"supported": False},
         "grooveId": groove_id,
         "availableGrooves": [_groove_record(groove, index) for index, groove in enumerate(grooves)],
     }
@@ -385,6 +387,8 @@ def _audio_clip_state(song, track_id, clip_id, state_version):
         "gain": {"value": float(clip.gain), "min": 0.0, "max": 1.0, "displayValue": clip.gain_display_string},
         "pitch": {"coarse": int(clip.pitch_coarse), "fine": int(clip.pitch_fine)},
         "warping": bool(clip.warping), "warpMode": _enum_record(clip.warp_mode, AUDIO_WARP_MODE_NAMES),
+        "fades": {"supported": hasattr(clip, "fades"),
+                  "enabled": bool(clip.fades) if hasattr(clip, "fades") else None},
         "warpMarkers": {"supported": hasattr(clip, "warp_markers"), "markers": [
             {"sampleTime": float(marker.sample_time), "beatTime": float(marker.beat_time)}
             for marker in getattr(clip, "warp_markers", ())
@@ -2747,16 +2751,43 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "get_transport_recording_context":
         return _transport_recording_context(song, state_version)
     if method == "set_transport_recording_context":
+        if _transport_recording_context(song, state_version) != params["before"]:
+            raise ValueError("transport recording context changed after planning")
         changes = params["changes"]
-        for source, target in {"currentSongTime": "current_song_time", "metronome": "metronome", "automationArm": "session_automation_record"}.items():
-            if source in changes:
-                setattr(song, target, changes[source])
-        for source, target in {"record": "record_mode", "overdub": "arrangement_overdub", "punchIn": "punch_in", "punchOut": "punch_out", "backToArranger": "back_to_arranger"}.items():
-            if source in changes.get("arrangement", {}):
-                setattr(song, target, changes["arrangement"][source])
-        for source, target in {"record": "session_record", "overdub": "overdub"}.items():
-            if source in changes.get("session", {}):
-                setattr(song, target, changes["session"][source])
+        writes = []
+        recording_command_applied = False
+        def write(attribute, value):
+            nonlocal recording_command_applied
+            previous = getattr(song, attribute)
+            if previous != value:
+                writes.append((attribute, previous))
+                setattr(song, attribute, value)
+                if attribute in ("record_mode", "session_record"):
+                    recording_command_applied = True
+        with _undo_step(song):
+            try:
+                for section, fields in (
+                    (changes, (("currentSongTime", "current_song_time"), ("metronome", "metronome"),
+                               ("automationArm", "session_automation_record"))),
+                    (changes.get("arrangement", {}), (("overdub", "arrangement_overdub"),
+                                                       ("punchIn", "punch_in"), ("punchOut", "punch_out"),
+                                                       ("backToArranger", "back_to_arranger"))),
+                    (changes.get("session", {}), (("overdub", "overdub"),)),
+                    (changes.get("arrangement", {}), (("record", "record_mode"),)),
+                    (changes.get("session", {}), (("record", "session_record"),)),
+                ):
+                    for source, target in fields:
+                        if source in section:
+                            write(target, section[source])
+            except Exception as error:
+                try:
+                    for attribute, previous in reversed(writes):
+                        setattr(song, attribute, previous)
+                except Exception as rollback_error:
+                    raise RuntimeError(f"transport recording edit failed: {error}; rollback failed: {rollback_error}; use Live undo") from error
+                if recording_command_applied:
+                    raise RuntimeError(f"transport recording edit failed: {error}; recording may have captured content despite control rollback") from error
+                raise
         return _transport_recording_context(song, state_version + 1)
     if method == "list_arrangement_cue_points":
         return _arrangement_cue_points(song, state_version)
@@ -2874,21 +2905,60 @@ def dispatch_request(song, request, state_version, application=None):
         track.fold_state = 1 if params["folded"] else 0
         return {"stateVersion": state_version + 1, "track": _track_record(song, track, track_index)}
     if method == "route_tracks_to_bus":
+        if params.get("expectedStateVersion") != state_version:
+            raise ValueError("bus routing state version changed")
         _, bus = _track(song, params["busTrackId"])
         if not bool(getattr(bus, "is_foldable", False)):
             raise ValueError("bus track is not a group")
-        routes = []
-        destinations = []
+        if params.get("bus") != _track_record(song, bus, int(params["busTrackId"].removeprefix("track-"))):
+            raise ValueError("bus track changed")
+        destinations, seen = [], set()
         for route_change in params["routes"]:
-            _, track = _track(song, route_change["trackId"])
+            track_id = route_change["trackId"]
+            if track_id in seen or track_id == params["busTrackId"]:
+                raise ValueError("duplicate source track or bus routed to itself")
+            seen.add(track_id)
+            _, track = _track(song, track_id)
+            current = _track_routing(song, track_id, state_version)["output"]["type"]
+            if route_change.get("before") != current:
+                raise ValueError("source routing changed")
             matches = [option for option in track.available_output_routing_types
                        if _routing_id(option) == route_change["outputTypeId"]]
             if len(matches) != 1:
                 raise ValueError("bus output routing is missing or ambiguous")
-            destinations.append((route_change["trackId"], track, _routing_option(matches[0])["name"]))
-        for track_id, track, name in destinations:
-            track.current_output_routing = name
-            routes.append(_track_routing(song, track_id, state_version + 1))
+            previous_name = current["name"]
+            if current["id"] == "Group":
+                parent = getattr(track, "group_track", None) if bool(getattr(track, "is_grouped", False)) else None
+                parent_choices = [option for option in track.available_output_routing_types
+                                  if _routing_option(option)["name"] == getattr(parent, "name", None)]
+                if parent is None or len(parent_choices) != 1:
+                    raise ValueError("current Group route cannot be restored unambiguously")
+                previous_name = _routing_option(parent_choices[0])["name"]
+            destinations.append((track_id, track, _routing_option(matches[0])["name"], previous_name))
+        if not destinations:
+            raise ValueError("no source tracks")
+        applied = []
+        with _undo_step(song):
+            try:
+                for _, track, name, previous in destinations:
+                    track.current_output_routing = name
+                    applied.append((track, previous))
+                for route_change in params["routes"]:
+                    _, track = _track(song, route_change["trackId"])
+                    observed = _track_routing(song, route_change["trackId"], state_version)["output"]["type"]
+                    grouped_to_bus = (observed["id"] == "Group"
+                                      and bool(getattr(track, "is_grouped", False))
+                                      and getattr(track, "group_track", None) == bus)
+                    if observed["id"] != route_change["outputTypeId"] and not grouped_to_bus:
+                        raise ValueError("native bus routing did not match the requested destination")
+            except Exception as error:
+                try:
+                    for track, previous in reversed(applied):
+                        track.current_output_routing = previous
+                except Exception as rollback_error:
+                    raise RuntimeError(f"bus routing failed: {error}; rollback failed: {rollback_error}; use Live undo") from error
+                raise
+        routes = [_track_routing(song, track_id, state_version + 1) for track_id, _, _, _ in destinations]
         return {"stateVersion": state_version + 1, "busTrackId": params["busTrackId"], "routes": routes}
     if method == "route_tracks_to_return_bus":
         if params.get("expectedStateVersion") != state_version:
@@ -3266,26 +3336,40 @@ def dispatch_request(song, request, state_version, application=None):
             end = _change_value(changes["endMarker" + suffix]) if "endMarker" + suffix in changes else clip.end_marker
             if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start:
                 raise ValueError("invalid audio marker interval")
+        writes = []
+        def write(attribute, value):
+            previous = getattr(clip, attribute)
+            if previous != value:
+                setattr(clip, attribute, value)
+                writes.append((attribute, previous))
         with _undo_step(song):
-            for source, target in (("gain", "gain"), ("pitchCoarse", "pitch_coarse"),
-                                   ("pitchFine", "pitch_fine"), ("warping", "warping"),
-                                   ("warpMode", "warp_mode")):
-                if source in changes:
-                    setattr(clip, target, _change_value(changes[source]))
-            if requested_markers:
-                if not clip.looping:
-                    if start >= clip.loop_end:
-                        clip.loop_end = end
-                        clip.loop_start = start
+            try:
+                for source, target in (("gain", "gain"), ("pitchCoarse", "pitch_coarse"),
+                                       ("pitchFine", "pitch_fine"), ("warping", "warping"),
+                                       ("warpMode", "warp_mode")):
+                    if source in changes:
+                        write(target, _change_value(changes[source]))
+                if requested_markers:
+                    if not clip.looping:
+                        if start >= clip.loop_end:
+                            write("loop_end", end)
+                            write("loop_start", start)
+                        else:
+                            write("loop_start", start)
+                            write("loop_end", end)
+                    if start >= clip.end_marker:
+                        write("end_marker", end)
+                        write("start_marker", start)
                     else:
-                        clip.loop_start = start
-                        clip.loop_end = end
-                if start >= clip.end_marker:
-                    clip.end_marker = end
-                    clip.start_marker = start
-                else:
-                    clip.start_marker = start
-                    clip.end_marker = end
+                        write("start_marker", start)
+                        write("end_marker", end)
+            except Exception as error:
+                try:
+                    for attribute, previous in reversed(writes):
+                        setattr(clip, attribute, previous)
+                except Exception as rollback_error:
+                    raise RuntimeError(f"audio clip edit failed: {error}; rollback failed: {rollback_error}; use Live undo") from error
+                raise
         return _audio_clip_state(song, track_id, clip_id, state_version + 1)
     if method == "crop_audio_clip":
         track_id, clip_id = params["trackId"], params["clipId"]
@@ -3401,30 +3485,41 @@ def dispatch_request(song, request, state_version, application=None):
             clip.move_warp_marker(beat, target - beat)
         return _audio_clip_state(song, track_id, clip_id, state_version + 1)
     if method == "set_song_musical_context":
+        if _song_musical_context(song, state_version) != params["before"]:
+            raise ValueError("song musical context changed after planning")
         changes = params["changes"]
-        signature = changes.get("timeSignature", {})
-        if "numerator" in signature:
-            song.signature_numerator = int(signature["numerator"])
-        if "denominator" in signature:
-            song.signature_denominator = int(signature["denominator"])
-        key = changes.get("key", {})
-        for source, target in (("rootNote", "root_note"), ("scaleName", "scale_name"), ("scaleMode", "scale_mode")):
-            if source in key:
-                setattr(song, target, key[source])
-        quantization = changes.get("quantization", {})
-        if "clipTrigger" in quantization:
-            song.clip_trigger_quantization = int(quantization["clipTrigger"])
-        if "midiRecording" in quantization:
-            song.midi_recording_quantization = int(quantization["midiRecording"])
-        groove = changes.get("groove", {})
-        if "amount" in groove:
-            song.groove_amount = float(groove["amount"])
-        if "swingAmount" in groove:
-            song.swing_amount = float(groove["swingAmount"])
-        loop = changes.get("loop", {})
-        for source, target in (("enabled", "loop"), ("startBeats", "loop_start"), ("lengthBeats", "loop_length")):
-            if source in loop:
-                setattr(song, target, loop[source])
+        writes = []
+        def write(attribute, value):
+            previous = getattr(song, attribute)
+            if previous != value:
+                writes.append((attribute, previous))
+                setattr(song, attribute, value)
+        unchanged_type = lambda value: value
+        with _undo_step(song):
+            try:
+                for section, fields in (
+                    ("timeSignature", (("numerator", "signature_numerator", int),
+                                       ("denominator", "signature_denominator", int))),
+                    ("key", (("rootNote", "root_note", unchanged_type), ("scaleName", "scale_name", unchanged_type),
+                             ("scaleMode", "scale_mode", unchanged_type))),
+                    ("quantization", (("clipTrigger", "clip_trigger_quantization", int),
+                                      ("midiRecording", "midi_recording_quantization", int))),
+                    ("groove", (("amount", "groove_amount", float),
+                                ("swingAmount", "swing_amount", float))),
+                    ("loop", (("enabled", "loop", unchanged_type), ("startBeats", "loop_start", unchanged_type),
+                              ("lengthBeats", "loop_length", unchanged_type))),
+                ):
+                    requested = changes.get(section, {})
+                    for source, target, convert in fields:
+                        if source in requested:
+                            write(target, convert(requested[source]))
+            except Exception as error:
+                try:
+                    for attribute, previous in reversed(writes):
+                        setattr(song, attribute, previous)
+                except Exception as rollback_error:
+                    raise RuntimeError(f"song musical context edit failed: {error}; rollback failed: {rollback_error}; use Live undo") from error
+                raise
         return _song_musical_context(song, state_version + 1)
     if method == "list_tracks":
         return {"stateVersion": state_version, "tracks": [_track_record(song, track, i) for i, track in enumerate(song.tracks)]}
@@ -3475,6 +3570,8 @@ def dispatch_request(song, request, state_version, application=None):
                     not isinstance(saved_device.get("parameters"), list) or
                     len(saved_device["parameters"]) != len(native_device["parameters"])):
                 raise ValueError("device chain topology mismatch")
+            if native_device["className"] == "PluginDevice" and saved_device["name"] != native_device["name"]:
+                raise ValueError("plug-in device name cannot be changed by snapshot recall in Live")
             for saved, native in zip(saved_device["parameters"], native_device["parameters"]):
                 if any(saved.get(field) != native[field] for field in ("originalName", "min", "max", "quantized", "valueItems")):
                     raise ValueError("device parameter layout mismatch")
@@ -3615,6 +3712,8 @@ def dispatch_request(song, request, state_version, application=None):
         def validate_device(saved_device, native_device):
             if saved_device["className"] != native_device["className"] or saved_device["type"] != native_device["type"] or len(saved_device["parameters"]) != len(native_device["parameters"]):
                 raise ValueError("snapshot device topology mismatch")
+            if native_device["className"] == "PluginDevice" and saved_device["name"] != native_device["name"]:
+                raise ValueError("plug-in device name cannot be changed by snapshot recall in Live")
             for saved, native in zip(saved_device["parameters"], native_device["parameters"]):
                 if any(saved[field] != native[field] for field in ("originalName", "min", "max", "quantized", "valueItems")):
                     raise ValueError("snapshot parameter layout mismatch")
@@ -4128,6 +4227,11 @@ def dispatch_request(song, request, state_version, application=None):
                 raise ValueError("clip launch Legato is unavailable")
             if type(changes["launchLegato"]) is not bool:
                 raise ValueError("launchLegato must be boolean")
+        if "mute" in changes:
+            if not hasattr(clip, "muted"):
+                raise ValueError("clip mute is unavailable")
+            if type(changes["mute"]) is not bool:
+                raise ValueError("mute must be boolean")
         editor_grid = changes.get("editorGrid", {})
         if "quantization" in editor_grid:
             grid_value = editor_grid["quantization"]
@@ -4147,31 +4251,55 @@ def dispatch_request(song, request, state_version, application=None):
         start, end = float(loop.get(start_key, clip.loop_start)), float(loop.get(end_key, clip.loop_end))
         if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start:
             raise ValueError("loop positions must define a finite positive interval")
-        if start_key in loop or end_key in loop:
-            if start >= clip.loop_end:
-                clip.loop_end = end
-                clip.loop_start = start
-            else:
-                clip.loop_start = start
-                clip.loop_end = end
-        for source, target in (("enabled", "looping"),):
-            if source in loop:
-                setattr(clip, target, loop[source])
-        signature = changes.get("timeSignature", {})
-        if "numerator" in signature:
-            clip.signature_numerator = int(signature["numerator"])
-        if "denominator" in signature:
-            clip.signature_denominator = int(signature["denominator"])
-        if "launchQuantization" in changes:
-            clip.launch_quantization = int(changes["launchQuantization"])
-        if "launchLegato" in changes:
-            clip.legato = changes["launchLegato"]
-        if "quantization" in editor_grid:
-            clip.view.grid_quantization = Live.Clip.GridQuantization.values[editor_grid["quantization"]] if Live is not None else editor_grid["quantization"]
-        if "isTriplet" in editor_grid:
-            clip.view.grid_is_triplet = editor_grid["isTriplet"]
+        selected_groove = None
         if "grooveId" in changes:
-            clip.groove = _grooves(song)[int(changes["grooveId"].removeprefix("groove-"))]
+            matches = [groove for index, groove in enumerate(_grooves(song))
+                       if changes["grooveId"] == f"groove-{index}"]
+            if len(matches) != 1:
+                raise ValueError("unknown groove ID")
+            selected_groove = matches[0]
+        signature = changes.get("timeSignature", {})
+        writes = []
+        def write(owner, attribute, value):
+            previous = getattr(owner, attribute)
+            if previous != value:
+                setattr(owner, attribute, value)
+                writes.append((owner, attribute, previous))
+        with _undo_step(song):
+            try:
+                if start_key in loop or end_key in loop:
+                    if start >= clip.loop_end:
+                        write(clip, "loop_end", end)
+                        write(clip, "loop_start", start)
+                    else:
+                        write(clip, "loop_start", start)
+                        write(clip, "loop_end", end)
+                if "enabled" in loop:
+                    write(clip, "looping", loop["enabled"])
+                if "numerator" in signature:
+                    write(clip, "signature_numerator", int(signature["numerator"]))
+                if "denominator" in signature:
+                    write(clip, "signature_denominator", int(signature["denominator"]))
+                if "launchQuantization" in changes:
+                    write(clip, "launch_quantization", int(changes["launchQuantization"]))
+                if "launchLegato" in changes:
+                    write(clip, "legato", changes["launchLegato"])
+                if "mute" in changes:
+                    write(clip, "muted", changes["mute"])
+                if "quantization" in editor_grid:
+                    grid = Live.Clip.GridQuantization.values[editor_grid["quantization"]] if Live is not None else editor_grid["quantization"]
+                    write(clip.view, "grid_quantization", grid)
+                if "isTriplet" in editor_grid:
+                    write(clip.view, "grid_is_triplet", editor_grid["isTriplet"])
+                if "grooveId" in changes:
+                    write(clip, "groove", selected_groove)
+            except Exception as error:
+                try:
+                    for owner, attribute, previous in reversed(writes):
+                        setattr(owner, attribute, previous)
+                except Exception as rollback_error:
+                    raise RuntimeError(f"clip timing failed: {error}; rollback failed: {rollback_error}; use Live undo") from error
+                raise
         return _clip_timing(song, params["trackId"], params["clipId"], state_version + 1)
     if method == "duplicate_clip_loop":
         track_id, clip_id = params["trackId"], params["clipId"]

@@ -183,6 +183,31 @@ test("MCP folder browsing optionally joins private metadata for audio files", as
   } finally { library.close(); await rm(root, { recursive: true, force: true }); }
 });
 
+test("local Splice search filters existing files by private tags and favorites before pagination", async () => {
+  const root = await mkdtemp(join(tmpdir(), "splice-filter-"));
+  const library = new BrowserMetadataLibrary({ path: join(root, "metadata.sqlite") });
+  try {
+    for (const name of ["Kick A.wav", "Kick B.wav", "Kick C.wav"]) {
+      await writeFile(join(root, name), "audio");
+    }
+    const canonicalRoot = await realpath(root);
+    for (const name of ["Kick B.wav", "Kick C.wav"]) {
+      library.set({ root: "local_splice", path: [canonicalRoot, name], uri: join(canonicalRoot, name) }, 0,
+        { favorite: true, tags: ["drums"] });
+    }
+    const service = new ToolService({ spliceRoots: [root], browserMetadata: library });
+    const args = { rootPath: root, favorite: true, tags: ["DRUMS"], limit: 1 };
+    const first = await service.call("search_local_splice_samples", args);
+    assert.deepEqual(first.samples.map(sample => sample.relativePath), ["Kick B.wav"]);
+    assert.deepEqual(first.samples[0].metadata, { favorite: true, tags: ["drums"], revision: 1 });
+    assert.equal(first.nextOffset, 1);
+    const second = await service.call("search_local_splice_samples", { ...args, offset: first.nextOffset });
+    assert.deepEqual(second.samples.map(sample => sample.relativePath), ["Kick C.wav"]);
+    assert.equal(second.nextOffset, null);
+    assert.equal(second.truncated, false);
+  } finally { library.close(); await rm(root, { recursive: true, force: true }); }
+});
+
 test("local Splice browsing refuses paths outside configured roots, including symlink escapes", async () => {
   const root = await mkdtemp(join(tmpdir(), "splice-allowed-"));
   const outside = await mkdtemp(join(tmpdir(), "splice-outside-"));
