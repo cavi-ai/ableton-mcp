@@ -6,6 +6,7 @@ import { FileConfirmationStore } from "./confirmation-store.mjs";
 import { SnapshotLibrary } from "./snapshot-library.mjs";
 import { join } from "node:path";
 import { BrowserMetadataLibrary } from "./browser-metadata-library.mjs";
+import { MacLiveSetHost } from "./live-set-host.mjs";
 
 const emptyCatalog = {
   search: () => [],
@@ -20,7 +21,7 @@ const emptyCatalog = {
 };
 
 export function createConfiguredService(environment = process.env, { persistentConfirmations = false } = {}) {
-  const { catalogPath, socketPath, confirmationDirectory, snapshotDirectory, browserMetadataPath, spliceRoots } = resolveRuntimeConfig(environment);
+  const { catalogPath, socketPath, confirmationDirectory, snapshotDirectory, browserMetadataPath, spliceRoots, liveAppPath } = resolveRuntimeConfig(environment);
   const catalog = catalogPath ? Catalog.open(catalogPath) : emptyCatalog;
   const bridge = new UnixBridgeClient(socketPath);
   const confirmations = persistentConfirmations
@@ -30,6 +31,7 @@ export function createConfiguredService(environment = process.env, { persistentC
   const browserMetadata = () => (browserLibrary ??= new BrowserMetadataLibrary({ path: browserMetadataPath }));
   return {
     service: new ToolService({ bridge, catalog, confirmations, spliceRoots, generationQueuePath: catalogPath,
+      liveSetHost: new MacLiveSetHost({ appPath: liveAppPath }),
       snapshotLibrary: new SnapshotLibrary({ directory: snapshotDirectory }),
       groupSystemLibrary: new SnapshotLibrary({ directory: join(snapshotDirectory, "group-systems"),
         formats: ["cavi-group-system-v1"] }),

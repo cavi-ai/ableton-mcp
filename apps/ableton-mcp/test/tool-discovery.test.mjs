@@ -42,8 +42,9 @@ test("core discovery is bounded and cannot call tools it does not advertise", as
   assert.ok(names.has("get_live_state"));
   assert.ok(names.has("list_browser_roots"));
   assert.ok(names.has("search_browser_roots"));
-  assert.ok(names.has("list_local_splice_roots"));
-  assert.ok(names.has("browse_local_splice_directory"));
+  assert.ok(names.has("open_live_set"));
+  assert.ok(names.has("save_live_set"));
+  assert.ok(!names.has("browse_local_splice_directory"));
   assert.ok(names.has("set_tempo"));
   assert.ok(names.has("route_tracks_to_return_bus"));
   assert.ok(!names.has("apply_midi_diatonic_chord_quality"));

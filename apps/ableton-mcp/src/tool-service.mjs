@@ -10,6 +10,7 @@ import { browseLocalSpliceDirectory, listConfiguredSpliceRoots, observeLocalSpli
 import { inspectGroovePostconditions } from "./groove-workflow.mjs";
 import { analyzeMidiFeel, planMidiFeelTransfer } from "./midi-feel-analysis.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
+import { MacLiveSetHost } from "./live-set-host.mjs";
 import { CatalogService } from "./catalog-service.mjs";
 import { GenerationQueue } from "../../../packages/nks-pipeline/src/generation-queue.mjs";
 import { getFactoryDeviceProfile, groupDeviceParameters, listFactoryDeviceProfiles } from "./factory-device-knowledge.mjs";
@@ -439,7 +440,8 @@ function normalizeBrowserSearch(args) {
 }
 
 export class ToolService {
-  constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, deviceChainLibrary, groupSystemLibrary, midiFeelLibrary, browserMetadata, spliceRoots = [], generationQueuePath }) {
+  constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, deviceChainLibrary, groupSystemLibrary, midiFeelLibrary, browserMetadata, spliceRoots = [], generationQueuePath,
+    liveSetHost = new MacLiveSetHost(), liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000 }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
@@ -450,6 +452,9 @@ export class ToolService {
     this.browserMetadata = browserMetadata;
     this.spliceRoots = spliceRoots;
     this.generationQueuePath = generationQueuePath;
+    this.liveSetHost = liveSetHost;
+    this.liveSetOpenTimeoutMs = liveSetOpenTimeoutMs;
+    this.liveSetSaveTimeoutMs = liveSetSaveTimeoutMs;
   }
 
   async call(name, args = {}) {
@@ -628,6 +633,8 @@ export class ToolService {
       return { items: this.#browserMetadataLibrary().search(args), limitation: "Private MCP tags and favorites only; saved identities are not reverified against Live or the local filesystem in this search and do not change native collections." };
     }
     if (name === "get_live_state") return this.bridge.request("get_live_state", {});
+    if (name === "open_live_set") return this.#openLiveSet(args);
+    if (name === "save_live_set") return this.#saveLiveSet(args);
     if (name === "get_transport_context") return this.bridge.request("get_transport_context", {});
     if (name === "get_looper_performance_context") return this.bridge.request("get_looper_performance_context", args);
     if (name === "get_beat_repeat_performance_context") return this.bridge.request("get_beat_repeat_performance_context", args);
@@ -2624,6 +2631,81 @@ export class ToolService {
     const currentHash = hashPlan(plan);
     if (args.planHash !== undefined && args.planHash !== currentHash) throw new Error("confirmation plan hash mismatch: observed plan changed");
     return this.confirmations.consume(args.confirmationToken, currentHash);
+  }
+
+  async #liveSetState(args) {
+    requireExpectedState(args);
+    if (typeof args.expectedSetFingerprint !== "string" || !args.expectedSetFingerprint)
+      throw new Error("expectedSetFingerprint is required for Live Set file operations");
+    const live = await this.bridge.request("get_live_state", {});
+    if (live.stateVersion !== args.expectedStateVersion || live.setFingerprint !== args.expectedSetFingerprint)
+      throw new Error("current Live Set changed; re-observe before opening or saving");
+    return live;
+  }
+
+  async #pollLiveSet(predicate, timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    do {
+      try {
+        const live = await this.bridge.request("get_live_state", {});
+        if (predicate(live)) return live;
+      } catch { /* Live may briefly disconnect while loading a Set. */ }
+      if (Date.now() >= deadline) break;
+      await new Promise(resolve => setTimeout(resolve, 250));
+    } while (true);
+    return null;
+  }
+
+  async #openLiveSet(args) {
+    const before = await this.#liveSetState(args);
+    const appPath = this.liveSetHost.appPathFor(before);
+    const source = await this.liveSetHost.fileInfo(args.path);
+    if (source.path === before.filePath) throw new Error("requested Live Set is already open");
+    const plan = { method: "open_live_set", appPath, path: source.path, source, before: {
+      stateVersion: before.stateVersion, setFingerprint: before.setFingerprint, filePath: before.filePath } };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    const current = await this.#liveSetState(args);
+    if (current.filePath !== before.filePath) throw new Error("current Live Set changed; re-observe before opening");
+    const currentSource = await this.liveSetHost.fileInfo(source.path);
+    if (currentSource.mtimeMs !== source.mtimeMs || currentSource.size !== source.size)
+      throw new Error("requested Live Set file changed; re-observe before opening");
+    this.#consumeConfirmation(plan, args);
+    await this.liveSetHost.open(appPath, source.path);
+    const observed = await this.#pollLiveSet(live => live.filePath === source.path, this.liveSetOpenTimeoutMs);
+    return { dryRun: false, requested: plan, opened: Boolean(observed), pendingUserAction: !observed,
+      observed, ...(!observed ? { limitation: "Live has not loaded the requested Set. Check Live for an unsaved-changes or file-load dialog; no dialog was dismissed." } : {}) };
+  }
+
+  async #saveLiveSet(args) {
+    const before = await this.#liveSetState(args);
+    if (!before.filePath) throw new Error("save_live_set requires a named Live Set; save a new Set through Live's Save As UI");
+    const appPath = this.liveSetHost.appPathFor(before);
+    const file = await this.liveSetHost.fileInfo(before.filePath);
+    const plan = { method: "save_live_set", appPath, path: file.path, file,
+      before: { stateVersion: before.stateVersion, setFingerprint: before.setFingerprint, filePath: before.filePath } };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    const current = await this.#liveSetState(args);
+    if (current.filePath !== before.filePath) throw new Error("current Live Set changed; re-observe before saving");
+    const currentFile = await this.liveSetHost.fileInfo(current.filePath);
+    if (currentFile.mtimeMs !== file.mtimeMs || currentFile.size !== file.size)
+      throw new Error("current Live Set or on-disk file changed; re-observe before saving");
+    this.#consumeConfirmation(plan, args);
+    await this.liveSetHost.save(appPath);
+    let after = currentFile;
+    let observed = null;
+    const deadline = Date.now() + this.liveSetSaveTimeoutMs;
+    do {
+      after = await this.liveSetHost.fileInfo(file.path);
+      try { observed = await this.bridge.request("get_live_state", {}); } catch { /* Preserve unverified status. */ }
+      const clean = observed?.filePath === file.path && observed.isDirty === false;
+      if (after.mtimeMs !== file.mtimeMs || after.size !== file.size || clean) break;
+      if (Date.now() >= deadline) break;
+      await new Promise(resolve => setTimeout(resolve, 250));
+    } while (true);
+    const saved = after.mtimeMs !== file.mtimeMs || after.size !== file.size ||
+      (observed?.filePath === file.path && observed.isDirty === false);
+    return { dryRun: false, requested: plan, saved, pendingUserAction: !saved, after,
+      ...(!saved ? { limitation: "Save was requested in Live, but no changed file or clean-state readback was observed. Live may be showing Save As or another dialog; resolve it in Live before relying on this save." } : {}) };
   }
 
   #nksGenerationStatus(args) {

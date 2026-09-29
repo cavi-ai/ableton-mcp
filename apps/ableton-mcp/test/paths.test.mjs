@@ -66,6 +66,7 @@ test("ABLETON_MCP_* variables override every runtime default", () => {
     ABLETON_MCP_CATALOG_PATH: "/data/catalog.sqlite",
     ABLETON_MCP_BROWSER_METADATA_PATH: "/data/browser.sqlite",
     ABLETON_MCP_SPLICE_ROOTS: '["/data/splice"]',
+    ABLETON_MCP_LIVE_APP_PATH: "/Applications/Ableton Live 12 Suite.app",
     ABLETON_MCP_CONFIRMATION_DIR: "/data/confirmations",
     ABLETON_MCP_SNAPSHOT_DIR: "/data/snapshots"
   }, { home: "/Users/test" });
@@ -74,6 +75,7 @@ test("ABLETON_MCP_* variables override every runtime default", () => {
     catalogPath: "/data/catalog.sqlite",
     browserMetadataPath: "/data/browser.sqlite",
     spliceRoots: ["/data/splice"],
+    liveAppPath: "/Applications/Ableton Live 12 Suite.app",
     confirmationDirectory: "/data/confirmations",
     snapshotDirectory: "/data/snapshots"
   });

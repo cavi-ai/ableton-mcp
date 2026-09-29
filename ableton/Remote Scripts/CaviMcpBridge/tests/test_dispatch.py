@@ -3551,7 +3551,9 @@ class DispatchTest(unittest.TestCase):
         song.group_tracks = lambda: None
         song.ungroup_track = True
         result = dispatch_request(song, {"method": "get_live_state"}, 4)
-        self.assertEqual(result["nativeApiSupport"], {"groupTracks": True, "ungroupTrack": False, "groovePoolCreate": True})
+        self.assertEqual(result["nativeApiSupport"], {"groupTracks": True, "ungroupTrack": False, "groovePoolCreate": True,
+                                                       "openDocument": False, "saveDocument": False,
+                                                       "saveDocumentAs": False})
         del song.group_tracks
         result = dispatch_request(song, {"method": "get_live_state"}, 4)
         self.assertFalse(result["nativeApiSupport"]["groupTracks"])
@@ -3561,8 +3563,18 @@ class DispatchTest(unittest.TestCase):
 
     def test_live_state_reports_set_file_path(self):
         song = Song()
+        song.is_dirty = True
         result = dispatch_request(song, {"method": "get_live_state"}, 4)
         self.assertEqual(result["filePath"], "/tmp/Untitled.als")
+        self.assertTrue(result["isDirty"])
+
+    def test_live_state_reports_native_set_file_operations(self):
+        application = SimpleNamespace(open_document=lambda path: None, save_document=lambda: None,
+                                      save_document_as=lambda path: None)
+        result = dispatch_request(Song(), {"method": "get_live_state"}, 4, application)
+        self.assertTrue(result["nativeApiSupport"]["openDocument"])
+        self.assertTrue(result["nativeApiSupport"]["saveDocument"])
+        self.assertTrue(result["nativeApiSupport"]["saveDocumentAs"])
 
     def test_live_state_identifies_the_loaded_remote_script_directory(self):
         result = dispatch_request(Song(), {"method": "get_live_state"}, 4)
