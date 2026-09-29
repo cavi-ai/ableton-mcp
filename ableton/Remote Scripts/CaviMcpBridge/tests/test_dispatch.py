@@ -3631,6 +3631,43 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual([item["trackId"] for item in result["tracks"]], ["track-0", "track-1"])
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
+    def test_group_system_recall_accepts_equal_native_group_proxy(self):
+        song = Song()
+        bus, child = song.tracks[:2]
+        bus.is_foldable = True
+        bus.fold_state = 0
+
+        class GroupProxy:
+            def __eq__(self, other):
+                return other is bus
+
+            def __hash__(self):
+                return hash(bus)
+
+            def __getattr__(self, name):
+                return getattr(bus, name)
+
+        class NativeTracks(list):
+            def __iter__(self):
+                yield GroupProxy()
+                yield from self[1:]
+
+        child.is_grouped = True
+        child.group_track = GroupProxy()
+        song.tracks = NativeTracks(song.tracks)
+        records = []
+        for index in range(2):
+            track_id = f"track-{index}"
+            before = dispatch_request(song, {"method": "get_track_state_snapshot", "params": {"trackId": track_id}}, 6)
+            target = _persisted_track_state(before)
+            target["track"].update({"name": f"Recalled {index}", "isGrouped": before["track"]["isGrouped"],
+                                    "groupTrackId": before["track"]["groupTrackId"]})
+            records.append({"trackId": track_id, "before": before, "target": target})
+        result = dispatch_request(song, {"method": "set_group_system_snapshot", "params": {
+            "expectedStateVersion": 6, "tracks": records}}, 6)
+        self.assertEqual([item["trackId"] for item in result["tracks"]], ["track-0", "track-1"])
+        self.assertEqual([bus.name, child.name], ["Recalled 0", "Recalled 1"])
+
     def test_group_system_recall_rolls_back_child_when_bus_fails(self):
         song = Song()
         class LoggingTrack(Track):
