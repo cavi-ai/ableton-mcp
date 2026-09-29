@@ -53,6 +53,8 @@ const toolNames = [
   "set_browser_item_metadata",
   "search_browser_item_metadata",
   "get_live_state",
+  "open_live_set",
+  "save_live_set",
   "get_transport_context",
   "set_transport_context",
   "get_history_state",
@@ -262,7 +264,7 @@ const toolNames = [
 // The full catalog remains the default and every handler keeps its contract.
 const coreToolNames = new Set([
   "search_presets", "get_preset", "get_preset_metadata",
-  "get_live_state", "get_transport_context", "get_song_musical_context",
+  "get_live_state", "open_live_set", "save_live_set", "get_transport_context", "get_song_musical_context",
   "get_song_grid_reference", "get_transport_recording_context",
   "get_live_scale_reference", "list_live_scales",
   "list_tracks", "list_scenes", "list_clips", "list_arrangement_clips",
@@ -271,7 +273,6 @@ const coreToolNames = new Set([
   "route_tracks_to_return_bus",
   "list_producer_chain_blueprints", "get_producer_chain_blueprint",
   "list_browser_roots", "get_browser_items", "search_browser_items", "search_browser_roots", "load_browser_item",
-  "list_local_splice_roots", "browse_local_splice_directory",
   "list_devices", "list_device_parameters", "get_device_hierarchy",
   "get_factory_device_context", "get_plugin_integration_context",
   "analyze_audio_file", "analyze_audio_clip",

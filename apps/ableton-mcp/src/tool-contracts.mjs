@@ -407,6 +407,13 @@ const contracts = {
   set_browser_item_metadata: { description: "Plan or edit private MCP-managed tags and favorite state with observed Live browser identity or local audio-file version, exact revision, and single-use confirmation. A Live user-folder sample shares the local Splice record only when its URI unambiguously matches a configured local Splice file; reserved URI delimiters and existing separate Live metadata preserve exact Live identity. For a local sample, use root local_splice and path [absolute directory, relative audio path]. Does not modify native collections.", inputSchema: metadataGuarded({ root: string("Live browser root or local_splice."), path: array(string("Exact browser segment, or [absolute directory, relative audio path] for local_splice."), "Non-empty path to one item."), favorite: boolean("Private favorite state."), tags: array(string("Private user tag."), "Complete replacement tag set, up to 32 entries.") }, ["root", "path"]) },
   search_browser_item_metadata: { description: "Search saved private tags and favorites for Live browser items or local_splice samples. Results are not reverified against Live or the local filesystem and do not represent native collections.", inputSchema: object({ root: string("Optional browser root or local_splice filter."), favorite: boolean("Optional private favorite filter."), tags: array(string("Required private user tag."), "Require all tags."), limit: { type: "integer", minimum: 1, maximum: 200 } }) },
   get_live_state: { description: "Read Ableton bridge identity, capabilities, set file path, tempo, playback, and state version.", inputSchema: empty },
+  open_live_set: { description: "Plan or request opening one existing absolute .als file in the running macOS Live app. Binds the current Set identity and source file; Live may require a user to resolve an unsaved-changes or file-load dialog. Only reports opened after bridge path readback; never dismisses dialogs.", inputSchema: guarded({
+    path: string("Absolute path to an existing .als Live Set."),
+    expectedSetFingerprint: string("Exact setFingerprint from get_live_state for the currently loaded Set.")
+  }, ["path", "expectedSetFingerprint"]) },
+  save_live_set: { description: "Plan or request Save for the currently named Set in the running macOS Live app. Binds Set identity and on-disk file version; does not invoke Save As for untitled Sets. Reports saved only after a changed file or clean-state readback.", inputSchema: guarded({
+    expectedSetFingerprint: string("Exact setFingerprint from get_live_state for the currently loaded Set.")
+  }, ["expectedSetFingerprint"]) },
   get_history_state: { description: "Read current Ableton undo and redo availability.", inputSchema: empty },
   undo: { description: "Plan or apply one guarded Ableton undo operation.", inputSchema: guarded() },
   redo: { description: "Plan or apply one guarded Ableton redo operation.", inputSchema: guarded() },
@@ -656,6 +663,7 @@ const readOnlyTools = new Set([
 ]);
 
 const destructiveTools = new Set([
+  "open_live_set", "save_live_set",
   "delete_session_object", "delete_clip", "delete_arrangement_clip",
   "delete_arrangement_cue_point", "remove_audio_warp_marker",
   "delete_device", "crop_audio_clip", "set_looper_state", "set_device_parameters",

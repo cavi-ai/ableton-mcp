@@ -2541,11 +2541,15 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "get_live_state":
         groove_pool = getattr(song, "groove_pool", None)
         return {"stateVersion": state_version, "setFingerprint": fingerprint, "tempo": song.tempo, "isPlaying": song.is_playing,
-                "filePath": getattr(song, "file_path", None), "bridgeVersion": BRIDGE_VERSION,
+                "filePath": getattr(song, "file_path", None), "isDirty": getattr(song, "is_dirty", None),
+                "bridgeVersion": BRIDGE_VERSION,
                 "scriptDirectory": os.path.realpath(os.path.dirname(__file__)), "capabilities": list(CAPABILITIES),
                 "nativeApiSupport": {"groupTracks": callable(getattr(song, "group_tracks", None)),
                                      "ungroupTrack": callable(getattr(song, "ungroup_track", None)),
-                                     "groovePoolCreate": groove_pool is not None and callable(getattr(groove_pool, "create_groove", None))}}
+                                     "groovePoolCreate": groove_pool is not None and callable(getattr(groove_pool, "create_groove", None)),
+                                     "openDocument": callable(getattr(application, "open_document", None)),
+                                     "saveDocument": callable(getattr(application, "save_document", None)),
+                                     "saveDocumentAs": callable(getattr(application, "save_document_as", None))}}
     if method == "get_transport_context":
         return _transport_context(song, state_version)
     if method == "capture_midi_session":

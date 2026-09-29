@@ -39,6 +39,7 @@ export function resolveRuntimeConfig(environment = process.env, options = {}) {
     catalogPath: environment.ABLETON_MCP_CATALOG_PATH || undefined,
     browserMetadataPath: environment.ABLETON_MCP_BROWSER_METADATA_PATH || join(home, ".cavi", "ableton-mcp", "browser-metadata.sqlite"),
     spliceRoots,
+    ...(environment.ABLETON_MCP_LIVE_APP_PATH ? { liveAppPath: environment.ABLETON_MCP_LIVE_APP_PATH } : {}),
     confirmationDirectory: environment.ABLETON_MCP_CONFIRMATION_DIR || join(home, ".cavi", "ableton-mcp", "confirmations"),
     snapshotDirectory: environment.ABLETON_MCP_SNAPSHOT_DIR || join(home, ".cavi", "ableton-mcp", "snapshots")
   };

@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 219 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 221 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (96)
 
@@ -219,7 +219,7 @@ The server publishes 219 tools. Mutations of the Live Set require `expectedState
 | `transport_stop` | Plan or stop Ableton transport playback. | `expectedStateVersion` |
 | `undo` | Plan or apply one guarded Ableton undo operation. | `expectedStateVersion` |
 
-## Destructive mutations (14)
+## Destructive mutations (16)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -233,7 +233,9 @@ The server publishes 219 tools. Mutations of the Live Set require `expectedState
 | `delete_rack_macro_variation` | Plan or delete one exact zero-based rack macro variation. Destructive: Live does not expose saved variation contents for preview or reconstruction. Requires confirmation and reports observed count. | `expectedStateVersion`, `trackId`, `deviceId`, `variationIndex` |
 | `delete_session_object` | Plan or delete an exact track, Return Track, scene, or Session clip with explicit content authority. Return deletion discloses its devices and affected track-send lanes. | `expectedStateVersion`, `targetType`, `targetId` |
 | `fail_nks_generation_job` | Record a worker failure and return the leased NKS job to pending, or quarantine it after the retry limit. Does not change preset lifecycle. | `presetId`, `workerId`, `reason` |
+| `open_live_set` | Plan or request opening one existing absolute .als file in the running macOS Live app. Binds the current Set identity and source file; Live may require a user to resolve an unsaved-changes or file-load dialog. Only reports opened after bridge path readback; never dismisses dialogs. | `expectedStateVersion`, `path`, `expectedSetFingerprint` |
 | `remove_audio_warp_marker` | Plan or apply deletion of an exact visible audio warp marker. Rejects the hidden terminal marker and stale clip state. | `expectedStateVersion`, `trackId`, `clipId`, `beatTime` |
+| `save_live_set` | Plan or request Save for the currently named Set in the running macOS Live app. Binds Set identity and on-disk file version; does not invoke Save As for untitled Sets. Reports saved only after a changed file or clean-state readback. | `expectedStateVersion`, `expectedSetFingerprint` |
 | `set_device_parameters` | Plan or apply guarded bounded changes to exact loaded-device parameters on an ordinary, Return, or Main track. A string value selects one exact, unambiguous observed choice label on a quantized parameter; a numeric value retains native clamping. Native Looper State writes targeting Record or Overdub are flagged as recorded-content mutations: restoring a previous parameter value does not restore captured audio. | `expectedStateVersion`, `trackId`, `deviceId`, `changes` |
 | `set_looper_state` | Plan or request one exact native Looper State choice: Stop, Record, Play, or Overdub. Native execution rechecks the complete Looper, routing, and transport snapshot before writing State; result reports the immediately observed State parameter and whether it matches the target, not an audible or quantized-boundary outcome. Record/Overdub can mutate captured audio and cannot be rolled back by restoring a parameter value. This does not promise beat-scheduled execution; verify native quantization behavior separately. | `expectedStateVersion`, `trackId`, `deviceId`, `targetState` |
 | `set_track_freeze_state` | Plan or toggle guarded track freeze. On the tested Live 12.4.5 the native is_frozen property has no setter, so execution fails closed with Live's own error; the plan still binds the observed state so newer Live versions can adopt the write without contract changes. Freezing renders the track's live material to audio and mutates audible content until unfrozen. | `expectedStateVersion`, `trackId`, `frozen` |

@@ -24,6 +24,12 @@ npm run cli -- prompt harmonize-clip --args '{"trackId":"track-0","clipId":"trac
 npm run cli -- call list_devices --args '{"trackId":"track-0"}' --json
 ```
 
+## Live Set files on macOS
+
+`open_live_set` opens an existing absolute `.als` path in the Live app that hosts the bridge. `save_live_set` sends Save to the currently named Set. Both require `expectedStateVersion` and `expectedSetFingerprint` from a fresh `get_live_state` call, and default to a dry-run plan; apply that plan with its single-use `confirmationToken`, `planHash`, and `dryRun:false`. A changed Set or source file invalidates the plan.
+
+These host-side operations may need macOS Automation and Accessibility access for the terminal or MCP host. Live may display a Save As, missing-media, version, or overwrite dialog; the tools do not dismiss dialogs. `open_live_set` reports `opened:true` only after bridge readback identifies the requested path. `save_live_set` reports `saved:true` only after an on-disk change or a clean-state readback. If Live opens a dialog instead, `saved:false` means the save is not verified. Saving an untitled Set requires a manual Save As; this tool does not choose a destination.
+
 ## Scripts
 
 | Script | What it does |
