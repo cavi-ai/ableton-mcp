@@ -12,6 +12,8 @@ import { analyzeMidiFeel, planMidiFeelTransfer } from "./midi-feel-analysis.mjs"
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { MacLiveSetHost } from "./live-set-host.mjs";
 import { CatalogService } from "./catalog-service.mjs";
+import { discoverExamples } from "./discovery-examples.mjs";
+import { LIVE_BROWSER_ROOTS } from "./browser-roots.mjs";
 import { GenerationQueue } from "../../../packages/nks-pipeline/src/generation-queue.mjs";
 import { getFactoryDeviceProfile, groupDeviceParameters, listFactoryDeviceProfiles } from "./factory-device-knowledge.mjs";
 import { collectFactoryDeviceProfileIds, collectPluginProfileIds, getProducerChainBlueprint, listProducerChainBlueprints, verifyProducerChain } from "./producer-chain-knowledge.mjs";
@@ -404,11 +406,7 @@ function transformMidiNotes(observed, noteIds, operation) {
   throw new Error("operation.type must be quantize, legato, or duplicate");
 }
 
-const BROWSER_ROOTS = new Set([
-  "audio_effects", "clips", "current_project", "drums", "hotswap_target", "instruments",
-  "legacy_libraries", "max_for_live", "midi_effects", "packs", "plugins", "samples", "sounds",
-  "user_folders", "user_library"
-]);
+const BROWSER_ROOTS = new Set(LIVE_BROWSER_ROOTS);
 
 function normalizeBrowserPath(args) {
   if (!BROWSER_ROOTS.has(args.root)) throw new Error(`unknown Live browser root ${args.root}`);
@@ -455,6 +453,10 @@ export class ToolService {
     this.liveSetHost = liveSetHost;
     this.liveSetOpenTimeoutMs = liveSetOpenTimeoutMs;
     this.liveSetSaveTimeoutMs = liveSetSaveTimeoutMs;
+  }
+
+  discoveryExamples() {
+    return discoverExamples((name, args) => this.call(name, args));
   }
 
   async call(name, args = {}) {

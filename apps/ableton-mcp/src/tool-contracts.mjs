@@ -1,3 +1,7 @@
+import { listLiveScaleReferences } from "./live-scale-reference.mjs";
+import { extensibleToolResult, toolOutputContracts } from "./tool-output-contracts.mjs";
+import { LIVE_BROWSER_ROOTS } from "./browser-roots.mjs";
+
 const string = (description) => ({ type: "string", description });
 const number = (description, extra = {}) => ({ type: "number", description, ...extra });
 const boolean = (description) => ({ type: "boolean", description });
@@ -423,7 +427,7 @@ const contracts = {
   capture_midi_session: { description: "Plan or invoke Live's native Capture MIDI into Session View for recently played MIDI on audible tracks. May create or change clips on multiple MIDI tracks or add a scene; the target is determined by Live, not guaranteed by the plan. Reports immediate slot changes plus note count/digest changes in armed playing MIDI clips; inspect notes separately for content. Requires native can_capture_midi readiness and confirmation.", inputSchema: guarded() },
   set_transport_recording_context: { description: "Plan or apply guarded playhead and recording-mode changes.", inputSchema: guarded({ currentSongTime: number("Playhead position in beats.", { minimum: 0 }), arrangement: object({ record: boolean("Arrangement record."), overdub: boolean("Arrangement overdub."), punchIn: boolean("Punch-in."), punchOut: boolean("Punch-out."), backToArranger: boolean("Back-to-Arrangement state.") }), session: object({ record: boolean("Session record."), overdub: boolean("Session overdub.") }), automationArm: boolean("Automation arm.") }) },
   get_song_musical_context: { description: "Read key, scale, time signature, quantization, groove, swing, and Arrangement loop context.", inputSchema: empty },
-  get_live_scale_reference: { description: "Resolve one exact Ableton Live 12 scale and root to semitone intervals, pitch classes, note names, degrees, and scale family. Read-only.", inputSchema: object({ scaleName: string("Exact Live scale name."), rootNote: { type: "integer", minimum: 0, maximum: 11, description: "C=0 through B=11." } }, ["scaleName", "rootNote"]) },
+  get_live_scale_reference: { description: "Resolve one exact Ableton Live 12 scale and root to semitone intervals, pitch classes, note names, degrees, and scale family. Read-only.", inputSchema: object({ scaleName: { ...string("Exact Live scale name."), enum: listLiveScaleReferences().map(({ name }) => name) }, rootNote: { type: "integer", minimum: 0, maximum: 11, description: "C=0 through B=11." } }, ["scaleName", "rootNote"]) },
   list_live_scales: { description: "List Ableton Live 12 scale names with semitone intervals and musical families for exact scale selection. Read-only.", inputSchema: empty },
   get_song_grid_reference: { description: "Read a signature-aware one-bar step map for straight 16ths, eighth triplets, and sixteenth triplets from current Live tempo and meter. Distinguishes the one bar downbeat, meter beat starts, and 4-denominator eighth offbeats; includes non-binding 4/4 hip-hop, house, and trap placements, perceived half-time versus actual tempo change, and related MCP tool references. No song edits.", inputSchema: empty },
   plan_grid_envelope_pattern: { description: "Read current Live grid and return exact on/off Session clip envelope steps for a straight or triplet rhythm, including Beat Repeat Repeat. No Live edits. Supply the exact native on/off values; set_clip_parameter_envelope validates the destination clip and parameter before any write. Rejects grid/bar misalignment.", inputSchema: object({ grid: { type: "string", enum: ["straight16", "eighthTriplet", "sixteenthTriplet"] }, bars: { type: "integer", minimum: 1, maximum: 16 }, activeSteps: array({ type: "integer", minimum: 1 }, "Unique 1-based active step numbers within each bar."), onValue: number("Native parameter value during active steps."), offValue: number("Native parameter value during inactive steps."), startBeat: number("Absolute Session clip beat offset; default zero.", { minimum: 0 }) }, ["grid", "bars", "activeSteps", "onValue", "offValue"]) },
@@ -531,7 +535,7 @@ const contracts = {
   set_group_fold_state: { description: "Plan or apply the folded state of one exact existing group track.", inputSchema: guarded({ trackId: ids.trackId, folded: boolean("Whether the group is folded.") }, ["trackId", "folded"]) },
   route_tracks_to_bus: { description: "Plan or route existing tracks to one exact existing group bus using Live's available routing choices.", inputSchema: guarded({ trackIds: array(ids.trackId, "Source track IDs."), busTrackId: ids.trackId }, ["trackIds", "busTrackId"]) },
   route_tracks_to_return_bus: { description: "Plan or route existing tracks to one exact Return bus using matching sends and Sends Only outputs. Prevalidates all sources; Live applies one undo step but runtime failures can interrupt it.", inputSchema: guarded({ trackIds: array(ids.trackId, "Source track IDs."), returnTrackId: string("Stable return-track ID."), sendValue: number("Normalized send level (0 to 1).", { minimum: 0, maximum: 1 }) }, ["trackIds", "returnTrackId", "sendValue"]) },
-  get_set_mixer: { description: "Read master and return-bus mixer state.", inputSchema: empty },
+  get_set_mixer: { description: "Read master and return-bus mixer levels, sends, and routing from the current Live Set.", inputSchema: empty },
   list_arrangement_clips: { description: "Read timeline clip IDs, types, and start/end positions in beats for one track.", inputSchema: object({ trackId: ids.trackId }, ["trackId"]) },
   create_audio_clip: { description: "Plan or import a local audio file into one exact empty Session slot on an unfrozen audio track. The confirmed plan binds the source file identity, size, and modification time; Live validates the audio format.", inputSchema: guarded({ trackId: ids.trackId, clipId: ids.clipId, sourcePath: string("Absolute local audio-file path."), name: string("Optional imported clip name.") }, ["trackId", "clipId", "sourcePath"]) },
   move_arrangement_clip: { description: "Plan or move one exact Arrangement clip to a new beat position, preserving its span with staged copies, rollback, and an isolated undo step. Rejects collisions with other clips; self-overlap is supported.", inputSchema: guarded({ trackId: ids.trackId, clipId: string("Exact timeline clip ID from list_arrangement_clips."), startBeats: number("New nonnegative timeline position in beats.", { minimum: 0 }) }, ["trackId", "clipId", "startBeats"]) },
@@ -679,8 +683,43 @@ const closedWorldTools = new Set([
   "list_factory_device_profiles"
 ]);
 
+const parameterDescriptions = {
+  search_presets: { limit: "Maximum returned presets; defaults to 50 and is capped at 200." },
+  get_producer_chain_blueprint: { target: "Exact blueprint ID returned by list_producer_chain_blueprints." },
+  set_song_musical_context: {
+    timeSignature: "Requested native numerator and denominator.",
+    key: "Live song root, scale name, and scale mode.",
+    quantization: "Native launch and MIDI-recording quantization choices.",
+    groove: "Global groove intensity and swing.",
+    loop: "Arrangement loop enablement and boundaries in beats."
+  },
+  set_clip_timing: {
+    loop: "Clip loop enablement and boundaries; beats for warped clips, seconds for unwarped audio.",
+    timeSignature: "Requested native numerator and denominator.",
+    editorGrid: "Native clip-editor quantization and triplet display."
+  },
+  create_track: { type: "Native track type to create.", index: "Zero-based insertion index; omit to append." },
+  create_scene: { index: "Zero-based insertion index; omit to append." },
+  set_audio_clip_state: { pitchCoarse: "Coarse pitch offset in semitones.", pitchFine: "Fine pitch offset in cents." },
+  get_browser_items: { offset: "Zero-based child offset; supply with limit.", limit: "Maximum children per page; supply with offset." },
+  search_browser_items: { maxDepth: "Maximum subtree depth to scan.", limit: "Maximum matching items to return." },
+  search_browser_roots: { maxDepth: "Maximum depth below each root.", limit: "Maximum matching items across all roots." }
+};
+
+function describedInput(name, schema) {
+  return { ...schema, properties: Object.fromEntries(Object.entries(schema.properties).map(([field, value]) => [
+    field, {
+      ...value,
+      ...(parameterDescriptions[name]?.[field] ? { description: parameterDescriptions[name][field] } : {}),
+      ...(field === "root" && ["get_browser_items", "search_browser_items", "load_browser_item"].includes(name)
+        ? { enum: LIVE_BROWSER_ROOTS } : {})
+    }
+  ])) };
+}
+
 export const toolContracts = Object.fromEntries(Object.entries(contracts).map(([name, contract]) => [
-  name, { ...contract, annotations: {
+  name, { ...contract, inputSchema: describedInput(name, contract.inputSchema),
+    outputSchema: toolOutputContracts[name] ?? extensibleToolResult, annotations: {
     readOnlyHint: readOnlyTools.has(name),
     destructiveHint: destructiveTools.has(name),
     idempotentHint: readOnlyTools.has(name),

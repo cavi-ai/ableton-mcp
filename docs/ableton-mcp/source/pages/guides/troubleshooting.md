@@ -20,7 +20,11 @@ Selecting the Control Surface again restarts the bridge and recreates the socket
 
 ## `connect ECONNREFUSED`
 
-The socket file exists, but no bridge owns it. This usually follows a Live crash. Select the Control Surface again, or restart Live.
+The socket file exists, but the connection was refused. This can follow a Live crash or concurrent connections filling the bridge's small connection backlog. Retry reads sequentially. If the error persists, select the Control Surface again, or restart Live.
+
+## Read-only calls reject a target ID
+
+Use IDs returned by the matching list tool. `tools/list` supplies examples from the configured preset catalog and current Live Set when those reads succeed. Device and clip examples include the matching track; empty clip slots are excluded. Examples are advisory, so refresh discovery after changing the Set. When Live, a populated clip, or a local audio source is unavailable, discovery omits those examples and calls still report the actual target error.
 
 ## `outdated bridge: expected {{PRODUCT_VERSION}}` or missing capabilities
 

@@ -3,8 +3,9 @@ import { ToolService } from "./tool-service.mjs";
 import { PACKAGE_VERSION, isMainModule } from "./paths.mjs";
 import { createConfiguredService } from "./runtime.mjs";
 import { toolContracts } from "./tool-contracts.mjs";
-import { validateToolArguments } from "./tool-validation.mjs";
+import { validateToolArguments, validateToolResult } from "./tool-validation.mjs";
 import { getPrompt, listPrompts } from "./prompts.mjs";
+import { withDiscoveryExamples } from "./discovery-examples.mjs";
 
 const SUPPORTED_PROTOCOL_VERSION = "2025-03-26";
 
@@ -312,13 +313,15 @@ export function createRouter(service, { toolProfile = "all" } = {}) {
           capabilities: { resources: {}, tools: {}, prompts: { listChanged: false } },
           serverInfo: { name: "ableton-mcp", version: PACKAGE_VERSION }
         };
-      } else if (method === "resources/list") result = { resources };
+      } else if (method === "ping") result = {};
+      else if (method === "resources/list") result = { resources };
       else if (method === "resources/templates/list") result = { resourceTemplates };
       else if (method === "resources/read") {
         const value = await service.readResource(params.uri);
         result = { contents: [{ uri: params.uri, text: JSON.stringify(value), mimeType: "application/json" }] };
       }
-      else if (method === "tools/list") result = { tools };
+      else if (method === "tools/list") result = { tools: typeof service.discoveryExamples === "function"
+        ? withDiscoveryExamples(tools, await service.discoveryExamples()) : tools };
       else if (method === "tools/call") {
         if (typeof params.name !== "string" || !params.name) {
           throw Object.assign(new Error("tool name is required"), { code: -32602 });
@@ -328,6 +331,7 @@ export function createRouter(service, { toolProfile = "all" } = {}) {
         validateToolArguments(params.name, args);
         try {
           const value = await service.call(params.name, args);
+          validateToolResult(params.name, value);
           result = { content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value };
         } catch (error) {
           result = { content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }], isError: true };
