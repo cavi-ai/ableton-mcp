@@ -44,7 +44,7 @@ The server publishes 221 tools. Mutations of the Live Set require `expectedState
 | `get_preset` | Read one exact NKS preset catalog record. | `presetId` |
 | `get_preset_metadata` | Read user tags, favorite state, and revision for one preset. | `presetId` |
 | `get_producer_chain_blueprint` | Return one ordered factory-device chain or shared-bus topology with exact browser paths, stage roles, execution tools, and explicit limitations. | `target` |
-| `get_set_mixer` | Read master and return-bus mixer state. | none |
+| `get_set_mixer` | Read master and return-bus mixer levels, sends, and routing from the current Live Set. | none |
 | `get_song_grid_reference` | Read a signature-aware one-bar step map for straight 16ths, eighth triplets, and sixteenth triplets from current Live tempo and meter. Distinguishes the one bar downbeat, meter beat starts, and 4-denominator eighth offbeats; includes non-binding 4/4 hip-hop, house, and trap placements, perceived half-time versus actual tempo change, and related MCP tool references. No song edits. | none |
 | `get_song_musical_context` | Read key, scale, time signature, quantization, groove, swing, and Arrangement loop context. | none |
 | `get_track_freeze_state` | Read one track's native freeze state. On the tested Live 12.4.5, is_frozen is readable but has no setter, so freeze/unfreeze remain UI-only; Live's native error surfaces if a future version exposes the setter. | `trackId` |
