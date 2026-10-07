@@ -1,8 +1,8 @@
 {
   "version": 1,
   "probes": [
-    { "id": "discovery-budget", "probe": "discovery-cost", "access": "read_only", "max_tools": 60, "max_schema_bytes": 80000 },
-    { "id": "token-budget", "probe": "token-cost", "access": "read_only", "max_total_tokens": 20000, "max_tool_tokens": 1200 },
+    { "id": "discovery-budget", "probe": "discovery-cost", "access": "read_only", "max_tools": 60, "max_schema_bytes": 60000 },
+    { "id": "token-budget", "probe": "token-cost", "access": "read_only", "max_total_tokens": 15000, "max_tool_tokens": 700 },
     { "id": "catalog-pagination", "probe": "pagination", "access": "read_only", "max_pages": 5 },
     { "id": "declared-surfaces", "probe": "surface-listing", "access": "read_only", "max_pages": 5 },
     { "id": "scales-guessable", "probe": "schema-guessability", "tool": "list_live_scales", "access": "read_only", "arguments": {} },
