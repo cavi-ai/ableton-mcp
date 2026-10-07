@@ -78,6 +78,6 @@
     "ajv": "8.20.0"
   },
   "devDependencies": {
-    "@cavi-ai/mcp-eval": "0.3.0"
+    "@cavi-ai/mcp-eval": "0.4.0"
   }
 }
