@@ -49,7 +49,12 @@ test("core discovery is bounded and cannot call tools it does not advertise", as
   assert.ok(names.has("route_tracks_to_return_bus"));
   assert.ok(!names.has("apply_midi_diatonic_chord_quality"));
   assert.ok(tools.every((tool) => toolContracts[tool.name]));
-  assert.ok(tools.reduce((bytes, tool) => bytes + Buffer.byteLength(JSON.stringify(tool)), 0) / 4 < 20000);
+  const catalogBytes = Buffer.byteLength(JSON.stringify(tools));
+  assert.ok(catalogBytes <= 59000, `core catalog exceeds 59000 bytes: ${catalogBytes}`);
+  for (const tool of tools) {
+    const bytes = Buffer.byteLength(JSON.stringify(tool));
+    assert.ok(bytes <= 2800, `${tool.name} exceeds 2800 bytes: ${bytes}`);
+  }
   const hidden = await route({ id: 2, method: "tools/call", params: {
     name: "apply_midi_diatonic_chord_quality", arguments: {}
   } });
