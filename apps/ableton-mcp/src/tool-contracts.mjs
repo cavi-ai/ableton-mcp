@@ -1,5 +1,6 @@
 import { listLiveScaleReferences } from "./live-scale-reference.mjs";
 import { extensibleToolResult, toolOutputContracts } from "./tool-output-contracts.mjs";
+import { LIVE_BROWSER_ROOTS } from "./browser-roots.mjs";
 
 const string = (description) => ({ type: "string", description });
 const number = (description, extra = {}) => ({ type: "number", description, ...extra });
@@ -707,7 +708,12 @@ const parameterDescriptions = {
 
 function describedInput(name, schema) {
   return { ...schema, properties: Object.fromEntries(Object.entries(schema.properties).map(([field, value]) => [
-    field, parameterDescriptions[name]?.[field] ? { ...value, description: parameterDescriptions[name][field] } : value
+    field, {
+      ...value,
+      ...(parameterDescriptions[name]?.[field] ? { description: parameterDescriptions[name][field] } : {}),
+      ...(field === "root" && ["get_browser_items", "search_browser_items", "load_browser_item"].includes(name)
+        ? { enum: LIVE_BROWSER_ROOTS } : {})
+    }
   ])) };
 }
 

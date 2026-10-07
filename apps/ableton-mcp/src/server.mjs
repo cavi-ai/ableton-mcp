@@ -5,6 +5,7 @@ import { createConfiguredService } from "./runtime.mjs";
 import { toolContracts } from "./tool-contracts.mjs";
 import { validateToolArguments, validateToolResult } from "./tool-validation.mjs";
 import { getPrompt, listPrompts } from "./prompts.mjs";
+import { withDiscoveryExamples } from "./discovery-examples.mjs";
 
 const SUPPORTED_PROTOCOL_VERSION = "2025-03-26";
 
@@ -319,7 +320,8 @@ export function createRouter(service, { toolProfile = "all" } = {}) {
         const value = await service.readResource(params.uri);
         result = { contents: [{ uri: params.uri, text: JSON.stringify(value), mimeType: "application/json" }] };
       }
-      else if (method === "tools/list") result = { tools };
+      else if (method === "tools/list") result = { tools: typeof service.discoveryExamples === "function"
+        ? withDiscoveryExamples(tools, await service.discoveryExamples()) : tools };
       else if (method === "tools/call") {
         if (typeof params.name !== "string" || !params.name) {
           throw Object.assign(new Error("tool name is required"), { code: -32602 });
