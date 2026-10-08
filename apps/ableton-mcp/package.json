@@ -1,6 +1,6 @@
 {
   "name": "@cavi-ai/ableton-mcp-core",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Local-first Ableton Live MCP server, CLI, and Remote Script bridge",
   "private": true,
   "type": "module",

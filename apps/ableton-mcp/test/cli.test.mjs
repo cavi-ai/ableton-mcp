@@ -116,7 +116,7 @@ test("doctor verifies bridge version and capabilities through a real probe", asy
     platform: "darwin",
     home: "/Users/test",
     bridgeProbe: async () => ({
-      bridgeVersion: "0.2.0",
+      bridgeVersion: "0.2.1",
       capabilities: ["list_scenes", "transport_play"]
     }),
     stdout: () => {}
@@ -124,7 +124,7 @@ test("doctor verifies bridge version and capabilities through a real probe", asy
   assert.equal(result.ok, false);
   assert.equal(result.bridge.missingCapabilities.includes("get_track_routing"), true);
   assert.equal(result.bridge.missingCapabilities.includes("list_scenes"), false);
-  assert.equal(result.bridge.version, "0.2.0");
+  assert.equal(result.bridge.version, "0.2.1");
   assert.equal(result.bridge.capabilities.includes("list_scenes"), true);
 });
 
@@ -136,7 +136,7 @@ test("doctor rejects a stale bridge handshake", async () => {
     stdout: () => {}
   });
   assert.equal(result.ok, false);
-  assert.equal(result.bridge.reason, "outdated bridge: expected 0.2.0");
+  assert.equal(result.bridge.reason, "outdated bridge: expected 0.2.1");
 });
 
 test("doctor exposes a stale bundled Remote Script beside a current User Library copy", async () => {
@@ -156,7 +156,7 @@ test("doctor exposes a stale bundled Remote Script beside a current User Library
     }
     const result = await runCli(["doctor", "--json"], {
       home, applicationsRoot, sourceRoot, platform: "darwin",
-      bridgeProbe: async () => ({ bridgeVersion: "0.2.0", capabilities: [], scriptDirectory: bundledCopy }), stdout: () => {}
+      bridgeProbe: async () => ({ bridgeVersion: "0.2.1", capabilities: [], scriptDirectory: bundledCopy }), stdout: () => {}
     });
     assert.deepEqual(result.remoteScriptCopies, [
       { path: userCopy, matchesPackagedFiles: true, differingFiles: [] },

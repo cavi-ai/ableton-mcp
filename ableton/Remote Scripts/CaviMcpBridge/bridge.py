@@ -17,7 +17,7 @@ try:
 except ImportError:
     from protocol import decode_lines, encode_message
 
-BRIDGE_VERSION = "0.2.0"
+BRIDGE_VERSION = "0.2.1"
 with open(os.path.join(os.path.dirname(__file__), "capabilities.json"), encoding="utf-8") as capability_file:
     CAPABILITIES = tuple(json.load(capability_file))
 
