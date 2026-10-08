@@ -99,7 +99,7 @@ test("plugin integration context reports installed but unconfigured Omnisphere w
   const service = new ToolService({ catalog: { search: () => [], get: () => undefined, products: () => [] },
     bridge: { async request(method) {
       if (method === "list_devices") return { stateVersion: 4, devices: [device] };
-      if (method === "list_device_parameters") return { stateVersion: 4, parameters: [
+      if (method === "list_device_parameters") return { stateVersion: 4, trackId: "track-0", deviceId: device.id, parameters: [
         { id: "parameter-0", name: "Device On", originalName: "Device On", enabled: true }
       ] };
       if (method === "search_browser_items") return { stateVersion: 4, results: [
@@ -135,4 +135,83 @@ test("plugin integration context is exposed as a read-only MCP tool", async () =
     name: "get_plugin_integration_context", arguments: { trackId: "track-0", deviceId: "track-0:device-0" }
   } });
   assert.equal(reply.result.structuredContent.profile.productSlug, "vps-avenger");
+});
+
+function contextFixture({ nested = false } = {}) {
+  const args = { trackId: "track-0", deviceId: nested
+    ? "track-0:device-0/chain-0/device-0" : "track-0:device-0" };
+  const device = { id: args.deviceId, name: "Bass Texture", className: "PluginDevice",
+    classDisplayName: "Serum 2", type: "instrument", active: true };
+  const replies = {
+    list_devices: { stateVersion: 7, trackId: args.trackId, devices: [device] },
+    get_device_hierarchy: { stateVersion: 7, trackId: args.trackId, device },
+    list_device_parameters: { stateVersion: 7, ...args, parameters: [
+      { id: "parameter-0", name: "Cutoff", originalName: "Cutoff", enabled: true }
+    ], nameAmbiguities: [] },
+    search_browser_items: { stateVersion: 7, root: "plugins", path: [], query: "Serum 2", results: [
+      { name: "Serum 2", path: ["VST3", "Xfer Records", "Serum 2"], loadable: true }
+    ] }
+  };
+  const operations = [];
+  const bridge = {
+    async request(method, params) {
+      operations.push([{ method, params }]);
+      if (!replies[method]) throw new Error(`unexpected method ${method}`);
+      return replies[method];
+    },
+    async requestMany(requests) {
+      operations.push(requests);
+      return requests.map(({ method }) => {
+        if (!replies[method]) throw new Error(`unexpected method ${method}`);
+        return replies[method];
+      });
+    }
+  };
+  const service = new ToolService({ bridge, catalog: { search: () => [], get: () => undefined, products: () => [] } });
+  return { service, bridge, args, replies, operations };
+}
+
+for (const nested of [false, true]) {
+  test(`plugin integration batches parameter and browser reads after ${nested ? "nested" : "top-level"} device identity`, async () => {
+    const { service, args, operations } = contextFixture({ nested });
+    const result = await service.call("get_plugin_integration_context", args);
+    assert.deepEqual(operations, [
+      [{ method: nested ? "get_device_hierarchy" : "list_devices", params: nested ? args : { trackId: args.trackId } }],
+      [{ method: "list_device_parameters", params: args },
+        { method: "search_browser_items", params: { root: "plugins", path: [], query: "Serum 2", maxDepth: 6, limit: 50 } }]
+    ]);
+    assert.equal(result.device.id, args.deviceId);
+    assert.equal(result.recommendedVariant.format, "VST3");
+    assert.deepEqual(result.parameterExposure.writableControlIds, ["parameter-0"]);
+  });
+}
+
+for (const method of ["list_device_parameters", "search_browser_items"]) {
+  test(`plugin integration rejects changed state in batched ${method}`, async () => {
+    const { service, args, replies } = contextFixture();
+    replies[method].stateVersion = 8;
+    await assert.rejects(service.call("get_plugin_integration_context", args), /context changed between reads/);
+  });
+}
+
+for (const field of ["trackId", "deviceId"]) {
+  test(`plugin integration rejects parameter readback from another ${field}`, async () => {
+    const { service, args, replies } = contextFixture();
+    replies.list_device_parameters[field] = field === "trackId" ? "track-1" : "track-0:device-1";
+    await assert.rejects(service.call("get_plugin_integration_context", args), /parameter identity/);
+  });
+}
+
+test("plugin integration propagates a batch error without retrying partial observations", async () => {
+  const { service, args, bridge, operations } = contextFixture();
+  bridge.requestMany = async () => { throw new Error("browser read failed"); };
+  await assert.rejects(service.call("get_plugin_integration_context", args), /browser read failed/);
+  assert.equal(operations.length, 1);
+});
+
+test("plugin integration rejects an unsupported device before reading parameters or browser", async () => {
+  const { service, args, replies, operations } = contextFixture();
+  replies.list_devices.devices[0].classDisplayName = "Serum 2 FX";
+  await assert.rejects(service.call("get_plugin_integration_context", args), /not a supported/);
+  assert.equal(operations.length, 1);
 });
