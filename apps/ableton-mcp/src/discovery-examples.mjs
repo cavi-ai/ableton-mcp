@@ -1,4 +1,6 @@
 import { stat } from "node:fs/promises";
+import { performance } from "node:perf_hooks";
+import { isAbsolute } from "node:path";
 
 const audioClipTools = new Set([
   "get_audio_clip_state", "get_audio_source_beat_times", "propose_audio_transient_warp", "analyze_audio_clip"
@@ -6,27 +8,54 @@ const audioClipTools = new Set([
 const anyClipTools = new Set(["get_clip_timing", "get_clip_groove_context", "get_clip_parameter_envelope"]);
 
 // Samples come from ordinary read paths, never from invented fallback IDs.
-// Inspect at most one track of each kind to keep discovery bounded.
-export async function discoverExamples(call) {
-  const read = async (name, args = {}) => { try { return await call(name, args); } catch { return undefined; } };
-  // The native listener has a small connection backlog. Complete each read
-  // before opening the next connection instead of dropping valid examples.
+// Inspect at most eight owners, stopping new reads after five seconds.
+export async function discoverExamples(call, batch) {
+  const deadline = performance.now() + 5000;
+  const read = async (name, args = {}) => {
+    if (performance.now() >= deadline) return undefined;
+    try { return await call(name, args); } catch { return undefined; }
+  };
+  const readMany = async requests => {
+    if (!requests.length) return [];
+    if (performance.now() >= deadline) return requests.map(() => undefined);
+    if (batch) {
+      try {
+        const results = await batch(requests);
+        if (Array.isArray(results) && results.length === requests.length) return results;
+      } catch { /* Localize a failed read using the bounded sequential fallback. */ }
+    }
+    const results = [];
+    for (const { method, params } of requests) results.push(await read(method, params));
+    return results;
+  };
   const catalog = await read("search_presets", { limit: 1 });
-  const tracks = await read("list_tracks");
-  const browser = await read("list_browser_roots");
+  const [tracks, browser] = await readMany([{ method: "list_tracks" }, { method: "list_browser_roots" }]);
   const selected = ["midi", "audio"].map(type => tracks?.tracks?.find(track => track.type === type));
   const first = tracks?.tracks?.[0];
-  const owners = [...new Map([first, ...selected].filter(track => typeof track?.id === "string")
-    .map(track => [track.id, track])).values()];
-  const observed = [];
-  for (const track of owners) {
-    const clips = await read("list_clips", { trackId: track.id });
-    const devices = await read("list_devices", { trackId: track.id });
+  const owners = [...new Map([first, ...selected,
+    ...(tracks?.tracks ?? []).filter(track => ["midi", "audio"].includes(track.type))]
+    .filter(track => typeof track?.id === "string")
+    .map(track => [track.id, track])).values()].slice(0, 8);
+  // Framed batches use one connection; the native listener's backlog stays bounded.
+  const results = await readMany(owners.flatMap(track => ["list_clips", "list_devices"]
+    .map(method => ({ method, params: { trackId: track.id } }))));
+  const observed = owners.map((track, index) => {
+    const [clips, devices] = results.slice(index * 2, index * 2 + 2);
     const matches = value => value?.trackId === track.id && value.stateVersion === tracks.stateVersion;
-    observed.push({ track,
+    return { track,
       clip: matches(clips) ? clips.clips?.find(clip => clip.hasClip && typeof clip.id === "string") : undefined,
       device: matches(devices) ? devices.devices?.find(device => typeof device.id === "string") : undefined
-    });
+    };
+  });
+  const missingTypes = ["midi", "audio"].filter(type => !observed.some(entry => entry.track.type === type && entry.clip));
+  const arrangementOwners = observed.filter(entry => missingTypes.includes(entry.track.type));
+  const arrangement = await readMany(arrangementOwners.map(entry => ({ method: "list_arrangement_clips",
+    params: { trackId: entry.track.id } })));
+  for (const [index, entry] of arrangementOwners.entries()) {
+    const result = arrangement[index];
+    if (result?.trackId === entry.track.id && result.stateVersion === tracks.stateVersion) {
+      entry.clip = result.clips?.find(clip => clip.type === entry.track.type && typeof clip.id === "string");
+    }
   }
   const clipTarget = type => {
     const entry = observed.find(entry => entry.track.type === type && entry.clip);
@@ -38,7 +67,7 @@ export async function discoverExamples(call) {
   if (audioClip) {
     const audio = await read("get_audio_clip_state", audioClip);
     if (audio?.trackId === audioClip.trackId && audio.clipId === audioClip.clipId &&
-        audio.stateVersion === tracks.stateVersion && typeof audio.source?.path === "string") {
+        audio.stateVersion === tracks.stateVersion && typeof audio.source?.path === "string" && isAbsolute(audio.source.path)) {
       try { if ((await stat(audio.source.path)).isFile()) sourcePath = audio.source.path; } catch { /* Missing source. */ }
     }
   }
