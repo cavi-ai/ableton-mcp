@@ -952,14 +952,23 @@ export class ToolService {
       const { device } = identity;
       const profile = getPluginIntegrationProfile(device);
       if (!profile) throw new Error("loaded device is not a supported third-party plug-in integration");
-      const observed = await this.bridge.request("list_device_parameters", args);
-      if (observed.stateVersion !== identity.stateVersion)
+      const requests = [
+        { method: "list_device_parameters", params: args },
+        { method: "search_browser_items", params: {
+          root: "plugins", path: [], query: profile.browserQuery, maxDepth: 6, limit: 50
+        } }
+      ];
+      const observations = [];
+      if (typeof this.bridge.requestMany === "function") {
+        observations.push(...await this.bridge.requestMany(requests));
+      } else {
+        for (const { method, params } of requests) observations.push(await this.bridge.request(method, params));
+      }
+      const [observed, browser] = observations;
+      if (observed.stateVersion !== identity.stateVersion || browser.stateVersion !== identity.stateVersion)
         throw new Error("plugin integration context changed between reads");
-      const browser = await this.bridge.request("search_browser_items", {
-        root: "plugins", path: [], query: profile.browserQuery, maxDepth: 6, limit: 50
-      });
-      if (browser.stateVersion !== identity.stateVersion)
-        throw new Error("plugin integration context changed between reads");
+      if (observed.trackId !== args.trackId || observed.deviceId !== args.deviceId)
+        throw new Error("plugin integration parameter identity does not match requested device");
       const aliases = new Set(profile.aliases.map(alias => alias.toLowerCase()));
       const installedVariants = (browser.results || [])
         .filter(item => item.loadable && aliases.has((item.name || "").toLowerCase()))
