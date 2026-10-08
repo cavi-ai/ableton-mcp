@@ -649,10 +649,14 @@ export class ToolService {
     }
     if (name === "list_live_scales") return { scales: listLiveScaleReferences() };
     if (name === "get_song_grid_reference") {
-      const live = await this.bridge.request("get_live_state", {});
-      const context = await this.bridge.request("get_song_musical_context", {});
-      const afterContext = await this.bridge.request("get_song_musical_context", {});
-      const afterLive = await this.bridge.request("get_live_state", {});
+      const methods = ["get_live_state", "get_song_musical_context", "get_song_musical_context", "get_live_state"];
+      const observations = [];
+      if (typeof this.bridge.requestMany === "function") {
+        observations.push(...await this.bridge.requestMany(methods.map(method => ({ method, params: {} }))));
+      } else {
+        for (const method of methods) observations.push(await this.bridge.request(method, {}));
+      }
+      const [live, context, afterContext, afterLive] = observations;
       if (live.stateVersion !== context.stateVersion || JSON.stringify(context) !== JSON.stringify(afterContext) ||
         live.stateVersion !== afterLive.stateVersion || live.setFingerprint !== afterLive.setFingerprint ||
         live.tempo !== afterLive.tempo) throw new Error("song grid context changed; retry");

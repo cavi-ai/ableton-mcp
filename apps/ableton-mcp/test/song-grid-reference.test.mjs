@@ -80,6 +80,25 @@ test("a changed Live signature during reference lookup is rejected rather than r
   await assert.rejects(() => service.call("get_song_grid_reference", {}), /song grid context changed/);
 });
 
+test("batched grid reads preserve tempo, Set, version and musical-context consistency checks", async () => {
+  const live = { stateVersion: 7, setFingerprint: "set:grid", tempo: 120 };
+  const context = { stateVersion: 7, timeSignature: { numerator: 4, denominator: 4 } };
+  for (const change of [null, { tempo: 121 }, { setFingerprint: "another-set" }, { stateVersion: 8 },
+    { timeSignature: { numerator: 3, denominator: 4 } }]) {
+    const service = new ToolService({ bridge: {
+      request() { throw new Error("expected one batch"); },
+      async requestMany(requests) {
+        assert.deepEqual(requests.map(request => request.method), ["get_live_state",
+          "get_song_musical_context", "get_song_musical_context", "get_live_state"]);
+        const afterContext = { ...context, ...(change?.timeSignature ? change : {}) };
+        return [live, context, afterContext, { ...live, ...(change?.timeSignature ? {} : change) }];
+      }
+    } });
+    if (change) await assert.rejects(service.call("get_song_grid_reference"), /song grid context changed/);
+    else assert.equal((await service.call("get_song_grid_reference")).tempoBpm, 120);
+  }
+});
+
 test("the grid reference points agents to existing straight and triplet quantization controls", async () => {
   const reference = await gridService().call("get_song_grid_reference", {});
   assert.ok(reference.toolReferences);
