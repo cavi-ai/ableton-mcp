@@ -17,7 +17,8 @@ class CaviMcpBridge(ControlSurface):
         # an additional scheduled delay; socket threads only enqueue requests.
         bridge = getattr(self, "_bridge", None)
         if bridge is not None:
-            bridge.drain()
+            with self.component_guard():
+                bridge.drain()
 
     def disconnect(self):
         self._bridge.stop()

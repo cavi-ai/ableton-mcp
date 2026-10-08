@@ -4,6 +4,7 @@ import sys
 import tempfile
 import types
 import unittest
+from contextlib import contextmanager
 from unittest.mock import patch
 
 
@@ -14,6 +15,7 @@ class SurfaceSchedulingTests(unittest.TestCase):
         class ControlSurface:
             def __init__(self, c_instance):
                 self._song = types.SimpleNamespace(tracks=[], scenes=[])
+                self.guard_active = False
                 self.update_display()
 
             def update_display(self):
@@ -21,6 +23,14 @@ class SurfaceSchedulingTests(unittest.TestCase):
 
             def schedule_message(self, ticks, callback):
                 pass
+
+            @contextmanager
+            def component_guard(self):
+                self.guard_active = True
+                try:
+                    yield
+                finally:
+                    self.guard_active = False
 
             def song(self):
                 return self._song
@@ -58,6 +68,7 @@ class SurfaceSchedulingTests(unittest.TestCase):
             self.surface._bridge.requests.put((client, {"id": str(index), "method": method}))
 
         def dispatch(song, request, state_version, application):
+            self.assertTrue(self.surface.guard_active)
             self.events.append(request["method"])
             return {"stateVersion": state_version}
 
@@ -67,6 +78,7 @@ class SurfaceSchedulingTests(unittest.TestCase):
         self.assertEqual(self.events, ["display", "get_live_state", "get_transport_context", "display"])
         self.assertEqual(len(responses), 2)
         self.assertTrue(self.surface._bridge.requests.empty())
+        self.assertFalse(self.surface.guard_active)
 
     def test_disconnect_stops_bridge_and_later_display_callbacks_do_not_drain(self):
         bridge = self.surface._bridge
