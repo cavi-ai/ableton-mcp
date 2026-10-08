@@ -26,6 +26,10 @@ The socket file exists, but the connection was refused. This can follow a Live c
 
 Use IDs returned by the matching list tool. `tools/list` supplies examples from the configured preset catalog and current Live Set when those reads succeed. Device and clip examples include the matching track; empty clip slots are excluded. Examples are advisory, so refresh discovery after changing the Set. When Live, a populated clip, or a local audio source is unavailable, discovery omits those examples and calls still report the actual target error.
 
+Discovery inspects at most eight track owners, prioritizing the first MIDI and audio tracks. It searches populated Session clips, then Arrangement clips for a missing clip type. Native reads share framed connections, and discovery stops starting new reads after five seconds. Clips beyond that bounded search still work with IDs obtained directly from their list tools.
+
+The standard eval needs a populated MIDI clip, a populated audio clip with an existing absolute local source file, and `ffmpeg`/`ffprobe` for all clip/audio probes to succeed. Provision those assets in a test Set or explicitly approved temporary tracks before evaluating. An empty Set cannot satisfy these probes, and missing targets remain errors.
+
 ## `outdated bridge: expected {{PRODUCT_VERSION}}` or missing capabilities
 
 Live loaded an older copy of the script. On macOS, a copy inside the application bundle takes precedence over the User Library copy. See [Installation](../introduction/installation.md#an-older-copy-inside-the-application-bundle).

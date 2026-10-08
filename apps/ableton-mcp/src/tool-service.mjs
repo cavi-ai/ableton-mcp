@@ -456,7 +456,8 @@ export class ToolService {
   }
 
   discoveryExamples() {
-    return discoverExamples((name, args) => this.call(name, args));
+    return discoverExamples((name, args) => this.call(name, args),
+      typeof this.bridge?.requestMany === "function" ? requests => this.bridge.requestMany(requests) : undefined);
   }
 
   async call(name, args = {}) {
