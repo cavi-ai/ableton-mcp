@@ -96,7 +96,7 @@ npm run verify:package
 
 ## Project status
 
-Version 0.1.0 is released. Version 0.2.0 is in preparation. The tool surface can still change before 1.0.
+See [GitHub Releases](https://github.com/cavi-ai/ableton-mcp/releases) and the [changelog](CHANGELOG.md) for released versions and changes. The tool surface can still change before 1.0.
 
 ## Contributing
 

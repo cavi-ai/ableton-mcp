@@ -1,6 +1,15 @@
 # Changelog
 
-## 0.2.0 — in preparation
+## 0.2.1
+
+- Corrected MCP ping handling and read-only output schemas and validation.
+- Improved discovery of valid scale, browser, device, populated clip, and local audio-source targets without creating session content.
+- Reduced core catalog context overhead and tightened the MCP Eval discovery and token budgets.
+- Batched coherent song-grid reads and independent plug-in parameter and browser reads while retaining state-version and identity checks.
+- Removed the recurring bridge scheduling delay by draining on each main-thread display callback inside Live's component guard.
+- Updated MCP Eval to 0.4.0.
+
+## 0.2.0
 
 - Expanded producer workflows, including guarded group-system snapshot recall.
 - Added bridge script origin to Live state and CLI diagnostics to identify the loaded Remote Script copy.
