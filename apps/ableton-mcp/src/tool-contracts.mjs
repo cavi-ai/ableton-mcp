@@ -19,10 +19,10 @@ const ids = {
   presetId: string("NKS catalog preset ID."),
 };
 const confirmation = {
-  expectedStateVersion: { type: "integer", minimum: 1, description: "Exact stateVersion just before planning." },
-  dryRun: boolean("Plan by default. Execute with false and confirmationToken."),
-  confirmationToken: string("Matching dry-run token: expiring, single-use."),
-  planHash: string("Matching dry-run hash."),
+  expectedStateVersion: { type: "integer", minimum: 1, description: "Observed stateVersion." },
+  dryRun: boolean("False executes with token and hash."),
+  confirmationToken: string("Single-use plan token."),
+  planHash: string("Plan hash."),
 };
 const guarded = (properties = {}, required = []) => object(
   { ...properties, ...confirmation }, ["expectedStateVersion", ...required]
@@ -420,6 +420,14 @@ const contracts = {
     expectedSetFingerprint: string("Exact setFingerprint from get_live_state for the currently loaded Set.")
   }, ["expectedSetFingerprint"]) },
   get_history_state: { description: "Read current Ableton undo and redo availability.", inputSchema: empty },
+  get_selection_context: { description: "Read the selected track, scene, device, displayed clip and highlighted Session slot in one Live callback. Null means no resolvable selection; displayed clip and highlighted slot can differ. Does not change focus.", inputSchema: empty },
+  duplicate_midi_clip_variations: { description: "Plan or create one to four named copies of a Session MIDI clip in existing empty slots on the same track. Binds source notes and timing; verifies exposed copied content and preserves the original. One undo step; removes new copies on failure. Copies start identical: edit and audition them with note-property and launch tools.", inputSchema: guarded({
+    trackId: ids.trackId, sourceClipId: string("Exact populated Session MIDI clip ID."),
+    variants: { type: "array", description: "Named copies.", minItems: 1, maxItems: 4, items: object({
+      clipId: string("Existing empty Session slot on the same track."),
+      name: { type: "string", minLength: 1, maxLength: 128, description: "Name for this alternative." }
+    }, ["clipId", "name"]) }
+  }, ["trackId", "sourceClipId", "variants"]) },
   undo: { description: "Plan or apply one guarded Ableton undo operation.", inputSchema: guarded() },
   redo: { description: "Plan or apply one guarded Ableton redo operation.", inputSchema: guarded() },
   get_transport_context: { description: "Read transport playback, metronome, and count-in state.", inputSchema: empty },
@@ -633,7 +641,7 @@ const contracts = {
 const readOnlyTools = new Set([
   "search_presets", "get_nks_generation_status", "get_nks_generation_job", "get_preset", "get_preset_metadata",
   "get_browser_item_metadata", "search_browser_item_metadata",
-  "get_live_state", "get_transport_context", "get_history_state",
+  "get_live_state", "get_selection_context", "get_transport_context", "get_history_state",
   "get_song_musical_context", "get_live_scale_reference", "list_live_scales",
   "get_song_grid_reference", "plan_grid_envelope_pattern",
   "plan_drum_pattern", "plan_drum_pattern_edit", "plan_drum_variation",

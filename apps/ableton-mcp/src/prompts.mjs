@@ -6,6 +6,20 @@ const confirmWorkflow = [
 const userMessage = (text) => ({ role: "user", content: { type: "text", text } });
 
 export const promptContracts = {
+  "develop-selected-midi-clip": {
+    name: "develop-selected-midi-clip",
+    description: "Develop, audition and refine alternatives to the selected Session MIDI clip while preserving the original and manual edits.",
+    arguments: [{ name: "request", description: "Musical direction and any notes or parts to preserve.", required: true }],
+    build: ({ request }) => ({ description: "Collaborative MIDI clip variations.", messages: [
+      userMessage(`Develop my selected MIDI clip according to this musical request: ${request}
+1. get_selection_context: resolve detailClip explicitly. The displayed clip and highlighted slot may differ; do not guess from a track name or the first populated slot. If there is no Session MIDI clip, ask the user to select one. Do not switch Sets or edit Arrangement material.
+2. Read get_midi_clip_notes_extended, get_clip_timing, get_song_musical_context and list_clips for that exact track. Summarize the musical changes and preserve the user's specified notes or parts. If recording or frozen, stop and explain. If there are not two existing empty slots, ask for space; do not overwrite clips or create scenes silently.
+3. duplicate_midi_clip_variations creates two named copies in those empty slots. The original remains untouched. Copies start identical: use set_midi_note_properties on each copy to implement two distinct, bounded alternatives. A less busy version can mute explicitly chosen notes without deleting them. Re-read each copy for its own note IDs; never reuse original note IDs on a copy. Verify the notes after every edit and compare untouched properties.
+4. Offer to audition using launch_clip with explicit launchQuantization, after checking transport and recording context. Explain that launching replaces the playing Session clip on that track and can start playback. Only audition when requested or already authorized. Do not solo, change monitoring, arm, or alter unrelated tracks. Use stop_clip or transport_stop when the user requests a stop. Track the previously playing clip so it can be relaunched on request; report any remaining Arrangement override.
+5. When the user chooses an alternative, leave that clip and the original in place. Do not delete other alternatives unless requested. For each refinement, re-read the chosen clip's notes and timing first. Preserve manual edits and all unrelated properties; if a manual edit conflicts with the requested change, resolve it with the user. A stale plan requires fresh observation and a new plan, never blind replay. Do not use global undo to discard an alternative after the user has edited the Set.
+Report which clips were created, changed and auditioned, and any partial failure. Readback proves stored state, not sound quality or that the user heard audio. ${confirmWorkflow}`)
+    ] })
+  },
   "session-overview": {
     name: "session-overview",
     description: "Survey the current Live Set: set file, tempo, key and scale, tracks, scenes, and undo availability.",

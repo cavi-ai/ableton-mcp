@@ -1,4 +1,5 @@
 [
+  "get_selection_context", "get_midi_clip_variation_context", "duplicate_midi_clip_variations",
   "get_live_state", "get_track_state_snapshot", "set_track_state_snapshot", "set_group_system_snapshot", "get_device_chain_snapshot", "set_device_chain_snapshot", "get_history_state", "undo", "redo", "get_transport_context", "set_transport_context", "get_looper_performance_context", "set_looper_state", "get_beat_repeat_performance_context", "set_beat_repeat_enabled", "set_beat_repeat_grid", "set_beat_repeat_interval",
   "get_device_sidechain_routing",
   "get_clip_groove_context",

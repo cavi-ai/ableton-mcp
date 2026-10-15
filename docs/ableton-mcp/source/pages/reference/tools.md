@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 221 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 223 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (96)
+## Read-only (97)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -44,6 +44,7 @@ The server publishes 221 tools. Mutations of the Live Set require `expectedState
 | `get_preset` | Read one exact NKS preset catalog record. | `presetId` |
 | `get_preset_metadata` | Read user tags, favorite state, and revision for one preset. | `presetId` |
 | `get_producer_chain_blueprint` | Return one ordered factory-device chain or shared-bus topology with exact browser paths, stage roles, execution tools, and explicit limitations. | `target` |
+| `get_selection_context` | Read the selected track, scene, device, displayed clip and highlighted Session slot in one Live callback. Null means no resolvable selection; displayed clip and highlighted slot can differ. Does not change focus. | none |
 | `get_set_mixer` | Read master and return-bus mixer levels, sends, and routing from the current Live Set. | none |
 | `get_song_grid_reference` | Read one bar of straight 16ths, eighth/sixteenth triplets using Live tempo/meter: downbeat, meter beats, and 4-denominator eighth offbeats. Includes advisory 4/4 hip-hop/house/trap placements, half-time versus tempo changes, and related tools. No edits. | none |
 | `get_song_musical_context` | Read key, scale, time signature, quantization, groove, swing, and Arrangement loop context. | none |
@@ -105,7 +106,7 @@ The server publishes 221 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (109)
+## Mutations (110)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -147,6 +148,7 @@ The server publishes 221 tools. Mutations of the Live Set require `expectedState
 | `duplicate_arrangement_clip` | Plan or duplicate one exact Arrangement clip at a non-overlapping beat position on the same track. Preserves the source and validates its identity again at the native write boundary. | `expectedStateVersion`, `trackId`, `clipId`, `startBeats` |
 | `duplicate_clip` | Plan or duplicate an exact occupied Session clip into an exact empty slot. | `expectedStateVersion`, `trackId`, `clipId`, `destinationClipId` |
 | `duplicate_clip_loop` | Plan or duplicate the current loop region of one exact clip. | `expectedStateVersion`, `trackId`, `clipId` |
+| `duplicate_midi_clip_variations` | Plan or create one to four named copies of a Session MIDI clip in existing empty slots on the same track. Binds source notes and timing; verifies exposed copied content and preserves the original. One undo step; removes new copies on failure. Copies start identical: edit and audition them with note-property and launch tools. | `expectedStateVersion`, `trackId`, `sourceClipId`, `variants` |
 | `duplicate_session_object` | Plan or duplicate an exact track, Session scene, or clip, optionally naming a duplicated track. | `expectedStateVersion`, `targetType`, `targetId` |
 | `edit_drum_pattern_clip` | Plan or apply guarded replacement of selected drum lanes and bars in an existing MIDI clip. Preserves unrelated notes and verifies the complete native note set. | `expectedStateVersion`, `trackId`, `clipId`, `grid`, `startBar`, `bars`, `lanes` |
 | `enqueue_nks_generation_jobs` | Plan or enqueue only explicitly selected eligible discovered presets, in batches of at most 100, using a single-use confirmation. Serum 2 and Omnisphere are limited to their deterministic factory pilots until every pilot record is validated. Does not generate or mark any preset saved. | `productSlug`, `presetIds` |
