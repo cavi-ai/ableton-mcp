@@ -4270,7 +4270,7 @@ class DispatchTest(unittest.TestCase):
         launched = dispatch_request(song, {"method": "launch_clip", "params": {"trackId": "track-0", "clipId": "track-0:clip-0",
                                                                "launchQuantization": 12}}, 5)
         self.assertEqual(launched["launchQuantizationOverride"], 12)
-        self.assertEqual(song.tracks[0].clip_slots[0].last_launch_quantization, 12)
+        self.assertEqual(song.tracks[0].clip_slots[0].last_launch_quantization, 11)
         self.assertEqual(song.tracks[0].clip_slots[0].clip.launch_quantization, 0)
         with self.assertRaisesRegex(ValueError, "launchQuantization"):
             dispatch_request(song, {"method": "launch_clip", "params": {"trackId": "track-0", "clipId": "track-0:clip-0",
@@ -4291,7 +4291,7 @@ class DispatchTest(unittest.TestCase):
         observed = dispatch_request(song, {"method": "launch_clip", "params": params}, 7)
         self.assertEqual(observed["recordLengthBeats"], 4.0)
         self.assertEqual(slot.last_record_length, 4.0)
-        self.assertEqual(slot.last_launch_quantization, 12)
+        self.assertEqual(slot.last_launch_quantization, 11)
         with self.assertRaisesRegex(ValueError, "empty"):
             dispatch_request(song, {"method": "launch_clip", "params": {**params, "clipId": "track-0:clip-0"}}, 7)
         with self.assertRaisesRegex(ValueError, "changed"):

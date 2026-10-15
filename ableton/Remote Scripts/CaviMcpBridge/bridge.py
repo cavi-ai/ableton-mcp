@@ -2534,10 +2534,170 @@ def _validate_scale_melody_payload(song, params, state_version, fingerprint):
         raise ValueError("melody notes do not match its deterministic motif")
 
 
+def _selection_context(song, state_version):
+    view = song.view
+    selected_track = getattr(view, "selected_track", None)
+    selected_scene = getattr(view, "selected_scene", None)
+    detail_clip = getattr(view, "detail_clip", None)
+    highlighted_slot = getattr(view, "highlighted_clip_slot", None)
+    result = {"stateVersion": state_version, "setFingerprint": _set_fingerprint(song),
+              "selectedTrack": None, "selectedScene": None, "selectedDevice": None,
+              "detailClip": None, "highlightedClipSlot": None}
+    owners = [(f"track-{index}", track, _track_type(track)) for index, track in enumerate(song.tracks)]
+    owners += [(f"return-{index}", track, "return") for index, track in enumerate(song.return_tracks)]
+    owners.append(("master", song.master_track, "master"))
+
+    def selected_device(devices, prefix, selected):
+        for index, device in enumerate(devices):
+            device_id = f"{prefix}{index}"
+            if device == selected:
+                return {"deviceId": device_id, "name": device.name}
+            if not bool(getattr(device, "can_have_chains", False)):
+                continue
+            for kind, chains in (("chain", getattr(device, "chains", ())),
+                                 ("return-chain", getattr(device, "return_chains", ()))):
+                for chain_index, chain in enumerate(chains):
+                    found = selected_device(chain.devices, f"{device_id}/{kind}-{chain_index}/device-", selected)
+                    if found:
+                        return found
+        return None
+
+    for owner_id, track, kind in owners:
+        if track == selected_track:
+            result["selectedTrack"] = {"id": owner_id, "name": getattr(track, "name", "Main"), "type": kind}
+            selected = getattr(getattr(track, "view", None), "selected_device", None)
+            if selected is not None:
+                found = selected_device(getattr(track, "devices", ()), f"{owner_id}:device-", selected)
+                if found:
+                    result["selectedDevice"] = {"trackId": owner_id, **found}
+        if not owner_id.startswith("track-"):
+            continue
+        for index, slot in enumerate(getattr(track, "clip_slots", ())):
+            clip_id = f"{owner_id}:clip-{index}"
+            if slot == highlighted_slot:
+                result["highlightedClipSlot"] = {"trackId": owner_id, "clipId": clip_id, "hasClip": bool(slot.has_clip)}
+            if slot.has_clip and slot.clip == detail_clip:
+                result["detailClip"] = {"trackId": owner_id, "clipId": clip_id, "name": slot.clip.name,
+                                        "location": "session", "type": "audio" if getattr(slot.clip, "is_audio_clip", False) else "midi"}
+        if kind == "group":
+            continue
+        for index, clip in enumerate(getattr(track, "arrangement_clips", ())):
+            if clip == detail_clip:
+                result["detailClip"] = {"trackId": owner_id, "clipId": f"{owner_id}:arrangement-clip-{index}",
+                                        "name": clip.name, "location": "arrangement",
+                                        "type": "audio" if getattr(clip, "is_audio_clip", False) else "midi"}
+    for index, scene in enumerate(song.scenes):
+        if scene == selected_scene:
+            result["selectedScene"] = {"id": f"scene-{index}", "name": scene.name}
+            break
+    return result
+
+
+def _midi_variation_source(song, track_id, clip_id, state_version):
+    clip, timeline = _midi_clip(song, track_id, clip_id)
+    if timeline is not None:
+        raise ValueError("MIDI variations require a Session source clip")
+    if getattr(clip, "is_recording", False) or getattr(clip, "is_triggered", False):
+        raise ValueError("source clip is recording or has a pending launch")
+    notes = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
+    if len(notes) > 4096:
+        raise ValueError("MIDI variations support at most 4096 source notes")
+    timing = _clip_timing(song, track_id, clip_id, state_version)
+    for key in ("stateVersion", "trackId", "clipId"):
+        timing.pop(key)
+    return {"name": clip.name, "lengthBeats": float(clip.length), "timing": timing,
+            "startMarker": float(getattr(clip, "start_marker", clip.loop_start)),
+            "endMarker": float(getattr(clip, "end_marker", clip.loop_end)),
+            "color": getattr(clip, "color", None),
+            "notes": sorted(notes, key=lambda note: note["noteId"])}
+
+
+def _midi_variation_context(song, params, state_version):
+    track_id, source_id = params["trackId"], params["sourceClipId"]
+    _, track = _track(song, track_id)
+    if bool(getattr(track, "is_frozen", False)):
+        raise ValueError("MIDI variations are unavailable on a frozen track")
+    if bool(song.record_mode) or bool(song.session_record):
+        raise ValueError("stop recording before creating MIDI variations")
+    return {"stateVersion": state_version, "setFingerprint": _set_fingerprint(song),
+            "trackId": track_id, "sourceClipId": source_id,
+            "source": _midi_variation_source(song, track_id, source_id, state_version),
+            "slots": [{"id": f"{track_id}:clip-{index}", "hasClip": bool(slot.has_clip),
+                       "isTriggered": bool(getattr(slot, "is_triggered", False))}
+                      for index, slot in enumerate(track.clip_slots)]}
+
+
+def _duplicate_midi_variations(song, params, state_version):
+    if params.get("expectedStateVersion") != state_version:
+        raise ValueError("MIDI variation state version changed")
+    before = _midi_variation_context(song, params, state_version)
+    if before != params.get("before"):
+        raise ValueError("MIDI variation source or destinations changed")
+    variants = params.get("variants")
+    if not isinstance(variants, list) or not 1 <= len(variants) <= 4:
+        raise ValueError("supply one to four named variations")
+    track_id = params["trackId"]
+    _, _, source_slot = _clip_slot(song, track_id, params["sourceClipId"])
+    targets, ids = [], set()
+    for variant in variants:
+        clip_id, name = variant.get("clipId"), variant.get("name")
+        if not isinstance(name, str) or not name.strip() or len(name) > 128 or clip_id in ids:
+            raise ValueError("variation names and destinations must be valid and unique")
+        ids.add(clip_id)
+        _, _, slot = _clip_slot(song, track_id, clip_id)
+        if slot.has_clip or getattr(slot, "is_triggered", False) or slot == source_slot:
+            raise ValueError("variation destination must be empty with no pending launch")
+        targets.append((slot, variant))
+
+    def comparable(source):
+        value = {key: value for key, value in source.items() if key not in ("name", "notes")}
+        value["notes"] = sorted((
+            {key: value for key, value in note.items() if key != "noteId"} for note in source["notes"]
+        ), key=lambda note: json.dumps(note, sort_keys=True))
+        return value
+
+    created, observed = [], []
+    with _undo_step(song):
+        try:
+            for slot, variant in targets:
+                created.append(slot)
+                source_slot.duplicate_clip_to(slot)
+                slot.clip.name = variant["name"]
+                copied = _midi_variation_source(song, track_id, variant["clipId"], state_version)
+                if copied["name"] != variant["name"] or comparable(copied) != comparable(before["source"]):
+                    raise RuntimeError("MIDI variation copied content readback mismatch")
+                observed.append({**variant, "source": copied})
+            if _midi_variation_source(song, track_id, params["sourceClipId"], state_version) != before["source"]:
+                raise RuntimeError("original MIDI clip changed while copying")
+        except Exception as mutation_error:
+            rollback_errors = []
+            for slot in reversed(created):
+                try:
+                    if slot.has_clip:
+                        slot.delete_clip()
+                    if slot.has_clip:
+                        raise RuntimeError("new copy remains in destination")
+                except Exception as error:
+                    rollback_errors.append(str(error))
+            if rollback_errors:
+                raise RuntimeError("MIDI variation copy failed and cleanup was incomplete (%s); original error: %s" %
+                                   ("; ".join(rollback_errors), mutation_error))
+            raise
+    return {"stateVersion": state_version + 1, "trackId": track_id,
+            "sourceClipId": params["sourceClipId"], "source": before["source"], "variants": observed,
+            "verification": "Exposed notes and clip timing match; hidden expression and envelopes are not independently inspected."}
+
+
 def dispatch_request(song, request, state_version, application=None):
     method = request["method"]
     params = request.get("params", {})
     fingerprint = _set_fingerprint(song)
+    if method == "get_selection_context":
+        return _selection_context(song, state_version)
+    if method == "get_midi_clip_variation_context":
+        return _midi_variation_context(song, params, state_version)
+    if method == "duplicate_midi_clip_variations":
+        return _duplicate_midi_variations(song, params, state_version)
     if method == "get_live_state":
         groove_pool = getattr(song, "groove_pool", None)
         return {"stateVersion": state_version, "setFingerprint": fingerprint, "tempo": song.tempo, "isPlaying": song.is_playing,
@@ -5845,10 +6005,13 @@ def dispatch_request(song, request, state_version, application=None):
                 value = params["launchQuantization"]
                 if type(value) is not int or value < 0 or value >= len(CLIP_QUANTIZATION_NAMES):
                     raise ValueError("launchQuantization must be a native clip launch quantization value")
+                # Clip.launch_quantization includes Global at zero; fire()
+                # takes Song.Quantization, whose zero means no quantization.
+                native_quantization = song.clip_trigger_quantization if value == 0 else value - 1
                 if recording:
-                    slot.fire(record_length=record_length, launch_quantization=value)
+                    slot.fire(record_length=record_length, launch_quantization=native_quantization)
                 else:
-                    slot.fire(launch_quantization=value)
+                    slot.fire(launch_quantization=native_quantization)
             elif recording:
                 slot.fire(record_length=record_length)
             else:

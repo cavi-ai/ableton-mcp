@@ -54,6 +54,8 @@ const toolNames = [
   "set_browser_item_metadata",
   "search_browser_item_metadata",
   "get_live_state",
+  "get_selection_context",
+  "duplicate_midi_clip_variations",
   "open_live_set",
   "save_live_set",
   "get_transport_context",
@@ -264,6 +266,7 @@ const toolNames = [
 // A smaller first-session surface for hosts with a tight tool-context budget.
 // The full catalog remains the default and every handler keeps its contract.
 const coreToolNames = new Set([
+  "get_selection_context", "duplicate_midi_clip_variations",
   "search_presets", "get_preset", "get_preset_metadata",
   "get_live_state", "open_live_set", "save_live_set", "get_transport_context", "get_song_musical_context",
   "get_song_grid_reference", "get_transport_recording_context",

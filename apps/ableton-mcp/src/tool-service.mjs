@@ -42,6 +42,7 @@ import { matchMidiScaleChordRemappingReadback, planMidiScaleChordRemapping } fro
 import { matchMidiDiatonicChordQualityReadback, planMidiDiatonicChordQuality } from "./midi-diatonic-chord-quality.mjs";
 import { matchDrumPatternEditReadback, planDrumPattern, planDrumPatternEdit } from "./drum-pattern.mjs";
 import { matchDrumVariationReadback, planDrumVariation } from "./drum-variation.mjs";
+import { duplicateMidiClipVariations } from "./midi-clip-variations.mjs";
 
 function canonicalLocalSpliceMetadataItem(item, configuredRoots) {
   const root = configuredRoots.roots.filter(candidate => candidate.available &&
@@ -636,6 +637,8 @@ export class ToolService {
       return { items: this.#browserMetadataLibrary().search(args), limitation: "Private MCP tags and favorites only; saved identities are not reverified against Live or the local filesystem in this search and do not change native collections." };
     }
     if (name === "get_live_state") return this.bridge.request("get_live_state", {});
+    if (name === "get_selection_context") return this.bridge.request(name, {});
+    if (name === "duplicate_midi_clip_variations") return duplicateMidiClipVariations(this.bridge, this.confirmations, args);
     if (name === "open_live_set") return this.#openLiveSet(args);
     if (name === "save_live_set") return this.#saveLiveSet(args);
     if (name === "get_transport_context") return this.bridge.request("get_transport_context", {});
