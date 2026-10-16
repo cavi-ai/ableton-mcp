@@ -15,6 +15,7 @@
       "pages": [
         { "title": "Guarded mutations", "path": "guides/guarded-mutations.md" },
         { "title": "Cancel agent work", "path": "guides/request-cancellation.md" },
+        { "title": "Resume session work", "path": "guides/resume-session-work.md" },
         { "title": "Understand a Set", "path": "guides/session-orientation.md" },
         { "title": "Relate musical parts", "path": "guides/musical-parts.md" },
         { "title": "Capture Live audio", "path": "guides/live-audio-capture.md" },

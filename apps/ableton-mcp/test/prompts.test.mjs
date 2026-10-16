@@ -8,7 +8,7 @@ test("MCP discovery lists every prompt with schema-shaped arguments", async () =
   const listed = await route({ id: 1, method: "prompts/list" });
   const names = listed.result.prompts.map(prompt => prompt.name).sort();
   assert.deepEqual(names, ["arrangement-rework", "build-producer-chain", "develop-selected-midi-clip", "explore-selected-instrument", "harmonize-clip",
-    "listen-to-live-output", "produce-drum-pattern", "session-overview", "understand-musical-parts"]);
+    "listen-to-live-output", "produce-drum-pattern", "resume-session-work", "session-overview", "understand-musical-parts"]);
   for (const prompt of listed.result.prompts) {
     assert.ok(prompt.description);
     for (const argument of prompt.arguments) {
@@ -36,4 +36,27 @@ test("prompts/get renders arguments into user messages and validates required ar
 
 test("prompts/get rejects unknown prompt names", async () => {
   assert.throws(() => getPrompt("nonexistent"), /unknown prompt/);
+});
+
+test("resume discovery requires the user's intended continuation and never calls Live", async () => {
+  let calls = 0;
+  const route = createRouter({ call: async () => { calls++; throw new Error("prompt rendering must not call Live"); } });
+  const missing = await route({ id: 1, method: "prompts/get", params: { name: "resume-session-work", arguments: {} } });
+  assert.equal(missing.error?.code, -32602);
+  assert.match(missing.error.message, /request/);
+  const response = await route({ id: 2, method: "prompts/get", params: { name: "resume-session-work", arguments: {
+    request: "Continue comparing bass instruments", previousContext: "The alternative was selected before reconnecting."
+  } } });
+  const text = response.result.messages[0].content.text;
+  assert.match(text, /Continue comparing bass instruments/);
+  assert.match(text, /The alternative was selected before reconnecting/);
+  assert.match(text, /get_session_orientation/);
+  assert.match(text, /get_instrument_comparison/);
+  assert.match(text, /get_live_audio_capture/);
+  assert.match(text, /get_midi_clip_notes_extended/);
+  assert.match(text, /stateVersion alone/);
+  assert.match(text, /unknown/);
+  assert.match(text, /authorization/);
+  assert.match(text, /never.*replay/i);
+  assert.equal(calls, 0);
 });

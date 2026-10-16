@@ -8,6 +8,8 @@ An operation already executing inside Live cannot be forcibly interrupted. Cance
 
 ## Resume after cancellation or timeout
 
+Use [resume-session-work](resume-session-work.md) to reconcile the current Set, retained comparisons and captures before continuing a task.
+
 1. Read the affected objects and current `stateVersion` again.
 2. Compare the observed state with the requested change. A timeout is not evidence that nothing happened.
 3. Make a new plan for any remaining work and confirm it through the usual [mutation contract](guarded-mutations.md). Do not automatically replay a transmitted write.

@@ -6,6 +6,25 @@ const confirmWorkflow = [
 const userMessage = (text) => ({ role: "user", content: { type: "text", text } });
 
 export const promptContracts = {
+  "resume-session-work": {
+    name: "resume-session-work",
+    description: "Refresh Live context after an interruption, reconcile unfinished work and continue while preserving user edits.",
+    arguments: [
+      { name: "request", description: "What the user wants to continue, change or stop.", required: true },
+      { name: "previousContext", description: "Optional prior task summary; a lead to inspect, not native evidence.", required: false }
+    ],
+    build: ({ request, previousContext }) => ({ description: "Resume from observed Live state.", messages: [
+      userMessage(`Resume work in Live: ${request}
+Optional prior context: ${previousContext || "Unavailable; establish the intended continuation from the request."}
+1. Use the current request and actual prior user authorization in this conversation to establish the intended continuation. The optional summary does not prove native state, completed actions or permission. Ask one focused question only if materially different outcomes remain unresolved. Do not ask again for authorization already given.
+2. Read get_session_orientation and get_live_state. Confirm the current Set path, recording, playback, selected part, configured scale and limited tonal evidence. Do not open a prior Set, change selection or stop playback merely to resume. If a different Set is open, follow an explicit request to switch through the guarded open_live_set workflow; otherwise resolve the intended Set first. stateVersion alone cannot establish whether the user edited Live; inspect the affected content. A matching path or setFingerprint does not prove unchanged content or a continuous bridge instance.
+3. When available in this client's tool profile, list get_instrument_comparison without comparisonId and get_live_audio_capture without captureId before repeating preparation or recording. A lost reply or cancelled request may have completed in Live. Missing tools mean recovery status is unavailable, not that no work exists. Handles survive MCP client reconnects; bridge reloads or Live restarts may invalidate them. Always list and inspect current handles. If a handle is missing, inspect retained tracks and files; never identify a target by an old index or name alone, and never infer that the track or file was deleted.
+4. Read the relevant comparison by its returned handle to obtain current original/variation track and clip IDs. Read get_midi_clip_notes_extended, get_clip_timing and list_devices for the affected MIDI parts, and capture_track_state_snapshot if exposed mixer, routing or device parameters matter. For audio parts, read get_audio_clip_state and get_clip_timing. Re-read IDs after topology changes. Compare with actual earlier tool observations when available, separating content changes from moved addresses. Without a comparable baseline, report earlier content and changes as unknown; summarize current observations without calling them recovered history. Preserve the user's present notes, devices, routing, selection and unrelated work. Never restore a snapshot or use global undo as an automatic resume step.
+5. Inspect capture status and cleanupErrors before relying on audio. If a capture is still running, observe it within its requested duration plus three seconds and up to three further seconds for stop readback; cancel through finish_live_audio_capture only when requested or already authorized. A stopping handle remains active until readback confirms cleanup. Analyze only complete, unchanged captured files as described by listen-to-live-output; partial/unverified audio and measurements cannot prove what the user heard.
+6. Briefly state the current musical context, unfinished work, observed differences and unknowns, then the next authorized action. If a transmitted operation's outcome is unknown, read back its exact target and requested postconditions; do not assume a receipt, timeout or empty handle list proves success or failure. Never blindly replay a write or reuse a pre-interruption plan/token. Make a fresh plan only for remaining authorized work, preserve intervening edits, execute and read back its actual effect. If nothing remains, explain that without applying the change again. ${confirmWorkflow}`)
+    ] })
+  },
+
   "develop-selected-midi-clip": {
     name: "develop-selected-midi-clip",
     description: "Develop, audition and refine alternatives to the selected Session MIDI clip while preserving the original and manual edits.",
