@@ -43,6 +43,7 @@ import { matchMidiDiatonicChordQualityReadback, planMidiDiatonicChordQuality } f
 import { matchDrumPatternEditReadback, planDrumPattern, planDrumPatternEdit } from "./drum-pattern.mjs";
 import { matchDrumVariationReadback, planDrumVariation } from "./drum-variation.mjs";
 import { duplicateMidiClipVariations } from "./midi-clip-variations.mjs";
+import { requestSignal } from "./request-context.mjs";
 
 function canonicalLocalSpliceMetadataItem(item, configuredRoots) {
   const root = configuredRoots.roots.filter(candidate => candidate.available &&
@@ -462,6 +463,7 @@ export class ToolService {
   }
 
   async call(name, args = {}) {
+    requestSignal()?.throwIfAborted();
     if (name === "list_local_splice_roots") return listConfiguredSpliceRoots(this.spliceRoots);
     if (name === "browse_local_splice_directory") {
       if (args.includeMetadata !== undefined && typeof args.includeMetadata !== "boolean") throw new Error("includeMetadata must be boolean");
@@ -2647,6 +2649,7 @@ export class ToolService {
   }
 
   #consumeConfirmation(plan, args) {
+    requestSignal()?.throwIfAborted();
     const currentHash = hashPlan(plan);
     if (args.planHash !== undefined && args.planHash !== currentHash) throw new Error("confirmation plan hash mismatch: observed plan changed");
     return this.confirmations.consume(args.confirmationToken, currentHash);
@@ -2665,10 +2668,11 @@ export class ToolService {
   async #pollLiveSet(predicate, timeoutMs) {
     const deadline = Date.now() + timeoutMs;
     do {
+      requestSignal()?.throwIfAborted();
       try {
         const live = await this.bridge.request("get_live_state", {});
         if (predicate(live)) return live;
-      } catch { /* Live may briefly disconnect while loading a Set. */ }
+      } catch { requestSignal()?.throwIfAborted(); /* Live may briefly disconnect while loading a Set. */ }
       if (Date.now() >= deadline) break;
       await new Promise(resolve => setTimeout(resolve, 250));
     } while (true);
@@ -2714,8 +2718,10 @@ export class ToolService {
     let observed = null;
     const deadline = Date.now() + this.liveSetSaveTimeoutMs;
     do {
+      requestSignal()?.throwIfAborted();
       after = await this.liveSetHost.fileInfo(file.path);
-      try { observed = await this.bridge.request("get_live_state", {}); } catch { /* Preserve unverified status. */ }
+      try { observed = await this.bridge.request("get_live_state", {}); }
+      catch { requestSignal()?.throwIfAborted(); /* Preserve unverified status. */ }
       const clean = observed?.filePath === file.path && observed.isDirty === false;
       if (after.mtimeMs !== file.mtimeMs || after.size !== file.size || clean) break;
       if (Date.now() >= deadline) break;

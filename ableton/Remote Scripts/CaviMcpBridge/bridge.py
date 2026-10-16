@@ -13,9 +13,9 @@ except ImportError:
     Live = None
 
 try:
-    from .protocol import decode_lines, encode_message
+    from .protocol import BRIDGE_PROTOCOL, ClientSession, QueuedRequest, decode_lines, encode_message
 except ImportError:
-    from protocol import decode_lines, encode_message
+    from protocol import BRIDGE_PROTOCOL, ClientSession, QueuedRequest, decode_lines, encode_message
 
 BRIDGE_VERSION = "0.2.1"
 with open(os.path.join(os.path.dirname(__file__), "capabilities.json"), encoding="utf-8") as capability_file:
@@ -2692,6 +2692,8 @@ def dispatch_request(song, request, state_version, application=None):
     method = request["method"]
     params = request.get("params", {})
     fingerprint = _set_fingerprint(song)
+    if method == "get_bridge_protocol":
+        return dict(BRIDGE_PROTOCOL)
     if method == "get_selection_context":
         return _selection_context(song, state_version)
     if method == "get_midi_clip_variation_context":
@@ -6044,7 +6046,7 @@ class SocketBridge:
     def __init__(self, control_surface, socket_path):
         self.control_surface = control_surface
         self.socket_path = socket_path
-        self.requests = queue.Queue()
+        self.requests = queue.Queue(maxsize=256)
         self.stopped = threading.Event()
         self.state_version = 1
         self._last_topology_signature = None
@@ -6080,25 +6082,79 @@ class SocketBridge:
 
     def _read_client(self, client):
         buffer = b""
+        session = ClientSession(client)
         with client:
-            while not self.stopped.is_set():
-                chunk = client.recv(65536)
-                if not chunk:
-                    return
-                messages, buffer = decode_lines(buffer + chunk)
-                for message in messages:
-                    self.requests.put((client, message))
+            try:
+                while not self.stopped.is_set():
+                    chunk = client.recv(65536)
+                    if not chunk:
+                        return
+                    messages, buffer = decode_lines(buffer + chunk)
+                    replies = []
+                    # A request and cancellation received in one packet are
+                    # processed together before the main thread can claim it.
+                    with session.lock:
+                        for message in messages:
+                            if not isinstance(message, dict):
+                                raise ValueError("bridge frames must be objects")
+                            if "cancelRequestIds" in message:
+                                if isinstance(message["cancelRequestIds"], list):
+                                    session.cancel(message["cancelRequestIds"])
+                                continue
+                            if message.get("method") == "get_bridge_protocol":
+                                session.requires_deadline = True
+                                replies.append({"id": message.get("id"), "result": dict(BRIDGE_PROTOCOL)})
+                                continue
+                            try:
+                                record = QueuedRequest(session, message)
+                                try:
+                                    self.requests.put_nowait(record)
+                                except queue.Full:
+                                    record.finish()
+                                    replies.append({"id": message.get("id"), "error": {"code": "BRIDGE_BUSY",
+                                        "message": "bridge request queue is full", "outcome": "not_executed"}})
+                            except ValueError as error:
+                                replies.append({"id": message.get("id"), "error": {"code": "BRIDGE_PROTOCOL",
+                                    "message": str(error), "outcome": "not_executed"}})
+                    for reply in replies:
+                        session.send(reply)
+            except (OSError, ValueError, TypeError):
+                # A broken connection invalidates every unclaimed request.
+                pass
+            finally:
+                with session.lock:
+                    session.cancel(list(session.pending), "BRIDGE_DISCONNECTED")
+
+    @staticmethod
+    def _reply(client, response, record=None):
+        try:
+            if record is None:
+                client.sendall(encode_message(response))
+            else:
+                record.session.send(response)
+        except OSError:
+            pass
+        finally:
+            if record is not None:
+                record.finish()
 
     def drain(self):
         if self.deferred_request:
             return
         while True:
             try:
-                client, request = self.requests.get_nowait()
+                item = self.requests.get_nowait()
             except queue.Empty:
                 return
+            record = item if isinstance(item, QueuedRequest) else None
+            client, request = (record.client, record.request) if record is not None else item
+            if record is not None:
+                error = record.claim()
+                if error is not None:
+                    self._reply(client, {"id": request.get("id"), "error": error}, record)
+                    continue
             if request.get("method") in ("create_arrangement_cue_point", "delete_arrangement_cue_point"):
-                self._defer_cue_mutation(client, request)
+                self._defer_cue_mutation(client, request, record)
                 return
             try:
                 song = self.control_surface.song()
@@ -6114,17 +6170,13 @@ class SocketBridge:
                 response = {"id": request.get("id"), "result": result}
             except Exception as error:
                 response = {"id": request.get("id"), "error": {"message": str(error) or error.__class__.__name__}}
-            try:
-                client.sendall(encode_message(response))
-            except OSError:
-                # A timed-out client may close while Live is busy. Keep the
-                # main-thread drain task alive for later requests.
-                pass
+            self._reply(client, response, record)
 
-    def _defer_cue_mutation(self, client, request):
+    def _defer_cue_mutation(self, client, request, record=None):
         song = self.control_surface.song()
         params = request.get("params", {})
         method = request["method"]
+        previous_time = None
         try:
             if method == "create_arrangement_cue_point":
                 time_beats = float(params["timeBeats"])
@@ -6139,14 +6191,21 @@ class SocketBridge:
             song.current_song_time = time_beats
             self.deferred_request = True
             self.control_surface.schedule_message(
-                1, lambda: self._complete_cue_mutation(client, request, previous_time, time_beats)
+                1, lambda: self._complete_cue_mutation(client, request, previous_time, time_beats, record)
             )
         except Exception as error:
-            client.sendall(encode_message({"id": request.get("id"), "error": {"message": str(error) or error.__class__.__name__}}))
+            self.deferred_request = False
+            if previous_time is not None:
+                song.current_song_time = previous_time
+            self._reply(client, {"id": request.get("id"), "error": {"message": str(error) or error.__class__.__name__}}, record)
 
-    def _complete_cue_mutation(self, client, request, previous_time, time_beats):
+    def _complete_cue_mutation(self, client, request, previous_time, time_beats, record=None):
         song = self.control_surface.song()
         try:
+            error = record.unavailable() if record is not None else None
+            if error is not None:
+                self._reply(client, {"id": request.get("id"), "error": error}, record)
+                return
             song.set_or_delete_cue()
             if request["method"] == "create_arrangement_cue_point":
                 cue = next(cue for cue in song.cue_points if float(cue.time) == time_beats)
@@ -6161,4 +6220,4 @@ class SocketBridge:
         finally:
             song.current_song_time = previous_time
             self.deferred_request = False
-        client.sendall(encode_message(response))
+        self._reply(client, response, record)

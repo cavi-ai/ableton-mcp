@@ -6,6 +6,12 @@ import { toolContracts } from "./tool-contracts.mjs";
 import { validateToolArguments, validateToolResult } from "./tool-validation.mjs";
 import { getPrompt, listPrompts } from "./prompts.mjs";
 import { withDiscoveryExamples } from "./discovery-examples.mjs";
+import { withRequestSignal } from "./request-context.mjs";
+
+function requestFailure(error) {
+  if (!error?.outcome) return undefined;
+  return { code: error.code, message: error.message, outcome: error.outcome, requestIds: error.requestIds ?? [] };
+}
 
 const SUPPORTED_PROTOCOL_VERSION = "2025-03-26";
 
@@ -338,6 +344,8 @@ export function createRouter(service, { toolProfile = "all" } = {}) {
           result = { content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value };
         } catch (error) {
           result = { content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }], isError: true };
+          const failure = requestFailure(error);
+          if (failure) result.structuredContent = { error: failure };
         }
       }
       else if (method === "prompts/list") result = { prompts: listPrompts() };
@@ -348,29 +356,85 @@ export function createRouter(service, { toolProfile = "all" } = {}) {
       else throw Object.assign(new Error(`method not found: ${method}`), { code: -32601 });
       return { jsonrpc: "2.0", id, result };
     } catch (error) {
-      return { jsonrpc: "2.0", id, error: { code: error.code || -32603, message: error.message } };
+      const failure = requestFailure(error);
+      return { jsonrpc: "2.0", id, error: { code: typeof error.code === "number" ? error.code : -32603,
+        message: error.message, ...(failure ? { data: failure } : {}) } };
     }
   };
 }
 
-export async function runStdio({ service, toolProfile = "all" }) {
+export async function runStdio({ service, toolProfile = "all", input = process.stdin, output = process.stdout }) {
   const route = createRouter(service, { toolProfile });
-  const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
+  const lines = createInterface({ input, crlfDelay: Infinity });
+  const pending = new Map();
+  let queue = Promise.resolve();
+  let disconnected = false;
+  const disconnect = () => {
+    disconnected = true;
+    for (const active of pending.values()) active.controller.abort(new Error("MCP output disconnected"));
+  };
+  output.on("close", disconnect);
+  output.on("error", disconnect);
+  const send = reply => {
+    if (disconnected) return;
+    return new Promise(resolve => {
+      const finish = () => {
+        output.off("error", finish);
+        output.off("close", finish);
+        resolve();
+      };
+      output.once("error", finish);
+      output.once("close", finish);
+      output.write(`${JSON.stringify(reply)}\n`, error => {
+        // Writable emits an error after its failed write callback. Keep ownership
+        // until that event (or close), including for the final response.
+        if (!error) finish();
+      });
+    });
+  };
+  const enqueue = callback => { queue = queue.then(callback); };
   for await (const line of lines) {
     if (!line.trim()) continue;
     let request;
     try { request = JSON.parse(line); }
-    catch { process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } })}\n`); continue; }
+    catch { enqueue(() => send({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } })); continue; }
     if (!request || typeof request !== "object" || Array.isArray(request) ||
       request.jsonrpc !== "2.0" || typeof request.method !== "string" || !request.method ||
       (Object.hasOwn(request, "id") && request.id !== null &&
         typeof request.id !== "string" && typeof request.id !== "number")) {
-      process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "invalid request" } })}\n`);
+      enqueue(() => send({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "invalid request" } }));
       continue;
     }
-    if (!Object.hasOwn(request, "id")) continue;
-    process.stdout.write(`${JSON.stringify(await route(request))}\n`);
+    if (!Object.hasOwn(request, "id")) {
+      if (request.method === "notifications/cancelled") {
+        const id = request.params?.requestId;
+        const active = (typeof id === "string" || typeof id === "number") ? pending.get(id) : undefined;
+        if (active && active.method !== "initialize") active.controller.abort(new Error("MCP request cancelled"));
+      }
+      continue;
+    }
+    if (pending.has(request.id) || pending.size >= 32) {
+      const message = pending.has(request.id) ? "request ID is already pending" : "too many pending requests";
+      enqueue(() => send({ jsonrpc: "2.0", id: request.id, error: { code: -32600,
+        message } }));
+      continue;
+    }
+    const active = { controller: new AbortController(), method: request.method };
+    pending.set(request.id, active);
+    enqueue(async () => {
+      try {
+        if (disconnected || active.controller.signal.aborted) return;
+        const reply = await withRequestSignal(active.controller.signal, () => route(request));
+        if (!active.controller.signal.aborted) await send(reply);
+      } finally {
+        pending.delete(request.id);
+      }
+    });
   }
+  // CLI callers may half-close stdin after sending their requests.
+  await queue;
+  output.off("close", disconnect);
+  output.off("error", disconnect);
 }
 
 if (isMainModule(import.meta.url, process.argv[1])) {

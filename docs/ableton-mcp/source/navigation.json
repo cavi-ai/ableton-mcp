@@ -14,6 +14,7 @@
       "title": "Guides",
       "pages": [
         { "title": "Guarded mutations", "path": "guides/guarded-mutations.md" },
+        { "title": "Cancel agent work", "path": "guides/request-cancellation.md" },
         { "title": "MIDI clip variations", "path": "guides/midi-clip-variations.md" },
         { "title": "Shared instrument buses", "path": "guides/shared-instrument-buses.md" },
         { "title": "Native saving and recall", "path": "guides/native-saving-and-recall.md" },
