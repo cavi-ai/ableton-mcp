@@ -149,7 +149,7 @@ test("doctor exposes a stale bundled Remote Script beside a current User Library
   const bundledCopy = join(applicationsRoot, "Ableton Live 12 Suite.app", "Contents", "App-Resources", "MIDI Remote Scripts", "CaviMcpBridge");
   try {
     for (const directory of [source, userCopy, bundledCopy]) await mkdir(directory, { recursive: true });
-    for (const name of ["__init__.py", "bridge.py", "capabilities.json", "protocol.py"]) {
+    for (const name of ["__init__.py", "bridge.py", "capabilities.json", "instrument_comparison.py", "protocol.py"]) {
       await writeFile(join(source, name), `${name}: current`);
       await writeFile(join(userCopy, name), `${name}: current`);
       await writeFile(join(bundledCopy, name), name === "capabilities.json" ? `${name}: stale` : `${name}: current`);

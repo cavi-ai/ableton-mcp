@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 224 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 227 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (98)
+## Read-only (99)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -33,6 +33,7 @@ The server publishes 224 tools. Mutations of the Live Set require `expectedState
 | `get_factory_coverage` | Compare observed top-level Live factory browser devices with name-matched knowledge profiles. Reports missing profiles, not verified deep integration or all presets/Packs/plugins. | none |
 | `get_factory_device_context` | Read native parameters, matched factory knowledge and group coverage. Auto Shift includes song key, Scale Aware, manual Root/Scale and selected scale source; no proof of audible correction. Includes configured plug-in controls or exposed/enabled Max for Live parameter IDs and duplicate-name warnings. Excludes hidden plug-in state, Max patch internals and modulation targets. | `trackId`, `deviceId` |
 | `get_history_state` | Read current Ableton undo and redo availability. | none |
+| `get_instrument_comparison` | Read a runtime instrument comparison and current track IDs, mute states and readiness. Omit comparisonId to list this bridge instance's active comparisons, including after a timed-out preparation. No edits. | none |
 | `get_live_scale_reference` | Resolve one exact Ableton Live 12 scale and root to semitone intervals, pitch classes, note names, degrees, and scale family. Read-only. | `scaleName`, `rootNote` |
 | `get_live_state` | Read Ableton bridge identity, capabilities, set file path, tempo, playback, and state version. | none |
 | `get_looper_performance_context` | Read one native snapshot of a loaded Looper's State, Quantization, Monitor, Song Control, Tempo Control, all exposed parameters, global clip-launch quantization, track input/output routing, monitoring, and transport. Read-only; source readiness and audible outcome are not inferred. | `trackId`, `deviceId` |
@@ -107,7 +108,7 @@ The server publishes 224 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (110)
+## Mutations (112)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -167,6 +168,7 @@ The server publishes 224 tools. Mutations of the Live Set require `expectedState
 | `move_device_to_chain` | Plan or move an exact device into a rack chain across ordinary, Return, or Main tracks, including nested destinations. Live may choose the nearest valid position; use the returned device ID and actualPosition. | `expectedStateVersion`, `trackId`, `deviceId`, `targetTrackId`, `targetChainId`, `targetPosition` |
 | `panic` | Plan or stop Live playback immediately using the guarded panic operation. | `expectedStateVersion` |
 | `place_session_clip_in_arrangement` | Plan or copy a Session clip onto its track's Arrangement timeline. Rechecks the exact source and timeline at the native write boundary, rejects overlap, verifies placement, and groups the copy in one Live undo step. | `expectedStateVersion`, `trackId`, `clipId`, `startBeats` |
+| `prepare_instrument_comparison` | Plan or natively duplicate a MIDI instrument track for comparison. Binds exposed devices, routing, clips and notes; verifies source/copy and cleans up a failed copy. Requires stopped transport. Temporarily mutes source, restores it, leaves copy muted/unarmed with input monitoring off. IDs shift. Opaque state/audio unverified. | `expectedStateVersion`, `trackId`, `clipId`, `name` |
 | `quantize_audio_clip` | Plan or request Live native quantization for one warped audio clip at a selected grid, amount, and observed global swing. Dry runs warn that Live may insert many warp markers and shift existing source start/end anchors; duplicate the clip first if the original edit must be preserved. Returns native anchors and a measured before/after marker-change summary; an existing marker is not guaranteed to snap to the grid. Use move_audio_warp_marker for an exact anchor move. Requires unchanged audio state and swing. Does not quantize MIDI note ends. | `expectedStateVersion`, `trackId`, `clipId`, `grid`, `amount` |
 | `randomize_rack_macros` | Plan or invoke Live's native randomization of eligible mapped rack macros. Binds exact rack and parameter state, then reports observed values. No seed or predictable outcome is available. | `expectedStateVersion`, `trackId`, `deviceId` |
 | `recall_device_chain_snapshot` | Plan or recall Return or master mixer, available master output channel, exposed device parameters, rack-chain mixer, Drum Rack note routing and populated pad mute/solo onto exactly compatible topology in one guarded Live undo step. Legacy v1-v5 captures remain supported. Does not create, delete, or load devices or restore hidden plugin state. | `expectedStateVersion`, `trackId`, `snapshot` |
@@ -185,6 +187,7 @@ The server publishes 224 tools. Mutations of the Live Set require `expectedState
 | `save_group_system_snapshot` | Capture an existing Group Track and descendants into a private named local JSON file. Never overwrites; preserves exposed mixer, routing, device and rack state but not clips, samples, hidden plug-in state, automation or mappings. | `busTrackId`, `name` |
 | `save_midi_feel_template` | Analyze one exact MIDI clip and save its stored-note timing and velocity template in the private named local library. Never overwrites. Rejects clips assigned a native groove; does not capture Groove Pool playback effects. | `name`, `trackId`, `clipId`, `grid` |
 | `save_track_state_snapshot` | Capture one exact track state and save its JSON to the private named local snapshot library. Never overwrites; excludes clips, hidden plugin state, samples, automation and mappings. | `trackId`, `name` |
+| `select_instrument_comparison` | Plan or switch only the original/alternative pair's mutes in one native step. Restore uses original's pre-comparison mute. Refuses recording, frozen, solo and live-input conflicts. No playback, routing or note edits. Optional finish ends the handle and preserves both tracks. | `expectedStateVersion`, `comparisonId`, `choice` |
 | `set_audio_clip_state` | Plan or apply guarded audio-clip gain, pitch offsets, warp, and marker changes. Use beats for warped clips and seconds for unwarped clips; change warping separately from markers. | `expectedStateVersion`, `trackId`, `clipId` |
 | `set_beat_repeat_enabled` | Plan or request one exact native Beat Repeat Repeat choice, Off or On. Native execution rechecks the complete device, routing, and transport snapshot before writing Repeat and reports its immediately observed value. Does not promise beat-scheduled execution, a captured buffer, or an audible effect. | `expectedStateVersion`, `trackId`, `deviceId`, `enabled` |
 | `set_beat_repeat_grid` | Plan or request one exact native Beat Repeat Grid display division from get_beat_repeat_performance_context.gridChoices. Ambiguous or unavailable display labels fail closed. Native execution rechecks the complete device, routing, and transport snapshot before writing; observed parameter equality is reported, not an audible or beat-scheduled result. | `expectedStateVersion`, `trackId`, `deviceId`, `gridDisplayValue` |

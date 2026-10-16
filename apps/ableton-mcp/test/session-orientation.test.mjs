@@ -97,4 +97,6 @@ test("session and instrument workflows separate configuration from evidence and 
   assert.match(explore, /only.*Serum 2\/Omnisphere\/VPS Avenger/i);
   assert.match(explore, /Before loading.*get_midi_clip_notes_extended.*get_clip_timing/);
   assert.match(explore, /Arrangement.*never.*launch_clip/);
+  for (const phrase of ["prepare_instrument_comparison", "get_instrument_comparison", "select_instrument_comparison"])
+    assert.ok(explore.includes(phrase), phrase);
 });
