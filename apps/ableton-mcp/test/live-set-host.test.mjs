@@ -105,6 +105,24 @@ async function saveAppFixture(t) {
   return realpath(app);
 }
 
+test("save observation binds one configured process and canonical document URL without activating or typing", async t => {
+  const app=await saveAppFixture(t),path=join(app,"../Song with #.als"),calls=[];
+  await writeFile(path,"Set");
+  const canonical=await realpath(path),{pathToFileURL}=await import("node:url");
+  let observed={documentURL:pathToFileURL(canonical).href,saveEnabled:false,saveAsEnabled:true};
+  const host=new MacLiveSetHost({platform:"darwin",run:async(command,args)=>{calls.push([command,args]);return {stdout:JSON.stringify(observed)};}});
+  host.runningProcesses=async()=>[{pid:42,path:app+"/Contents/MacOS/Live"}];
+  assert.equal((await host.observeSaveState(app)).status,"clean");
+  assert.equal((await host.observeSaveState(app)).path,canonical);
+  observed.saveEnabled=true;assert.equal((await host.observeSaveState(app)).status,"dirty");
+  observed.saveEnabled=null;assert.equal((await host.observeSaveState(app)).status,"unavailable");
+  observed={...observed,saveEnabled:false,documentURL:"https://example.com/Song.als"};
+  assert.equal((await host.observeSaveState(app)).status,"unavailable");
+  host.runningProcesses=async()=>[{pid:42,path:"/Other.app/Contents/MacOS/Live"}];
+  const count=calls.length;assert.equal((await host.observeSaveState(app)).status,"unavailable");assert.equal(calls.length,count);
+  assert.ok(calls.every(([command])=>command==="/usr/bin/osascript"));
+});
+
 test("Save As guards the exact process and binds the prepared window before pressing Save", async t => {
   const app = await saveAppFixture(t), calls = [];
   const host = new MacLiveSetHost({ platform: "darwin", run: async (command, args) => {

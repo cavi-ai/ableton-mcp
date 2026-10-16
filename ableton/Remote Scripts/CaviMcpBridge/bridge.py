@@ -3,8 +3,10 @@ import json
 import math
 import os
 import queue
+import re
 import socket
 import threading
+import uuid
 from contextlib import contextmanager
 
 try:
@@ -452,6 +454,67 @@ def _scene_record(scene, index):
                               "numerator": int(scene.time_signature_numerator) if scene.time_signature_enabled else None,
                               "denominator": int(scene.time_signature_denominator) if scene.time_signature_enabled else None}
             if signature_supported else {"supported": False}}
+
+
+_scene_launch_song = None
+_scene_launch_identities = {}
+
+
+def _scene_launch_context(song, params, state_version):
+    global _scene_launch_song
+    key = params.get("sceneId")
+    if not isinstance(key, str) or not re.fullmatch(r"scene-(0|[1-9][0-9]*)", key):
+        raise ValueError("sceneId must be a canonical Session scene ID")
+    index = int(key[6:])
+    if index >= len(song.scenes):
+        raise ValueError("unknown scene ID")
+    if len(song.tracks) > 256:
+        raise ValueError("scene launch supports at most 256 tracks")
+    scene, tracks, identities = song.scenes[index], [], []
+    for track_index, track in enumerate(song.tracks):
+        if index >= len(track.clip_slots):
+            raise ValueError("scene row is unavailable on a track")
+        slot = track.clip_slots[index]
+        clip = slot.clip if slot.has_clip else None
+        row = _track_record(song, track, track_index)
+        group = row["isGroup"]
+        active = None if group else int(track.playing_slot_index)
+        row.update(playingSlotIndex=active, firedSlotIndex=None if group else int(track.fired_slot_index),
+                   arrangementOverride=bool(track.back_to_arranger) if hasattr(track, "back_to_arranger") else None,
+                   monitoring=None if group else int(track.current_monitoring_state),
+                   frozen=bool(getattr(track, "is_frozen", False)))
+        active_clip = track.clip_slots[active].clip if active is not None and 0 <= active < len(track.clip_slots) and track.clip_slots[active].has_clip else None
+        row["playingClip"] = {"id": f"track-{track_index}:clip-{active}", "name": active_clip.name,
+                              "isRecording": bool(active_clip.is_recording)} if active_clip is not None else None
+        stop = bool(slot.has_stop_button) if hasattr(slot, "has_stop_button") else None
+        row["slot"] = {"id": f"track-{track_index}:clip-{index}", "hasClip": bool(slot.has_clip),
+                       "hasStopButton": stop, "isTriggered": bool(slot.is_triggered) if hasattr(slot, "is_triggered") else None,
+                       "willRecordOnStart": bool(slot.will_record_on_start) if hasattr(slot, "will_record_on_start") else None,
+                       "action": "group-slot" if group else "launch-clip" if clip is not None else
+                       "empty-stop" if stop is True else "empty-no-stop" if stop is False else "unknown-empty"}
+        row["slot"]["clip"] = {"name": clip.name, "muted": bool(clip.muted) if hasattr(clip, "muted") else None,
+                               "isRecording": bool(clip.is_recording) if hasattr(clip, "is_recording") else None,
+                               "launchQuantization": int(clip.launch_quantization),
+                               "launchMode": int(clip.launch_mode) if hasattr(clip, "launch_mode") else None,
+                               "legato": bool(clip.legato)} if clip is not None else None
+        tracks.append(row)
+        identities.append((track, slot, clip, active_clip))
+    if _scene_launch_song != song:
+        _scene_launch_song = song
+        _scene_launch_identities.clear()
+    identity = (scene, tuple(identities))
+    cached = _scene_launch_identities.get(index)
+    if cached is None or cached[0] != identity:
+        if index not in _scene_launch_identities and len(_scene_launch_identities) >= 64:
+            del _scene_launch_identities[next(iter(_scene_launch_identities))]
+        cached = (identity, str(uuid.uuid4()))
+        _scene_launch_identities[index] = cached
+    recording = _transport_recording_context(song, state_version)
+    del recording["currentSongTime"]
+    return {"stateVersion": state_version, "identityToken": cached[1], "setFingerprint": _set_fingerprint(song),
+            "scene": _scene_record(scene, index), "tracks": tracks, "recording": recording,
+            "song": {"tempo": float(song.tempo), "numerator": int(song.signature_numerator),
+                     "denominator": int(song.signature_denominator), "launchQuantization": int(song.clip_trigger_quantization)}}
 
 
 def _parameter_record(parameter, index, include_native_choice_labels=False):
@@ -2789,6 +2852,12 @@ def dispatch_request(song, request, state_version, application=None):
         return _selection_context(song, state_version)
     if method == "get_session_orientation":
         return _session_orientation(song, state_version, application)
+    if method in ("get_arrangement_audition_source", "audition_arrangement_passage"):
+        try:
+            from . import arrangement_audition
+        except ImportError:
+            import arrangement_audition
+        return (arrangement_audition.source if method == "get_arrangement_audition_source" else arrangement_audition.start)(song, params, state_version)
     if method == "analyze_arrangement_section":
         try:
             from . import arrangement_section
@@ -2801,13 +2870,16 @@ def dispatch_request(song, request, state_version, application=None):
         capture = _audio_capture_module()
         return {"get_audio_capture_source": capture.source, "capture_live_audio": capture.start,
                 "get_live_audio_capture": capture.read, "finish_live_audio_capture": capture.finish}[method](song, params, state_version)
-    if method in ("get_instrument_comparison_source", "prepare_instrument_comparison",
+    if method in ("get_instrument_comparison_adoption_source", "adopt_instrument_comparison",
+                  "get_instrument_comparison_source", "prepare_instrument_comparison",
                   "get_instrument_comparison", "select_instrument_comparison"):
         try:
             from . import instrument_comparison
         except ImportError:
             import instrument_comparison
         handlers = {"get_instrument_comparison_source": instrument_comparison.read_source,
+                    "get_instrument_comparison_adoption_source": instrument_comparison.read_adoption_source,
+                    "adopt_instrument_comparison": instrument_comparison.adopt,
                     "prepare_instrument_comparison": instrument_comparison.prepare,
                     "get_instrument_comparison": instrument_comparison.read_comparison,
                     "select_instrument_comparison": instrument_comparison.select}
@@ -4254,6 +4326,8 @@ def dispatch_request(song, request, state_version, application=None):
         }
     if method == "list_scenes":
         return {"stateVersion": state_version, "scenes": [_scene_record(scene, index) for index, scene in enumerate(song.scenes)]}
+    if method == "get_scene_launch_context":
+        return _scene_launch_context(song, params, state_version)
     if method == "create_scene":
         index, name = params.get("index"), params.get("name")
         if type(index) is not int or not 0 <= index <= len(song.scenes) or \
@@ -6100,9 +6174,14 @@ def dispatch_request(song, request, state_version, application=None):
         force_legato = params.get("forceLegato", False)
         if type(force_legato) is not bool:
             raise ValueError("forceLegato must be boolean")
-        index = int(params["sceneId"].removeprefix("scene-"))
+        before = _scene_launch_context(song, params, state_version)
+        if type(params.get("expectedStateVersion")) is not int or params["expectedStateVersion"] != state_version or before != params.get("before"):
+            raise ValueError("scene launch context changed; review a fresh plan")
+        index = int(params["sceneId"][6:])
         song.scenes[index].fire(force_legato=force_legato)
-        return {"stateVersion": state_version + 1, "sceneId": params["sceneId"], "forceLegato": force_legato}
+        return {"stateVersion": state_version + 1, "sceneId": params["sceneId"], "forceLegato": force_legato,
+                "launchRequested": True, "playbackVerified": False,
+                "limitation": "Live accepted the scene fire request; inspect transport, clips, recording and musical context after launch. Quantization and follow actions can change subsequent playback."}
     if method in ("launch_clip", "stop_clip"):
         track, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
         if method == "launch_clip":
@@ -6286,6 +6365,9 @@ class SocketBridge:
                 if self._last_topology_signature is not None and topology != self._last_topology_signature:
                     self.state_version += 1
                 self._last_topology_signature = topology
+                if request.get("method") == "audition_arrangement_passage":
+                    self._defer_arrangement_audition(client, request, song, record)
+                    return
                 result = dispatch_request(
                     song, request, self.state_version, self.control_surface.application()
                 )
@@ -6295,6 +6377,53 @@ class SocketBridge:
             except Exception as error:
                 response = {"id": request.get("id"), "error": {"message": str(error) or error.__class__.__name__}}
             self._reply(client, response, record)
+
+    def _defer_arrangement_audition(self, client, request, song, record=None):
+        try:
+            try:
+                from . import arrangement_audition
+            except ImportError:
+                import arrangement_audition
+            operation = arrangement_audition.begin(song, request.get("params", {}), self.state_version)
+            self.state_version += 1
+        except Exception as error:
+            self._reply(client, {"id": request.get("id"), "error": {"message": str(error) or error.__class__.__name__}}, record)
+            return
+        self.deferred_request = True
+
+        def reply_unverified(error):
+            operation["error"] = f"audition readback failed: {error}"[:600]
+            try:
+                result = arrangement_audition.complete(self.control_surface.song(), operation, self.state_version)
+                response = {"id": request.get("id"), "result": result}
+            except Exception as failure:
+                response = {"id": request.get("id"), "error": {"message": str(failure) or failure.__class__.__name__}}
+            self.deferred_request = False
+            self._reply(client, response, record)
+
+        def observe(attempt=0):
+            try:
+                current = self.control_surface.song()
+                topology = _track_topology_signature(current)
+                if topology != self._last_topology_signature:
+                    self.state_version += 1
+                self._last_topology_signature = topology
+                result = arrangement_audition.complete(current, operation, self.state_version)
+                checks = result.get("verification", {})
+                if attempt < 2 and not result["started"] and operation["error"] is None and \
+                        result.get("observed") is not None and checks.get("topologyStable") and checks.get("recordingOff"):
+                    self.control_surface.schedule_message(1, lambda: observe(attempt + 1))
+                    return
+                self.deferred_request = False
+                self._reply(client, {"id": request.get("id"), "result": result}, record)
+            except Exception as error:
+                reply_unverified(error)
+        try:
+            # Requests are issued once. Later callbacks only observe controls
+            # after Live has applied the commands outside the component guard.
+            self.control_surface.schedule_message(1, observe)
+        except Exception as error:
+            reply_unverified(error)
 
     def _defer_cue_mutation(self, client, request, record=None):
         song = self.control_surface.song()
