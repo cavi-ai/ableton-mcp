@@ -2824,7 +2824,7 @@ export class ToolService {
     };
     await revalidate();
     this.#consumeConfirmation(plan, args);
-    let observed = null, after = null, observationError;
+    let observed = null, after = null, observationError, saveAsRecovery;
     try {
       await this.liveSetHost.saveAs(appPath, destination, { beforeSave: revalidate, signal: requestSignal() });
       observed = await this.#pollLiveSet(live => live.filePath === destination.path, this.liveSetSaveTimeoutMs);
@@ -2832,11 +2832,16 @@ export class ToolService {
     } catch (error) {
       requestSignal()?.throwIfAborted();
       observationError = String(error.message ?? error).slice(0, 300);
+      saveAsRecovery = error.saveAsRecovery;
     }
     const saved = Boolean(observed && after?.path === destination.path && after.size > 0 && !observationError);
-    return { dryRun: false, requested: plan, saveAsRequested: true, saved, pendingUserAction: !saved, observed, after,
+    return { dryRun: false, requested: plan, saveAsRequested: true, saved,
+      pendingUserAction: !saved && saveAsRecovery?.status !== "cancelled", observed, after,
+      ...(saveAsRecovery ? { saveAsRecovery } : {}),
       ...(observationError ? { observationError } : {}), ...(!saved ? { limitation:
-        "Save As was requested but the new file and loaded Set path are not both verified. Inspect Live and the destination before retrying. No overwrite or unexpected dialog was accepted." } : {}) };
+        saveAsRecovery?.status === "cancelled"
+          ? "Save As stopped before Save and closed its prepared panel. Re-read the current Set and destination, then make a fresh plan."
+          : "Save As was requested but the new file and loaded Set path are not both verified. Inspect Live and the destination before retrying. No overwrite or unexpected dialog was accepted." } : {}) };
   }
 
   #nksGenerationStatus(args) {

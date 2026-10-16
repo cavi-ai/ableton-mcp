@@ -139,22 +139,53 @@ export class MacLiveSetHost {
       throw new Error("Save As requires exactly one running instance of the requested Live app");
     const input = { pid: processes[0].pid, parent: destination.parent.path, name: destination.name };
     await this.run("/usr/bin/open", ["-a", canonicalApp], { timeout: 5000, signal });
-    const dialog = async (action, prepared = {}) => {
-      signal?.throwIfAborted();
+    const dialog = async (action, prepared = {}, operationSignal = signal) => {
+      operationSignal?.throwIfAborted();
       try {
         const result = await this.run("/usr/bin/osascript", ["-l", "JavaScript", saveDialogScript, JSON.stringify({ ...input, ...prepared, action })],
-          { timeout: 15000, maxBuffer: 65536, signal });
+          { timeout: 15000, maxBuffer: 65536, signal: operationSignal });
         return JSON.parse(result.stdout);
       } catch (error) {
-        signal?.throwIfAborted();
+        operationSignal?.throwIfAborted();
         throw new Error(`Live Save As dialog: ${String(error.stderr || error.message).trim().slice(0, 600)}`);
       }
     };
     const prepared = await dialog("prepare");
-    if (prepared.prepared !== true || !Number.isInteger(prepared.windowId) || prepared.windowId < 1 || prepared.purpose !== "Save Live Set As:")
+    if (prepared.prepared !== true || !Number.isInteger(prepared.windowId) || prepared.windowId < 1 || prepared.purpose !== "Save Live Set As:" ||
+        typeof prepared.panelState?.name !== "string" || typeof prepared.panelState?.folder !== "string")
       throw new Error("Save As preparation did not identify its native window");
-    await beforeSave();
-    await dialog("commit", { windowId: prepared.windowId, purpose: prepared.purpose });
+    const owned = { windowId: prepared.windowId, purpose: prepared.purpose, panelState: prepared.panelState };
+    try {
+      await beforeSave();
+      signal?.throwIfAborted();
+    } catch (error) {
+      try {
+        // Cancellation ends only this prepared panel; it must still run after
+        // the request signal aborts, without sending keys to another app.
+        const result = await dialog("cancel", owned, AbortSignal.timeout(5000));
+        if (result.cancelled !== true || result.savePressed !== false || result.windowId !== prepared.windowId)
+          throw new Error("prepared Save panel closure is unverified");
+        error.saveAsRecovery = { status: "cancelled", windowId: prepared.windowId, savePressed: false };
+      } catch (failure) {
+        error.saveAsRecovery = { status: "unavailable", reason: String(failure.message ?? failure).slice(0,600) };
+      }
+      throw error;
+    }
+    try {
+      const result = await dialog("commit", owned);
+      if (result.savePressed !== true || result.error) {
+        const error = new Error(`Live Save As dialog: ${result.error || "Save button result is unverified"}`);
+        if (result.savePressed === false && result.recovery?.status === "cancelled" && result.recovery.windowId === prepared.windowId)
+          error.saveAsRecovery = { status: "cancelled", windowId: prepared.windowId, savePressed: false };
+        else error.saveAsRecovery = { status: "unavailable", reason: String(result.recovery?.reason || "Save button result is unverified").slice(0,600) };
+        throw error;
+      }
+    } catch (error) {
+      // A killed process or lost commit reply may follow a real Save. Never
+      // cancel or retry based on that unknown outcome.
+      error.saveAsRecovery ??= { status: "unavailable", reason: "Save As commit outcome is unknown; inspect Live and the destination" };
+      throw error;
+    }
   }
 
   async open(appPath, path, { launch = false } = {}) {
