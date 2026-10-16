@@ -2597,19 +2597,16 @@ export class ToolService {
 
   async #duplicateClip(args) {
     requireExpectedState(args);
-    const observed = await this.bridge.request("list_clips", { trackId: args.trackId });
-    assertExpectedState(args, observed);
-    const source = observed.clips.find(({ id }) => id === args.sourceClipId);
-    const target = observed.clips.find(({ id }) => id === args.targetClipId);
-    if (!source) throw new Error(`unknown sourceClipId ${args.sourceClipId}`);
-    if (!target) throw new Error(`unknown targetClipId ${args.targetClipId}`);
-    if (!source.hasClip) throw new Error("source clip is empty");
-    if (target.hasClip) throw new Error("target clip must be empty");
-    if (source.id === target.id) throw new Error("source and target clips must differ");
+    const sourceClipId = args.clipId ?? args.sourceClipId;
+    const targetClipId = args.destinationClipId ?? args.targetClipId;
+    if (args.name !== undefined && (typeof args.name !== "string" || !args.name.trim() || args.name.length > 128)) throw new Error("name must contain 1 to 128 characters");
+    const observed = await this.bridge.request("get_clip_duplication_source", { trackId: args.trackId, sourceClipId, targetClipId });
+    assertExpectedState({ expectedStateVersion: args.expectedStateVersion, trackId: args.trackId }, observed);
+    if (!observed.identityToken || observed.sourceClipId !== sourceClipId || observed.targetClipId !== targetClipId) throw new Error("updated bridge clip duplication context required");
     return this.#confirmedMutation({
       method: "duplicate_clip", trackId: args.trackId,
-      sourceClipId: source.id, targetClipId: target.id,
-      expectedStateVersion: args.expectedStateVersion, source, target
+      sourceClipId, targetClipId, ...(args.name !== undefined ? { name: args.name } : {}),
+      expectedStateVersion: args.expectedStateVersion, before: observed
     }, args);
   }
 

@@ -2537,9 +2537,9 @@ class DispatchTest(unittest.TestCase):
 
     def test_clip_duplication_and_deletion_return_observed_slots(self):
         song = Song()
-        duplicated = dispatch_request(song, {"method": "duplicate_clip", "params": {
-            "trackId": "track-0", "sourceClipId": "track-0:clip-0", "targetClipId": "track-0:clip-1"
-        }}, 3)
+        args = {"trackId": "track-0", "sourceClipId": "track-0:clip-0", "targetClipId": "track-0:clip-1", "expectedStateVersion": 3}
+        before = dispatch_request(song, {"method": "get_clip_duplication_source", "params": args}, 3)
+        duplicated = dispatch_request(song, {"method": "duplicate_clip", "params": {**args, "before": before}}, 3)
         self.assertEqual(duplicated["stateVersion"], 4)
         self.assertEqual(duplicated["clips"][1]["name"], "Loop")
         deleted = dispatch_request(song, {"method": "delete_clip", "params": {
