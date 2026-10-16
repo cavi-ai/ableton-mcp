@@ -433,6 +433,11 @@ const contracts = {
     captureId: string("Capture ID from start or listing."), cancel: boolean("Explicitly stop an in-progress capture early; retain partial recording.")
   }, ["captureId"]) },
   get_session_orientation: { description: "Read Set, recording, selection, clip and instruments together; configured scale and ambiguous MIDI evidence. No edits, playback or focus changes.", inputSchema: empty },
+  analyze_arrangement_section: { description: "Read one explicit Arrangement beat window across all or selected ordinary tracks. Report overlapping clips and projected stored-MIDI tonal evidence with loop repeats and trimmed boundaries. Includes muted material; audio, drums, recording and large clips remain explicit exclusions. Not playback, a detected key, or a meter/key map. Read-only; no focus changes.", inputSchema: object({
+    startBeats: number("Inclusive song-time start in quarter-note beats.", { minimum: 0 }),
+    endBeats: number("Exclusive end; increasing range, at most 512 beats.", { exclusiveMinimum: 0 }),
+    trackIds: { ...array(ids.trackId, "Optional unique ordinary tracks; omit for all, up to 64."), minItems: 1, maxItems: 64, uniqueItems: true }
+  }, ["startBeats", "endBeats"]) },
   analyze_midi_parts: { description: "Read 1-8 explicit Session/Arrangement clips together. Report per-part register, duration-weighted pitch classes and combined diatonic compatibility. Loop/marker ranges only; not simultaneous playback or detected key. Audio, drums, recording and oversized clips are excluded explicitly. No edits or focus changes.", inputSchema: object({
     parts: { ...array(clip, "Exact parts from list_clips or list_arrangement_clips; unique references, at most 16384 analyzed notes total."), minItems: 1, maxItems: 8, uniqueItems: true }
   }, ["parts"]) },
@@ -662,7 +667,7 @@ const contracts = {
 const readOnlyTools = new Set([
   "search_presets", "get_nks_generation_status", "get_nks_generation_job", "get_preset", "get_preset_metadata",
   "get_browser_item_metadata", "search_browser_item_metadata",
-  "get_live_state", "get_selection_context", "get_session_orientation", "analyze_midi_parts", "get_instrument_comparison", "get_live_audio_capture", "get_transport_context", "get_history_state",
+  "get_live_state", "get_selection_context", "get_session_orientation", "analyze_arrangement_section", "analyze_midi_parts", "get_instrument_comparison", "get_live_audio_capture", "get_transport_context", "get_history_state",
   "get_song_musical_context", "get_live_scale_reference", "list_live_scales",
   "get_song_grid_reference", "plan_grid_envelope_pattern",
   "plan_drum_pattern", "plan_drum_pattern_edit", "plan_drum_variation",

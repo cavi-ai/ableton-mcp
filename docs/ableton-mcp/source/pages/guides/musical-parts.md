@@ -6,7 +6,7 @@ Use the `understand-musical-parts` prompt for a question such as “how does thi
 
 Resolve exact `trackId` and `clipId` references through `list_clips` or `list_arrangement_clips`. Supply one to eight unique references in `parts`. The displayed clip, a selected track and a track's name can identify different material. Resolve ambiguous names before analysis; do not assume every clip belongs to the section being discussed.
 
-Each part uses its complete loop range, or its start/end markers when looping is disabled. Arrangement timeline positions are returned separately. The tool does not expand Arrangement repeats, align clips, or measure a shared playback window. If the question concerns a different section, establish that scope before interpreting the result.
+Each part uses its complete loop range, or its start/end markers when looping is disabled. Arrangement timeline positions are returned separately. The tool does not expand Arrangement repeats, align clips, or measure a shared playback window. For a shared Arrangement passage, use [Arrangement section analysis](arrangement-section.md) with explicit song-time boundaries. It accounts for initial offsets, loop repeats and trimmed boundaries.
 
 ## Read the evidence
 

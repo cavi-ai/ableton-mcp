@@ -18,6 +18,7 @@
         { "title": "Resume session work", "path": "guides/resume-session-work.md" },
         { "title": "Understand a Set", "path": "guides/session-orientation.md" },
         { "title": "Relate musical parts", "path": "guides/musical-parts.md" },
+        { "title": "Analyze an Arrangement passage", "path": "guides/arrangement-section.md" },
         { "title": "Capture Live audio", "path": "guides/live-audio-capture.md" },
         { "title": "Compare instruments", "path": "guides/instrument-comparison.md" },
         { "title": "MIDI clip variations", "path": "guides/midi-clip-variations.md" },

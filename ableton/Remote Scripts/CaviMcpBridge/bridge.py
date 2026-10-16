@@ -2789,6 +2789,12 @@ def dispatch_request(song, request, state_version, application=None):
         return _selection_context(song, state_version)
     if method == "get_session_orientation":
         return _session_orientation(song, state_version, application)
+    if method == "analyze_arrangement_section":
+        try:
+            from . import arrangement_section
+        except ImportError:
+            import arrangement_section
+        return arrangement_section.read(song, params, state_version)
     if method == "analyze_midi_parts":
         return _musical_parts_context(song, params, state_version)
     if method in ("get_audio_capture_source", "capture_live_audio", "get_live_audio_capture", "finish_live_audio_capture"):

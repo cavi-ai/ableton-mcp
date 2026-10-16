@@ -18,7 +18,7 @@ Fewer than three distinct pitch classes yields `insufficient` evidence and no ra
 
 The evidence describes stored notes from one clip range. It does not establish the whole Set's key, actual playback, rendered pitches, probability outcomes, groove timing, audio quality or what a listener heard. Non-diatonic scales, key changes and chromatic material require further interpretation.
 
-For questions involving several parts, use [musical part context](musical-parts.md) to compare explicitly chosen clips together. Per-part evidence stays visible alongside combined compatibility; exclusions and the exact analyzed ranges remain explicit.
+For questions involving several parts, use [musical part context](musical-parts.md) to compare explicitly chosen clips together. Per-part evidence stays visible alongside combined compatibility; exclusions and the exact analyzed ranges remain explicit. For a specific Arrangement passage, use [section analysis](arrangement-section.md) with explicit beat boundaries instead of combining whole clip loops.
 
 ## Explore instruments together
 

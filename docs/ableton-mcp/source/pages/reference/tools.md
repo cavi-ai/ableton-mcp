@@ -2,12 +2,13 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 231 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 232 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (101)
+## Read-only (102)
 
 | Tool | Description | Required arguments |
 |---|---|---|
+| `analyze_arrangement_section` | Read one explicit Arrangement beat window across all or selected ordinary tracks. Report overlapping clips and projected stored-MIDI tonal evidence with loop repeats and trimmed boundaries. Includes muted material; audio, drums, recording and large clips remain explicit exclusions. Not playback, a detected key, or a meter/key map. Read-only; no focus changes. | `startBeats`, `endBeats` |
 | `analyze_audio_clip` | Measure a Session or Arrangement clip's local source window, with optional approximate note events. A target note proposes absolute clip pitch accounting for current pitch settings for stable monophonic windows; review only, no edits or correction of changing notes. Loudness uses the source stream; optional analyses use the selected channel. Excludes rendered clip/track audio. | `trackId`, `clipId` |
 | `analyze_audio_file` | Measure local source loudness, true peak, format, and optional spectrum, spectrogram, monophonic pitch or note events. A target note proposes a review-only whole-clip offset for stable monophonic windows; no edits or correction of changing notes. Loudness uses the source stream; optional analyses use the selected channel. Excludes Live processing. Requires ffmpeg/ffprobe. | `sourcePath` |
 | `analyze_midi_clip_chords` | Analyze sustained-note-aware chord events in one exact MIDI clip against the current Live key and scale. Returns deterministic chord candidates, inversions, Roman-numeral function, ambiguity, and chromatic pitch classes without editing notes. Read-only. | `trackId`, `clipId` |
