@@ -127,7 +127,8 @@ test("Save As guards the exact process and binds the prepared window before pres
   const app = await saveAppFixture(t), calls = [];
   const host = new MacLiveSetHost({ platform: "darwin", run: async (command, args) => {
     calls.push([command, args]);
-    return { stdout: JSON.stringify({ prepared: true, windowId: 123, purpose: "Save Live Set As:" }) };
+    if(command!=="/usr/bin/osascript")return {stdout:""};
+    return { stdout: JSON.stringify(JSON.parse(args.at(-1)).action==="prepare" ? { prepared: true, windowId: 123, purpose: "Save Live Set As:", panelState:{name:"Original.als",folder:"work"} } : JSON.parse(args.at(-1)).action==="cancel" ? {cancelled:true,savePressed:false,windowId:123} : {savePressed:true}) };
   } });
   host.runningProcesses = async () => [{ pid: 42, path: app + "/Contents/MacOS/Live" }];
   const destination = { name: "It's a $song.als", parent: { path: "/tmp" }, path: "/tmp/It's a $song.als" };
@@ -140,7 +141,7 @@ test("Save As guards the exact process and binds the prepared window before pres
   assert.ok(calls.findIndex(([command]) => command === "revalidate") > calls.indexOf(scriptCalls[0]));
   calls.length = 0;
   await assert.rejects(host.saveAs(app, destination, { beforeSave: async () => { throw Error("Set changed"); } }), /Set changed/);
-  assert.equal(calls.filter(([command]) => command === "/usr/bin/osascript").length, 1);
+  assert.equal(calls.filter(([command]) => command === "/usr/bin/osascript").length, 2);
   host.runningProcesses = async () => [{ pid: 43, path: "/Other.app/Contents/MacOS/Live" }];
   await assert.rejects(host.saveAs(app, destination), /exactly one/);
 });
@@ -149,7 +150,8 @@ test("Save As resolves a configured app symlink before comparison and dispatch",
   const app = await saveAppFixture(t), alias = join(app, "../Alias.app"), calls = [];
   await symlink(app, alias);
   const host = new MacLiveSetHost({ platform: "darwin", run: async (command,args) => {
-    calls.push([command,args]);return { stdout: JSON.stringify({ prepared: true, windowId: 123, purpose: "Save Live Set As:" }) };
+    calls.push([command,args]);if(command!=="/usr/bin/osascript")return {stdout:""};
+    return { stdout: JSON.stringify(JSON.parse(args.at(-1)).action==="prepare" ? { prepared: true, windowId: 123, purpose: "Save Live Set As:", panelState:{name:"Original.als",folder:"work"} } : JSON.parse(args.at(-1)).action==="cancel" ? {cancelled:true,savePressed:false,windowId:123} : {savePressed:true}) };
   } });
   host.runningProcesses = async () => [{ pid: 42, path: app + "/Contents/MacOS/Live" }];
   await host.saveAs(alias, { name: "Working.als", parent: { path: "/tmp" } }, { beforeSave: async () => {} });
@@ -163,4 +165,43 @@ test("Save As preserves the native refusal reason instead of a truncated command
   } });
   host.runningProcesses = async () => [{ pid: 42, path: app + "/Contents/MacOS/Live" }];
   await assert.rejects(host.saveAs(app, { parent: { path: "/tmp" }, name: "New.als" }, { beforeSave: async () => {} }), /existing Live dialog/);
+});
+
+test("Save As cancels its prepared panel after revalidation or cancellation failure",async t=>{
+  const app=await saveAppFixture(t),controller=new AbortController(),calls=[];
+  const host=new MacLiveSetHost({platform:"darwin",run:async(command,args,options)=>{
+    if(command!=="/usr/bin/osascript")return {stdout:""};
+    const input=JSON.parse(args.at(-1));calls.push({input,signal:options.signal});
+    return {stdout:JSON.stringify(input.action==="prepare"
+      ?{prepared:true,windowId:123,purpose:"Save Live Set As:",panelState:{name:"Original.als",folder:"work"}}
+      :{cancelled:true,savePressed:false,windowId:123})};
+  }});
+  host.runningProcesses=async()=>[{pid:42,path:app+"/Contents/MacOS/Live"}];
+  await assert.rejects(host.saveAs(app,{name:"New.als",parent:{path:"/tmp/work"}},{signal:controller.signal,
+    beforeSave:async()=>{controller.abort();controller.signal.throwIfAborted();}}),error=>{
+    assert.equal(error.name,"AbortError");assert.equal(error.saveAsRecovery.status,"cancelled");return true;
+  });
+  assert.deepEqual(calls.map(c=>c.input.action),["prepare","cancel"]);
+  assert.equal(calls[1].input.windowId,123);assert.deepEqual(calls[1].input.panelState,{name:"Original.als",folder:"work"});
+  assert.ok(!calls[1].signal?.aborted);
+});
+
+test("Save As preserves revalidation errors when cleanup fails and leaves unknown commit outcomes alone",async t=>{
+  const app=await saveAppFixture(t);
+  for(const phase of ["revalidation","commit"]){
+    const calls=[],host=new MacLiveSetHost({platform:"darwin",run:async(command,args)=>{
+      if(command!=="/usr/bin/osascript")return {stdout:""};
+      const {action}=JSON.parse(args.at(-1));calls.push(action);
+      if(action!=="prepare")throw Error(action==="cancel"?"panel replaced":"reply lost");
+      return {stdout:JSON.stringify({prepared:true,windowId:123,purpose:"Save Live Set As:",panelState:{name:"Original.als",folder:"work"}})};
+    }});
+    host.runningProcesses=async()=>[{pid:42,path:app+"/Contents/MacOS/Live"}];
+    await assert.rejects(host.saveAs(app,{name:"New.als",parent:{path:"/tmp/work"}},{beforeSave:async()=>{
+      if(phase==="revalidation")throw Error("Set changed");
+    }}),error=>{
+      assert.match(error.message,phase==="revalidation"?/Set changed/:/reply lost/);
+      assert.equal(error.saveAsRecovery.status,"unavailable");return true;
+    });
+    assert.deepEqual(calls,phase==="revalidation"?["prepare","cancel"]:["prepare","commit"]);
+  }
 });

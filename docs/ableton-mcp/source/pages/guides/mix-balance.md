@@ -1,0 +1,17 @@
+# Balance track levels
+
+Retrieve `balance-mix` through `get_producer_workflow` in the `all` profile, or open its MCP prompt. Describe the parts and desired balance. The default `collaborative` mode proposes a direction unless already chosen; `autonomous` chooses small, stated changes within the brief. Playback, recording, isolation and saving need their own authority.
+
+## Work in native dB
+
+`get_track_mixer` reports the volume fader's raw value, `displayValue`, finite `decibels`, enablement and automation state. A silent or unavailable dB value is `null`. Raw fader values are not a linear amplitude or dB scale. A finite relative request such as “lower the bass by 2 dB” needs its actual current dB value before calculating an absolute target. A silent fader needs an absolute target.
+
+Plan `set_track_volume_db` with exact `trackId`, finite absolute `volumeDb`, and fresh `expectedStateVersion`. Review and execute with its confirmation token and plan hash. The updated bridge searches Live's native formatter without moving the fader, then rechecks document, native track/fader identity, current value, enablement, automation and recording before writing. Targets outside the native range or not representable within 0.05 dB are refused without clamping. Return and Main faders are outside this tool; a named Group fader affects its routed descendants and carries a plan warning.
+
+Known automated/overridden, disabled, frozen or unresolved faders and active recording are refused. Do not remove automation or stop recording to bypass that boundary. Inactive automation state is not proof that no stored envelopes exist. Unsupported native dB displays remain unavailable rather than using an assumed conversion formula.
+
+## Verify and refine
+
+Require `observed.verified` and independently read the affected mixer again. A changed fader uses one native undo step; failure attempts to restore that fader's original value and reports rollback errors. Several tracks remain separate operations and can partially succeed. After a lost reply, inspect current levels before continuing. Preserve notes, devices, pan, routing, sends, mutes, solos and manual edits. Reverting requires the actual baseline and a fresh comparison of native identity, values and automation against the last applied observations.
+
+Use [Arrangement audition](arrangement-audition.md) or [Session scene playback](scene-launch.md) only when authorized. Keep an existing loop running when only its balance changes. Fader readback is a gain-setting check, not signal loudness or evidence of musical improvement. For separately authorized measurements, follow [Live audio capture](live-audio-capture.md), compare equivalent passages and retain file-provenance checks. Ask what the user hears before choosing the next refinement.

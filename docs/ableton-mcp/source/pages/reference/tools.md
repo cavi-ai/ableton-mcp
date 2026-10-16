@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 235 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 236 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (103)
 
@@ -112,7 +112,7 @@ The server publishes 235 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (115)
+## Mutations (116)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -164,7 +164,7 @@ The server publishes 235 tools. Mutations of the Live Set require `expectedState
 | `heartbeat_nks_generation_job` | Extend an unexpired NKS generation lease owned by this worker. | `presetId`, `workerId` |
 | `humanize_midi_notes` | Plan or apply guarded deterministic MIDI timing and velocity humanization with exact clip, grid, and complete native note readback. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `seed`, `gridBeats`, `maxTimingOffsetBeats`, `maxVelocityOffset` |
 | `jump_to_arrangement_cue_point` | Plan or move the playhead to one exact Arrangement cue point. | `expectedStateVersion`, `cuePointId` |
-| `launch_clip` | Plan/launch a Session slot. recordLengthBeats requests fixed-length recording in an empty armed slot. launchQuantization overrides once, preserving stored settings. Immediate response does not prove recording completed. | `expectedStateVersion`, `trackId`, `clipId` |
+| `launch_clip` | Launch a Session slot. recordLengthBeats records an empty armed slot; updated bridge rechecks input, native identity and recording readiness. launchQuantization overrides once. Receipt does not prove take completion. | `expectedStateVersion`, `trackId`, `clipId` |
 | `launch_scene` | Plan/fire a scene with full-row recheck. May stop, record or change tempo/meter. Request-only receipt. Requires updated bridge. | `expectedStateVersion`, `sceneId` |
 | `load_browser_item` | Plan/load an exact browser item on an ordinary/Return/Main track. Ordinary plans sign Session occupancy; results separate device-chain and clip effects. Audio loading can create a clip without a device. | `expectedStateVersion`, `trackId`, `root`, `path` |
 | `load_factory_browser_item` | Plan or load one exact factory browser item onto a guarded ordinary, Return, or Main track. Ordinary-track plans sign Session clip occupancy; results report separate device-chain and Session-clip effects, which may be unconfirmed when Live changes neither topology. | `expectedStateVersion`, `trackId`, `root`, `path` |
@@ -222,6 +222,7 @@ The server publishes 235 tools. Mutations of the Live Set require `expectedState
 | `set_track_midi_routing` | Plan or apply guarded changes to one track's native MIDI input/output note and scale transposition. Affects every clip launched on the track; does not change device-level or rack-chain note routing. | `expectedStateVersion`, `trackId` |
 | `set_track_mixer` | Plan or apply guarded track volume, pan, mute, solo, and return-send changes. | `expectedStateVersion`, `trackId` |
 | `set_track_routing` | Plan or apply guarded track routing and monitoring changes by exact choice ID. | `expectedStateVersion`, `trackId` |
+| `set_track_volume_db` | Set a track fader in dB using Live's native display, with identity, value and automation rechecks. Refuses recording, disabled or automated faders and unrepresentable levels. | `expectedStateVersion`, `trackId`, `volumeDb` |
 | `set_transport_context` | Plan or apply guarded metronome and count-in changes. | `expectedStateVersion` |
 | `set_transport_recording_context` | Plan or apply guarded playhead and recording-mode changes. | `expectedStateVersion` |
 | `stop_all_clips` | Plan or stop every playing Session clip in one guarded step using Live's native stop-all action. Playback-only; does not delete or mute clips. | `expectedStateVersion` |

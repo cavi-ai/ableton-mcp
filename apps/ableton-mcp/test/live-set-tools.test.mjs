@@ -299,3 +299,13 @@ test("cancelled Save As never dispatches or presses Save", async () => {
   await assert.rejects(withRequestSignal(abort.signal, () => f.apply(plan)));
   assert.deepEqual(f.calls, []);
 });
+
+test("Save As reports verified panel cancellation separately from an unverified save",async()=>{
+  const f=saveAsFixture(),plan=await f.service.call("save_live_set",f.args);
+  f.host.saveAs=async()=>{throw Object.assign(Error("Set changed"),{
+    saveAsRecovery:{status:"cancelled",windowId:123,savePressed:false}});};
+  const result=await f.apply(plan);
+  assert.equal(result.saved,false);assert.equal(result.pendingUserAction,false);
+  assert.equal(result.saveAsRecovery.status,"cancelled");assert.match(result.observationError,/Set changed/);
+  assert.match(result.limitation,/fresh|re-read/i);
+});

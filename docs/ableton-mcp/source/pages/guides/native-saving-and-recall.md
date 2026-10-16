@@ -1,8 +1,14 @@
 # Native saving and recall
 
-Live Set and device-preset saving currently require Live's native UI. They are not MCP save commands.
+`save_live_set` saves Live Sets on macOS through Live's native UI. Device-preset saving still requires direct native UI interaction.
 
 ## Save a Live Set
+
+Read `get_live_state`, then plan `save_live_set` with its current state version and Set fingerprint. Omit `path` to save the current named Set, or supply a new absolute `.als` path for Save As. Execute with the returned confirmation token and plan hash. Save As refuses existing destinations and never accepts an overwrite prompt.
+
+Save As binds its native window, purpose, filename and full directory path. The native save panel must use column view so its directory file URL can be read. If a known failure occurs before Save, the tool cancels only its unchanged prepared panel and reports `saveAsRecovery.status: "cancelled"`, `saved: false`, and `pendingUserAction: false`. Re-read the Set and destination and obtain a fresh plan before retrying. Changed input, an unexpected sheet, unavailable directory evidence, or an unknown Save outcome preserves the panel and reports uncertainty; inspect Live and the destination before proceeding.
+
+For direct native UI saving:
 
 Use **Save Live Set As** to choose a new destination and name. In the macOS save panel, **Cmd+Shift+G** opens the destination-path field. Enter an existing writable folder and press Return. After setting the filename, press Tab to commit the text field before clicking Save; the Save button can remain disabled while the filename edit is uncommitted.
 
@@ -49,5 +55,5 @@ Verify membership by opening the collection and finding the exact item. If its s
 ## Boundaries
 
 - A device preset is not a complete track or shared-bus system.
-- Native UI saving is not yet a reusable MCP/CLI save adapter.
+- Device-preset saving still requires direct native UI interaction.
 - Track-template, rack/FX-chain, third-party hidden-state, and full-Project recall each require their own workflow and acceptance evidence.
