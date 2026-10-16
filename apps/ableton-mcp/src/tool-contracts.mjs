@@ -1,6 +1,7 @@
 import { listLiveScaleReferences } from "./live-scale-reference.mjs";
 import { extensibleToolResult, toolOutputContracts } from "./tool-output-contracts.mjs";
 import { LIVE_BROWSER_ROOTS } from "./browser-roots.mjs";
+import { listPrompts } from "./prompts.mjs";
 
 const string = (description) => ({ type: "string", description });
 const number = (description, extra = {}) => ({ type: "number", description, ...extra });
@@ -373,6 +374,11 @@ const envelopePoint = object({
 }, ["time", "duration", "value"]);
 
 const contracts = {
+  audition_arrangement_passage: { description: "Plan/start a looping Arrangement passage from stopped transport with recording off and no pending launches. Return only explicit ordinary tracks from Session override; reject Groups. Changes global loop/playhead and starts global playback until stopped. Other tracks may sound. Partial failure reports observed controls; earlier Session phase is not restored. Requires all profile.", inputSchema: guarded({
+    trackIds: { ...array(ids.trackId,"Ordinary tracks to return to Arrangement; other overrides stay in place."),minItems:1,maxItems:64,uniqueItems:true },
+    startBeats: number("Inclusive song-time start in quarter-note beats.",{minimum:0}),
+    endBeats: number("Exclusive end; increasing range of at most 512 beats.",{exclusiveMinimum:0})
+  },["trackIds","startBeats","endBeats"]) },
   capture_device_chain_snapshot: { description: "Capture ordered devices, nested rack topology, exposed parameters, Return or master mixer, available master output channel, chain mixer, Drum Rack note routing and populated pad mute/solo as persistable JSON. Not a native rack or preset; excludes hidden plugin state, samples, automation, and mappings.", inputSchema: object({ trackId: ids.deviceOwnerId }, ["trackId"]) },
   list_saved_snapshots: { description: "List names of regular local capture files in the private track, device-chain, group-system, or MIDI-feel library. Does not validate capture contents or change Live; load a name to inspect its format and contents.", inputSchema: object({ kind: { type: "string", enum: ["track", "device-chain", "group-system", "midi-feel"] } }, ["kind"]) },
   save_device_chain_snapshot: { description: "Capture a device chain including Return or master mixer, available master output channel, exposed rack-chain controls and populated Drum Rack pad mute/solo into the private named local chain library. Never overwrites. Does not save hidden plugin state, samples, automation, or mappings.", inputSchema: object({ trackId: ids.deviceOwnerId, name: string("New local chain snapshot name; letters, numbers, dot, underscore and hyphen only.") }, ["trackId", "name"]) },
@@ -392,6 +398,11 @@ const contracts = {
   recall_track_state_snapshot: { description: "Plan or recall captured track-state JSON onto exactly compatible topology and group membership (when captured). Restores track and rack-chain mixer, sends, routing, Drum Rack note routing, populated pad mute/solo and exposed nested parameters in one guarded native undo step; older snapshots without group context remain supported. Does not load devices, clips, samples, hidden state, automation or mappings.", inputSchema: guarded({ trackId: ids.trackId, snapshot: trackStateSnapshot }, ["trackId", "snapshot"]) },
   recall_device_parameter_snapshot: { description: "Guarded recall of parameter JSON onto a matching native device class and exact ordered parameter layout. Supports ordinary, Return, and Main tracks; rejects incompatible bounds/choices and disabled changed controls. Does not restore hidden state.", inputSchema: guarded({ trackId: ids.deviceOwnerId, deviceId: ids.deviceId, snapshot: parameterSnapshot }, ["trackId", "deviceId", "snapshot"]) },
   get_factory_coverage: { description: "Compare observed top-level Live factory browser devices with name-matched knowledge profiles. Reports missing profiles, not verified deep integration or all presets/Packs/plugins.", inputSchema: empty },
+  get_producer_workflow: { description: "List producer workflows, or retrieve one with named string arguments. Returns shared MCP prompt instructions without calling Live or executing work. Omit workflow to list names and required arguments. Requires all profile.", inputSchema: object({
+    workflow: { type: "string", enum: listPrompts().map(prompt=>prompt.name) },
+    arguments: { type: "object", description: "Named prompt arguments from listing, such as request, mode or setPath.", maxProperties: 8,
+      propertyNames: { minLength: 1, maxLength: 64 }, additionalProperties: { type: "string", maxLength: 8192 } }
+  }) },
   list_producer_chain_blueprints: { description: "List deterministic producer starting points for ordered track, bus, return, mastering, and layered-instrument chains.", inputSchema: empty },
   get_producer_chain_blueprint: { description: "Return one ordered factory-device chain or shared-bus topology with exact browser paths, stage roles, execution tools, and explicit limitations.", inputSchema: object({ target: { type: "string", enum: ["bass", "drums", "vocals", "guitar", "keys", "synth", "mix-bus", "mastering", "reverb-return", "delay-return", "layered-bass-system", "layered-synth-system", "layered-drums-system", "layered-keys-system", "layered-vocals-system", "layered-guitar-system"] } }, ["target"]) },
   inspect_producer_chain: { description: "Read the devices on one exact track and compare their factory profiles and order with a named producer-chain blueprint. No devices are loaded or changed.", inputSchema: object({ target: { type: "string", enum: ["bass", "drums", "vocals", "guitar", "keys", "synth", "mix-bus", "mastering", "reverb-return", "delay-return", "layered-bass-system", "layered-synth-system", "layered-drums-system", "layered-keys-system", "layered-vocals-system", "layered-guitar-system"] }, trackId: ids.deviceOwnerId }, ["target", "trackId"]) },
@@ -419,7 +430,7 @@ const contracts = {
   }), required: ["path"], anyOf: [{ required: ["expectedStateVersion", "expectedSetFingerprint"],
     properties: { expectedStateVersion: {}, expectedSetFingerprint: {} } },
     { required: ["mode"], properties: { mode: { const: "launch" } } }] } },
-  save_live_set: { description: "Plan/save macOS Set; path uses non-overwriting Save As.", inputSchema: guarded({
+  save_live_set: { description: "Save macOS Set; verify write or clean state. Path: Save As without overwrite.", inputSchema: guarded({
     path: string("New absolute .als; parent must exist."),
     expectedSetFingerprint: string("Current setFingerprint.")
   }, ["expectedSetFingerprint"]) },
@@ -433,10 +444,11 @@ const contracts = {
     captureId: string("Capture ID from start or listing."), cancel: boolean("Explicitly stop an in-progress capture early; retain partial recording.")
   }, ["captureId"]) },
   get_session_orientation: { description: "Read Set, recording, selection, clip and instruments together; configured scale and ambiguous MIDI evidence. No edits, playback or focus changes.", inputSchema: empty },
-  analyze_arrangement_section: { description: "Read one explicit Arrangement beat window across all or selected ordinary tracks. Report overlapping clips and projected stored-MIDI tonal evidence with loop repeats and trimmed boundaries. Includes muted material; audio, drums, recording and large clips remain explicit exclusions. Not playback, a detected key, or a meter/key map. Read-only; no focus changes.", inputSchema: object({
+  analyze_arrangement_section: { description: "Read one explicit Arrangement beat window across all or selected ordinary tracks. Report overlapping clips and projected stored-MIDI tonal evidence with loop repeats and trimmed boundaries. Optional includeHarmony adds timed pitch sets, literal chord candidates and gaps. Includes muted material; audio, drums, recording and large clips remain explicit exclusions. Not playback, a detected key, or a meter/key map. Read-only; no focus changes.", inputSchema: object({
     startBeats: number("Inclusive song-time start in quarter-note beats.", { minimum: 0 }),
     endBeats: number("Exclusive end; increasing range, at most 512 beats.", { exclusiveMinimum: 0 }),
-    trackIds: { ...array(ids.trackId, "Optional unique ordinary tracks; omit for all, up to 64."), minItems: 1, maxItems: 64, uniqueItems: true }
+    trackIds: { ...array(ids.trackId, "Optional unique ordinary tracks; omit for all, up to 64."), minItems: 1, maxItems: 64, uniqueItems: true },
+    includeHarmony: boolean("Include timed stored-pitch sets and exact chord candidates, gaps and ambiguity. At most 4096 projected spans and 256 intervals; no inferred harmonic function or audio.")
   }, ["startBeats", "endBeats"]) },
   analyze_midi_parts: { description: "Read 1-8 explicit Session/Arrangement clips together. Report per-part register, duration-weighted pitch classes and combined diatonic compatibility. Loop/marker ranges only; not simultaneous playback or detected key. Audio, drums, recording and oversized clips are excluded explicitly. No edits or focus changes.", inputSchema: object({
     parts: { ...array(clip, "Exact parts from list_clips or list_arrangement_clips; unique references, at most 16384 analyzed notes total."), minItems: 1, maxItems: 8, uniqueItems: true }
@@ -640,7 +652,7 @@ const contracts = {
   transport_stop: { description: "Plan or stop Ableton transport playback.", inputSchema: guarded() },
   set_tempo: { description: "Plan or set song tempo within Live's accepted range.", inputSchema: guarded({ tempo: number("Tempo in BPM.", { minimum: 20, maximum: 999 }) }, ["tempo"]) },
   set_track_mixer: { description: "Plan or apply guarded track volume, pan, mute, solo, and return-send changes.", inputSchema: guarded({ trackId: ids.trackId, volume: number("Track volume."), pan: number("Track pan.", { minimum: -1, maximum: 1 }), mute: boolean("Mute track."), solo: boolean("Solo track."), sends: array(object({ id: string("Send ID."), value: number("Send value.") }, ["id", "value"]), "Named return-send changes.") }, ["trackId"]) },
-  launch_scene: { description: "Plan or launch one exact Session scene. Optional forceLegato launches all scene clips immediately in Legato, overriding their clip launch modes.", inputSchema: guarded({ sceneId: ids.sceneId, forceLegato: boolean("Force immediate Legato launch for every clip in this scene; defaults to false.") }, ["sceneId"]) },
+  launch_scene: { description: "Plan/fire a scene with full-row recheck. May stop, record or change tempo/meter. Request-only receipt. Requires updated bridge.", inputSchema: guarded({ sceneId: ids.sceneId, forceLegato: boolean("Force immediate Legato launch for every clip in this scene; defaults to false.") }, ["sceneId"]) },
   launch_clip: { description: "Plan/launch a Session slot. recordLengthBeats requests fixed-length recording in an empty armed slot. launchQuantization overrides once, preserving stored settings. Immediate response does not prove recording completed.", inputSchema: guarded({ trackId: ids.trackId, clipId: ids.clipId, recordLengthBeats: number("Fixed recording length in beats for an empty armed slot.", { exclusiveMinimum: 0 }), launchQuantization: choice("One-shot native launch quantization choice from get_clip_timing or list_clips.launchQuantizationChoices.") }, ["trackId", "clipId"]) },
   stop_clip: { description: "Plan or stop one exact Session clip slot.", inputSchema: guarded({ trackId: ids.trackId, clipId: ids.clipId }, ["trackId", "clipId"]) },
   arm_track: { description: "Plan or set the record-arm state of one exact track.", inputSchema: guarded({ trackId: ids.trackId, armed: boolean("Requested arm state.") }, ["trackId", "armed"]) },
@@ -668,6 +680,7 @@ const contracts = {
 };
 
 const readOnlyTools = new Set([
+  "get_producer_workflow",
   "search_presets", "get_nks_generation_status", "get_nks_generation_job", "get_preset", "get_preset_metadata",
   "get_browser_item_metadata", "search_browser_item_metadata",
   "get_live_state", "get_selection_context", "get_session_orientation", "analyze_arrangement_section", "analyze_midi_parts", "get_instrument_comparison", "get_live_audio_capture", "get_transport_context", "get_history_state",
@@ -705,6 +718,7 @@ const readOnlyTools = new Set([
 ]);
 
 const destructiveTools = new Set([
+  "audition_arrangement_passage",
   "open_live_set", "save_live_set",
   "delete_session_object", "delete_clip", "delete_arrangement_clip",
   "delete_arrangement_cue_point", "remove_audio_warp_marker",

@@ -5,6 +5,7 @@ import { isAbsolute, dirname, basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const saveDialogScript = fileURLToPath(new URL("./live-set-save-dialog.js", import.meta.url));
+const saveStateScript = fileURLToPath(new URL("./live-set-save-state.js", import.meta.url));
 const execFileAsync = promisify(execFile);
 const scriptDirectorySuffix = "/Contents/App-Resources/MIDI Remote Scripts/CaviMcpBridge";
 const saveScript = `tell application "System Events"
@@ -166,5 +167,25 @@ export class MacLiveSetHost {
     this.#requireMac();
     await this.run("/usr/bin/open", ["-a", appPath]);
     await this.run("/usr/bin/osascript", ["-e", saveScript]);
+  }
+
+  async observeSaveState(appPath, { signal } = {}) {
+    try {
+      this.#requireMac();signal?.throwIfAborted();
+      const app = await realpath(appPath), executable = await realpath(`${app}/Contents/MacOS/Live`);
+      const processes = await this.runningProcesses();
+      if (processes.length !== 1 || processes[0].path !== executable)
+        throw new Error("clean-state observation requires exactly one configured Live instance");
+      const result = await this.run("/usr/bin/osascript", ["-l", "JavaScript", saveStateScript, JSON.stringify({ pid: processes[0].pid })],
+        { timeout: 5000, maxBuffer: 65536, signal });
+      const observed = JSON.parse(result.stdout), url = new URL(observed.documentURL);
+      if (url.protocol !== "file:" || url.search || url.hash || typeof observed.saveEnabled !== "boolean" || observed.saveAsEnabled !== true)
+        throw new Error("native document or Save command is unavailable");
+      const path = await this.existingSet(fileURLToPath(url));
+      return { status: observed.saveEnabled ? "dirty" : "clean", path };
+    } catch (error) {
+      signal?.throwIfAborted();
+      return { status: "unavailable", reason: String(error.stderr || error.message).trim().slice(0,600) };
+    }
   }
 }
