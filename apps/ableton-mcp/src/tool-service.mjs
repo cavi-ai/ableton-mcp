@@ -647,7 +647,7 @@ export class ToolService {
     if (name === "get_session_orientation") return enrichSessionOrientation(await this.bridge.request(name, {}));
     if (name === "analyze_arrangement_section") {
       assertArrangementRange(args);
-      return enrichArrangementSection(await this.bridge.request(name, args));
+      return enrichArrangementSection(await this.bridge.request(name, args), {includeHarmony: args.includeHarmony ?? false});
     }
     if (name === "analyze_midi_parts") return enrichMidiPartsContext(await this.bridge.request(name, args));
     if (["capture_live_audio", "get_live_audio_capture", "finish_live_audio_capture"].includes(name))

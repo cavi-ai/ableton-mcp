@@ -433,10 +433,11 @@ const contracts = {
     captureId: string("Capture ID from start or listing."), cancel: boolean("Explicitly stop an in-progress capture early; retain partial recording.")
   }, ["captureId"]) },
   get_session_orientation: { description: "Read Set, recording, selection, clip and instruments together; configured scale and ambiguous MIDI evidence. No edits, playback or focus changes.", inputSchema: empty },
-  analyze_arrangement_section: { description: "Read one explicit Arrangement beat window across all or selected ordinary tracks. Report overlapping clips and projected stored-MIDI tonal evidence with loop repeats and trimmed boundaries. Includes muted material; audio, drums, recording and large clips remain explicit exclusions. Not playback, a detected key, or a meter/key map. Read-only; no focus changes.", inputSchema: object({
+  analyze_arrangement_section: { description: "Read one explicit Arrangement beat window across all or selected ordinary tracks. Report overlapping clips and projected stored-MIDI tonal evidence with loop repeats and trimmed boundaries. Optional includeHarmony adds timed pitch sets, literal chord candidates and gaps. Includes muted material; audio, drums, recording and large clips remain explicit exclusions. Not playback, a detected key, or a meter/key map. Read-only; no focus changes.", inputSchema: object({
     startBeats: number("Inclusive song-time start in quarter-note beats.", { minimum: 0 }),
     endBeats: number("Exclusive end; increasing range, at most 512 beats.", { exclusiveMinimum: 0 }),
-    trackIds: { ...array(ids.trackId, "Optional unique ordinary tracks; omit for all, up to 64."), minItems: 1, maxItems: 64, uniqueItems: true }
+    trackIds: { ...array(ids.trackId, "Optional unique ordinary tracks; omit for all, up to 64."), minItems: 1, maxItems: 64, uniqueItems: true },
+    includeHarmony: boolean("Include timed stored-pitch sets and exact chord candidates, gaps and ambiguity. At most 4096 projected spans and 256 intervals; no inferred harmonic function or audio.")
   }, ["startBeats", "endBeats"]) },
   analyze_midi_parts: { description: "Read 1-8 explicit Session/Arrangement clips together. Report per-part register, duration-weighted pitch classes and combined diatonic compatibility. Loop/marker ranges only; not simultaneous playback or detected key. Audio, drums, recording and oversized clips are excluded explicitly. No edits or focus changes.", inputSchema: object({
     parts: { ...array(clip, "Exact parts from list_clips or list_arrangement_clips; unique references, at most 16384 analyzed notes total."), minItems: 1, maxItems: 8, uniqueItems: true }
