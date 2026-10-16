@@ -19,6 +19,8 @@ Many plans also carry the observed objects themselves: the exact device, clip, n
 
 ## Read back
 
+Queued bridge work is refused after cancellation, expiry or disconnection. A running operation may still finish. After a timeout or cancellation, re-read the affected objects before making a new plan; never blindly retry a transmitted write. See [Cancel agent work](request-cancellation.md).
+
 A mutation's acknowledgement is not acceptance. Read the changed object again and compare it with the plan. Some UI-driven changes don't advance the bridge's state counter, so a readback is the only proof.
 
 ## Destructive operations
