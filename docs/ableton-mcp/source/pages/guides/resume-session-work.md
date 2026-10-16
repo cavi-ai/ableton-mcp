@@ -14,6 +14,8 @@ The agent uses authorization already given in the conversation and asks only whe
 
 These recovery tools require the `all` profile. An unavailable tool does not mean there is no unfinished work. Handles live in the bridge and survive client reconnects. Bridge reloads or Live restarts may invalidate them; always list and inspect current handles. Missing handles do not establish whether their tracks or files still exist. Inspect retained material before repeating preparation or recording; old indices and matching names alone cannot identify an intended target safely.
 
+For two explicitly resolved existing MIDI parts, use `adopt_instrument_comparison` to bind a new handle with fresh guards instead of preparing another copy. Resolve ambiguous identity with the user. Adoption leaves tracks, content, mutes, playback and selection as they are. Its `restoreMutes` preserve both mutes observed at adoption, not an unknown earlier baseline; `restorationBasis` is `adoption`. See [instrument comparisons](instrument-comparison.md) for eligibility and limits. Audio capture handles cannot be adopted this way.
+
 ## Preserve edits made since the last observation
 
 Read the affected parts using current IDs: complete MIDI notes and clip timing, audio clip state, device lists, and exposed track-state snapshots when mixer, routing or parameter changes matter. Compare those results with actual earlier observations if available. Distinguish an object's changed address from changed content.

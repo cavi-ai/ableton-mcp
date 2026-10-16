@@ -120,7 +120,9 @@ def read_comparison(song, params, version):
     if record is None:
         raise ValueError("instrument comparison is unavailable in this document or bridge instance; inspect existing tracks")
     errors, result = [], {"stateVersion": version, "setFingerprint": _set_fingerprint(song),
-                          "comparisonId": comparison_id, "originalMute": record["originalMute"]}
+                          "comparisonId": comparison_id, "originalMute": record["originalMute"],
+                          "restorationBasis": record.get("restorationBasis", "preparation"),
+                          "restoreMutes": record.get("restoreMutes", {"original": record["originalMute"], "variation": True})}
     if _recording(song):
         errors.append("stop recording before switching the comparison")
     if any(bool(getattr(track, "solo", False)) for track in list(song.tracks) + list(song.return_tracks)):
@@ -150,6 +152,61 @@ def read_comparison(song, params, version):
     result["readinessErrors"] = errors
     result["isPlaying"] = bool(song.is_playing)
     return result
+
+
+def read_adoption_source(song, params, version):
+    """Observe an explicitly chosen existing pair; never infer its history."""
+    _prune(song)
+    if len(_comparisons) >= 16:
+        raise ValueError("at most 16 active instrument comparisons are supported")
+    if _recording(song):
+        raise ValueError("stop recording before adopting an instrument comparison")
+    if any(bool(track.solo) for track in list(song.tracks) + list(song.return_tracks)):
+        raise ValueError("resolve solo conflicts before adopting an instrument comparison")
+    parts, owners = {}, []
+    for side in ("original", "variation"):
+        reference = params.get(side)
+        if not isinstance(reference, dict):
+            raise ValueError("adoption requires exact original and variation track/clip references")
+        track_id, clip_id = reference.get("trackId"), reference.get("clipId")
+        _, track = _track(song, track_id)
+        if not bool(getattr(track, "has_midi_input", False)) or bool(getattr(track, "is_foldable", False)):
+            raise ValueError("adoption requires two ordinary MIDI tracks")
+        if track in owners:
+            raise ValueError("adoption requires two different tracks")
+        if any(track in (record["original"], record["variation"]) for record in _comparisons.values()):
+            raise ValueError("track already belongs to an active comparison; inspect that handle")
+        if bool(getattr(track, "is_frozen", False)) or track.arm or int(track.current_monitoring_state) == 0:
+            raise ValueError("adoption refuses frozen, armed or input-monitored tracks")
+        owners.append(track)
+        parts[side] = {"trackId": track_id, "clipId": clip_id,
+                       "trackState": _track_state_snapshot(song, track_id, version),
+                       "clip": _clip_content(song, track_id, clip_id, version)}
+    mutes = {side: bool(track.mute) for side, track in zip(("original", "variation"), owners)}
+    if not any(mutes.values()):
+        raise ValueError("both tracks are unmuted; resolve the intended comparison mute state first")
+    return {"stateVersion": version, "setFingerprint": _set_fingerprint(song), "isPlaying": bool(song.is_playing),
+            **parts, "restoreMutes": mutes,
+            "tracks": [_track_record(song, track, index) for index, track in enumerate(song.tracks)]}
+
+
+def adopt(song, params, version):
+    if params.get("expectedStateVersion") != version:
+        raise ValueError("instrument comparison state version changed")
+    before = read_adoption_source(song, params, version)
+    if before != params.get("before"):
+        raise ValueError("instrument comparison adoption content or topology changed")
+    record = {"song": song, "originalMute": before["restoreMutes"]["original"],
+              "restoreMutes": dict(before["restoreMutes"]), "restorationBasis": "adoption"}
+    for side in ("original", "variation"):
+        reference = params[side]
+        record[side] = _track(song, reference["trackId"])[1]
+        record[f"{side}Clip"] = _clip_reference(song, reference["trackId"], reference["clipId"])[0]
+    comparison_id = str(uuid.uuid4())
+    _comparisons[comparison_id] = record
+    return {**read_comparison(song, {"comparisonId": comparison_id}, version + 1),
+            "createdTracks": False, "contentChanged": False, "playbackChanged": False,
+            "limitation": "New handle for the explicitly chosen parts. Restore uses adoption-time mutes; no earlier identity or copy history is established."}
 
 
 def prepare(song, params, version):
@@ -238,8 +295,8 @@ def select(song, params, version):
     if type(params.get("finish", False)) is not bool:
         raise ValueError("comparison finish must be boolean")
     record = _comparisons[params["comparisonId"]]
-    wanted = {"original": record["originalMute"] if choice == "restore" else choice != "original",
-              "variation": choice != "variation"}
+    wanted = dict(before["restoreMutes"]) if choice == "restore" else {
+        "original": choice != "original", "variation": choice != "variation"}
     with _undo_step(song):
         try:
             # Mute first so a switch never deliberately enables both tracks.

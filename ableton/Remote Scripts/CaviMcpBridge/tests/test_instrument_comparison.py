@@ -249,5 +249,106 @@ class InstrumentComparisonTests(unittest.TestCase):
                 "expectedStateVersion": 5, "before": before}, 5)
         self.assertTrue(self.track.mute)
 
+    def adoption_pair(self):
+        self.song.duplicate_track(0)
+        variation = self.song.tracks[1]
+        variation.name, variation.mute = "Existing alternative", False
+        self.track.mute = True
+        variation.devices[0].parameters[0].value = 0.37
+        variation.clip_slots[0].clip.extended_notes[0].velocity = 53
+        return {"original": {"trackId": "track-0", "clipId": "track-0:clip-0"},
+                "variation": {"trackId": "track-1", "clipId": "track-1:clip-0"}}
+
+    def test_adoption_binds_existing_parts_without_creating_or_editing_tracks(self):
+        args = self.adoption_pair()
+        tracks = list(self.song.tracks)
+        notes = copy.deepcopy([vars(n) for n in tracks[1].clip_slots[0].clip.extended_notes])
+        before = self.call("get_instrument_comparison_adoption_source", args)
+        result = self.call("adopt_instrument_comparison", {**args, "expectedStateVersion": 4, "before": before})
+        self.assertEqual(self.song.tracks, tracks)
+        self.assertEqual(self.song.undo_boundaries, [])
+        self.assertTrue(self.track.mute)
+        self.assertFalse(tracks[1].mute)
+        self.assertEqual([vars(n) for n in tracks[1].clip_slots[0].clip.extended_notes], notes)
+        self.assertEqual(tracks[1].devices[0].parameters[0].value, 0.37)
+        self.assertEqual(result["restorationBasis"], "adoption")
+        self.assertEqual(result["restoreMutes"], {"original": True, "variation": False})
+        self.assertEqual(result["original"]["clipId"], args["original"]["clipId"])
+        self.assertFalse(self.song.is_playing)
+
+        # A new handle retains native identities when the user reorders tracks.
+        self.song.tracks.append(self.song.tracks.pop(1))
+        pair = {"comparisonId": result["comparisonId"]}
+        current = self.call("get_instrument_comparison", pair, 5)
+        self.assertEqual(current["variation"]["trackId"], "track-2")
+        self.call("select_instrument_comparison", {**pair, "choice": "original", "expectedStateVersion": 5, "before": current}, 5)
+        current = self.call("get_instrument_comparison", pair, 6)
+        self.call("select_instrument_comparison", {**pair, "choice": "restore", "finish": True,
+            "expectedStateVersion": 6, "before": current}, 6)
+        self.assertTrue(self.track.mute)
+        self.assertFalse(tracks[1].mute)
+        self.assertEqual(self.call("get_instrument_comparison")["comparisons"], [])
+
+    def test_adoption_rejects_stale_content_topology_and_duplicate_handles(self):
+        for change in ("notes", "parameter", "mute", "clip", "topology"):
+            with self.subTest(change=change):
+                self.setUp()
+                args = self.adoption_pair()
+                before = self.call("get_instrument_comparison_adoption_source", args)
+                if change == "notes": self.clip.extended_notes[0].velocity = 17
+                elif change == "parameter": self.song.tracks[1].devices[0].parameters[0].value = 0.5
+                elif change == "mute": self.song.tracks[1].mute = True
+                elif change == "clip": self.song.tracks[1].clip_slots[0].clip.name = "Changed"
+                else: self.song.tracks.reverse()
+                with self.assertRaisesRegex(ValueError, "changed|MIDI|clip"):
+                    self.call("adopt_instrument_comparison", {**args, "expectedStateVersion": 4, "before": before})
+                self.assertEqual(self.call("get_instrument_comparison")["comparisons"], [])
+        self.setUp()
+        args = self.adoption_pair()
+        before = self.call("get_instrument_comparison_adoption_source", args)
+        self.call("adopt_instrument_comparison", {**args, "expectedStateVersion": 4, "before": before})
+        with self.assertRaisesRegex(ValueError, "active comparison"):
+            self.call("get_instrument_comparison_adoption_source", args)
+
+    def test_adoption_refuses_unsafe_or_ambiguous_pairs(self):
+        for conflict in ("same_track", "both_unmuted", "recording", "solo", "frozen", "armed", "monitor", "audio", "group", "missing_clip"):
+            with self.subTest(conflict=conflict):
+                self.setUp()
+                args = self.adoption_pair()
+                variation = self.song.tracks[1]
+                if conflict == "same_track": args["variation"] = args["original"]
+                elif conflict == "both_unmuted": self.track.mute = False
+                elif conflict == "recording": self.song.record_mode = True
+                elif conflict == "solo": self.song.tracks[2].solo = True
+                elif conflict == "frozen": variation.is_frozen = True
+                elif conflict == "armed": variation.arm = True
+                elif conflict == "monitor": variation.current_monitoring_state = 0
+                elif conflict == "audio": variation.clip_slots[0].clip.is_audio_clip = True
+                elif conflict == "group": variation.is_foldable = True
+                else: args["variation"]["clipId"] = "track-1:clip-1"
+                with self.assertRaises(ValueError):
+                    self.call("get_instrument_comparison_adoption_source", args)
+                self.assertEqual(len(self.song.tracks), 3)
+                self.assertEqual(self.call("get_instrument_comparison")["comparisons"], [])
+
+    def test_adoption_accepts_arrangement_parts_without_stopping_playback(self):
+        args = self.adoption_pair()
+        for index, side in enumerate(("original", "variation")):
+            track = self.song.tracks[index]
+            clip = track.clip_slots[0].clip
+            clip.is_audio_clip = False
+            clip.start_time, clip.end_time = 8.0, 12.0
+            track.clip_slots = []
+            track.arrangement_clips = [clip]
+            args[side]["clipId"] = f"track-{index}:arrangement-clip-0"
+        self.song.is_playing = True
+        before = self.call("get_instrument_comparison_adoption_source", args)
+        result = self.call("adopt_instrument_comparison", {**args, "expectedStateVersion": 4, "before": before})
+        self.assertTrue(self.song.is_playing)
+        self.assertEqual(result["original"]["location"], "arrangement")
+        self.assertEqual(result["variation"]["clipId"], "track-1:arrangement-clip-0")
+        self.assertTrue(self.track.mute)
+        self.assertFalse(self.song.tracks[1].mute)
+
 
 if __name__ == "__main__": unittest.main()

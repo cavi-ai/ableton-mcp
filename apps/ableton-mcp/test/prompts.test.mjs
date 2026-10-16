@@ -7,7 +7,7 @@ test("MCP discovery lists every prompt with schema-shaped arguments", async () =
   const route = createRouter({ call: async () => ({}) });
   const listed = await route({ id: 1, method: "prompts/list" });
   const names = listed.result.prompts.map(prompt => prompt.name).sort();
-  assert.deepEqual(names, ["arrangement-rework", "build-producer-chain", "develop-selected-midi-clip", "explore-selected-instrument", "harmonize-clip",
+  assert.deepEqual(names, ["arrangement-rework", "audition-arrangement-passage", "build-producer-chain", "create-musical-sketch", "develop-selected-midi-clip", "explore-selected-instrument", "harmonize-clip",
     "listen-to-live-output", "produce-drum-pattern", "resume-session-work", "session-overview", "understand-musical-parts"]);
   for (const prompt of listed.result.prompts) {
     assert.ok(prompt.description);
@@ -38,6 +38,15 @@ test("prompts/get rejects unknown prompt names", async () => {
   assert.throws(() => getPrompt("nonexistent"), /unknown prompt/);
 });
 
+test("overview can request a Set and distinguishes a missing bridge from closed Live", async () => {
+  const prompt = getPrompt("session-overview", { setPath: "/tmp/Idea.als" });
+  const text = prompt.messages[0].content.text;
+  assert.match(text, /\/tmp\/Idea\.als/);
+  assert.match(text, /mode.*launch/);
+  assert.match(text, /unreachable bridge.*not.*closed/i);
+  assert.match(text, /opened.*true/);
+});
+
 test("resume discovery requires the user's intended continuation and never calls Live", async () => {
   let calls = 0;
   const route = createRouter({ call: async () => { calls++; throw new Error("prompt rendering must not call Live"); } });
@@ -59,4 +68,11 @@ test("resume discovery requires the user's intended continuation and never calls
   assert.match(text, /authorization/);
   assert.match(text, /never.*replay/i);
   assert.equal(calls, 0);
+});
+
+test("instrument replacement workflow establishes a verified working Set with Save As", () => {
+  const text = getPrompt("explore-selected-instrument", { request: "warmer synth" }).messages[0].content.text;
+  assert.match(text, /save_live_set.*path/);
+  assert.match(text, /saved: true/);
+  assert.match(text, /project folder/);
 });

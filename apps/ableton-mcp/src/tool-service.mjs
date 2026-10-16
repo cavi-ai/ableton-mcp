@@ -1,3 +1,4 @@
+import { enrichArrangementSection, assertArrangementRange } from "./arrangement-section.mjs";
 import { assertExpectedState } from "./bridge-protocol.mjs";
 import { enrichSessionOrientation, enrichMidiPartsContext } from "./session-orientation.mjs";
 import { instrumentComparison } from "./instrument-comparison.mjs";
@@ -47,6 +48,8 @@ import { matchDrumPatternEditReadback, planDrumPattern, planDrumPatternEdit } fr
 import { matchDrumVariationReadback, planDrumVariation } from "./drum-variation.mjs";
 import { duplicateMidiClipVariations } from "./midi-clip-variations.mjs";
 import { requestSignal } from "./request-context.mjs";
+import { getProducerWorkflow } from "./prompts.mjs";
+import { auditionArrangementPassage } from "./arrangement-audition.mjs";
 
 function canonicalLocalSpliceMetadataItem(item, configuredRoots) {
   const root = configuredRoots.roots.filter(candidate => candidate.available &&
@@ -444,7 +447,7 @@ function normalizeBrowserSearch(args) {
 
 export class ToolService {
   constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, deviceChainLibrary, groupSystemLibrary, midiFeelLibrary, browserMetadata, spliceRoots = [], generationQueuePath,
-    liveSetHost = new MacLiveSetHost(), liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000 }) {
+    liveSetHost = new MacLiveSetHost(), liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000 }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
@@ -458,6 +461,7 @@ export class ToolService {
     this.liveSetHost = liveSetHost;
     this.liveSetOpenTimeoutMs = liveSetOpenTimeoutMs;
     this.liveSetSaveTimeoutMs = liveSetSaveTimeoutMs;
+    this.liveSetLaunchTimeoutMs = liveSetLaunchTimeoutMs;
   }
 
   discoveryExamples() {
@@ -643,10 +647,14 @@ export class ToolService {
     }
     if (name === "get_live_state") return this.bridge.request("get_live_state", {});
     if (name === "get_session_orientation") return enrichSessionOrientation(await this.bridge.request(name, {}));
+    if (name === "analyze_arrangement_section") {
+      assertArrangementRange(args);
+      return enrichArrangementSection(await this.bridge.request(name, args), {includeHarmony: args.includeHarmony ?? false});
+    }
     if (name === "analyze_midi_parts") return enrichMidiPartsContext(await this.bridge.request(name, args));
     if (["capture_live_audio", "get_live_audio_capture", "finish_live_audio_capture"].includes(name))
       return liveAudioCapture(this.bridge, this.confirmations, name, args);
-    if (["get_instrument_comparison", "prepare_instrument_comparison", "select_instrument_comparison"].includes(name))
+    if (["get_instrument_comparison", "prepare_instrument_comparison", "adopt_instrument_comparison", "select_instrument_comparison"].includes(name))
       return instrumentComparison(this.bridge, this.confirmations, name, args);
     if (name === "get_selection_context") return this.bridge.request(name, {});
     if (name === "duplicate_midi_clip_variations") return duplicateMidiClipVariations(this.bridge, this.confirmations, args);
@@ -774,6 +782,8 @@ export class ToolService {
     if (name === "get_track_mixer") return this.bridge.request("get_track_mixer", args);
     if (name === "get_track_routing") return this.bridge.request("get_track_routing", args);
     if (name === "get_set_mixer") return this.bridge.request("get_set_mixer", {});
+    if (name === "get_producer_workflow") return getProducerWorkflow(args);
+    if (name === "audition_arrangement_passage") return auditionArrangementPassage(this.bridge,this.confirmations,args);
     if (name === "list_producer_chain_blueprints") return { blueprints: listProducerChainBlueprints() };
     if (name === "get_producer_chain_blueprint") return { blueprint: getProducerChainBlueprint(args.target) };
     if (name === "inspect_producer_chain") {
@@ -2689,6 +2699,7 @@ export class ToolService {
   }
 
   async #openLiveSet(args) {
+    if (args.mode === "launch") return this.#launchLiveSet(args);
     const before = await this.#liveSetState(args);
     const appPath = this.liveSetHost.appPathFor(before);
     const source = await this.liveSetHost.fileInfo(args.path);
@@ -2708,7 +2719,38 @@ export class ToolService {
       observed, ...(!observed ? { limitation: "Live has not loaded the requested Set. Check Live for an unsaved-changes or file-load dialog; no dialog was dismissed." } : {}) };
   }
 
+  async #launchLiveSet(args) {
+    requestSignal()?.throwIfAborted();
+    const context = await this.liveSetHost.launchContext();
+    if (context.running.length) throw new Error("Live is already running; use default open mode with fresh Set identity guards");
+    const source = await this.liveSetHost.fileInfo(args.path);
+    const plan = { method: "open_live_set", mode: "launch", app: context.app, source, environment: context.environment ?? {} };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan),
+      warning: "Launches the configured app with this Set. Startup or recovery dialogs can delay loading; a launch request is not proof that the Set opened." };
+    const currentSource = await this.liveSetHost.fileInfo(args.path);
+    const current = await this.liveSetHost.launchContext();
+    if (current.running.length) throw new Error("Live started after planning; inspect it before opening a Set");
+    this.#consumeConfirmation({ ...plan, app: current.app, source: currentSource, environment: current.environment ?? {} }, args);
+    let observed = null, after = null, observationError;
+    try {
+      await this.liveSetHost.open(context.app.path, source.path, { launch: true });
+      observed = await this.#pollLiveSet(live => live.filePath === source.path, this.liveSetLaunchTimeoutMs);
+      after = await this.liveSetHost.launchContext();
+    } catch (error) {
+      requestSignal()?.throwIfAborted();
+      observationError = String(error.message ?? error).slice(0, 300);
+    }
+    const exactApp = after && after.running.length === 1 && after.running[0].path === context.app.executable &&
+      hashPlan(after.app) === hashPlan(context.app);
+    const opened = Boolean(observed && exactApp);
+    return { dryRun: false, requested: plan, launchRequested: true, opened, pendingUserAction: !opened,
+      startupStatus: opened ? "opened" : "unverified", observed, running: after?.running ?? null,
+      ...(observationError ? { observationError } : {}), ...(!opened ? { limitation:
+        "Launch was requested, but the configured app and requested Set are not both verified. Live may still be loading or displaying a dialog; inspect it before retrying. No app was closed or dialog dismissed." } : {}) };
+  }
+
   async #saveLiveSet(args) {
+    if (args.path !== undefined) return this.#saveLiveSetAs(args);
     const before = await this.#liveSetState(args);
     if (!before.filePath) throw new Error("save_live_set requires a named Live Set; save a new Set through Live's Save As UI");
     const appPath = this.liveSetHost.appPathFor(before);
@@ -2725,6 +2767,9 @@ export class ToolService {
     await this.liveSetHost.save(appPath);
     let after = currentFile;
     let observed = null;
+    let menuClean = false, menuChecked = false;
+    const sameSet = live => live?.filePath === file.path && live.setFingerprint === before.setFingerprint && live.stateVersion === before.stateVersion;
+    const menuEligible = live => sameSet(live) && (live.isDirty === null || live.isDirty === undefined);
     const deadline = Date.now() + this.liveSetSaveTimeoutMs;
     do {
       requestSignal()?.throwIfAborted();
@@ -2733,13 +2778,63 @@ export class ToolService {
       catch { requestSignal()?.throwIfAborted(); /* Preserve unverified status. */ }
       const clean = observed?.filePath === file.path && observed.isDirty === false;
       if (after.mtimeMs !== file.mtimeMs || after.size !== file.size || clean) break;
+      if (!menuChecked && menuEligible(observed) && this.liveSetHost.observeSaveState) {
+        menuChecked = true;
+        try {
+          const native = await this.liveSetHost.observeSaveState(appPath, { signal: requestSignal() });
+          if (native.status === "clean" && native.path === file.path) {
+            // Bracket UI evidence with bridge identity; a changed observed
+            // document identity or topology must not certify this save.
+            observed = await this.bridge.request("get_live_state", {});
+            menuClean = menuEligible(observed);
+            if (menuClean) { after = await this.liveSetHost.fileInfo(file.path);break; }
+          }
+        } catch { requestSignal()?.throwIfAborted(); /* An optional observation cannot establish clean state. */ }
+      }
       if (Date.now() >= deadline) break;
       await new Promise(resolve => setTimeout(resolve, 250));
     } while (true);
-    const saved = after.mtimeMs !== file.mtimeMs || after.size !== file.size ||
-      (observed?.filePath === file.path && observed.isDirty === false);
+    const fileWriteObserved = after.mtimeMs !== file.mtimeMs || after.size !== file.size;
+    const bridgeClean = observed?.filePath === file.path && observed.isDirty === false;
+    const saved = fileWriteObserved || bridgeClean || menuClean;
     return { dryRun: false, requested: plan, saved, pendingUserAction: !saved, after,
+      verification: { basis: fileWriteObserved ? "file-change" : bridgeClean ? "bridge-clean" : menuClean ? "native-save-menu" : "unverified", fileWriteObserved },
       ...(!saved ? { limitation: "Save was requested in Live, but no changed file or clean-state readback was observed. Live may be showing Save As or another dialog; resolve it in Live before relying on this save." } : {}) };
+  }
+
+  async #saveLiveSetAs(args) {
+    const before = await this.#liveSetState(args);
+    const appPath = this.liveSetHost.appPathFor(before);
+    const file = before.filePath ? await this.liveSetHost.fileInfo(before.filePath) : null;
+    const destination = await this.liveSetHost.saveAsDestination(args.path);
+    const plan = { method: "save_live_set", mode: "saveAs", appPath, destination, file,
+      before: { stateVersion: before.stateVersion, setFingerprint: before.setFingerprint, filePath: before.filePath } };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan),
+      warning: "Save As switches Live to the new Set. Sample references remain external; this is not Collect All and Save." };
+    const revalidate = async () => {
+      const current = await this.#liveSetState(args);
+      if (current.filePath !== before.filePath) throw new Error("current Live Set changed before Save As");
+      const currentFile = current.filePath ? await this.liveSetHost.fileInfo(current.filePath) : null;
+      const currentDestination = await this.liveSetHost.saveAsDestination(args.path);
+      if (hashPlan({ ...plan, file: currentFile, destination: currentDestination }) !== hashPlan(plan))
+        throw new Error("Save As source or destination changed; re-observe before saving");
+      requestSignal()?.throwIfAborted();
+    };
+    await revalidate();
+    this.#consumeConfirmation(plan, args);
+    let observed = null, after = null, observationError;
+    try {
+      await this.liveSetHost.saveAs(appPath, destination, { beforeSave: revalidate, signal: requestSignal() });
+      observed = await this.#pollLiveSet(live => live.filePath === destination.path, this.liveSetSaveTimeoutMs);
+      if (observed) after = await this.liveSetHost.fileInfo(destination.path);
+    } catch (error) {
+      requestSignal()?.throwIfAborted();
+      observationError = String(error.message ?? error).slice(0, 300);
+    }
+    const saved = Boolean(observed && after?.path === destination.path && after.size > 0 && !observationError);
+    return { dryRun: false, requested: plan, saveAsRequested: true, saved, pendingUserAction: !saved, observed, after,
+      ...(observationError ? { observationError } : {}), ...(!saved ? { limitation:
+        "Save As was requested but the new file and loaded Set path are not both verified. Inspect Live and the destination before retrying. No overwrite or unexpected dialog was accepted." } : {}) };
   }
 
   #nksGenerationStatus(args) {
@@ -2908,6 +3003,7 @@ export class ToolService {
     assertExpectedState(args, observed);
     const scene = observed.scenes.find(({ id }) => id === args.sceneId);
     if (!scene) throw new Error(`unknown scene ${args.sceneId}`);
+    if (!Array.isArray(scene.launchQuantization?.choices)) throw new Error("scene launch quantization is unavailable in this Live API");
     const value = normalizeChoice(args.launchQuantization, "launchQuantization", scene.launchQuantization.choices);
     if (value === scene.launchQuantization.value) throw new Error("scene launch quantization is already selected");
     return this.#confirmedMutation({ method: "set_scene_launch_quantization", sceneId: scene.id,
@@ -4526,8 +4622,14 @@ export class ToolService {
 
   async #genericMutation(name, args) {
     requireExpectedState(args);
-    if (name === "launch_scene" && args.forceLegato !== undefined && typeof args.forceLegato !== "boolean") {
-      throw new Error("forceLegato must be boolean");
+    if (name === "launch_scene") {
+      if (typeof args.sceneId !== "string" || !/^scene-(0|[1-9][0-9]*)$/.test(args.sceneId)) throw new Error("sceneId must be a canonical Session scene ID");
+      if (args.forceLegato !== undefined && typeof args.forceLegato !== "boolean") throw new Error("forceLegato must be boolean");
+      const before = await this.bridge.request("get_scene_launch_context", {sceneId:args.sceneId});
+      assertExpectedState(args, before);
+      return this.#confirmedMutation({method:name,sceneId:args.sceneId,forceLegato:args.forceLegato??false,
+        expectedStateVersion:args.expectedStateVersion,before,
+        warning:"Scene launch affects the entire row: clips can replace playback, empty stop buttons can stop tracks, armed empty tracks may start recording, and scene overrides can change global tempo or meter. Live's launch preference is not exposed. Review all tracks, Group slots and recording context. The request may start global playback and select the scene; its receipt does not prove playback or recording completed."},args);
     }
     const recording = name === "launch_clip" && args.recordLengthBeats !== undefined;
     if (recording && (typeof args.recordLengthBeats !== "number" || !Number.isFinite(args.recordLengthBeats) || args.recordLengthBeats <= 0)) {
