@@ -1,4 +1,5 @@
 import { assertExpectedState } from "./bridge-protocol.mjs";
+import { enrichSessionOrientation } from "./session-orientation.mjs";
 import { realpath, stat } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { createHash } from "node:crypto";
@@ -639,6 +640,7 @@ export class ToolService {
       return { items: this.#browserMetadataLibrary().search(args), limitation: "Private MCP tags and favorites only; saved identities are not reverified against Live or the local filesystem in this search and do not change native collections." };
     }
     if (name === "get_live_state") return this.bridge.request("get_live_state", {});
+    if (name === "get_session_orientation") return enrichSessionOrientation(await this.bridge.request(name, {}));
     if (name === "get_selection_context") return this.bridge.request(name, {});
     if (name === "duplicate_midi_clip_variations") return duplicateMidiClipVariations(this.bridge, this.confirmations, args);
     if (name === "open_live_set") return this.#openLiveSet(args);

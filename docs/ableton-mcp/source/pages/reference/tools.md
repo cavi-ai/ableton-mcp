@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 223 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 224 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (97)
+## Read-only (98)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -40,13 +40,14 @@ The server publishes 223 tools. Mutations of the Live Set require `expectedState
 | `get_midi_clip_notes_extended` | Read MIDI note IDs, probability, release velocity, deviation and other fields from one Session/Arrangement clip; includes Arrangement timeline identity. | `trackId`, `clipId` |
 | `get_nks_generation_job` | Read one durable NKS generation job and its ordered event history without creating or changing the queue. | `presetId` |
 | `get_nks_generation_status` | Read discovered preset and durable job counts for one product. Serum 2 and Omnisphere also report pilot size, validated count, gate state, queueable factory count (including already queued presets), remaining discovered pilot IDs, and unqueued discovered pilot IDs without a durable job. Does not create a queue or contact Live. | `productSlug` |
-| `get_plugin_integration_context` | Read loaded Serum 2/Omnisphere/VPS Avenger integration: installed variants, configured controls, NKS counts, internal browser boundaries and separate Live UI save/User Library load workflow. Live preset loading does not verify hidden plug-in state. | `trackId`, `deviceId` |
+| `get_plugin_integration_context` | Inspect loaded Serum 2/Omnisphere/VPS Avenger: installed variants, controls, NKS counts, browser limits and Live UI save/User Library load. Loading in Live does not verify hidden plug-in state. | `trackId`, `deviceId` |
 | `get_preset` | Read one exact NKS preset catalog record. | `presetId` |
 | `get_preset_metadata` | Read user tags, favorite state, and revision for one preset. | `presetId` |
 | `get_producer_chain_blueprint` | Return one ordered factory-device chain or shared-bus topology with exact browser paths, stage roles, execution tools, and explicit limitations. | `target` |
-| `get_selection_context` | Read the selected track, scene, device, displayed clip and highlighted Session slot in one Live callback. Null means no resolvable selection; displayed clip and highlighted slot can differ. Does not change focus. | none |
+| `get_selection_context` | Read selected track/scene/device, displayed clip and highlighted slot together without changing focus. Null is unresolved; clip and slot can differ. | none |
+| `get_session_orientation` | Read Set, recording, selection, clip and instruments together; configured scale and ambiguous MIDI evidence. No edits, playback or focus changes. | none |
 | `get_set_mixer` | Read master and return-bus mixer levels, sends, and routing from the current Live Set. | none |
-| `get_song_grid_reference` | Read one bar of straight 16ths, eighth/sixteenth triplets using Live tempo/meter: downbeat, meter beats, and 4-denominator eighth offbeats. Includes advisory 4/4 hip-hop/house/trap placements, half-time versus tempo changes, and related tools. No edits. | none |
+| `get_song_grid_reference` | Read a meter/tempo-aware bar of straight 16ths and eighth/sixteenth triplets, downbeats/offbeats and advisory 4/4 genre placements. Read-only. | none |
 | `get_song_musical_context` | Read key, scale, time signature, quantization, groove, swing, and Arrangement loop context. | none |
 | `get_track_freeze_state` | Read one track's native freeze state. On the tested Live 12.4.5, is_frozen is readable but has no setter, so freeze/unfreeze remain UI-only; Live's native error surfaces if a future version exposes the setter. | `trackId` |
 | `get_track_midi_routing` | Read one track's native MIDI note routing (input/output notes and scale transposition) from its MIDIMap. Reports unsupported explicitly when Live does not expose it. | `trackId` |
@@ -148,7 +149,7 @@ The server publishes 223 tools. Mutations of the Live Set require `expectedState
 | `duplicate_arrangement_clip` | Plan or duplicate one exact Arrangement clip at a non-overlapping beat position on the same track. Preserves the source and validates its identity again at the native write boundary. | `expectedStateVersion`, `trackId`, `clipId`, `startBeats` |
 | `duplicate_clip` | Plan or duplicate an exact occupied Session clip into an exact empty slot. | `expectedStateVersion`, `trackId`, `clipId`, `destinationClipId` |
 | `duplicate_clip_loop` | Plan or duplicate the current loop region of one exact clip. | `expectedStateVersion`, `trackId`, `clipId` |
-| `duplicate_midi_clip_variations` | Plan or create one to four named copies of a Session MIDI clip in existing empty slots on the same track. Binds source notes and timing; verifies exposed copied content and preserves the original. One undo step; removes new copies on failure. Copies start identical: edit and audition them with note-property and launch tools. | `expectedStateVersion`, `trackId`, `sourceClipId`, `variants` |
+| `duplicate_midi_clip_variations` | Copy 1-4 named Session MIDI clips to empty slots on the same track. Binds notes/timing; verifies exposed copies and preserves original. One undo step; removes copies on failure. Edit identical copies separately. | `expectedStateVersion`, `trackId`, `sourceClipId`, `variants` |
 | `duplicate_session_object` | Plan or duplicate an exact track, Session scene, or clip, optionally naming a duplicated track. | `expectedStateVersion`, `targetType`, `targetId` |
 | `edit_drum_pattern_clip` | Plan or apply guarded replacement of selected drum lanes and bars in an existing MIDI clip. Preserves unrelated notes and verifies the complete native note set. | `expectedStateVersion`, `trackId`, `clipId`, `grid`, `startBar`, `bars`, `lanes` |
 | `enqueue_nks_generation_jobs` | Plan or enqueue only explicitly selected eligible discovered presets, in batches of at most 100, using a single-use confirmation. Serum 2 and Omnisphere are limited to their deterministic factory pilots until every pilot record is validated. Does not generate or mark any preset saved. | `productSlug`, `presetIds` |

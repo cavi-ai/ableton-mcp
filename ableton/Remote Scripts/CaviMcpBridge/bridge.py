@@ -2688,6 +2688,54 @@ def _duplicate_midi_variations(song, params, state_version):
             "verification": "Exposed notes and clip timing match; hidden expression and envelopes are not independently inspected."}
 
 
+def _session_orientation(song, state_version, application=None):
+    selection = _selection_context(song, state_version)
+    displayed = selection["detailClip"]
+    focus = {"status": "no_clip", "devices": []}
+    owner_id = displayed["trackId"] if displayed else (selection["selectedTrack"] or {}).get("id")
+    if owner_id:
+        _, owner = _device_owner(song, owner_id)
+        focus.update(trackId=owner_id, devices=[_device_record(device, f"{owner_id}:device-{i}")
+                                              for i, device in enumerate(owner.devices)],
+                     isFrozen=bool(getattr(owner, "is_frozen", False)))
+    if displayed:
+        focus.update(displayed)
+        clip, _ = _clip_reference(song, displayed["trackId"], displayed["clipId"])
+        focus["status"] = "audio" if displayed["type"] == "audio" else "available"
+        if displayed["type"] == "midi":
+            def has_drums(devices):
+                for device in devices:
+                    if bool(getattr(device, "can_have_drum_pads", False)):
+                        return True
+                    if bool(getattr(device, "can_have_chains", False)):
+                        for chain in getattr(device, "chains", ()):
+                            if has_drums(chain.devices):
+                                return True
+                return False
+            if bool(getattr(clip, "is_recording", False)):
+                focus["status"] = "recording"
+            elif has_drums(owner.devices):
+                focus["status"] = "drums"
+            else:
+                notes = list(clip.get_all_notes_extended())
+                focus["totalNotes"] = len(notes)
+                if len(notes) > 4096:
+                    focus["status"] = "note_limit"
+                else:
+                    focus["notes"] = [_midi_note_record(note) for note in notes]
+                    focus["range"] = {"startBeats": float(clip.loop_start if clip.looping else getattr(clip, "start_marker", 0)),
+                                      "endBeats": float(clip.loop_end if clip.looping else getattr(clip, "end_marker", clip.length))}
+                    focus["rangeBasis"] = "clip-loop" if clip.looping else "clip-markers"
+    return {"stateVersion": state_version, "setFingerprint": _set_fingerprint(song),
+            "live": dispatch_request(song, {"method": "get_live_state"}, state_version, application),
+            "musicalContext": _song_musical_context(song, state_version),
+            "recording": _transport_recording_context(song, state_version),
+            "history": {"canUndo": bool(song.can_undo), "canRedo": bool(song.can_redo)},
+            "tracks": [_track_record(song, track, i) for i, track in enumerate(song.tracks)],
+            "sceneCount": len(song.scenes), "selection": selection, "focus": focus,
+            "scope": "Set metadata and displayed clip sampled in one Live callback; tonal evidence is limited to that clip."}
+
+
 def dispatch_request(song, request, state_version, application=None):
     method = request["method"]
     params = request.get("params", {})
@@ -2696,6 +2744,8 @@ def dispatch_request(song, request, state_version, application=None):
         return dict(BRIDGE_PROTOCOL)
     if method == "get_selection_context":
         return _selection_context(song, state_version)
+    if method == "get_session_orientation":
+        return _session_orientation(song, state_version, application)
     if method == "get_midi_clip_variation_context":
         return _midi_variation_context(song, params, state_version)
     if method == "duplicate_midi_clip_variations":

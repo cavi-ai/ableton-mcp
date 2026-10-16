@@ -46,7 +46,7 @@ npm run cli -- call list_devices --args '{"trackId":"track-0"}' --json
 
 To try client wiring without Live, run `ABLETON_MCP_FIXTURE=1 npm start`.
 
-For a smaller initial tool catalog, set `ABLETON_MCP_TOOL_PROFILE=core` in the MCP server's environment. It advertises 62 common tools instead of the full catalog. Use the default `all` profile when an agent needs the complete MIDI, audio, rack, or snapshot toolset; restart the server after changing profiles. The CLI's direct `call` command remains independent of the discovery profile.
+For a smaller initial tool catalog, set `ABLETON_MCP_TOOL_PROFILE=core` in the MCP server's environment. It advertises 63 common tools instead of the full catalog. Use the default `all` profile when an agent needs the complete MIDI, audio, rack, or snapshot toolset; restart the server after changing profiles. The CLI's direct `call` command remains independent of the discovery profile.
 
 ## What it does
 
@@ -56,13 +56,14 @@ For a smaller initial tool catalog, set `ABLETON_MCP_TOOL_PROFILE=core` in the M
 - **Audio analysis**: loudness, true peak, spectrum, pitch, transients and tuning of local audio files.
 - **Optional NKS preset catalog**: search, tags and favorites for presets discovered from your plug-in libraries.
 
-It publishes 223 tools, 9 concrete resources, 13 resource templates and 6 prompt templates. When Live's Remote Script API doesn't expose something, such as Arrangement automation, Group Track creation, or freezing, the tool reports that boundary and fails closed.
+It publishes 224 tools, 9 concrete resources, 13 resource templates and 7 prompt templates. When Live's Remote Script API doesn't expose something, such as Arrangement automation, Group Track creation, or freezing, the tool reports that boundary and fails closed.
 
 ## Documentation
 
 - [Overview](docs/ableton-mcp/source/pages/introduction/overview.md), [Installation](docs/ableton-mcp/source/pages/introduction/installation.md), [Quickstart](docs/ableton-mcp/source/pages/introduction/quickstart.md)
 - [Guarded mutations](docs/ableton-mcp/source/pages/guides/guarded-mutations.md) and [MIDI clip variations](docs/ableton-mcp/source/pages/guides/midi-clip-variations.md)
 - [Cancel agent work](docs/ableton-mcp/source/pages/guides/request-cancellation.md)
+- [Understand a Set and explore instruments](docs/ableton-mcp/source/pages/guides/session-orientation.md)
 - [Preset catalog](docs/ableton-mcp/source/pages/guides/preset-catalog.md) and [NKS artwork](docs/ableton-mcp/source/pages/guides/artwork.md)
 - [Shared instrument buses](docs/ableton-mcp/source/pages/guides/shared-instrument-buses.md) and [Native saving and recall](docs/ableton-mcp/source/pages/guides/native-saving-and-recall.md)
 - [CLI](docs/ableton-mcp/source/pages/reference/cli.md), [Configuration](docs/ableton-mcp/source/pages/reference/configuration.md), [Tools](docs/ableton-mcp/source/pages/reference/tools.md)
@@ -79,7 +80,7 @@ It publishes 223 tools, 9 concrete resources, 13 resource templates and 6 prompt
 | `ABLETON_MCP_CONFIRMATION_DIR` | `~/.cavi/ableton-mcp/confirmations` | Confirmation tokens for CLI `call`. |
 | `ABLETON_MCP_SNAPSHOT_DIR` | `~/.cavi/ableton-mcp/snapshots` | Saved track, device-chain, group-system, and MIDI-feel snapshots in separate subdirectories. |
 | `ABLETON_MCP_FIXTURE` | unset | `1` makes `npm start` serve fixture data without Live. |
-| `ABLETON_MCP_TOOL_PROFILE` | `all` | `core` advertises 62 common tools to reduce MCP discovery context; `all` advertises every tool. |
+| `ABLETON_MCP_TOOL_PROFILE` | `all` | `core` advertises 63 common tools to reduce MCP discovery context; `all` advertises every tool. |
 
 ## Security
 
