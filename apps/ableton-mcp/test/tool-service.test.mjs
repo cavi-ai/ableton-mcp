@@ -190,6 +190,12 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         slot:{id:params.clipId,hasClip:params.trackId==="track-0"&&params.clipId==="track-0:clip-0"},
         launchQuantizationChoices:[{value:0,name:"global"},{value:12,name:"1_16"}]
       };
+      if (method === "get_clip_duplication_source") {
+        if (params.sourceClipId === "track-0:clip-1") throw new Error("source clip is empty");
+        if (params.targetClipId === "track-0:clip-0") throw new Error("target clip must be empty");
+        return {stateVersion:4,trackId:params.trackId,sourceClipId:params.sourceClipId,targetClipId:params.targetClipId,
+          identityToken:"native-copy-pair",source:{name:"Loop"},target:{hasClip:false}};
+      }
       if (method === "list_clips") return {
         stateVersion: 4,
         trackId: params.trackId,
@@ -2417,8 +2423,8 @@ test("clip duplication requires an occupied source and empty target", async () =
   const { service, calls } = fixture();
   const args = { expectedStateVersion: 4, trackId: "track-0", sourceClipId: "track-0:clip-0", targetClipId: "track-0:clip-1" };
   const dry = await service.call("duplicate_clip", args);
-  assert.equal(dry.plan.source.name, "Loop");
-  assert.equal(dry.plan.target.hasClip, false);
+  assert.equal(dry.plan.before.source.name, "Loop");
+  assert.equal(dry.plan.before.target.hasClip, false);
   const live = await service.call("duplicate_clip", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
   assert.equal(live.dryRun, false);
   assert.equal(calls.at(-1).method, "duplicate_clip");

@@ -4773,15 +4773,17 @@ def dispatch_request(song, request, state_version, application=None):
         result["placedClip"] = _arrangement_clip_record(placed, params["trackId"], index)
         return result
     if method == "duplicate_clip":
-        track_id = params["trackId"]
-        _, _, source = _clip_slot(song, track_id, params["sourceClipId"])
-        _, _, target = _clip_slot(song, track_id, params["targetClipId"])
-        if not source.has_clip:
-            raise ValueError("source clip is empty")
-        if target.has_clip:
-            raise ValueError("target clip must be empty")
-        source.duplicate_clip_to(target)
-        return _clip_list(song, track_id, state_version + 1)
+        try:
+            from .clip_duplication import duplicate
+        except ImportError:
+            from clip_duplication import duplicate
+        return duplicate(song, params, state_version)
+    if method == "get_clip_duplication_source":
+        try:
+            from .clip_duplication import source
+        except ImportError:
+            from clip_duplication import source
+        return source(song, params, state_version)
     if method == "delete_clip":
         track_id = params["trackId"]
         _, _, slot = _clip_slot(song, track_id, params["clipId"])
