@@ -4406,11 +4406,21 @@ def dispatch_request(song, request, state_version, application=None):
         return {"stateVersion": state_version + 1, "track": {
             "id": f"track-{index}", "name": song.tracks[index].name, "type": kind,
         }}
+    if method in ("get_track_volume_edit_context", "set_track_volume_db"):
+        try:
+            from . import track_volume
+        except ImportError:
+            import track_volume
+        return (track_volume.source if method == "get_track_volume_edit_context" else track_volume.apply)(song, params, state_version)
     if method == "get_track_mixer":
+        try:
+            from .track_volume import volume_record
+        except ImportError:
+            from track_volume import volume_record
         _, track = _track(song, params["trackId"])
         return {
             "stateVersion": state_version, "trackId": params["trackId"],
-            "volume": {"value": track.mixer_device.volume.value, "min": track.mixer_device.volume.min, "max": track.mixer_device.volume.max},
+            "volume": volume_record(track.mixer_device.volume),
             "pan": {"value": track.mixer_device.panning.value, "min": track.mixer_device.panning.min, "max": track.mixer_device.panning.max},
             "mute": track.mute, "solo": track.solo, "sends": _send_records(song, track),
         }

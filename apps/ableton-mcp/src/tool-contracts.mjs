@@ -676,6 +676,7 @@ const contracts = {
     mute: boolean("Mute state applied to every listed track."),
     solo: boolean("Solo state applied to every listed track; a solo write mutes everything else at Live level.")
   }, ["trackIds"]) },
+  set_track_volume_db: { description: "Set a track fader in dB using Live's native display, with identity, value and automation rechecks. Refuses recording, disabled or automated faders and unrepresentable levels.", inputSchema: guarded({trackId:ids.trackId,volumeDb:number("Finite absolute fader level in dB; native range, no clamping.")},["trackId","volumeDb"]) },
   stop_all_clips: { description: "Plan or stop every playing Session clip in one guarded step using Live's native stop-all action. Playback-only; does not delete or mute clips.", inputSchema: guarded() }
 };
 

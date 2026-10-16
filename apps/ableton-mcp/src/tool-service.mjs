@@ -1,5 +1,6 @@
 import { enrichArrangementSection, assertArrangementRange } from "./arrangement-section.mjs";
 import { assertExpectedState } from "./bridge-protocol.mjs";
+import {setTrackVolumeDb} from "./track-volume.mjs";
 import { enrichSessionOrientation, enrichMidiPartsContext } from "./session-orientation.mjs";
 import { instrumentComparison } from "./instrument-comparison.mjs";
 import { liveAudioCapture } from "./live-audio-capture.mjs";
@@ -1586,6 +1587,7 @@ export class ToolService {
     if (name === "correct_midi_clip_to_scale") return this.#correctMidiClipToScale(args);
     if (name === "transform_midi_notes") return this.#transformMidiNotes(args);
     if (name === "set_track_mixer") return this.#setTrackMixer(args);
+    if (name === "set_track_volume_db") return setTrackVolumeDb(this.bridge,this.confirmations,args);
     if (name === "set_bulk_track_mixer") return this.#setBulkTrackMixer(args);
     if (name === "stop_all_clips") return this.#stopAllClips(args);
     if (name === "set_track_routing") return this.#setTrackRouting(args);

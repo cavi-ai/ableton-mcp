@@ -149,7 +149,7 @@ test("doctor exposes a stale bundled Remote Script beside a current User Library
   const bundledCopy = join(applicationsRoot, "Ableton Live 12 Suite.app", "Contents", "App-Resources", "MIDI Remote Scripts", "CaviMcpBridge");
   try {
     for (const directory of [source, userCopy, bundledCopy]) await mkdir(directory, { recursive: true });
-    for (const name of ["__init__.py", "arrangement_audition.py", "arrangement_section.py", "audio_capture.py", "bridge.py", "capabilities.json", "instrument_comparison.py", "protocol.py"]) {
+    for (const name of ["__init__.py", "arrangement_audition.py", "arrangement_section.py", "audio_capture.py", "bridge.py", "capabilities.json", "instrument_comparison.py", "protocol.py", "track_volume.py"]) {
       await writeFile(join(source, name), `${name}: current`);
       await writeFile(join(userCopy, name), `${name}: current`);
       await writeFile(join(bundledCopy, name), name === "capabilities.json" ? `${name}: stale` : `${name}: current`);
@@ -216,7 +216,7 @@ test("prompts commands render templates without opening a runtime", async () => 
   const runtimeFactory = () => { opened.push(true); return { close() {} }; };
   const output = [];
   const listed = await runCli(["prompts", "--json"], { runtimeFactory, stdout: (line) => output.push(line) });
-  assert.equal(listed.prompts.length, 14);
+  assert.equal(listed.prompts.length, 15);
   const rendered = await runCli(["prompt", "produce-drum-pattern", "--args", '{"trackId":"track-3"}', "--json"],
     { runtimeFactory, stdout: () => {} });
   assert.match(rendered.messages[0].content.text, /track-3/);
