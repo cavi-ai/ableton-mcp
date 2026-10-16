@@ -4,6 +4,10 @@ Ask the `explore-selected-instrument` prompt for a direction such as “try warm
 
 Read notes, timing and devices for the resolved part. Use `analyze_midi_parts` with that one exact part for configured-scale compatibility and scoped tonal evidence; evidence from a different displayed clip does not describe the target. Preserve insufficient evidence and key ambiguity. Then choose an available instrument together. These comparison tools require the default `all` tool profile and the updated Remote Script.
 
+For Arrangement material, the exploration workflow also reads the surrounding requested passage with `analyze_arrangement_section` and `includeHarmony: true`. Without a separately requested passage, use the target clip's placed timeline boundaries in quarter-note song time, rather than its local loop markers. Resolve named section boundaries before analysis; a locator alone does not establish the end. Include the target when restricting tracks. For Session material, compare only explicitly resolved related clips with `analyze_midi_parts`; their ranges do not establish simultaneous playback. Limits require a narrower, explicitly chosen scope, not silent sampling.
+
+Keep the target's register and pitch evidence separate from the shared passage, current scale configuration and literal chord candidates. Muted material and exclusions remain visible; sparse notes and template matches do not establish a key, harmonic function or audible mix. Use the evidence and the user's intention to discuss sound directions, then search for instruments actually available in Live. Pitch evidence does not measure timbre or mix masking. This context read preserves selection, content and playback; unavailable analysis tools leave the context unknown.
+
 ## Prepare an alternative
 
 `prepare_instrument_comparison` plans a native copy of the exact MIDI track containing the part. The plan names the source track, clip, devices and alternative. Confirmation binds exposed devices, routing, notes, timing and track topology; a changed source requires a fresh plan.
