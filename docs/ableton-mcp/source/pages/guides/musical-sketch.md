@@ -26,7 +26,7 @@ Coordinate the requested chord, bass, melody and drum parts using the scale/grid
 
 ## Listen and refine
 
-Audition only when requested or authorized. Launching new Session clips can start playback; separate launches do not establish phase alignment. A scene launch can affect unrelated tracks, including empty slots with stop buttons: inspect the entire row and resolve authority for its full effect first. Stop created clips for a local stop; stop transport only for an intended global stop. Do not change unrelated mutes, monitoring or recording to isolate the sketch automatically.
+Audition only when requested or authorized. Launching new Session clips can start playback; separate launches do not establish phase alignment. For a [scene launch](scene-launch.md), review the full-row dry-run plan, including empty stop buttons, armed tracks, recording state and scene tempo/meter overrides. Resolve authority for its full effect first. Require `launchRequested: true`, then read actual clip playback, recording and musical context; the immediate receipt does not certify playback. Stop created clips for a local stop; stop transport only for an intended global stop. Do not change unrelated mutes, monitoring or recording to isolate the sketch automatically.
 
 Discuss what the user hears, or make an authorized bounded refinement in autonomous mode. Re-read affected material before edits and preserve manual changes. Use clip or instrument variations for alternatives. Stored-state checks do not establish audible output or musical quality. Requested measurements use a separately authorized [Live audio capture](live-audio-capture.md), with its complete-file and cleanup checks. Save or delete only when requested or already authorized.
 

@@ -21,6 +21,7 @@
         { "title": "Relate musical parts", "path": "guides/musical-parts.md" },
         { "title": "Analyze an Arrangement passage", "path": "guides/arrangement-section.md" },
         { "title": "Audition an Arrangement passage", "path": "guides/arrangement-audition.md" },
+        { "title": "Play a Session scene", "path": "guides/scene-launch.md" },
         { "title": "Capture Live audio", "path": "guides/live-audio-capture.md" },
         { "title": "Compare instruments", "path": "guides/instrument-comparison.md" },
         { "title": "MIDI clip variations", "path": "guides/midi-clip-variations.md" },
