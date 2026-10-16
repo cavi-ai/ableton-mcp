@@ -12,6 +12,12 @@ for (const scale of listLiveScaleReferences().filter(scale => scale.family === "
   }
 }
 
+export function assertTonalNote(note) {
+  if (!note || !Number.isInteger(note.pitch) || note.pitch < 0 || note.pitch > 127 || typeof note.mute !== "boolean" ||
+      !Number.isFinite(note.start) || !Number.isFinite(note.duration) || note.duration <= 0)
+    throw new Error("tonal evidence received an invalid MIDI note");
+}
+
 export function analyzeTonalEvidence(notes, range, configuredKey) {
   if (!Array.isArray(notes) || notes.length > 4096) throw new Error("tonal evidence requires at most 4096 notes");
   if (!Number.isFinite(range?.startBeats) || !Number.isFinite(range?.endBeats) || range.endBeats <= range.startBeats)
@@ -19,9 +25,7 @@ export function analyzeTonalEvidence(notes, range, configuredKey) {
   const weights = Array(12).fill(0);
   let includedNotes = 0;
   for (const note of notes) {
-    if (!Number.isInteger(note.pitch) || note.pitch < 0 || note.pitch > 127 || typeof note.mute !== "boolean" ||
-      !Number.isFinite(note.start) || !Number.isFinite(note.duration) || note.duration <= 0)
-      throw new Error("tonal evidence received an invalid MIDI note");
+    assertTonalNote(note);
     if (note.mute) continue;
     const duration = Math.max(0, Math.min(note.start + note.duration, range.endBeats) - Math.max(note.start, range.startBeats));
     if (!duration) continue;
@@ -32,7 +36,7 @@ export function analyzeTonalEvidence(notes, range, configuredKey) {
     "Selected clip range only; not the whole Set or rendered sound.");
 }
 
-function describeTonalEvidence(weights, includedNotes, range, configuredKey, scope) {
+export function describeTonalEvidence(weights, includedNotes, range, configuredKey, scope) {
   const totalDuration = weights.reduce((sum, value) => sum + value, 0);
   const pitchClasses = weights.flatMap((durationBeats, pitchClass) => durationBeats ? [{ pitchClass,
     name: names[pitchClass], durationBeats }] : []);

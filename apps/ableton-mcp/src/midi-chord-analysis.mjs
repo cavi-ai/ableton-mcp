@@ -40,13 +40,13 @@ function romanNumeral(rootDegree, quality) {
   return base;
 }
 
-function identifyCandidates(pitchClasses, bassPitchClass, scale) {
+export function identifyChordCandidates(pitchClasses, bassPitchClass, scale = null) {
   const candidates = [];
   for (let rootPitchClass = 0; rootPitchClass < 12; rootPitchClass += 1) {
     const intervals = pitchClasses.map(pitchClass => (pitchClass - rootPitchClass + 12) % 12).sort((a, b) => a - b);
     const template = TEMPLATES.find(item => JSON.stringify(item.intervals) === JSON.stringify(intervals));
     if (!template) continue;
-    const rootDegreeIndex = scale.pitchClasses.indexOf(rootPitchClass);
+    const rootDegreeIndex = scale ? scale.pitchClasses.indexOf(rootPitchClass) : -1;
     const rootDegree = rootDegreeIndex < 0 ? null : rootDegreeIndex + 1;
     const inversion = template.intervals.indexOf((bassPitchClass - rootPitchClass + 12) % 12);
     candidates.push({
@@ -61,7 +61,7 @@ function identifyCandidates(pitchClasses, bassPitchClass, scale) {
       bassName: NOTE_NAMES[bassPitchClass],
       romanNumeral: romanNumeral(rootDegree, template.quality),
       rootDegree,
-      inScale: pitchClasses.every(pitchClass => scale.pitchClasses.includes(pitchClass))
+      inScale: scale ? pitchClasses.every(pitchClass => scale.pitchClasses.includes(pitchClass)) : null
     });
   }
   return candidates.sort((a, b) =>
@@ -90,7 +90,7 @@ export function analyzeMidiChordEvents(notes, key) {
     const signature = `${bassPitchClass}:${pitchClasses.join(",")}`;
     if (signature === previousSignature) continue;
     previousSignature = signature;
-    const candidates = identifyCandidates(pitchClasses, bassPitchClass, scale);
+    const candidates = identifyChordCandidates(pitchClasses, bassPitchClass, scale);
     events.push({
       startBeats,
       noteIds: active.map(note => note.noteId),

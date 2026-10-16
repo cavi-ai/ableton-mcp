@@ -85,7 +85,7 @@ assert.equal(fixture[0].result.content[0].type, "text");
 const remoteScripts = path.join(work, "Remote Scripts");
 execFileSync(bin, ["install", "--destination", remoteScripts, "--json"], { encoding: "utf8" });
 const bridgeFiles = readdirSync(path.join(remoteScripts, "CaviMcpBridge")).sort();
-assert.deepEqual(bridgeFiles, ["__init__.py", "audio_capture.py", "bridge.py", "capabilities.json", "instrument_comparison.py", "protocol.py"]);
+assert.deepEqual(bridgeFiles, ["__init__.py", "arrangement_audition.py", "arrangement_section.py", "audio_capture.py", "bridge.py", "capabilities.json", "instrument_comparison.py", "protocol.py"]);
 
 const doctor = JSON.parse(execFileSync(bin, ["doctor", "--json"], {
   encoding: "utf8",

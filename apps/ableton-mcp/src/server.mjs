@@ -45,6 +45,8 @@ const resourceTemplates = resourceUris.filter((uri) => uri.includes("{"))
   .map((uriTemplate) => ({ uriTemplate, name: uriTemplate, mimeType: "application/json" }));
 
 const toolNames = [
+  "audition_arrangement_passage",
+  "get_producer_workflow",
   "search_presets",
   "get_nks_generation_status",
   "get_nks_generation_job",
@@ -63,8 +65,9 @@ const toolNames = [
   "get_selection_context",
   "get_session_orientation",
   "analyze_midi_parts",
+  "analyze_arrangement_section",
   "capture_live_audio", "get_live_audio_capture", "finish_live_audio_capture",
-  "get_instrument_comparison", "prepare_instrument_comparison", "select_instrument_comparison",
+  "get_instrument_comparison", "prepare_instrument_comparison", "adopt_instrument_comparison", "select_instrument_comparison",
   "duplicate_midi_clip_variations",
   "open_live_set",
   "save_live_set",
