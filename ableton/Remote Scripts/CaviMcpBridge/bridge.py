@@ -333,6 +333,10 @@ def _clip_timing(song, track_id, clip_id, state_version):
         "stateVersion": state_version, "trackId": track_id, "clipId": clip_id,
         "location": "arrangement" if timeline is not None else "session", "timeline": timeline,
         "loop": loop,
+        "markers": {"supported": True, "unit": "seconds" if unwarped_audio else "beats",
+                    "startSeconds" if unwarped_audio else "startBeats": float(clip.start_marker),
+                    "endSeconds" if unwarped_audio else "endBeats": float(clip.end_marker)}
+        if hasattr(clip, "start_marker") and hasattr(clip, "end_marker") else {"supported": False},
         "timeSignature": {"numerator": int(clip.signature_numerator), "denominator": int(clip.signature_denominator)},
         "launchQuantization": _enum_record(clip.launch_quantization, CLIP_QUANTIZATION_NAMES),
         "editorGrid": {
@@ -439,6 +443,63 @@ def _arrangement_clips(song, track_id, state_version):
                       for index, clip in enumerate(track.arrangement_clips)]}
 
 
+_arrangement_source_song = None
+_arrangement_source_identities = {}
+
+
+def _session_clip_arrangement_source(song, params, state_version):
+    global _arrangement_source_song
+    track_id, clip_id = params["trackId"], params["clipId"]
+    track, _, slot = _clip_slot(song, track_id, clip_id)
+    if not slot.has_clip:
+        raise ValueError("source clip is empty")
+    if bool(getattr(track, "is_frozen", False)):
+        raise ValueError("Arrangement placement source track is frozen")
+    clip = slot.clip
+    if bool(getattr(clip, "is_recording", False)) or bool(getattr(slot, "is_triggered", False)):
+        raise ValueError("resolve source recording or pending clip launch before placement")
+    audio = bool(getattr(clip, "is_audio_clip", False))
+    if audio and not clip.warping:
+        raise ValueError("unwarped placement requires tempo-map duration conversion")
+    source = next(row for row in _clip_list(song, track_id, state_version)["clips"] if row["id"] == clip_id)
+    timing = _clip_timing(song, track_id, clip_id, state_version)
+    for key in ("stateVersion", "trackId", "clipId", "location", "timeline"):
+        timing.pop(key, None)
+    content = {"source": source, "timing": timing,
+               "startMarker": float(getattr(clip, "start_marker", clip.loop_start)),
+               "endMarker": float(getattr(clip, "end_marker", clip.loop_end)),
+               "color": getattr(clip, "color", None)}
+    note_count = None
+    if audio:
+        audio_state = _audio_clip_state(song, track_id, clip_id, state_version)
+        for key in ("stateVersion", "trackId", "clipId", "location", "timeline"):
+            audio_state.pop(key, None)
+        content["audio"] = audio_state
+    else:
+        notes = list(clip.get_all_notes_extended())
+        if len(notes) > 4096:
+            raise ValueError("Arrangement placement supports at most 4096 source MIDI notes")
+        content["notes"] = sorted([_midi_note_record(note) for note in notes], key=lambda note: note["noteId"])
+        note_count = len(notes)
+    if len(track.arrangement_clips) > 4096:
+        raise ValueError("Arrangement placement supports at most 4096 existing clips per track")
+    if _arrangement_source_song != song:
+        _arrangement_source_song = song
+        _arrangement_source_identities.clear()
+    key, identity = (track_id, clip_id), (track, slot, clip)
+    cached = _arrangement_source_identities.get(key)
+    if cached is None or cached[0] != identity:
+        if key not in _arrangement_source_identities and len(_arrangement_source_identities) >= 64:
+            del _arrangement_source_identities[next(iter(_arrangement_source_identities))]
+        cached = (identity, str(uuid.uuid4()))
+        _arrangement_source_identities[key] = cached
+    digest = hashlib.sha256(json.dumps(content, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+    return {"stateVersion": state_version, "trackId": track_id, "clipId": clip_id,
+            "source": source, "beforeArrangement": _arrangement_clips(song, track_id, state_version)["clips"],
+            "sourceGuard": {"identityToken": cached[1], "contentSha256": digest,
+                            "type": "audio" if audio else "midi", "noteCount": note_count}}
+
+
 def _scene_record(scene, index):
     quantization = getattr(scene, "launch_quantization", None)
     tempo_supported = hasattr(scene, "tempo_enabled") and hasattr(scene, "tempo")
@@ -517,6 +578,34 @@ def _scene_launch_context(song, params, state_version):
                      "denominator": int(song.signature_denominator), "launchQuantization": int(song.clip_trigger_quantization)}}
 
 
+_parameter_edit_song = None
+_parameter_edit_identities = {}
+
+
+def _parameter_edit_context(song, params, device):
+    global _parameter_edit_song
+    if _parameter_edit_song != song:
+        _parameter_edit_song = song
+        _parameter_edit_identities.clear()
+    key = (params["trackId"], params["deviceId"])
+    identity = (device, tuple(device.parameters))
+    cached = _parameter_edit_identities.get(key)
+    if cached is None or cached[0] != identity:
+        if key not in _parameter_edit_identities and len(_parameter_edit_identities) >= 64:
+            del _parameter_edit_identities[next(iter(_parameter_edit_identities))]
+        cached = (identity, str(uuid.uuid4()))
+        _parameter_edit_identities[key] = cached
+    return {"identityToken": cached[1], "deviceClass": device.class_name}
+
+
+def _parameter_automation_state(parameter):
+    state = getattr(parameter, "automation_state", None)
+    if state is None:
+        return None
+    value = int(state)
+    return {"value": value, "name": ("none", "playing", "overridden")[value] if 0 <= value <= 2 else "unknown"}
+
+
 def _parameter_record(parameter, index, include_native_choice_labels=False):
     record = {
         "id": f"parameter-{index}",
@@ -527,6 +616,7 @@ def _parameter_record(parameter, index, include_native_choice_labels=False):
         "value": parameter.value,
         "displayValue": parameter.str_for_value(parameter.value),
         "enabled": parameter.is_enabled,
+        "automationState": _parameter_automation_state(parameter),
         "quantized": parameter.is_quantized,
         "valueItems": list(parameter.value_items) if parameter.is_quantized else [],
     }
@@ -4610,7 +4700,14 @@ def dispatch_request(song, request, state_version, application=None):
         result = _arrangement_clips(song, track_id, state_version + 1)
         result["deletedClip"] = before
         return result
+    if method == "get_session_clip_arrangement_source":
+        return _session_clip_arrangement_source(song, params, state_version)
     if method == "place_session_clip_in_arrangement":
+        if "sourceGuard" in params:
+            if params.get("expectedStateVersion") != state_version:
+                raise ValueError("Arrangement placement state version changed")
+            if _session_clip_arrangement_source(song, params, state_version)["sourceGuard"] != params["sourceGuard"]:
+                raise ValueError("Arrangement placement source context changed after planning")
         track, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
         if not slot.has_clip:
             raise ValueError("source clip is empty")
@@ -5941,7 +6038,7 @@ def dispatch_request(song, request, state_version, application=None):
                 "device": _device_tree(device, params["deviceId"]),
                 "parameters": [_parameter_record(parameter, i, include_native_choice_labels=True)
                                for i, parameter in enumerate(device.parameters)]}
-    if method == "list_device_parameters":
+    if method in ("list_device_parameters", "get_device_parameter_edit_context"):
         _, _, device = _device(song, params["trackId"], params["deviceId"])
         parameters = [_parameter_record(parameter, i, include_native_choice_labels=True)
                       for i, parameter in enumerate(device.parameters)]
@@ -5951,9 +6048,12 @@ def dispatch_request(song, request, state_version, application=None):
         ambiguities = [{"name": name, "parameterIds": identifiers}
                        for name, identifiers in names.items() if len(identifiers) > 1]
         return {"stateVersion": state_version, "trackId": params["trackId"], "deviceId": params["deviceId"],
-                "parameters": parameters, "nameAmbiguities": ambiguities}
+                "parameters": parameters, "nameAmbiguities": ambiguities,
+                **({"editContext": _parameter_edit_context(song, params, device)} if method == "get_device_parameter_edit_context" else {})}
     if method == "set_device_parameters":
         _, _, device = _device(song, params["trackId"], params["deviceId"])
+        if "beforeEditContext" in params and _parameter_edit_context(song, params, device) != params["beforeEditContext"]:
+            raise ValueError("device edit context changed before parameter write")
         if ("expectedStateVersion" in params and
                 params["expectedStateVersion"] != state_version):
             raise ValueError("parameter state version changed before write")
@@ -5969,6 +6069,8 @@ def dispatch_request(song, request, state_version, application=None):
             parameter = device.parameters[index]
             if not parameter.is_enabled:
                 raise ValueError("parameter is disabled")
+            if "previousAutomationState" in change and _parameter_automation_state(parameter) != change["previousAutomationState"]:
+                raise ValueError("parameter automation state changed before write")
             if ("previousValue" in change and
                     float(parameter.value) != float(change["previousValue"])):
                 raise ValueError("parameter value changed before write")
@@ -5981,6 +6083,8 @@ def dispatch_request(song, request, state_version, application=None):
             parameter = device.parameters[index]
             if not parameter.is_enabled:
                 raise ValueError("parameter is disabled")
+            if "previousAutomationState" in change and _parameter_automation_state(parameter) != change["previousAutomationState"]:
+                raise ValueError("parameter automation state changed during batch")
             parameter.value = max(parameter.min, min(parameter.max, float(change["value"])))
             observed.append(_parameter_record(parameter, index))
         return {"stateVersion": state_version + 1, "trackId": params["trackId"], "deviceId": params["deviceId"], "observedChanges": observed}
@@ -6365,6 +6469,9 @@ class SocketBridge:
                 if self._last_topology_signature is not None and topology != self._last_topology_signature:
                     self.state_version += 1
                 self._last_topology_signature = topology
+                if request.get("method") == "prepare_instrument_comparison":
+                    self._defer_instrument_comparison(client, request, song, record)
+                    return
                 if request.get("method") == "audition_arrangement_passage":
                     self._defer_arrangement_audition(client, request, song, record)
                     return
@@ -6377,6 +6484,53 @@ class SocketBridge:
             except Exception as error:
                 response = {"id": request.get("id"), "error": {"message": str(error) or error.__class__.__name__}}
             self._reply(client, response, record)
+
+    def _defer_instrument_comparison(self, client, request, song, record=None):
+        try:
+            try:
+                from . import instrument_comparison
+            except ImportError:
+                import instrument_comparison
+            operation = instrument_comparison.begin_prepare(song, request.get("params", {}), self.state_version)
+        except Exception as error:
+            self._last_topology_signature = _track_topology_signature(song)
+            self._reply(client, {"id": request.get("id"), "error": {"message": str(error) or error.__class__.__name__}}, record)
+            return
+        self.state_version += 1
+        self.deferred_request = True
+
+        def observe():
+            completing = False
+            try:
+                current = self.control_surface.song()
+                completing = True
+                result = instrument_comparison.complete_prepare(current, operation, self.state_version)
+                response = {"id": request.get("id"), "result": result}
+            except Exception as error:
+                if not completing:
+                    try:
+                        instrument_comparison.abort_prepare(operation, error)
+                    except Exception as failure:
+                        error = failure
+                response = {"id": request.get("id"), "error": {"message": str(error) or error.__class__.__name__}}
+            finally:
+                self.deferred_request = False
+                try:
+                    self._last_topology_signature = _track_topology_signature(self.control_surface.song())
+                except Exception:
+                    self._last_topology_signature = None
+            self._reply(client, response, record)
+        try:
+            # Live applies duplicated mixer values after the component guard.
+            # Insert once, then verify in the next callback with the queue held.
+            self.control_surface.schedule_message(1, observe)
+        except Exception as error:
+            try:
+                instrument_comparison.abort_prepare(operation, error)
+            except Exception as failure:
+                self.deferred_request = False
+                self._last_topology_signature = _track_topology_signature(song)
+                self._reply(client, {"id": request.get("id"), "error": {"message": str(failure) or failure.__class__.__name__}}, record)
 
     def _defer_arrangement_audition(self, client, request, song, record=None):
         try:

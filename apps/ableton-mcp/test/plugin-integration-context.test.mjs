@@ -39,7 +39,7 @@ test("plugin integration context joins installed variants, Live exposure, and NK
   };
   const bridge = { async request(method, args) {
     if (method === "list_devices") return { stateVersion: 7, trackId: "track-0", devices: [device] };
-    if (method === "list_device_parameters") return { stateVersion: 7, trackId: "track-0", deviceId: device.id, parameters };
+    if (["list_device_parameters", "get_device_parameter_edit_context"].includes(method)) return { stateVersion: 7, trackId: "track-0", deviceId: device.id, parameters };
     if (method === "search_browser_items") {
       assert.deepEqual(args, { root: "plugins", path: [], query: "Serum 2", maxDepth: 6, limit: 50 });
       return { stateVersion: 7, root: "plugins", path: [], query: "Serum 2", results: [
@@ -99,7 +99,7 @@ test("plugin integration context reports installed but unconfigured Omnisphere w
   const service = new ToolService({ catalog: { search: () => [], get: () => undefined, products: () => [] },
     bridge: { async request(method) {
       if (method === "list_devices") return { stateVersion: 4, devices: [device] };
-      if (method === "list_device_parameters") return { stateVersion: 4, trackId: "track-0", deviceId: device.id, parameters: [
+      if (["list_device_parameters", "get_device_parameter_edit_context"].includes(method)) return { stateVersion: 4, trackId: "track-0", deviceId: device.id, parameters: [
         { id: "parameter-0", name: "Device On", originalName: "Device On", enabled: true }
       ] };
       if (method === "search_browser_items") return { stateVersion: 4, results: [

@@ -1,10 +1,12 @@
 import copy
+import json
+from types import SimpleNamespace
 import os
 import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from bridge import dispatch_request
+from bridge import dispatch_request, SocketBridge
 from test_dispatch import Song, MidiNote
 
 
@@ -29,6 +31,78 @@ class InstrumentComparisonTests(unittest.TestCase):
         before = self.call("get_instrument_comparison_source", {"trackId": "track-0", "clipId": "track-0:clip-0"})
         return self.call("prepare_instrument_comparison", {"expectedStateVersion": 4,
             "trackId": "track-0", "clipId": "track-0:clip-0", "name": "Warm alternative", "before": before})
+
+    def test_socket_copy_waits_for_native_values_and_still_rejects_changed_content(self):
+        for corrupt in (False, True):
+            with self.subTest(corrupt=corrupt):
+                self.setUp()
+                self.track.mixer_device = copy.copy(self.track.mixer_device)
+                self.track.mixer_device.volume = copy.copy(self.track.mixer_device.volume)
+                self.track.mixer_device.volume.value = 0.5
+                callbacks, replies = [], []
+                duplicate = self.song.duplicate_track
+                def pending(index):
+                    duplicate(index)
+                    self.song.tracks[index + 1].mixer_device.volume.value = 0.85
+                self.song.duplicate_track = pending
+                surface = SimpleNamespace(song=lambda: self.song, application=lambda: None,
+                    schedule_message=lambda delay, callback: callbacks.append(callback))
+                client = SimpleNamespace(sendall=lambda payload: replies.append(json.loads(payload)))
+                bridge = SocketBridge(surface, "/unused")
+                bridge.state_version = 4
+                before = self.call("get_instrument_comparison_source", {"trackId": "track-0", "clipId": "track-0:clip-0"})
+                bridge.requests.put((client, {"id": 1, "method": "prepare_instrument_comparison", "params": {
+                    "expectedStateVersion": 4, "trackId": "track-0", "clipId": "track-0:clip-0",
+                    "name": "Alternative", "before": before}}))
+                bridge.drain()
+                self.assertEqual(replies, [])
+                self.assertEqual(len(self.song.tracks), 3)
+                self.assertTrue(self.song.tracks[1].mute)
+                self.assertEqual(self.song.undo_boundaries, ["begin", "end"])
+                bridge.drain()
+                self.assertEqual(len(self.song.tracks), 3)
+                self.song.tracks[1].mixer_device.volume.value = self.track.mixer_device.volume.value
+                if corrupt:
+                    self.song.tracks[1].devices[0].parameters[0].value = 0.99
+                callbacks.pop(0)()
+                self.assertFalse(bridge.deferred_request)
+                self.assertEqual(bridge.state_version, 5)
+                if corrupt:
+                    self.assertIn("content readback mismatch", replies[0]["error"]["message"])
+                    self.assertEqual(len(self.song.tracks), 2)
+                else:
+                    self.assertIn("result", replies[0])
+                    self.assertEqual(replies[0]["result"]["variation"]["trackId"], "track-1")
+                    self.assertEqual(replies[0]["result"]["stateVersion"], 5)
+
+    def test_deferred_copy_reports_and_cleans_scheduler_or_document_lookup_failure(self):
+        for failure in ("schedule", "song"):
+            with self.subTest(failure=failure):
+                self.setUp()
+                callbacks, replies = [], []
+                def schedule(delay, callback):
+                    if failure == "schedule":
+                        raise RuntimeError("scheduler unavailable")
+                    callbacks.append(callback)
+                surface = SimpleNamespace(song=lambda: self.song, application=lambda: None, schedule_message=schedule)
+                client = SimpleNamespace(sendall=lambda payload: replies.append(json.loads(payload)))
+                bridge = SocketBridge(surface, "/unused")
+                bridge.state_version = 4
+                before = self.call("get_instrument_comparison_source", {"trackId": "track-0", "clipId": "track-0:clip-0"})
+                bridge.requests.put((client, {"id": 1, "method": "prepare_instrument_comparison", "params": {
+                    "expectedStateVersion": 4, "trackId": "track-0", "clipId": "track-0:clip-0",
+                    "name": "Alternative", "before": before}}))
+                bridge.drain()
+                if failure == "song":
+                    def unavailable():
+                        raise RuntimeError("document unavailable")
+                    surface.song = unavailable
+                    callbacks.pop(0)()
+                self.assertEqual(len(replies), 1)
+                self.assertIn("unavailable", replies[0]["error"]["message"])
+                self.assertFalse(bridge.deferred_request)
+                self.assertEqual(len(self.song.tracks), 2)
+                self.assertFalse(self.track.mute)
 
     def test_native_copy_preserves_original_and_exposed_content_and_starts_silent(self):
         original_notes = copy.deepcopy([vars(note) for note in self.clip.extended_notes])

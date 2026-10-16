@@ -20,6 +20,8 @@ The source must be an ordinary, unfrozen MIDI track with arm and solo off and no
 
 ## Try a sound on the copy
 
+For a request to adjust the current instrument's controls, use [instrument refinement](instrument-refinement.md). It uses the same comparison handle and preserves the original without loading another instrument.
+
 Load only the chosen candidate onto the alternative track through the usual `load_browser_item` plan and confirmation. Keep the original instrument intact. Read both device chains and complete note/timing baselines before loading, then compare readback afterward. Resolve manual edits with the user rather than overwriting them.
 
 Native track duplication carries the instrument through Live's own copy operation. The bridge verifies exposed state; it cannot independently inspect opaque plug-in state or prove that the copy sounds identical. Parameter snapshots cannot recreate a missing instrument. Listen before judging the sound.

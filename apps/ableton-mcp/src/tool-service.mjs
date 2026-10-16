@@ -1934,7 +1934,7 @@ export class ToolService {
 
   async #setDeviceParameters(args, snapshot) {
     requireExpectedState(args);
-    const observed = await this.bridge.request("list_device_parameters", {
+    const observed = await this.bridge.request("get_device_parameter_edit_context", {
       trackId: args.trackId,
       deviceId: args.deviceId
     });
@@ -1973,6 +1973,7 @@ export class ToolService {
         originalName: parameter.originalName,
         previousValue: parameter.value,
         previousDisplayValue: parameter.displayValue,
+        previousAutomationState: parameter.automationState ?? null,
         requestedValue: change.value,
         value,
         targetDisplayValue: targetDisplayValue(parameter, value)
@@ -1998,7 +1999,9 @@ export class ToolService {
       deviceId: args.deviceId,
       expectedStateVersion: args.expectedStateVersion,
       ...(beforeDevice ? { beforeDevice, beforeParameters: observed.parameters } : {}),
+      ...(observed.editContext ? { beforeEditContext: observed.editContext } : {}),
       changes,
+      automationWarning: "A parameter write may override automation. Automation state is current ownership, not envelope contents; null means unavailable. Restoring a value does not restore automation playback or history.",
       ...(contentMutationRisk ? { contentMutationRisk } : {})
     };
     if (args.dryRun !== false) {
@@ -2021,7 +2024,7 @@ export class ToolService {
       timestamp: new Date().toISOString(),
       rollback: contentMutationRisk
         ? "No automatic rollback for recorded loop content; changing the State parameter back does not restore captured audio."
-        : "Recall the prior macro snapshot or restore the previous parameter values."
+        : "Re-read before restoring only the requested values; preserve intervening edits. Restoring a value does not restore automation playback, envelope contents or hidden plug-in state."
     };
   }
 
@@ -2610,20 +2613,19 @@ export class ToolService {
 
   async #placeSessionClipInArrangement(args) {
     requireExpectedState(args);
-    const session = await this.bridge.request("list_clips", { trackId: args.trackId });
-    assertExpectedState(args, session);
-    const source = session.clips.find(({ id }) => id === args.clipId);
+    const before = await this.bridge.request("get_session_clip_arrangement_source", { trackId: args.trackId, clipId: args.clipId });
+    assertExpectedState(args, before);
+    const source = before.source;
     if (!source?.hasClip) throw new Error("source clip is empty or unknown");
+    if (!before.sourceGuard?.identityToken || !before.sourceGuard?.contentSha256) throw new Error("updated bridge Arrangement source context required");
     const startBeats = finiteRange(args.startBeats, "startBeats", 0, Number.MAX_SAFE_INTEGER);
     if (!Number.isFinite(source.lengthBeats) || source.lengthBeats <= 0) throw new Error("source clip length is unavailable");
     const endBeats = startBeats + source.lengthBeats;
     if (!Number.isSafeInteger(Math.ceil(endBeats))) throw new Error("placement end exceeds supported beat range");
-    const timeline = await this.bridge.request("list_arrangement_clips", { trackId: args.trackId });
-    assertExpectedState(args, timeline);
-    if (timeline.clips.some((clip) => startBeats < clip.endBeats && endBeats > clip.startBeats)) throw new Error("placement would overlap existing Arrangement clips");
+    if (before.beforeArrangement.some((clip) => startBeats < clip.endBeats && endBeats > clip.startBeats)) throw new Error("placement would overlap existing Arrangement clips");
     return this.#confirmedMutation({ method: "place_session_clip_in_arrangement", trackId: args.trackId,
       clipId: args.clipId, expectedStateVersion: args.expectedStateVersion, startBeats, endBeats, source,
-      beforeArrangement: timeline.clips }, args);
+      beforeArrangement: before.beforeArrangement, sourceGuard: before.sourceGuard }, args);
   }
 
   async #deleteClip(args) {
