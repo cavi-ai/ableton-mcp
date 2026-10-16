@@ -652,7 +652,7 @@ export class ToolService {
     if (name === "analyze_midi_parts") return enrichMidiPartsContext(await this.bridge.request(name, args));
     if (["capture_live_audio", "get_live_audio_capture", "finish_live_audio_capture"].includes(name))
       return liveAudioCapture(this.bridge, this.confirmations, name, args);
-    if (["get_instrument_comparison", "prepare_instrument_comparison", "select_instrument_comparison"].includes(name))
+    if (["get_instrument_comparison", "prepare_instrument_comparison", "adopt_instrument_comparison", "select_instrument_comparison"].includes(name))
       return instrumentComparison(this.bridge, this.confirmations, name, args);
     if (name === "get_selection_context") return this.bridge.request(name, {});
     if (name === "duplicate_midi_clip_variations") return duplicateMidiClipVariations(this.bridge, this.confirmations, args);

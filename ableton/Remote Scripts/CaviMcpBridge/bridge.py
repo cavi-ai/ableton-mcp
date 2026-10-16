@@ -2801,13 +2801,16 @@ def dispatch_request(song, request, state_version, application=None):
         capture = _audio_capture_module()
         return {"get_audio_capture_source": capture.source, "capture_live_audio": capture.start,
                 "get_live_audio_capture": capture.read, "finish_live_audio_capture": capture.finish}[method](song, params, state_version)
-    if method in ("get_instrument_comparison_source", "prepare_instrument_comparison",
+    if method in ("get_instrument_comparison_adoption_source", "adopt_instrument_comparison",
+                  "get_instrument_comparison_source", "prepare_instrument_comparison",
                   "get_instrument_comparison", "select_instrument_comparison"):
         try:
             from . import instrument_comparison
         except ImportError:
             import instrument_comparison
         handlers = {"get_instrument_comparison_source": instrument_comparison.read_source,
+                    "get_instrument_comparison_adoption_source": instrument_comparison.read_adoption_source,
+                    "adopt_instrument_comparison": instrument_comparison.adopt,
                     "prepare_instrument_comparison": instrument_comparison.prepare,
                     "get_instrument_comparison": instrument_comparison.read_comparison,
                     "select_instrument_comparison": instrument_comparison.select}

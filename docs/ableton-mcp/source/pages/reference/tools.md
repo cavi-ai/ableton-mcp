@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 232 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 233 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (102)
 
@@ -111,11 +111,12 @@ The server publishes 232 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (114)
+## Mutations (115)
 
 | Tool | Description | Required arguments |
 |---|---|---|
 | `add_audio_warp_marker` | Plan or apply an audio warp anchor. Omit sampleTime to preserve playback timing; explicit sample positions are seconds. Live enforces sample bounds, neighbor ordering, and segment BPM limits. | `expectedStateVersion`, `trackId`, `clipId`, `beatTime` |
+| `adopt_instrument_comparison` | Plan or bind a new runtime comparison handle to two explicitly chosen existing MIDI parts, including after restart. Binds current notes, timing, devices, routing and topology; no tracks, notes, mutes or playback are changed. Restore uses both adoption-time mutes, not an unknown prior baseline. Refuses active pairs, recording, solo, live-input conflicts and two unmuted tracks. Does not prove historical identity or matching copies. | `expectedStateVersion`, `original`, `variation` |
 | `apply_drum_variation` | Plan or apply a guarded deterministic drum variation with exact native context and complete note readback. | `expectedStateVersion`, `trackId`, `clipId`, `grid`, `startBar`, `bars`, `laneNotes`, `seed`, `timingAmount`, `velocityAmount`, `preserveAccentsAbove` |
 | `apply_midi_chord_arpeggiation` | Plan or apply guarded chord arpeggiation with stable native note IDs and complete readback verification. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `mode`, `stepBeats`, `gate`, `seed` |
 | `apply_midi_chord_doubling` | Plan or apply guarded chord doublings while preserving existing notes and verifying every native addition. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `mode` |
@@ -192,7 +193,7 @@ The server publishes 232 tools. Mutations of the Live Set require `expectedState
 | `save_group_system_snapshot` | Capture an existing Group Track and descendants into a private named local JSON file. Never overwrites; preserves exposed mixer, routing, device and rack state but not clips, samples, hidden plug-in state, automation or mappings. | `busTrackId`, `name` |
 | `save_midi_feel_template` | Analyze one exact MIDI clip and save its stored-note timing and velocity template in the private named local library. Never overwrites. Rejects clips assigned a native groove; does not capture Groove Pool playback effects. | `name`, `trackId`, `clipId`, `grid` |
 | `save_track_state_snapshot` | Capture one exact track state and save its JSON to the private named local snapshot library. Never overwrites; excludes clips, hidden plugin state, samples, automation and mappings. | `trackId`, `name` |
-| `select_instrument_comparison` | Plan or switch only the original/alternative pair's mutes in one native step. Restore uses original's pre-comparison mute. Refuses recording, frozen, solo and live-input conflicts. No playback, routing or note edits. Optional finish ends the handle and preserves both tracks. | `expectedStateVersion`, `comparisonId`, `choice` |
+| `select_instrument_comparison` | Plan or switch only the original/alternative pair's mutes in one native step. Restore uses the reported preparation/adoption mute baseline. Refuses recording, frozen, solo and live-input conflicts. No playback, routing or note edits. Optional finish ends the handle and preserves both tracks. | `expectedStateVersion`, `comparisonId`, `choice` |
 | `set_audio_clip_state` | Plan or apply guarded audio-clip gain, pitch offsets, warp, and marker changes. Use beats for warped clips and seconds for unwarped clips; change warping separately from markers. | `expectedStateVersion`, `trackId`, `clipId` |
 | `set_beat_repeat_enabled` | Plan or request one exact native Beat Repeat Repeat choice, Off or On. Native execution rechecks the complete device, routing, and transport snapshot before writing Repeat and reports its immediately observed value. Does not promise beat-scheduled execution, a captured buffer, or an audible effect. | `expectedStateVersion`, `trackId`, `deviceId`, `enabled` |
 | `set_beat_repeat_grid` | Plan or request one exact native Beat Repeat Grid display division from get_beat_repeat_performance_context.gridChoices. Ambiguous or unavailable display labels fail closed. Native execution rechecks the complete device, routing, and transport snapshot before writing; observed parameter equality is reported, not an audible or beat-scheduled result. | `expectedStateVersion`, `trackId`, `deviceId`, `gridDisplayValue` |

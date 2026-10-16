@@ -22,7 +22,7 @@ Native track duplication carries the instrument through Live's own copy operatio
 
 ## Audition and choose
 
-`select_instrument_comparison` changes only the pair's mute states in one guarded native step. `original` unmutes the original and mutes the alternative; `variation` does the reverse. `restore` returns the original to its mute state from before preparation and mutes the alternative. Selection preserves notes, devices, manual edits, monitoring, routing and unrelated tracks.
+`select_instrument_comparison` changes only the pair's mute states in one guarded native step. `original` unmutes the original and mutes the alternative; `variation` does the reverse. For a prepared copy, `restore` returns the original to its mute state from before preparation and mutes the alternative. For an adopted pair, it uses both reported adoption-time `restoreMutes`. `restorationBasis` distinguishes these baselines. Selection preserves notes, devices, manual edits, monitoring, routing and unrelated tracks.
 
 Selection does not launch clips or start or stop transport. It refuses recording, frozen tracks, solo conflicts, armed tracks and live-input monitoring. Resolve these states explicitly rather than changing them silently.
 
@@ -35,5 +35,11 @@ When the user chooses a version, pass that choice with `finish: true`. Both trac
 Omit `comparisonId` from `get_instrument_comparison` to list active comparisons. This can recover the handle after a preparation reply times out or a client reconnects. Read the actual pair before retrying: an already executing native copy can finish after cancellation. Do not blindly create another copy.
 
 Comparison handles are runtime state and are not stored in the Live Set. Reloading scripts or restarting Live may invalidate them. Inspect the existing tracks before beginning again; a missing handle does not mean the tracks were removed. At most 16 comparisons can be active. Finish comparisons to release handles while preserving their tracks.
+
+Once the intended existing pair is explicitly resolved, `adopt_instrument_comparison` binds a new runtime handle without duplicating tracks or changing notes, instruments, mutes, playback or selection. Supply `original` and `variation`, each with its current `trackId` and `clipId`, through the usual fresh plan and confirmation. The plan names both parts and their instruments and binds current exposed notes, timing, devices, mixer, routing and track topology. Manual changes invalidate it even if the state version did not change. The two parts may contain different edits; adoption does not assert they are identical copies.
+
+Use actual prior observations and current content to resolve identity; old indices, matching names or a copied summary alone are insufficient. Ask the user when materially different pairs remain. Adoption cannot recover unknown earlier identity, copy history or mute state. Its `restore` point is the pair's exact mutes at adoption, which may leave the variation enabled. No history is written into the Set. After another restart, inspect and adopt again if needed.
+
+Adoption requires two distinct ordinary MIDI tracks with populated MIDI parts. It refuses frozen, armed, live-input-monitored or already participating tracks, recording, solo conflicts and two currently unmuted tracks. Resolve those states explicitly first. It can bind an otherwise eligible pair during playback without stopping it. The per-part limit is 4096 stored notes; source audio and pending clip launches are refused.
 
 For a user-requested replacement on the original track instead, create a separate saved working Set first. `save_live_set` with a new absolute `.als` `path` performs native Save As. Review its resulting destination, including a new project folder when needed, and require `saved:true` with the new loaded path before replacing the instrument. It does not collect external samples.
