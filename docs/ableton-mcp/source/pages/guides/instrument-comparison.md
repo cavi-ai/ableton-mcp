@@ -1,6 +1,8 @@
 # Compare instruments while keeping the original
 
-Ask the `explore-selected-instrument` prompt for a direction such as “try warmer synths for this part.” Start by understanding the displayed MIDI clip and its instrument, then choose a candidate together. These comparison tools require the default `all` tool profile and the updated Remote Script.
+Ask the `explore-selected-instrument` prompt for a direction such as “try warmer synths for this part.” An explicitly requested part takes precedence over the displayed clip. For example, “try Analog for Bass verse on Bass” can target that part while another track is selected. Resolve the current track, clip and Session/Arrangement location together from the track and clip lists; a matching name alone or the first result is insufficient. If several parts match, ask one question with the candidates and their locations. The user does not need to change selection. Without an explicit target, use the displayed MIDI clip and its actual owner.
+
+Read notes, timing and devices for the resolved part. Use `analyze_midi_parts` with that one exact part for configured-scale compatibility and scoped tonal evidence; evidence from a different displayed clip does not describe the target. Preserve insufficient evidence and key ambiguity. Then choose an available instrument together. These comparison tools require the default `all` tool profile and the updated Remote Script.
 
 ## Prepare an alternative
 
