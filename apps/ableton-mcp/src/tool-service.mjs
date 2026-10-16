@@ -1934,7 +1934,7 @@ export class ToolService {
 
   async #setDeviceParameters(args, snapshot) {
     requireExpectedState(args);
-    const observed = await this.bridge.request("list_device_parameters", {
+    const observed = await this.bridge.request("get_device_parameter_edit_context", {
       trackId: args.trackId,
       deviceId: args.deviceId
     });
@@ -1973,6 +1973,7 @@ export class ToolService {
         originalName: parameter.originalName,
         previousValue: parameter.value,
         previousDisplayValue: parameter.displayValue,
+        previousAutomationState: parameter.automationState ?? null,
         requestedValue: change.value,
         value,
         targetDisplayValue: targetDisplayValue(parameter, value)
@@ -1998,7 +1999,9 @@ export class ToolService {
       deviceId: args.deviceId,
       expectedStateVersion: args.expectedStateVersion,
       ...(beforeDevice ? { beforeDevice, beforeParameters: observed.parameters } : {}),
+      ...(observed.editContext ? { beforeEditContext: observed.editContext } : {}),
       changes,
+      automationWarning: "A parameter write may override automation. Automation state is current ownership, not envelope contents; null means unavailable. Restoring a value does not restore automation playback or history.",
       ...(contentMutationRisk ? { contentMutationRisk } : {})
     };
     if (args.dryRun !== false) {
@@ -2021,7 +2024,7 @@ export class ToolService {
       timestamp: new Date().toISOString(),
       rollback: contentMutationRisk
         ? "No automatic rollback for recorded loop content; changing the State parameter back does not restore captured audio."
-        : "Recall the prior macro snapshot or restore the previous parameter values."
+        : "Re-read before restoring only the requested values; preserve intervening edits. Restoring a value does not restore automation playback, envelope contents or hidden plug-in state."
     };
   }
 

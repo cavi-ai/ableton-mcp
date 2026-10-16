@@ -61,7 +61,7 @@ test("macro mapping binds one exact rack descendant and parameter snapshot", asy
     min: 0, max: 1, value: 0.4, displayValue: "400 Hz", enabled: true, quantized: false, valueItems: [] }];
   const service = new ToolService({ bridge: { async request(method, params) {
     if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
-    if (method === "list_device_parameters") return { stateVersion: 4, trackId: "track-0",
+    if (["list_device_parameters", "get_device_parameter_edit_context"].includes(method)) return { stateVersion: 4, trackId: "track-0",
       deviceId: targetDeviceId, parameters, nameAmbiguities: [] };
     assert.equal(method, "map_rack_macro_to_parameter");
     assert.deepEqual(params.beforeDevice, rack);
@@ -124,7 +124,7 @@ test("rack macro variation storage binds both rack and parameter state", async (
     min: 0, max: 127, value: 64, displayValue: "64", enabled: true, quantized: false, valueItems: [] }];
   const service = new ToolService({ bridge: { async request(method, params) {
     if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
-    if (method === "list_device_parameters") return { stateVersion: 4, trackId: "track-0", deviceId: rack.id,
+    if (["list_device_parameters", "get_device_parameter_edit_context"].includes(method)) return { stateVersion: 4, trackId: "track-0", deviceId: rack.id,
       parameters, nameAmbiguities: [] };
     assert.equal(method, "store_rack_macro_variation");
     assert.deepEqual(params.beforeDevice, rack);
@@ -159,7 +159,7 @@ test("rack macro variation recall requires a valid exact index and binds current
     min: 0, max: 127, value: 32, displayValue: "32", enabled: true, quantized: false, valueItems: [] }];
   const service = new ToolService({ bridge: { async request(method, params) {
     if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
-    if (method === "list_device_parameters") return { stateVersion: 4, trackId: "track-0", deviceId: rack.id,
+    if (["list_device_parameters", "get_device_parameter_edit_context"].includes(method)) return { stateVersion: 4, trackId: "track-0", deviceId: rack.id,
       parameters, nameAmbiguities: [] };
     assert.equal(method, "recall_rack_macro_variation");
     assert.equal(params.variationIndex, 1);
@@ -188,7 +188,7 @@ test("rack macro variation deletion previews exact index and refuses empty or st
     min: 0, max: 127, value: 32, displayValue: "32", enabled: true, quantized: false, valueItems: [] }];
   const service = new ToolService({ bridge: { async request(method, params) {
     if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
-    if (method === "list_device_parameters") return { stateVersion: 4, trackId: "track-0", deviceId: rack.id,
+    if (["list_device_parameters", "get_device_parameter_edit_context"].includes(method)) return { stateVersion: 4, trackId: "track-0", deviceId: rack.id,
       parameters, nameAmbiguities: [] };
     assert.equal(method, "delete_rack_macro_variation");
     assert.equal(params.variationIndex, 1);
@@ -219,7 +219,7 @@ test("rack macro randomization binds mapped rack values and returns native readb
     min: 0, max: 127, value: 32, displayValue: "32", enabled: true, quantized: false, valueItems: [] }];
   const service = new ToolService({ bridge: { async request(method, params) {
     if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device: rack };
-    if (method === "list_device_parameters") return { stateVersion: 4, trackId: "track-0", deviceId: rack.id,
+    if (["list_device_parameters", "get_device_parameter_edit_context"].includes(method)) return { stateVersion: 4, trackId: "track-0", deviceId: rack.id,
       parameters, nameAmbiguities: [] };
     assert.equal(method, "randomize_rack_macros");
     assert.deepEqual(params.beforeDevice, rack);

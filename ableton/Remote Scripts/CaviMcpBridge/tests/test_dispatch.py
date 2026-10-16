@@ -3517,12 +3517,12 @@ class DispatchTest(unittest.TestCase):
             {
                 "id": "parameter-0", "name": "Cutoff", "originalName": "Filter Freq",
                 "min": 0.0, "max": 1.0, "value": 0.4, "displayValue": "400 Hz",
-                "enabled": True, "quantized": False, "valueItems": []
+                "enabled": True, "automationState": None, "quantized": False, "valueItems": []
             },
             {
                 "id": "parameter-1", "name": "Filter Type", "originalName": "Filter Type",
                 "min": 0.0, "max": 2.0, "value": 1.0, "displayValue": "Band-pass",
-                "enabled": True, "quantized": True,
+                "enabled": True, "automationState": None, "quantized": True,
                 "valueItems": ["Low-pass", "Band-pass", "High-pass"]
             }
         ])
@@ -4264,7 +4264,7 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(result["observedChanges"], [{
             "id": "parameter-0", "name": "Cutoff", "originalName": "Filter Freq",
             "min": 0.0, "max": 1.0, "value": 0.8, "displayValue": "800 Hz",
-            "enabled": True, "quantized": False, "valueItems": []
+            "enabled": True, "automationState": None, "quantized": False, "valueItems": []
         }])
         self.assertEqual(song.tracks[0].devices[0].parameters[0].value, 0.8)
 

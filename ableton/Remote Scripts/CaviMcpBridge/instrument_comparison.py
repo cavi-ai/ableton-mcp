@@ -209,7 +209,7 @@ def adopt(song, params, version):
             "limitation": "New handle for the explicitly chosen parts. Restore uses adoption-time mutes; no earlier identity or copy history is established."}
 
 
-def prepare(song, params, version):
+def begin_prepare(song, params, version):
     if params.get("expectedStateVersion") != version:
         raise ValueError("instrument comparison state version changed")
     before = read_source(song, params, version)
@@ -244,13 +244,6 @@ def prepare(song, params, version):
             created.current_monitoring_state = 2
             if created.name != name or not created.mute or created.solo or created.arm or int(created.current_monitoring_state) != 2:
                 raise RuntimeError("native instrument copy safety controls readback mismatch")
-            copied = _content(song, f"track-{index + 1}", version)
-            if _comparable(copied) != _comparable(before["source"]):
-                raise RuntimeError("native instrument copy content readback mismatch")
-            if _content(song, params["trackId"], version) != before["source"]:
-                raise RuntimeError("original instrument track changed while copying")
-            if [track for track in song.tracks if track != created] != old_tracks:
-                raise RuntimeError("unrelated track topology changed while copying")
         except Exception as error:
             cleanup = []
             try:
@@ -270,15 +263,54 @@ def prepare(song, params, version):
             if cleanup:
                 raise RuntimeError(f"instrument copy failed: {error}; cleanup incomplete: {'; '.join(cleanup)}") from error
             raise
+    return {"song": song, "params": params, "before": before, "index": index, "source": source,
+            "created": created, "oldTracks": old_tracks, "originalMute": original_mute}
+
+
+def abort_prepare(operation, error):
+    song, created = operation["song"], operation["created"]
+    try:
+        if created in song.tracks:
+            with _undo_step(song):
+                song.delete_track(next(i for i, track in enumerate(song.tracks) if track == created))
+            if created in song.tracks:
+                raise RuntimeError("new comparison track remains")
+    except Exception as cleanup_error:
+        raise RuntimeError(f"instrument copy failed: {error}; cleanup incomplete: {cleanup_error}") from error
+    raise error
+
+
+def complete_prepare(song, operation, version):
+    params, before, index = operation["params"], operation["before"], operation["index"]
+    source, created, original_mute = operation["source"], operation["created"], operation["originalMute"]
+    try:
+        expected_tracks = list(operation["oldTracks"])
+        expected_tracks.insert(index + 1, created)
+        if song != operation["song"] or list(song.tracks) != expected_tracks:
+            raise RuntimeError("instrument comparison document or track topology changed while copying")
+        if bool(song.is_playing) or _recording(song):
+            raise RuntimeError("transport or recording started while copying")
+        if created.name != params["name"] or not created.mute or created.solo or created.arm or int(created.current_monitoring_state) != 2:
+            raise RuntimeError("native instrument copy safety controls readback mismatch")
+        if _comparable(_content(song, f"track-{index + 1}", version)) != _comparable(before["source"]):
+            raise RuntimeError("native instrument copy content readback mismatch")
+        if _content(song, params["trackId"], version) != before["source"]:
+            raise RuntimeError("original instrument track changed while copying")
+    except Exception as error:
+        abort_prepare(operation, error)
     comparison_id = str(uuid.uuid4())
     source_clip, _ = _clip_reference(song, params["trackId"], params["clipId"])
     copy_id = f"track-{index + 1}" + params["clipId"][len(params["trackId"]):]
     copy_clip, _ = _clip_reference(song, f"track-{index + 1}", copy_id)
     _comparisons[comparison_id] = {"song": song, "original": source, "variation": created,
                                     "originalMute": original_mute, "originalClip": source_clip, "variationClip": copy_clip}
-    return {**read_comparison(song, {"comparisonId": comparison_id}, version + 1),
+    return {**read_comparison(song, {"comparisonId": comparison_id}, version),
             "verification": "Exposed devices, routing, notes and clip timing match; opaque plug-in state and audio are not independently verified.",
             "identityWarning": "Track, clip and device IDs after the inserted track have shifted; re-read before further edits."}
+
+
+def prepare(song, params, version):
+    return complete_prepare(song, begin_prepare(song, params, version), version + 1)
 
 
 def select(song, params, version):

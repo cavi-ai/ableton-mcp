@@ -10,7 +10,7 @@ function fixture() {
   ] };
   const service = new ToolService({ bridge: { async request(method, args) {
     if (method === 'list_devices') return { stateVersion: state.stateVersion, trackId: state.trackId, devices: [device] };
-    if (method === 'list_device_parameters') return structuredClone(state);
+    if (['list_device_parameters', 'get_device_parameter_edit_context'].includes(method)) return structuredClone(state);
     if (method === 'set_device_parameters') {
       for (const change of args.changes) state.parameters.find(p => p.id === change.id).value = change.value;
       state.stateVersion++;

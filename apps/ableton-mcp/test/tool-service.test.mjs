@@ -197,7 +197,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
           { id: "track-0:clip-1", name: null, hasClip: false }
         ]
       };
-      if (method === "list_device_parameters") return {
+      if (["list_device_parameters", "get_device_parameter_edit_context"].includes(method)) return {
         stateVersion: 4,
         trackId: params.trackId,
         deviceId: params.deviceId,
@@ -800,7 +800,7 @@ test("nested rack devices support factory context and guarded activation", async
   const service = new ToolService({ catalog: {}, bridge: { request: async (method, args) => {
     if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device };
     if (method === "list_devices") return { stateVersion: 4, devices: [] };
-    if (method === "list_device_parameters") return { stateVersion: 4, parameters: [] };
+    if (["list_device_parameters", "get_device_parameter_edit_context"].includes(method)) return { stateVersion: 4, parameters: [] };
     if (method === "set_device_active") return { stateVersion: 5, device: { ...device, active: args.active } };
     throw new Error(`unexpected method ${method}`);
   } } });
@@ -841,7 +841,7 @@ test("Auto Shift context distinguishes song scale awareness from disabled manual
   ];
   const bridge = { async request(method) {
     if (method === "list_devices") return { stateVersion: 33, trackId: "track-5", devices: [device] };
-    if (method === "list_device_parameters") return { stateVersion: 33, trackId: "track-5", deviceId: device.id, parameters };
+    if (["list_device_parameters", "get_device_parameter_edit_context"].includes(method)) return { stateVersion: 33, trackId: "track-5", deviceId: device.id, parameters };
     if (method === "get_song_musical_context") return { stateVersion: 33,
       key: { rootNote: 7, rootName: "G", scaleName: "Minor", scaleMode: true } };
     throw new Error(method);
@@ -863,7 +863,7 @@ test("Auto Shift context rejects a song key read from another Live state", async
   const device = { id: "track-5:device-0", name: "Auto Shift", className: "AutoShift" };
   const bridge = { async request(method) {
     if (method === "list_devices") return { stateVersion: 33, devices: [device] };
-    if (method === "list_device_parameters") return { stateVersion: 33, parameters: [] };
+    if (["list_device_parameters", "get_device_parameter_edit_context"].includes(method)) return { stateVersion: 33, parameters: [] };
     if (method === "get_song_musical_context") return { stateVersion: 34,
       key: { rootNote: 7, rootName: "G", scaleName: "Minor", scaleMode: true } };
     throw new Error(method);
@@ -877,7 +877,7 @@ test("factory device context rejects parameters read after the device topology c
   const device = { id: "track-0:device-0", name: "EQ Eight", className: "Eq8" };
   const service = new ToolService({ catalog: {}, bridge: { async request(method) {
     if (method === "list_devices") return { stateVersion: 4, devices: [device] };
-    if (method === "list_device_parameters") return { stateVersion: 5, parameters: [{ id: "cutoff", name: "Freq" }] };
+    if (["list_device_parameters", "get_device_parameter_edit_context"].includes(method)) return { stateVersion: 5, parameters: [{ id: "cutoff", name: "Freq" }] };
     throw new Error(`unexpected method ${method}`);
   } } });
   await assert.rejects(service.call("get_factory_device_context", {
@@ -889,7 +889,7 @@ test("factory device context reports unmapped native controls explicitly", async
   const device = { id: "track-0:device-0", name: "EQ Eight", className: "Eq8" };
   const service = new ToolService({ catalog: {}, bridge: { async request(method) {
     if (method === "list_devices") return { stateVersion: 4, devices: [device] };
-    if (method === "list_device_parameters") return { stateVersion: 4, parameters: [
+    if (["list_device_parameters", "get_device_parameter_edit_context"].includes(method)) return { stateVersion: 4, parameters: [
       { id: "frequency", name: "Freq 1" }, { id: "gain", name: "Gain 1" },
       { id: "future", name: "Future Control" }
     ] };
@@ -907,7 +907,7 @@ test("plug-in context does not mistake Device On for configured synth control", 
   const device = { id: "track-0:device-0", name: "Omnisphere", className: "PluginDevice" };
   const service = new ToolService({ catalog: {}, bridge: { async request(method) {
     if (method === "list_devices") return { stateVersion: 4, devices: [device] };
-    if (method === "list_device_parameters") return { stateVersion: 4, parameters: [
+    if (["list_device_parameters", "get_device_parameter_edit_context"].includes(method)) return { stateVersion: 4, parameters: [
       { id: "parameter-0", name: "Device On", originalName: "Device On", enabled: true }
     ] };
     throw new Error(`unexpected method ${method}`);
@@ -925,7 +925,7 @@ test("plug-in context distinguishes configured controls from currently writable 
   const device = { id: "track-0:device-0", name: "Serum", className: "PluginDevice" };
   const service = new ToolService({ catalog: {}, bridge: { async request(method) {
     if (method === "list_devices") return { stateVersion: 4, devices: [device] };
-    if (method === "list_device_parameters") return { stateVersion: 4, parameters: [
+    if (["list_device_parameters", "get_device_parameter_edit_context"].includes(method)) return { stateVersion: 4, parameters: [
       { id: "parameter-0", name: "Device On", originalName: "Device On", enabled: true },
       { id: "parameter-1", name: "Cutoff", originalName: "Cutoff", enabled: true },
       { id: "parameter-2", name: "FX Mix", originalName: "FX Mix", enabled: false }
@@ -947,7 +947,7 @@ test("generic Max for Live context exposes exact writable IDs and ambiguous name
     className: "MxDeviceAudioEffect", classDisplayName: "Max Audio Effect", type: "audio_effect" };
   const service = new ToolService({ bridge: { async request(method) {
     if (method === "list_devices") return { stateVersion: 4, trackId: "track-0", devices: [device] };
-    if (method === "list_device_parameters") return { stateVersion: 4, trackId: "track-0", deviceId: device.id,
+    if (["list_device_parameters", "get_device_parameter_edit_context"].includes(method)) return { stateVersion: 4, trackId: "track-0", deviceId: device.id,
       parameters: [
         { id: "parameter-0", name: "Device On", originalName: "Device On", enabled: true },
         { id: "parameter-1", name: "Rate", originalName: "Rate", enabled: true },
@@ -2454,7 +2454,7 @@ test("parameter planning rejects disabled controls without issuing confirmation"
   const service = new ToolService({
     confirmations: { issue() { issued = true; return {}; } },
     bridge: { async request(method) {
-      assert.equal(method, "list_device_parameters");
+      assert.equal(method, "get_device_parameter_edit_context");
       return { stateVersion: 4, trackId: "track-0", deviceId: "track-0:device-0", nameAmbiguities: [], parameters: [
         { id: "parameter-0", name: "Cutoff", originalName: "Filter Freq", min: 0, max: 1, value: 0.4, displayValue: "400 Hz", enabled: false, quantized: false, valueItems: [] }
       ] };
@@ -2469,7 +2469,7 @@ test("parameter planning rejects disabled controls without issuing confirmation"
 
 test("parameter dry-run uses Live's native label for a quantized triplet grid", async () => {
   const service = new ToolService({ bridge: { async request(method) {
-    assert.equal(method, "list_device_parameters");
+    assert.equal(method, "get_device_parameter_edit_context");
     return { stateVersion: 4, trackId: "track-0", deviceId: "track-0:device-0", nameAmbiguities: [], parameters: [
       { id: "parameter-4", name: "Grid", originalName: "Grid", min: 7, max: 9,
         value: 7, displayValue: "1/16", enabled: true, quantized: true, valueItems: [],
@@ -2490,7 +2490,7 @@ test("parameter dry-run resolves an exact observed choice label to its native va
       stateVersion: 5, trackId: plan.trackId, deviceId: plan.deviceId,
       observedChanges: plan.changes
     };
-    assert.equal(method, "list_device_parameters");
+    assert.equal(method, "get_device_parameter_edit_context");
     return { stateVersion: 4, trackId: "track-0", deviceId: "track-0:device-0", parameters: [
       { id: "parameter-4", name: "Grid", originalName: "Grid", min: 7, max: 9,
         value: 7, displayValue: "1/16", enabled: true, quantized: true, valueItems: [],
@@ -2522,7 +2522,7 @@ test("parameter choice labels must be unique, exact, and quantized", async () =>
       value: 0.5, displayValue: "50%", enabled: true, quantized: false, valueItems: [] }
   ];
   const service = new ToolService({ bridge: { async request(method) {
-    assert.equal(method, "list_device_parameters");
+    assert.equal(method, "get_device_parameter_edit_context");
     return { stateVersion: 4, trackId: "track-0", deviceId: "track-0:device-0", parameters };
   } } });
   const base = { trackId: "track-0", deviceId: "track-0:device-0", expectedStateVersion: 4 };
@@ -2547,7 +2547,7 @@ test("parameter mutation defaults to dry-run, clamps, confirms once, and returns
   const dry = await service.call("set_device_parameters", args);
   assert.equal(dry.dryRun, true);
   assert.equal(dry.plan.changes[0].value, 1);
-  assert.equal(calls.at(-1).method, "list_device_parameters");
+  assert.equal(calls.at(-1).method, "get_device_parameter_edit_context");
   const live = await service.call("set_device_parameters", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
   assert.equal(live.observed.stateVersion, 5);
   assert.equal(calls.at(-1).method, "set_device_parameters");
@@ -2560,7 +2560,7 @@ test("parameter mutation reports native readback mismatch instead of success", a
     changes: [{ id: "cutoff", value: 0.75 }] };
   const dry = await service.call("set_device_parameters", args);
   service.bridge.request = async (method, params) => {
-    if (method === "list_device_parameters") return { stateVersion: 4, trackId: "t1", deviceId: "d1",
+    if (["list_device_parameters", "get_device_parameter_edit_context"].includes(method)) return { stateVersion: 4, trackId: "t1", deviceId: "d1",
       parameters: [{ id: "cutoff", name: "Cutoff", originalName: "Filter Freq", min: 0, max: 1,
         value: 0.4, displayValue: "400 Hz", enabled: true, quantized: false, valueItems: [] }] };
     if (method === "set_device_parameters") return { stateVersion: 5, trackId: "t1", deviceId: "d1",
@@ -2575,7 +2575,7 @@ test("parameter mutation reports native readback mismatch instead of success", a
 test("Looper Record and Overdub plans disclose recorded-content risk and do not promise parameter rollback", async () => {
   for (const [value, label] of [[1, "Record"], [3, "Overdub"]]) {
     const service = new ToolService({ bridge: { async request(method, params) {
-      if (method === "list_device_parameters") return {
+      if (["list_device_parameters", "get_device_parameter_edit_context"].includes(method)) return {
         stateVersion: 4, trackId: params.trackId, deviceId: params.deviceId,
         parameters: [{ id: "parameter-1", name: "State", originalName: "State",
           value: 2, displayValue: "Play", min: 0, max: 3, enabled: true,
@@ -2619,6 +2619,7 @@ test("parameter mutation plan carries signed before-and-after review context", a
       originalName: "Filter Freq",
       previousValue: 0.4,
       previousDisplayValue: "400 Hz",
+      previousAutomationState: null,
       requestedValue: 2,
       value: 1,
       targetDisplayValue: null
@@ -2629,6 +2630,7 @@ test("parameter mutation plan carries signed before-and-after review context", a
       originalName: "Filter Type",
       previousValue: 1,
       previousDisplayValue: "Band-pass",
+      previousAutomationState: null,
       requestedValue: 2,
       value: 2,
       targetDisplayValue: "High-pass"
