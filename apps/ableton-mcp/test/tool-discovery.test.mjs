@@ -37,7 +37,7 @@ test("core discovery is bounded and cannot call tools it does not advertise", as
   let calls = 0;
   const route = createRouter({ call: async () => { calls++; return { ok: true }; } }, { toolProfile: "core" });
   const tools = (await route({ id: 1, method: "tools/list" })).result.tools;
-  assert.equal(tools.length, 62);
+  assert.equal(tools.length, 63);
   const names = new Set(tools.map((tool) => tool.name));
   assert.ok(names.has("get_live_state"));
   assert.ok(names.has("list_browser_roots"));

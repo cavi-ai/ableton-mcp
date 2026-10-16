@@ -7,7 +7,7 @@ test("MCP discovery lists every prompt with schema-shaped arguments", async () =
   const route = createRouter({ call: async () => ({}) });
   const listed = await route({ id: 1, method: "prompts/list" });
   const names = listed.result.prompts.map(prompt => prompt.name).sort();
-  assert.deepEqual(names, ["arrangement-rework", "build-producer-chain", "develop-selected-midi-clip", "harmonize-clip",
+  assert.deepEqual(names, ["arrangement-rework", "build-producer-chain", "develop-selected-midi-clip", "explore-selected-instrument", "harmonize-clip",
     "produce-drum-pattern", "session-overview"]);
   for (const prompt of listed.result.prompts) {
     assert.ok(prompt.description);
