@@ -16,6 +16,7 @@
         { "title": "Guarded mutations", "path": "guides/guarded-mutations.md" },
         { "title": "Cancel agent work", "path": "guides/request-cancellation.md" },
         { "title": "Understand a Set", "path": "guides/session-orientation.md" },
+        { "title": "Relate musical parts", "path": "guides/musical-parts.md" },
         { "title": "Compare instruments", "path": "guides/instrument-comparison.md" },
         { "title": "MIDI clip variations", "path": "guides/midi-clip-variations.md" },
         { "title": "Shared instrument buses", "path": "guides/shared-instrument-buses.md" },

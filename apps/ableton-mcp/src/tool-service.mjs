@@ -1,5 +1,5 @@
 import { assertExpectedState } from "./bridge-protocol.mjs";
-import { enrichSessionOrientation } from "./session-orientation.mjs";
+import { enrichSessionOrientation, enrichMidiPartsContext } from "./session-orientation.mjs";
 import { instrumentComparison } from "./instrument-comparison.mjs";
 import { realpath, stat } from "node:fs/promises";
 import { createReadStream } from "node:fs";
@@ -642,6 +642,7 @@ export class ToolService {
     }
     if (name === "get_live_state") return this.bridge.request("get_live_state", {});
     if (name === "get_session_orientation") return enrichSessionOrientation(await this.bridge.request(name, {}));
+    if (name === "analyze_midi_parts") return enrichMidiPartsContext(await this.bridge.request(name, args));
     if (["get_instrument_comparison", "prepare_instrument_comparison", "select_instrument_comparison"].includes(name))
       return instrumentComparison(this.bridge, this.confirmations, name, args);
     if (name === "get_selection_context") return this.bridge.request(name, {});

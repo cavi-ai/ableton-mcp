@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 227 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 228 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (99)
+## Read-only (100)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -13,6 +13,7 @@ The server publishes 227 tools. Mutations of the Live Set require `expectedState
 | `analyze_midi_clip_chords` | Analyze sustained-note-aware chord events in one exact MIDI clip against the current Live key and scale. Returns deterministic chord candidates, inversions, Roman-numeral function, ambiguity, and chromatic pitch classes without editing notes. Read-only. | `trackId`, `clipId` |
 | `analyze_midi_clip_scale` | Analyze one exact MIDI clip against the current Live key and scale. Returns per-note pitch names, scale degrees, chromatic note IDs, and bounded nearest in-scale correction candidates without editing notes. Read-only. | `trackId`, `clipId` |
 | `analyze_midi_feel` | Measure stored MIDI note timing offsets and velocity accents by straight-sixteenth, eighth-triplet, or sixteenth-triplet slot over one to eight bars in the clip's meter. Read-only; reports any assigned native groove but cannot measure its playback effect or extract a Live Groove Pool pattern. | `trackId`, `clipId`, `grid` |
+| `analyze_midi_parts` | Read 1-8 explicit Session/Arrangement clips together. Report per-part register, duration-weighted pitch classes and combined diatonic compatibility. Loop/marker ranges only; not simultaneous playback or detected key. Audio, drums, recording and oversized clips are excluded explicitly. No edits or focus changes. | `parts` |
 | `browse_local_splice_directory` | Page through immediate subfolders and audio files inside a configured local Splice root. Optionally join private MCP tags and favorites for audio files. Returned folder paths can be searched individually when a broad search is truncated. Skips symlinks and non-audio files; not Splice cloud browsing, downloads, or license verification. | `rootPath` |
 | `capture_device_chain_snapshot` | Capture ordered devices, nested rack topology, exposed parameters, Return or master mixer, available master output channel, chain mixer, Drum Rack note routing and populated pad mute/solo as persistable JSON. Not a native rack or preset; excludes hidden plugin state, samples, automation, and mappings. | `trackId` |
 | `capture_device_parameter_snapshot` | Capture exposed device parameters as persistable JSON, with a consistent live identity check. Not a native preset: excludes hidden plugin state, samples, automation and mappings. | `trackId`, `deviceId` |

@@ -2688,6 +2688,67 @@ def _duplicate_midi_variations(song, params, state_version):
             "verification": "Exposed notes and clip timing match; hidden expression and envelopes are not independently inspected."}
 
 
+def _clip_tonal_context(song, track_id, clip_id):
+    index, owner = _track(song, track_id)
+    clip, timeline = _clip_reference(song, track_id, clip_id)
+    result = {"trackId": track_id, "clipId": clip_id, "name": clip.name,
+              "location": "arrangement" if timeline is not None else "session",
+              "type": "audio" if getattr(clip, "is_audio_clip", False) else "midi",
+              "track": _track_record(song, owner, index), "timeline": timeline,
+              "devices": [_device_record(device, f"{track_id}:device-{i}") for i, device in enumerate(owner.devices)],
+              "isFrozen": bool(getattr(owner, "is_frozen", False)),
+              "clipMuted": bool(getattr(clip, "muted", False))}
+
+    def has_drums(devices):
+        for device in devices:
+            if bool(getattr(device, "can_have_drum_pads", False)):
+                return True
+            if bool(getattr(device, "can_have_chains", False)):
+                for chain in getattr(device, "chains", ()):
+                    if has_drums(chain.devices):
+                        return True
+        return False
+
+    if result["type"] == "audio":
+        result["status"] = "audio"
+    elif bool(getattr(clip, "is_recording", False)):
+        result["status"] = "recording"
+    elif has_drums(owner.devices):
+        result["status"] = "drums"
+    else:
+        notes = list(clip.get_all_notes_extended())
+        result["totalNotes"] = len(notes)
+        result["status"] = "note_limit" if len(notes) > 4096 else "available"
+        if result["status"] == "available":
+            result["notes"] = [_midi_note_record(note) for note in notes]
+            result["range"] = {"startBeats": float(clip.loop_start if clip.looping else getattr(clip, "start_marker", 0)),
+                               "endBeats": float(clip.loop_end if clip.looping else getattr(clip, "end_marker", clip.length))}
+            result["rangeBasis"] = "clip-loop" if clip.looping else "clip-markers"
+    return result
+
+
+def _musical_parts_context(song, params, state_version):
+    requested = params.get("parts")
+    if not isinstance(requested, list) or not 1 <= len(requested) <= 8:
+        raise ValueError("supply one to eight explicit clip references")
+    seen, parts, total = set(), [], 0
+    for part in requested:
+        if not isinstance(part, dict) or not isinstance(part.get("trackId"), str) or not isinstance(part.get("clipId"), str):
+            raise ValueError("each part requires trackId and clipId")
+        identity = (part["trackId"], part["clipId"])
+        if identity in seen:
+            raise ValueError("musical parts must be unique")
+        seen.add(identity)
+        observed = _clip_tonal_context(song, *identity)
+        total += len(observed.get("notes", ()))
+        if total > 16384:
+            raise ValueError("musical parts support at most 16384 analyzed notes per request; choose fewer parts")
+        parts.append(observed)
+    return {"stateVersion": state_version, "setFingerprint": _set_fingerprint(song),
+            "musicalContext": _song_musical_context(song, state_version), "parts": parts,
+            "scope": "Explicit stored clip loop or marker ranges sampled in one Live callback; not simultaneous playback or whole-Set evidence."}
+
+
 def _session_orientation(song, state_version, application=None):
     selection = _selection_context(song, state_version)
     displayed = selection["detailClip"]
@@ -2699,33 +2760,7 @@ def _session_orientation(song, state_version, application=None):
                                               for i, device in enumerate(owner.devices)],
                      isFrozen=bool(getattr(owner, "is_frozen", False)))
     if displayed:
-        focus.update(displayed)
-        clip, _ = _clip_reference(song, displayed["trackId"], displayed["clipId"])
-        focus["status"] = "audio" if displayed["type"] == "audio" else "available"
-        if displayed["type"] == "midi":
-            def has_drums(devices):
-                for device in devices:
-                    if bool(getattr(device, "can_have_drum_pads", False)):
-                        return True
-                    if bool(getattr(device, "can_have_chains", False)):
-                        for chain in getattr(device, "chains", ()):
-                            if has_drums(chain.devices):
-                                return True
-                return False
-            if bool(getattr(clip, "is_recording", False)):
-                focus["status"] = "recording"
-            elif has_drums(owner.devices):
-                focus["status"] = "drums"
-            else:
-                notes = list(clip.get_all_notes_extended())
-                focus["totalNotes"] = len(notes)
-                if len(notes) > 4096:
-                    focus["status"] = "note_limit"
-                else:
-                    focus["notes"] = [_midi_note_record(note) for note in notes]
-                    focus["range"] = {"startBeats": float(clip.loop_start if clip.looping else getattr(clip, "start_marker", 0)),
-                                      "endBeats": float(clip.loop_end if clip.looping else getattr(clip, "end_marker", clip.length))}
-                    focus["rangeBasis"] = "clip-loop" if clip.looping else "clip-markers"
+        focus = {**displayed, **_clip_tonal_context(song, displayed["trackId"], displayed["clipId"])}
     return {"stateVersion": state_version, "setFingerprint": _set_fingerprint(song),
             "live": dispatch_request(song, {"method": "get_live_state"}, state_version, application),
             "musicalContext": _song_musical_context(song, state_version),
@@ -2746,6 +2781,8 @@ def dispatch_request(song, request, state_version, application=None):
         return _selection_context(song, state_version)
     if method == "get_session_orientation":
         return _session_orientation(song, state_version, application)
+    if method == "analyze_midi_parts":
+        return _musical_parts_context(song, params, state_version)
     if method in ("get_instrument_comparison_source", "prepare_instrument_comparison",
                   "get_instrument_comparison", "select_instrument_comparison"):
         try:
@@ -4508,7 +4545,7 @@ def dispatch_request(song, request, state_version, application=None):
             if not (math.isclose(float(placed.start_time), start, rel_tol=0.0, abs_tol=1e-8)
                     and math.isclose(float(placed.end_time), end, rel_tol=0.0, abs_tol=1e-8)):
                 raise ValueError("Live changed the placed clip interval")
-            if any(other is not placed and start < other.end_time and end > other.start_time
+            if any(other != placed and start < other.end_time and end > other.start_time
                    for other in track.arrangement_clips):
                 raise ValueError("placed clip overlaps another Arrangement clip")
         except Exception as error:
