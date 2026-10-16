@@ -1695,6 +1695,39 @@ class DispatchTest(unittest.TestCase):
             dispatch_request(song, {"method": "place_session_clip_in_arrangement", "params": {**params, "startBeats": 10.0}}, 4)
         self.assertEqual(len(track.arrangement_clips), 1)
 
+    def test_session_clip_placement_accepts_equal_native_wrappers(self):
+        song = Song()
+        track = song.tracks[0]
+        track.arrangement_clips = []
+
+        class NativeClipProxy:
+            def __init__(self, native):
+                self.native = native
+
+            def __getattr__(self, name):
+                return getattr(self.native, name)
+
+            def __eq__(self, other):
+                return isinstance(other, NativeClipProxy) and self.native is other.native
+
+            def __ne__(self, other):
+                return not self == other
+
+        def duplicate(clip, start):
+            native = SimpleNamespace(name=clip.name, start_time=start, end_time=start + clip.length,
+                                     is_audio_clip=False)
+            track.arrangement_clips.append(NativeClipProxy(native))
+            return NativeClipProxy(native)
+
+        track.duplicate_clip_to_arrangement = duplicate
+        track.delete_clip = lambda clip: track.arrangement_clips.remove(clip)
+        source = dispatch_request(song, {"method": "list_clips", "params": {"trackId": "track-0"}}, 3)["clips"][0]
+        result = dispatch_request(song, {"method": "place_session_clip_in_arrangement", "params": {
+            "trackId": "track-0", "clipId": source["id"], "startBeats": 8.0, "endBeats": 12.0,
+            "source": source, "beforeArrangement": []}}, 3)
+        self.assertEqual(result["placedClip"]["id"], "track-0:arrangement-clip-0")
+        self.assertEqual(len(track.arrangement_clips), 1)
+
     def test_session_clip_placement_rechecks_signed_source_and_timeline_before_copy(self):
         song = Song()
         track = song.tracks[0]

@@ -30,8 +30,22 @@ Report which clips were created, changed and auditioned, and any partial failure
 2. Summarize the file, tempo, meter, playback and recording state, track structure and actual displayed clip. Distinguish selection.detailClip from the highlighted slot and selected track. Use the displayed clip's owner for musical and instrument discussion.
 3. Separate the configured key and scale in musicalContext from focus.tonalEvidence. get_song_musical_context also reports configuration, not a detected key. Explain relative-key and modal ambiguity. Support fractions are compatibility measurements, never probabilities or proof of a tonic. Do not claim that selected-clip evidence establishes the entire song's key. Audio, drums, recording, note-limit and no-clip statuses mean no tonal inference; ask for relevant material only if needed.
 4. Describe observed instruments and pitch content without inventing genre, arrangement completeness, track roles, audio quality or what the user heard. Ask about musical intent when observations leave alternatives open.
+5. When I ask how several parts relate, offer understand-musical-parts. A displayed clip cannot establish a whole-Set key. Resolve the requested parts explicitly and inspect their separate evidence before combining it.
 Finish with a brief musical summary and two relevant next actions. Offer explore-selected-instrument for sound exploration or develop-selected-midi-clip for note alternatives. Keep all edits and playback outside this survey. ${confirmWorkflow}`)]
     })
+  },
+
+  "understand-musical-parts": {
+    name: "understand-musical-parts",
+    description: "Relate explicitly chosen MIDI parts using scoped pitch evidence, register and configured scale without changing the Set.",
+    arguments: [{ name: "request", description: "Parts or musical relationship to understand.", required: true }],
+    build: ({ request }) => ({ description: "Read-only context across musical parts.", messages: [
+      userMessage(`Help me understand these musical parts: ${request}
+1. Call get_session_orientation for the current Set and configured scale. Resolve the exact requested parts using list_clips for Session material or list_arrangement_clips for Arrangement material. Names and selected tracks are clues, not proof of a clip identity or role. Ask one focused question if two materially different selections remain. Never choose every clip or a whole Set just because the request mentions a song.
+2. Call analyze_midi_parts with 1-8 unique trackId/clipId references. It requires the all tool profile. The read samples these parts in one Live callback and uses each clip's loop or marker range, including material on muted tracks. Arrangement timeline positions are reported, but the analysis does not expand repeats or establish simultaneous playback. If the requested section differs from those ranges, explain the scope and resolve it before drawing a section-level conclusion.
+3. Name the included tracks, clips and ranges. Report coverage and every excluded audio, drum, recording or oversized part. Complete coverage means the requested ranges were read, not that enough notes establish a key. Compare each part's pitchRange and tonalEvidence first, then combined pitch classes and compatible diatonic groups. Keep configured scale separate from evidence. A support fraction is not a probability or confirmation of a tonic; relative keys and modes remain ambiguous. Conflicting parts or sparse evidence require interpretation, not automatic retuning. Do not infer a bass, chord or melody role from register alone; distinguish user-stated roles from tentative interpretations.
+4. Describe what the stored notes support and what remains unknown. For voicings or note-by-note relationships, read get_midi_clip_notes_extended and get_clip_timing for the exact parts; pitch-class totals alone cannot establish a chord progression. Notes may trigger unpitched samples or be transformed by devices; this is not audio analysis. Offer a relevant next action, such as exploring a chosen instrument or developing a chosen clip. Keep edits and playback outside this read-only workflow; obtain authorization before auditioning. Preserve selection, focus and the user's manual work.`)
+    ] })
   },
 
   "explore-selected-instrument": {
