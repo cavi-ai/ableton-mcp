@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 234 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 235 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (103)
 
@@ -232,11 +232,12 @@ The server publishes 234 tools. Mutations of the Live Set require `expectedState
 | `transport_stop` | Plan or stop Ableton transport playback. | `expectedStateVersion` |
 | `undo` | Plan or apply one guarded Ableton undo operation. | `expectedStateVersion` |
 
-## Destructive mutations (16)
+## Destructive mutations (17)
 
 | Tool | Description | Required arguments |
 |---|---|---|
 | `adjust_rack_macro_count` | Plan or invoke one native add/remove macro action on an exact rack, then report the observed count. Removal is refused while any macro mapping exists because Live does not expose the affected mapping target. | `expectedStateVersion`, `trackId`, `deviceId`, `action` |
+| `audition_arrangement_passage` | Plan/start a looping Arrangement passage from stopped transport with recording off and no pending launches. Return only explicit ordinary tracks from Session override; reject Groups. Changes global loop/playhead and starts global playback until stopped. Other tracks may sound. Partial failure reports observed controls; earlier Session phase is not restored. Requires all profile. | `expectedStateVersion`, `trackIds`, `startBeats`, `endBeats` |
 | `complete_nks_generation_job` | Mark an owned NKS job done only after its catalog preset contains verified saved-artifact evidence. Does not generate or validate the artifact itself. | `presetId`, `workerId` |
 | `crop_audio_clip` | Plan or apply Live native cropping of one exact audio clip. Preview reports the selected loop interval when enabled, otherwise start/end markers, in current units. Live may retain pre-loop playback material and creates a processed source. Selected interval is not a guarantee of exclusive source-file bounds. Binds audio and loop state and reads back native results. | `expectedStateVersion`, `trackId`, `clipId` |
 | `delete_arrangement_clip` | Plan or delete one exact Arrangement clip, preserving other timeline material. Requires current clip identity and confirmation; deletion is undoable in Live. | `expectedStateVersion`, `trackId`, `clipId` |

@@ -2789,6 +2789,12 @@ def dispatch_request(song, request, state_version, application=None):
         return _selection_context(song, state_version)
     if method == "get_session_orientation":
         return _session_orientation(song, state_version, application)
+    if method in ("get_arrangement_audition_source", "audition_arrangement_passage"):
+        try:
+            from . import arrangement_audition
+        except ImportError:
+            import arrangement_audition
+        return (arrangement_audition.source if method == "get_arrangement_audition_source" else arrangement_audition.start)(song, params, state_version)
     if method == "analyze_arrangement_section":
         try:
             from . import arrangement_section
@@ -6289,6 +6295,9 @@ class SocketBridge:
                 if self._last_topology_signature is not None and topology != self._last_topology_signature:
                     self.state_version += 1
                 self._last_topology_signature = topology
+                if request.get("method") == "audition_arrangement_passage":
+                    self._defer_arrangement_audition(client, request, song, record)
+                    return
                 result = dispatch_request(
                     song, request, self.state_version, self.control_surface.application()
                 )
@@ -6298,6 +6307,53 @@ class SocketBridge:
             except Exception as error:
                 response = {"id": request.get("id"), "error": {"message": str(error) or error.__class__.__name__}}
             self._reply(client, response, record)
+
+    def _defer_arrangement_audition(self, client, request, song, record=None):
+        try:
+            try:
+                from . import arrangement_audition
+            except ImportError:
+                import arrangement_audition
+            operation = arrangement_audition.begin(song, request.get("params", {}), self.state_version)
+            self.state_version += 1
+        except Exception as error:
+            self._reply(client, {"id": request.get("id"), "error": {"message": str(error) or error.__class__.__name__}}, record)
+            return
+        self.deferred_request = True
+
+        def reply_unverified(error):
+            operation["error"] = f"audition readback failed: {error}"[:600]
+            try:
+                result = arrangement_audition.complete(self.control_surface.song(), operation, self.state_version)
+                response = {"id": request.get("id"), "result": result}
+            except Exception as failure:
+                response = {"id": request.get("id"), "error": {"message": str(failure) or failure.__class__.__name__}}
+            self.deferred_request = False
+            self._reply(client, response, record)
+
+        def observe(attempt=0):
+            try:
+                current = self.control_surface.song()
+                topology = _track_topology_signature(current)
+                if topology != self._last_topology_signature:
+                    self.state_version += 1
+                self._last_topology_signature = topology
+                result = arrangement_audition.complete(current, operation, self.state_version)
+                checks = result.get("verification", {})
+                if attempt < 2 and not result["started"] and operation["error"] is None and \
+                        result.get("observed") is not None and checks.get("topologyStable") and checks.get("recordingOff"):
+                    self.control_surface.schedule_message(1, lambda: observe(attempt + 1))
+                    return
+                self.deferred_request = False
+                self._reply(client, {"id": request.get("id"), "result": result}, record)
+            except Exception as error:
+                reply_unverified(error)
+        try:
+            # Requests are issued once. Later callbacks only observe controls
+            # after Live has applied the commands outside the component guard.
+            self.control_surface.schedule_message(1, observe)
+        except Exception as error:
+            reply_unverified(error)
 
     def _defer_cue_mutation(self, client, request, record=None):
         song = self.control_surface.song()

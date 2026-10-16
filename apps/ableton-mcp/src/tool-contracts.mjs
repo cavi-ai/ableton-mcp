@@ -374,6 +374,11 @@ const envelopePoint = object({
 }, ["time", "duration", "value"]);
 
 const contracts = {
+  audition_arrangement_passage: { description: "Plan/start a looping Arrangement passage from stopped transport with recording off and no pending launches. Return only explicit ordinary tracks from Session override; reject Groups. Changes global loop/playhead and starts global playback until stopped. Other tracks may sound. Partial failure reports observed controls; earlier Session phase is not restored. Requires all profile.", inputSchema: guarded({
+    trackIds: { ...array(ids.trackId,"Ordinary tracks to return to Arrangement; other overrides stay in place."),minItems:1,maxItems:64,uniqueItems:true },
+    startBeats: number("Inclusive song-time start in quarter-note beats.",{minimum:0}),
+    endBeats: number("Exclusive end; increasing range of at most 512 beats.",{exclusiveMinimum:0})
+  },["trackIds","startBeats","endBeats"]) },
   capture_device_chain_snapshot: { description: "Capture ordered devices, nested rack topology, exposed parameters, Return or master mixer, available master output channel, chain mixer, Drum Rack note routing and populated pad mute/solo as persistable JSON. Not a native rack or preset; excludes hidden plugin state, samples, automation, and mappings.", inputSchema: object({ trackId: ids.deviceOwnerId }, ["trackId"]) },
   list_saved_snapshots: { description: "List names of regular local capture files in the private track, device-chain, group-system, or MIDI-feel library. Does not validate capture contents or change Live; load a name to inspect its format and contents.", inputSchema: object({ kind: { type: "string", enum: ["track", "device-chain", "group-system", "midi-feel"] } }, ["kind"]) },
   save_device_chain_snapshot: { description: "Capture a device chain including Return or master mixer, available master output channel, exposed rack-chain controls and populated Drum Rack pad mute/solo into the private named local chain library. Never overwrites. Does not save hidden plugin state, samples, automation, or mappings.", inputSchema: object({ trackId: ids.deviceOwnerId, name: string("New local chain snapshot name; letters, numbers, dot, underscore and hyphen only.") }, ["trackId", "name"]) },
@@ -713,6 +718,7 @@ const readOnlyTools = new Set([
 ]);
 
 const destructiveTools = new Set([
+  "audition_arrangement_passage",
   "open_live_set", "save_live_set",
   "delete_session_object", "delete_clip", "delete_arrangement_clip",
   "delete_arrangement_cue_point", "remove_audio_warp_marker",

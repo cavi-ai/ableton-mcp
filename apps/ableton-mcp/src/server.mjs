@@ -45,6 +45,7 @@ const resourceTemplates = resourceUris.filter((uri) => uri.includes("{"))
   .map((uriTemplate) => ({ uriTemplate, name: uriTemplate, mimeType: "application/json" }));
 
 const toolNames = [
+  "audition_arrangement_passage",
   "get_producer_workflow",
   "search_presets",
   "get_nks_generation_status",

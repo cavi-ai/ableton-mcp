@@ -49,6 +49,7 @@ import { matchDrumVariationReadback, planDrumVariation } from "./drum-variation.
 import { duplicateMidiClipVariations } from "./midi-clip-variations.mjs";
 import { requestSignal } from "./request-context.mjs";
 import { getProducerWorkflow } from "./prompts.mjs";
+import { auditionArrangementPassage } from "./arrangement-audition.mjs";
 
 function canonicalLocalSpliceMetadataItem(item, configuredRoots) {
   const root = configuredRoots.roots.filter(candidate => candidate.available &&
@@ -782,6 +783,7 @@ export class ToolService {
     if (name === "get_track_routing") return this.bridge.request("get_track_routing", args);
     if (name === "get_set_mixer") return this.bridge.request("get_set_mixer", {});
     if (name === "get_producer_workflow") return getProducerWorkflow(args);
+    if (name === "audition_arrangement_passage") return auditionArrangementPassage(this.bridge,this.confirmations,args);
     if (name === "list_producer_chain_blueprints") return { blueprints: listProducerChainBlueprints() };
     if (name === "get_producer_chain_blueprint") return { blueprint: getProducerChainBlueprint(args.target) };
     if (name === "inspect_producer_chain") {
