@@ -200,3 +200,76 @@ test("post-launch observation failures retain an explicit unknown startup receip
     assert.match(result.limitation, /before retrying/);
   }
 });
+
+
+function saveAsFixture({ untitled = false } = {}) {
+  let live = { stateVersion: 4, setFingerprint: "current", filePath: untitled ? "" : "/tmp/Old.als", scriptDirectory };
+  const destination = { requestedPath: "/tmp/New.als", path: "/tmp/New Project/New.als", name: "New.als",
+    parent: { path: "/tmp", dev: "1", ino: "2" }, project: null, createsProject: true };
+  const calls = [];
+  const host = { appPathFor: () => "/Applications/Live.app",
+    saveAsDestination: async () => structuredClone(destination),
+    fileInfo: async path => ({ path, size: 100, mtimeMs: 1 }),
+    saveAs: async (app, target, { beforeSave }) => {
+      calls.push("prepare");await beforeSave();calls.push("save");live = { ...live, filePath: target.path };
+    } };
+  const service = new ToolService({ bridge: { request: async () => live }, liveSetHost: host, liveSetSaveTimeoutMs: 0 });
+  const args = { path: "/tmp/New.als", expectedStateVersion: 4, expectedSetFingerprint: "current" };
+  const apply = plan => service.call("save_live_set", { ...args, dryRun: false,
+    confirmationToken: plan.confirmation.token, planHash: plan.confirmation.planHash });
+  return { service, host, calls, destination, args, apply, setLive: value => { live = value; }, live: () => live };
+}
+
+test("Save As supports untitled and named Sets with native path and disk verification", async () => {
+  for (const untitled of [false, true]) {
+    const f = saveAsFixture({ untitled });
+    assert.deepEqual(validateToolArguments("save_live_set", f.args), f.args);
+    const plan = await f.service.call("save_live_set", f.args);
+    assert.equal(plan.plan.destination.path, f.destination.path);assert.deepEqual(f.calls, []);
+    const result = await f.apply(plan);
+    assert.equal(result.saved, true);assert.equal(result.observed.filePath, f.destination.path);
+    assert.equal(result.after.path, f.destination.path);assert.deepEqual(f.calls, ["prepare", "save"]);
+  }
+});
+
+test("Save As refuses destination changes before dispatch and native edits before Save", async () => {
+  for (const change of ["destination", "native-during-dialog", "file-during-dialog"]) {
+    const f = saveAsFixture(), plan = await f.service.call("save_live_set", f.args);
+    if (change === "destination") f.destination.parent.ino = "3";
+    else {
+      const save = f.host.saveAs;
+      f.host.saveAs = async (...args) => {
+        if (change === "native-during-dialog") f.setLive({ ...f.live(), stateVersion: 5 });
+        else f.host.fileInfo = async path => ({ path, size: 999, mtimeMs: 2 });
+        return save(...args);
+      };
+    }
+    if (change === "destination") await assert.rejects(f.apply(plan));
+    else { const result = await f.apply(plan);assert.equal(result.saved, false);assert.ok(result.observationError); }
+    assert.ok(!f.calls.includes("save"));
+  }
+});
+
+test("Save As retains uncertainty after a lost reply, wrong native path, missing file, or zero-byte file", async () => {
+  for (const outcome of ["lost-reply", "wrong-path", "missing", "empty"]) {
+    const f = saveAsFixture(), plan = await f.service.call("save_live_set", f.args);
+    const save = f.host.saveAs;
+    f.host.saveAs = async (...args) => {
+      await save(...args);
+      if (outcome === "lost-reply") throw Error("reply lost");
+      if (outcome === "wrong-path") f.setLive({ ...f.live(), filePath: "/tmp/Other.als" });
+      if (outcome === "missing") f.host.fileInfo = async () => { throw Error("missing"); };
+      if (outcome === "empty") f.host.fileInfo = async path => ({ path, size: 0, mtimeMs: 1 });
+    };
+    const result = await f.apply(plan);
+    assert.equal(result.saved, false, outcome);assert.equal(result.pendingUserAction, true);
+    assert.equal(result.saveAsRequested, true);assert.match(result.limitation, /inspect/i);
+  }
+});
+
+test("cancelled Save As never dispatches or presses Save", async () => {
+  const f = saveAsFixture(), plan = await f.service.call("save_live_set", f.args);
+  const abort = new AbortController();abort.abort();
+  await assert.rejects(withRequestSignal(abort.signal, () => f.apply(plan)));
+  assert.deepEqual(f.calls, []);
+});

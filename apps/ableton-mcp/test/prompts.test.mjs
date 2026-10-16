@@ -69,3 +69,11 @@ test("resume discovery requires the user's intended continuation and never calls
   assert.match(text, /never.*replay/i);
   assert.equal(calls, 0);
 });
+
+
+test("instrument replacement workflow establishes a verified working Set with Save As", () => {
+  const text = getPrompt("explore-selected-instrument", { request: "warmer synth" }).messages[0].content.text;
+  assert.match(text, /save_live_set.*path/);
+  assert.match(text, /saved: true/);
+  assert.match(text, /project folder/);
+});

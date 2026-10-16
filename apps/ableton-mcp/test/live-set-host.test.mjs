@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, rm, realpath } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, realpath, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MacLiveSetHost } from "../src/live-set-host.mjs";
@@ -71,4 +71,78 @@ test("cold opening passes the configured bridge socket through Launch Services",
   await host.open("/Applications/Live.app", "/tmp/Song.als", { launch: true });
   assert.deepEqual(calls[0], ["/usr/bin/open", ["-n", "-a", "/Applications/Live.app", "--env",
     "ABLETON_MCP_BRIDGE_SOCKET=/tmp/custom bridge.sock", "/tmp/Song.als"]]);
+});
+
+
+test("Save As projects the native path and refuses existing files or project folders", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cavi-save-as-"));
+  const host = new MacLiveSetHost({ platform: "darwin" });
+  try {
+    const parent = await realpath(directory);
+    const outside = await host.saveAsDestination(join(directory, "Working.als"));
+    assert.equal(outside.path, join(parent, "Working Project/Working.als"));
+    assert.equal(outside.createsProject, true);
+    await mkdir(join(directory, "Working Project"));
+    await assert.rejects(host.saveAsDestination(join(directory, "Working.als")), /exists/);
+    await mkdir(join(directory, "Ableton Project Info"));
+    const inside = await host.saveAsDestination(join(directory, "Alternative.als"));
+    assert.equal(inside.path, join(parent, "Alternative.als"));
+    assert.equal(inside.createsProject, false);
+    await symlink(join(directory, "Missing.als"), inside.path);
+    await assert.rejects(host.saveAsDestination(inside.path), /exists/);
+    await assert.rejects(host.saveAsDestination(join(directory, ".Hidden.als")), /filename/);
+    await assert.rejects(host.saveAsDestination(join(directory, "Bad:name.als")), /filename/);
+    await assert.rejects(host.saveAsDestination(join(directory, "Missing/Song.als")), /directory/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+async function saveAppFixture(t) {
+  const directory = await mkdtemp(join(tmpdir(), "cavi-save-app-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const app = join(directory, "Live.app");
+  await mkdir(join(app, "Contents/MacOS"), { recursive: true });
+  await writeFile(join(app, "Contents/MacOS/Live"), "binary");
+  return realpath(app);
+}
+
+test("Save As guards the exact process and binds the prepared window before pressing Save", async t => {
+  const app = await saveAppFixture(t), calls = [];
+  const host = new MacLiveSetHost({ platform: "darwin", run: async (command, args) => {
+    calls.push([command, args]);
+    return { stdout: JSON.stringify({ prepared: true, windowId: 123, purpose: "Save Live Set As:" }) };
+  } });
+  host.runningProcesses = async () => [{ pid: 42, path: app + "/Contents/MacOS/Live" }];
+  const destination = { name: "It's a $song.als", parent: { path: "/tmp" }, path: "/tmp/It's a $song.als" };
+  await host.saveAs(app, destination, { beforeSave: async () => { calls.push(["revalidate"]); } });
+  const scriptCalls = calls.filter(([command]) => command === "/usr/bin/osascript");
+  assert.deepEqual(scriptCalls.map(([,args]) => JSON.parse(args.at(-1)).action), ["prepare", "commit"]);
+  assert.equal(JSON.parse(scriptCalls[0][1].at(-1)).name, destination.name);
+  assert.equal(JSON.parse(scriptCalls[1][1].at(-1)).windowId, 123);
+  assert.equal(JSON.parse(scriptCalls[1][1].at(-1)).purpose, "Save Live Set As:");
+  assert.ok(calls.findIndex(([command]) => command === "revalidate") > calls.indexOf(scriptCalls[0]));
+  calls.length = 0;
+  await assert.rejects(host.saveAs(app, destination, { beforeSave: async () => { throw Error("Set changed"); } }), /Set changed/);
+  assert.equal(calls.filter(([command]) => command === "/usr/bin/osascript").length, 1);
+  host.runningProcesses = async () => [{ pid: 43, path: "/Other.app/Contents/MacOS/Live" }];
+  await assert.rejects(host.saveAs(app, destination), /exactly one/);
+});
+
+test("Save As resolves a configured app symlink before comparison and dispatch", async t => {
+  const app = await saveAppFixture(t), alias = join(app, "../Alias.app"), calls = [];
+  await symlink(app, alias);
+  const host = new MacLiveSetHost({ platform: "darwin", run: async (command,args) => {
+    calls.push([command,args]);return { stdout: JSON.stringify({ prepared: true, windowId: 123, purpose: "Save Live Set As:" }) };
+  } });
+  host.runningProcesses = async () => [{ pid: 42, path: app + "/Contents/MacOS/Live" }];
+  await host.saveAs(alias, { name: "Working.als", parent: { path: "/tmp" } }, { beforeSave: async () => {} });
+  assert.deepEqual(calls[0], ["/usr/bin/open", ["-a", app]]);
+});
+
+test("Save As preserves the native refusal reason instead of a truncated command line", async t => {
+  const app = await saveAppFixture(t);
+  const host = new MacLiveSetHost({ platform: "darwin", run: async command => {
+    if (command === "/usr/bin/osascript") throw Object.assign(Error("long command"), { stderr: "execution error: existing Live dialog" });
+  } });
+  host.runningProcesses = async () => [{ pid: 42, path: app + "/Contents/MacOS/Live" }];
+  await assert.rejects(host.saveAs(app, { parent: { path: "/tmp" }, name: "New.als" }, { beforeSave: async () => {} }), /existing Live dialog/);
 });

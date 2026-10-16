@@ -34,4 +34,4 @@ Omit `comparisonId` from `get_instrument_comparison` to list active comparisons.
 
 Comparison handles are runtime state and are not stored in the Live Set. Reloading scripts or restarting Live may invalidate them. Inspect the existing tracks before beginning again; a missing handle does not mean the tracks were removed. At most 16 comparisons can be active. Finish comparisons to release handles while preserving their tracks.
 
-For a user-requested replacement on the original track instead, create a separate saved working Set first. `save_live_set` saves the named Set but cannot perform Save As; that copy must be made in Live and its path verified before replacing the instrument.
+For a user-requested replacement on the original track instead, create a separate saved working Set first. `save_live_set` with a new absolute `.als` `path` performs native Save As. Review its resulting destination, including a new project folder when needed, and require `saved:true` with the new loaded path before replacing the instrument. It does not collect external samples.

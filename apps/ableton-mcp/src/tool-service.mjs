@@ -2741,6 +2741,7 @@ export class ToolService {
   }
 
   async #saveLiveSet(args) {
+    if (args.path !== undefined) return this.#saveLiveSetAs(args);
     const before = await this.#liveSetState(args);
     if (!before.filePath) throw new Error("save_live_set requires a named Live Set; save a new Set through Live's Save As UI");
     const appPath = this.liveSetHost.appPathFor(before);
@@ -2772,6 +2773,41 @@ export class ToolService {
       (observed?.filePath === file.path && observed.isDirty === false);
     return { dryRun: false, requested: plan, saved, pendingUserAction: !saved, after,
       ...(!saved ? { limitation: "Save was requested in Live, but no changed file or clean-state readback was observed. Live may be showing Save As or another dialog; resolve it in Live before relying on this save." } : {}) };
+  }
+
+  async #saveLiveSetAs(args) {
+    const before = await this.#liveSetState(args);
+    const appPath = this.liveSetHost.appPathFor(before);
+    const file = before.filePath ? await this.liveSetHost.fileInfo(before.filePath) : null;
+    const destination = await this.liveSetHost.saveAsDestination(args.path);
+    const plan = { method: "save_live_set", mode: "saveAs", appPath, destination, file,
+      before: { stateVersion: before.stateVersion, setFingerprint: before.setFingerprint, filePath: before.filePath } };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan),
+      warning: "Save As switches Live to the new Set. Sample references remain external; this is not Collect All and Save." };
+    const revalidate = async () => {
+      const current = await this.#liveSetState(args);
+      if (current.filePath !== before.filePath) throw new Error("current Live Set changed before Save As");
+      const currentFile = current.filePath ? await this.liveSetHost.fileInfo(current.filePath) : null;
+      const currentDestination = await this.liveSetHost.saveAsDestination(args.path);
+      if (hashPlan({ ...plan, file: currentFile, destination: currentDestination }) !== hashPlan(plan))
+        throw new Error("Save As source or destination changed; re-observe before saving");
+      requestSignal()?.throwIfAborted();
+    };
+    await revalidate();
+    this.#consumeConfirmation(plan, args);
+    let observed = null, after = null, observationError;
+    try {
+      await this.liveSetHost.saveAs(appPath, destination, { beforeSave: revalidate, signal: requestSignal() });
+      observed = await this.#pollLiveSet(live => live.filePath === destination.path, this.liveSetSaveTimeoutMs);
+      if (observed) after = await this.liveSetHost.fileInfo(destination.path);
+    } catch (error) {
+      requestSignal()?.throwIfAborted();
+      observationError = String(error.message ?? error).slice(0, 300);
+    }
+    const saved = Boolean(observed && after?.path === destination.path && after.size > 0 && !observationError);
+    return { dryRun: false, requested: plan, saveAsRequested: true, saved, pendingUserAction: !saved, observed, after,
+      ...(observationError ? { observationError } : {}), ...(!saved ? { limitation:
+        "Save As was requested but the new file and loaded Set path are not both verified. Inspect Live and the destination before retrying. No overwrite or unexpected dialog was accepted." } : {}) };
   }
 
   #nksGenerationStatus(args) {
