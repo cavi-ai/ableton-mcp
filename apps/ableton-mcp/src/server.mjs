@@ -62,6 +62,7 @@ const toolNames = [
   "get_live_state",
   "get_selection_context",
   "get_session_orientation",
+  "get_instrument_comparison", "prepare_instrument_comparison", "select_instrument_comparison",
   "duplicate_midi_clip_variations",
   "open_live_set",
   "save_live_set",

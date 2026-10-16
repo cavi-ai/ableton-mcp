@@ -2746,6 +2746,17 @@ def dispatch_request(song, request, state_version, application=None):
         return _selection_context(song, state_version)
     if method == "get_session_orientation":
         return _session_orientation(song, state_version, application)
+    if method in ("get_instrument_comparison_source", "prepare_instrument_comparison",
+                  "get_instrument_comparison", "select_instrument_comparison"):
+        try:
+            from . import instrument_comparison
+        except ImportError:
+            import instrument_comparison
+        handlers = {"get_instrument_comparison_source": instrument_comparison.read_source,
+                    "prepare_instrument_comparison": instrument_comparison.prepare,
+                    "get_instrument_comparison": instrument_comparison.read_comparison,
+                    "select_instrument_comparison": instrument_comparison.select}
+        return handlers[method](song, params, state_version)
     if method == "get_midi_clip_variation_context":
         return _midi_variation_context(song, params, state_version)
     if method == "duplicate_midi_clip_variations":

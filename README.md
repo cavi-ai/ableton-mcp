@@ -56,7 +56,7 @@ For a smaller initial tool catalog, set `ABLETON_MCP_TOOL_PROFILE=core` in the M
 - **Audio analysis**: loudness, true peak, spectrum, pitch, transients and tuning of local audio files.
 - **Optional NKS preset catalog**: search, tags and favorites for presets discovered from your plug-in libraries.
 
-It publishes 224 tools, 9 concrete resources, 13 resource templates and 7 prompt templates. When Live's Remote Script API doesn't expose something, such as Arrangement automation, Group Track creation, or freezing, the tool reports that boundary and fails closed.
+It publishes 227 tools, 9 concrete resources, 13 resource templates and 7 prompt templates. When Live's Remote Script API doesn't expose something, such as Arrangement automation, Group Track creation, or freezing, the tool reports that boundary and fails closed.
 
 ## Documentation
 
@@ -64,6 +64,7 @@ It publishes 224 tools, 9 concrete resources, 13 resource templates and 7 prompt
 - [Guarded mutations](docs/ableton-mcp/source/pages/guides/guarded-mutations.md) and [MIDI clip variations](docs/ableton-mcp/source/pages/guides/midi-clip-variations.md)
 - [Cancel agent work](docs/ableton-mcp/source/pages/guides/request-cancellation.md)
 - [Understand a Set and explore instruments](docs/ableton-mcp/source/pages/guides/session-orientation.md)
+- [Compare instruments while keeping the original](docs/ableton-mcp/source/pages/guides/instrument-comparison.md)
 - [Preset catalog](docs/ableton-mcp/source/pages/guides/preset-catalog.md) and [NKS artwork](docs/ableton-mcp/source/pages/guides/artwork.md)
 - [Shared instrument buses](docs/ableton-mcp/source/pages/guides/shared-instrument-buses.md) and [Native saving and recall](docs/ableton-mcp/source/pages/guides/native-saving-and-recall.md)
 - [CLI](docs/ableton-mcp/source/pages/reference/cli.md), [Configuration](docs/ableton-mcp/source/pages/reference/configuration.md), [Tools](docs/ableton-mcp/source/pages/reference/tools.md)

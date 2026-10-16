@@ -421,6 +421,11 @@ const contracts = {
   }, ["expectedSetFingerprint"]) },
   get_history_state: { description: "Read current Ableton undo and redo availability.", inputSchema: empty },
   get_session_orientation: { description: "Read Set, recording, selection, clip and instruments together; configured scale and ambiguous MIDI evidence. No edits, playback or focus changes.", inputSchema: empty },
+  get_instrument_comparison: { description: "Read a runtime instrument comparison and current track IDs, mute states and readiness. Omit comparisonId to list this bridge instance's active comparisons, including after a timed-out preparation. No edits.", inputSchema: object({ comparisonId: string("Comparison ID returned by preparation or listing.") }) },
+  prepare_instrument_comparison: { description: "Plan or natively duplicate a MIDI instrument track for comparison. Binds exposed devices, routing, clips and notes; verifies source/copy and cleans up a failed copy. Requires stopped transport. Temporarily mutes source, restores it, leaves copy muted/unarmed with input monitoring off. IDs shift. Opaque state/audio unverified.", inputSchema: guarded({ trackId: ids.trackId, clipId: ids.clipId,
+    name: { type: "string", minLength: 1, maxLength: 128, description: "Name for the alternative track." } }, ["trackId", "clipId", "name"]) },
+  select_instrument_comparison: { description: "Plan or switch only the original/alternative pair's mutes in one native step. Restore uses original's pre-comparison mute. Refuses recording, frozen, solo and live-input conflicts. No playback, routing or note edits. Optional finish ends the handle and preserves both tracks.", inputSchema: guarded({ comparisonId: string("Active comparison ID."),
+    choice: { type: "string", enum: ["original", "variation", "restore"] }, finish: boolean("End the comparison handle after applying the choice; keep both tracks.") }, ["comparisonId", "choice"]) },
   get_selection_context: { description: "Read selected track/scene/device, displayed clip and highlighted slot together without changing focus. Null is unresolved; clip and slot can differ.", inputSchema: empty },
   duplicate_midi_clip_variations: { description: "Copy 1-4 named Session MIDI clips to empty slots on the same track. Binds notes/timing; verifies exposed copies and preserves original. One undo step; removes copies on failure. Edit identical copies separately.", inputSchema: guarded({
     trackId: ids.trackId, sourceClipId: string("Exact populated Session MIDI clip ID."),
@@ -642,7 +647,7 @@ const contracts = {
 const readOnlyTools = new Set([
   "search_presets", "get_nks_generation_status", "get_nks_generation_job", "get_preset", "get_preset_metadata",
   "get_browser_item_metadata", "search_browser_item_metadata",
-  "get_live_state", "get_selection_context", "get_session_orientation", "get_transport_context", "get_history_state",
+  "get_live_state", "get_selection_context", "get_session_orientation", "get_instrument_comparison", "get_transport_context", "get_history_state",
   "get_song_musical_context", "get_live_scale_reference", "list_live_scales",
   "get_song_grid_reference", "plan_grid_envelope_pattern",
   "plan_drum_pattern", "plan_drum_pattern_edit", "plan_drum_variation",
