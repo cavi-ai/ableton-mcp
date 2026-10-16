@@ -1613,6 +1613,7 @@ test("Arrangement placement guards timeline overlap and exact observations", asy
   let timeline = [];
   service.bridge.request = async (method, params) => {
     calls.push(method);
+    if (method === "get_session_clip_arrangement_source") return {stateVersion:4,trackId:"track-0",clipId:"track-0:clip-0",source:{id:"track-0:clip-0",hasClip:true,lengthBeats:4},beforeArrangement:timeline,sourceGuard:{identityToken:"clip-a",contentSha256:"notes-a"}};
     if (method === "list_clips") return { stateVersion: 4, trackId: "track-0", clips: [{ id: "track-0:clip-0", hasClip: true, lengthBeats: 4 }] };
     if (method === "list_arrangement_clips") return { stateVersion: 4, trackId: "track-0", clips: timeline };
     if (method === "place_session_clip_in_arrangement") return { stateVersion: 5, placedClip: { startBeats: params.startBeats, endBeats: params.endBeats } };

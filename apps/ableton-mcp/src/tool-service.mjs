@@ -2613,20 +2613,19 @@ export class ToolService {
 
   async #placeSessionClipInArrangement(args) {
     requireExpectedState(args);
-    const session = await this.bridge.request("list_clips", { trackId: args.trackId });
-    assertExpectedState(args, session);
-    const source = session.clips.find(({ id }) => id === args.clipId);
+    const before = await this.bridge.request("get_session_clip_arrangement_source", { trackId: args.trackId, clipId: args.clipId });
+    assertExpectedState(args, before);
+    const source = before.source;
     if (!source?.hasClip) throw new Error("source clip is empty or unknown");
+    if (!before.sourceGuard?.identityToken || !before.sourceGuard?.contentSha256) throw new Error("updated bridge Arrangement source context required");
     const startBeats = finiteRange(args.startBeats, "startBeats", 0, Number.MAX_SAFE_INTEGER);
     if (!Number.isFinite(source.lengthBeats) || source.lengthBeats <= 0) throw new Error("source clip length is unavailable");
     const endBeats = startBeats + source.lengthBeats;
     if (!Number.isSafeInteger(Math.ceil(endBeats))) throw new Error("placement end exceeds supported beat range");
-    const timeline = await this.bridge.request("list_arrangement_clips", { trackId: args.trackId });
-    assertExpectedState(args, timeline);
-    if (timeline.clips.some((clip) => startBeats < clip.endBeats && endBeats > clip.startBeats)) throw new Error("placement would overlap existing Arrangement clips");
+    if (before.beforeArrangement.some((clip) => startBeats < clip.endBeats && endBeats > clip.startBeats)) throw new Error("placement would overlap existing Arrangement clips");
     return this.#confirmedMutation({ method: "place_session_clip_in_arrangement", trackId: args.trackId,
       clipId: args.clipId, expectedStateVersion: args.expectedStateVersion, startBeats, endBeats, source,
-      beforeArrangement: timeline.clips }, args);
+      beforeArrangement: before.beforeArrangement, sourceGuard: before.sourceGuard }, args);
   }
 
   async #deleteClip(args) {

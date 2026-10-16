@@ -333,6 +333,10 @@ def _clip_timing(song, track_id, clip_id, state_version):
         "stateVersion": state_version, "trackId": track_id, "clipId": clip_id,
         "location": "arrangement" if timeline is not None else "session", "timeline": timeline,
         "loop": loop,
+        "markers": {"supported": True, "unit": "seconds" if unwarped_audio else "beats",
+                    "startSeconds" if unwarped_audio else "startBeats": float(clip.start_marker),
+                    "endSeconds" if unwarped_audio else "endBeats": float(clip.end_marker)}
+        if hasattr(clip, "start_marker") and hasattr(clip, "end_marker") else {"supported": False},
         "timeSignature": {"numerator": int(clip.signature_numerator), "denominator": int(clip.signature_denominator)},
         "launchQuantization": _enum_record(clip.launch_quantization, CLIP_QUANTIZATION_NAMES),
         "editorGrid": {
@@ -437,6 +441,63 @@ def _arrangement_clips(song, track_id, state_version):
     return {"stateVersion": state_version, "trackId": track_id,
             "clips": [_arrangement_clip_record(clip, track_id, index)
                       for index, clip in enumerate(track.arrangement_clips)]}
+
+
+_arrangement_source_song = None
+_arrangement_source_identities = {}
+
+
+def _session_clip_arrangement_source(song, params, state_version):
+    global _arrangement_source_song
+    track_id, clip_id = params["trackId"], params["clipId"]
+    track, _, slot = _clip_slot(song, track_id, clip_id)
+    if not slot.has_clip:
+        raise ValueError("source clip is empty")
+    if bool(getattr(track, "is_frozen", False)):
+        raise ValueError("Arrangement placement source track is frozen")
+    clip = slot.clip
+    if bool(getattr(clip, "is_recording", False)) or bool(getattr(slot, "is_triggered", False)):
+        raise ValueError("resolve source recording or pending clip launch before placement")
+    audio = bool(getattr(clip, "is_audio_clip", False))
+    if audio and not clip.warping:
+        raise ValueError("unwarped placement requires tempo-map duration conversion")
+    source = next(row for row in _clip_list(song, track_id, state_version)["clips"] if row["id"] == clip_id)
+    timing = _clip_timing(song, track_id, clip_id, state_version)
+    for key in ("stateVersion", "trackId", "clipId", "location", "timeline"):
+        timing.pop(key, None)
+    content = {"source": source, "timing": timing,
+               "startMarker": float(getattr(clip, "start_marker", clip.loop_start)),
+               "endMarker": float(getattr(clip, "end_marker", clip.loop_end)),
+               "color": getattr(clip, "color", None)}
+    note_count = None
+    if audio:
+        audio_state = _audio_clip_state(song, track_id, clip_id, state_version)
+        for key in ("stateVersion", "trackId", "clipId", "location", "timeline"):
+            audio_state.pop(key, None)
+        content["audio"] = audio_state
+    else:
+        notes = list(clip.get_all_notes_extended())
+        if len(notes) > 4096:
+            raise ValueError("Arrangement placement supports at most 4096 source MIDI notes")
+        content["notes"] = sorted([_midi_note_record(note) for note in notes], key=lambda note: note["noteId"])
+        note_count = len(notes)
+    if len(track.arrangement_clips) > 4096:
+        raise ValueError("Arrangement placement supports at most 4096 existing clips per track")
+    if _arrangement_source_song != song:
+        _arrangement_source_song = song
+        _arrangement_source_identities.clear()
+    key, identity = (track_id, clip_id), (track, slot, clip)
+    cached = _arrangement_source_identities.get(key)
+    if cached is None or cached[0] != identity:
+        if key not in _arrangement_source_identities and len(_arrangement_source_identities) >= 64:
+            del _arrangement_source_identities[next(iter(_arrangement_source_identities))]
+        cached = (identity, str(uuid.uuid4()))
+        _arrangement_source_identities[key] = cached
+    digest = hashlib.sha256(json.dumps(content, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+    return {"stateVersion": state_version, "trackId": track_id, "clipId": clip_id,
+            "source": source, "beforeArrangement": _arrangement_clips(song, track_id, state_version)["clips"],
+            "sourceGuard": {"identityToken": cached[1], "contentSha256": digest,
+                            "type": "audio" if audio else "midi", "noteCount": note_count}}
 
 
 def _scene_record(scene, index):
@@ -4639,7 +4700,14 @@ def dispatch_request(song, request, state_version, application=None):
         result = _arrangement_clips(song, track_id, state_version + 1)
         result["deletedClip"] = before
         return result
+    if method == "get_session_clip_arrangement_source":
+        return _session_clip_arrangement_source(song, params, state_version)
     if method == "place_session_clip_in_arrangement":
+        if "sourceGuard" in params:
+            if params.get("expectedStateVersion") != state_version:
+                raise ValueError("Arrangement placement state version changed")
+            if _session_clip_arrangement_source(song, params, state_version)["sourceGuard"] != params["sourceGuard"]:
+                raise ValueError("Arrangement placement source context changed after planning")
         track, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
         if not slot.has_clip:
             raise ValueError("source clip is empty")
