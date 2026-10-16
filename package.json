@@ -37,6 +37,7 @@
     "ableton/Remote Scripts/CaviMcpBridge/instrument_comparison.py",
     "ableton/Remote Scripts/CaviMcpBridge/audio_capture.py",
     "ableton/Remote Scripts/CaviMcpBridge/arrangement_section.py",
+    "ableton/Remote Scripts/CaviMcpBridge/arrangement_audition.py",
     "packages/nks-pipeline/src/catalog.mjs",
     "packages/nks-pipeline/src/generation-queue.mjs",
     "packages/nks-pipeline/src/preview-runner.mjs",
