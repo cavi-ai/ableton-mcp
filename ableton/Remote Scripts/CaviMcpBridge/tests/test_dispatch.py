@@ -4324,6 +4324,7 @@ class DispatchTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "armed"):
             dispatch_request(song, {"method": "launch_clip", "params": params}, 7)
         song.tracks[0].arm = True
+        params["beforeRecording"] = dispatch_request(song, {"method": "get_session_recording_source", "params": params}, 7)
         observed = dispatch_request(song, {"method": "launch_clip", "params": params}, 7)
         self.assertEqual(observed["recordLengthBeats"], 4.0)
         self.assertEqual(slot.last_record_length, 4.0)

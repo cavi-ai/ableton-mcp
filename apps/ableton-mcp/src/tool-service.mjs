@@ -4640,19 +4640,31 @@ export class ToolService {
         expectedStateVersion:args.expectedStateVersion,before,
         warning:"Scene launch affects the entire row: clips can replace playback, empty stop buttons can stop tracks, armed empty tracks may start recording, and scene overrides can change global tempo or meter. Live's launch preference is not exposed. Review all tracks, Group slots and recording context. The request may start global playback and select the scene; its receipt does not prove playback or recording completed."},args);
     }
-    const recording = name === "launch_clip" && args.recordLengthBeats !== undefined;
+    let recording = name === "launch_clip" && args.recordLengthBeats !== undefined;
     if (recording && (typeof args.recordLengthBeats !== "number" || !Number.isFinite(args.recordLengthBeats) || args.recordLengthBeats <= 0)) {
       throw new Error("recordLengthBeats must be a positive finite number");
     }
     const clipOverride = name === "launch_clip" && args.launchQuantization !== undefined;
+    let slots;
+    if (name === "launch_clip" && !recording) {
+      slots = await this.bridge.request("list_clips", { trackId: args.trackId });
+      assertExpectedState({ expectedStateVersion: args.expectedStateVersion, trackId: args.trackId }, slots);
+      if (slots.groupLaunchRecordingRisk) throw new Error("Group slot launch requires all tracks unarmed; record into an individual Session slot");
+      const slot = slots.clips.find((item) => item.id === args.clipId);
+      if (!slot) throw new Error("unknown clip slot");
+      recording = !slot.hasClip && slots.armed;
+    }
+    const sourceArgs = { trackId: args.trackId, clipId: args.clipId };
+    if (args.recordLengthBeats !== undefined) sourceArgs.recordLengthBeats = args.recordLengthBeats;
     const current = recording
-      ? await this.bridge.request("list_clips", { trackId: args.trackId })
+      ? await this.bridge.request("get_session_recording_source", sourceArgs)
       : clipOverride
       ? await this.bridge.request("get_clip_timing", { trackId: args.trackId, clipId: args.clipId })
-      : await this.bridge.request("get_live_state", {});
+      : slots ?? await this.bridge.request("get_live_state", {});
     assertExpectedState(recording || clipOverride ? args : { expectedStateVersion: args.expectedStateVersion }, current);
     if (recording) {
-      const slot = current.clips.find((clip) => clip.id === args.clipId);
+      if (!current.identityToken) throw new Error("updated bridge Session recording context required");
+      const slot = current.slot?.id === args.clipId ? current.slot : null;
       if (!slot) throw new Error("unknown clip slot");
       if (slot.hasClip) throw new Error("fixed-length recording requires an empty clip slot");
       if (!current.canBeArmed || !current.armed) throw new Error("fixed-length recording requires an armed track");
@@ -4660,6 +4672,11 @@ export class ToolService {
     }
     if (!recording && clipOverride && current.clipId !== args.clipId) throw new Error("clipId mismatch");
     const plan = { method: name, ...args };
+    if (recording) {
+      plan.beforeRecording = current;
+      plan.warning = "Records the observed input into the empty armed Session slot and may start global playback or replace this track's playing clip. Count-in and launch quantization can delay the start. Arms remain unchanged; the immediate receipt does not prove a complete take.";
+      if (args.recordLengthBeats === undefined) plan.warning += " This recording is open-ended; explicitly stop this clip to finish the take.";
+    }
     if (clipOverride) {
       plan.launchQuantization = normalizeChoice(args.launchQuantization, "launchQuantization",
         recording ? current.launchQuantizationChoices : current.launchQuantization.choices);

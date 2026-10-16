@@ -184,6 +184,12 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
       };
       if (method === "set_device_active") return { stateVersion: 5, trackId: params.trackId, device: { ...params.beforeDevice, active: params.active } };
       if (method === "delete_device") return { stateVersion: 5, trackId: params.trackId, deletedDevice: params.beforeDevice, devices: [] };
+      if (method === "get_session_recording_source") return {
+        stateVersion:4,trackId:params.trackId,clipId:params.clipId,identityToken:"native-recording-slot",
+        armed:params.trackId==="track-0",canBeArmed:true,isFrozen:false,
+        slot:{id:params.clipId,hasClip:params.trackId==="track-0"&&params.clipId==="track-0:clip-0"},
+        launchQuantizationChoices:[{value:0,name:"global"},{value:12,name:"1_16"}]
+      };
       if (method === "list_clips") return {
         stateVersion: 4,
         trackId: params.trackId,
@@ -2270,11 +2276,13 @@ test("clip parameter envelope replacement rejects invalid steps", async () => {
 test("core transport, mixer, scene, and clip operations use guarded mutation plans", async () => {
   const { service, calls } = fixture();
   for (const name of ["transport_play", "transport_stop", "set_tempo", "launch_clip", "stop_clip", "arm_track"]) {
-    const dry = await service.call(name, { expectedStateVersion: 4, value: 0.5 });
+    const target=name==="launch_clip"?{trackId:"track-0",clipId:"track-0:clip-0"}:{};
+    const dry = await service.call(name, { expectedStateVersion: 4, value: 0.5,...target });
     assert.equal(dry.dryRun, true);
     const live = await service.call(name, {
       expectedStateVersion: 4,
       value: 0.5,
+      ...target,
       dryRun: false,
       confirmationToken: dry.confirmation.token,
       planHash: dry.confirmation.planHash
@@ -2308,12 +2316,14 @@ test("clip launch signs a one-shot quantization override", async () => {
   await assert.rejects(() => service.call("launch_clip", { ...args, launchQuantization: "bad" }), /launchQuantization must be one of/);
 });
 
-test("clip launch without an override retains the empty-slot recording path", async () => {
+test("clip launch without a length guards and labels open-ended recording", async () => {
   const { service, calls } = fixture();
   const args = { trackId: "track-0", clipId: "track-0:clip-1", expectedStateVersion: 4 };
   const dry = await service.call("launch_clip", args);
-  assert.equal(calls.at(-1).method, "get_live_state");
+  assert.equal(calls.at(-1).method, "get_session_recording_source");
   assert.equal(dry.plan.clipId, args.clipId);
+  assert.equal(dry.plan.beforeRecording.identityToken,"native-recording-slot");
+  assert.match(dry.plan.warning,/open-ended/);
 });
 
 test("fixed-length Session recording signs the empty armed slot and one-shot grid", async () => {
