@@ -1,6 +1,7 @@
 import { listLiveScaleReferences } from "./live-scale-reference.mjs";
 import { extensibleToolResult, toolOutputContracts } from "./tool-output-contracts.mjs";
 import { LIVE_BROWSER_ROOTS } from "./browser-roots.mjs";
+import { listPrompts } from "./prompts.mjs";
 
 const string = (description) => ({ type: "string", description });
 const number = (description, extra = {}) => ({ type: "number", description, ...extra });
@@ -392,6 +393,11 @@ const contracts = {
   recall_track_state_snapshot: { description: "Plan or recall captured track-state JSON onto exactly compatible topology and group membership (when captured). Restores track and rack-chain mixer, sends, routing, Drum Rack note routing, populated pad mute/solo and exposed nested parameters in one guarded native undo step; older snapshots without group context remain supported. Does not load devices, clips, samples, hidden state, automation or mappings.", inputSchema: guarded({ trackId: ids.trackId, snapshot: trackStateSnapshot }, ["trackId", "snapshot"]) },
   recall_device_parameter_snapshot: { description: "Guarded recall of parameter JSON onto a matching native device class and exact ordered parameter layout. Supports ordinary, Return, and Main tracks; rejects incompatible bounds/choices and disabled changed controls. Does not restore hidden state.", inputSchema: guarded({ trackId: ids.deviceOwnerId, deviceId: ids.deviceId, snapshot: parameterSnapshot }, ["trackId", "deviceId", "snapshot"]) },
   get_factory_coverage: { description: "Compare observed top-level Live factory browser devices with name-matched knowledge profiles. Reports missing profiles, not verified deep integration or all presets/Packs/plugins.", inputSchema: empty },
+  get_producer_workflow: { description: "List producer workflows, or retrieve one with named string arguments. Returns shared MCP prompt instructions without calling Live or executing work. Omit workflow to list names and required arguments. Requires all profile.", inputSchema: object({
+    workflow: { type: "string", enum: listPrompts().map(prompt=>prompt.name) },
+    arguments: { type: "object", description: "Named prompt arguments from listing, such as request, mode or setPath.", maxProperties: 8,
+      propertyNames: { minLength: 1, maxLength: 64 }, additionalProperties: { type: "string", maxLength: 8192 } }
+  }) },
   list_producer_chain_blueprints: { description: "List deterministic producer starting points for ordered track, bus, return, mastering, and layered-instrument chains.", inputSchema: empty },
   get_producer_chain_blueprint: { description: "Return one ordered factory-device chain or shared-bus topology with exact browser paths, stage roles, execution tools, and explicit limitations.", inputSchema: object({ target: { type: "string", enum: ["bass", "drums", "vocals", "guitar", "keys", "synth", "mix-bus", "mastering", "reverb-return", "delay-return", "layered-bass-system", "layered-synth-system", "layered-drums-system", "layered-keys-system", "layered-vocals-system", "layered-guitar-system"] } }, ["target"]) },
   inspect_producer_chain: { description: "Read the devices on one exact track and compare their factory profiles and order with a named producer-chain blueprint. No devices are loaded or changed.", inputSchema: object({ target: { type: "string", enum: ["bass", "drums", "vocals", "guitar", "keys", "synth", "mix-bus", "mastering", "reverb-return", "delay-return", "layered-bass-system", "layered-synth-system", "layered-drums-system", "layered-keys-system", "layered-vocals-system", "layered-guitar-system"] }, trackId: ids.deviceOwnerId }, ["target", "trackId"]) },
@@ -669,6 +675,7 @@ const contracts = {
 };
 
 const readOnlyTools = new Set([
+  "get_producer_workflow",
   "search_presets", "get_nks_generation_status", "get_nks_generation_job", "get_preset", "get_preset_metadata",
   "get_browser_item_metadata", "search_browser_item_metadata",
   "get_live_state", "get_selection_context", "get_session_orientation", "analyze_arrangement_section", "analyze_midi_parts", "get_instrument_comparison", "get_live_audio_capture", "get_transport_context", "get_history_state",

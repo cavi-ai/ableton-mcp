@@ -6,6 +6,28 @@ const confirmWorkflow = [
 const userMessage = (text) => ({ role: "user", content: { type: "text", text } });
 
 export const promptContracts = {
+  "create-musical-sketch": {
+    name: "create-musical-sketch",
+    description: "Build a bounded playable idea from a brief, independently or with user choices, then audition and refine while preserving existing work.",
+    arguments: [
+      { name: "request", description: "Musical brief, scope and playback/refinement instructions.", required: true },
+      { name: "mode", description: "collaborative (default) or autonomous creative decisions within the brief.", required: false },
+      { name: "setPath", description: "Optional new absolute .als destination for a separate working Set.", required: false }
+    ],
+    build: ({request,mode="collaborative",setPath}) => {
+      if (!["collaborative","autonomous"].includes(mode)) throw Object.assign(new Error("mode must be collaborative or autonomous"),{code:-32602});
+      return {description:"Create and refine a playable musical sketch.",messages:[userMessage(`Create a musical sketch: ${request}
+Creative decision mode: ${mode}. ${mode==="autonomous" ? "Make reasonable compositional choices within the brief, state those choices and continue without asking for approval of each creative detail. This grants no unrelated edits, deletion, playback, recording or saving." : "Offer two concise directions and let the user choose before building, unless their request or earlier authorization already chooses a direction. Ask only about materially unresolved choices."}
+${setPath ? `Requested separate working Set destination: ${setPath}.` : "Use the current Set; no separate save destination was supplied."}
+1. Read get_session_orientation, get_song_grid_reference, get_song_musical_context, get_transport_recording_context, list_tracks and list_scenes. This workflow requires the all profile; check advertised tools first. Establish length, parts and musical palette from the brief and observations; for unspecified length propose four bars. Configured key is not a detected key, and creative choices are not recovered facts. Use current tempo/meter/key unless the user authorizes global changes. Resolve active recording before edits; never silently stop playback or disarm another track.
+2. If setPath was supplied, save_live_set to that new destination with fresh Set guards; require saved: true and the resulting loaded path before building there. Save As switches Sets and does not collect samples. Otherwise preserve existing material in place. Append a named create_scene and new MIDI create_track tracks for the requested parts. Resolve actual IDs and empty slots through fresh lists after insertions; never overwrite existing material or trust old indices. Track created references and verified progress. After interruption, inspect current content before retrying; never blindly duplicate work or use global undo.
+3. Find available instruments through the Live browser and load only onto the new tracks with reviewed load_browser_item plans. Read list_devices/get_device_hierarchy and relevant instrument context afterward. Read arm state again after loading and leave newly created tracks unarmed through arm_track; never disarm unrelated tracks automatically. A processing blueprint need not contain an instrument; an NKS entry does not prove loadability. For drums, inspect populated pad/sample mappings before choosing lane notes; an empty Drum Rack and assumed General MIDI notes do not establish sound. If a required sound is unavailable, report the partial result and choose an available alternative within the brief or resolve the choice.
+4. Coordinate the same progression, length and meter across parts. Use plan_scale_chord_progression/create_scale_chord_progression_clip, plan_scale_bassline/create_scale_bassline_clip, plan_scale_melody/create_scale_melody_clip and plan_drum_pattern/create_drum_pattern_clip as needed, targeting exact empty clips on the new tracks. Derive beats per bar from the grid. Degrees are one-based; bass activeSteps and melody event steps are zero-based; drum activeSteps are one-based. Choose explicit register, rhythm, rests, velocities and articulation rather than treating genre examples as universal rules. Compare each planner's notes with complete native creation readback and get_clip_timing, including matching loop lengths. Preserve unrelated content; stale plans require fresh reads, not weaker guards or silent truncation.
+5. Read the created notes, timing, devices, mixer and routing. Use analyze_midi_parts for the intended relationships while retaining per-part evidence, drums and exclusions; it does not establish simultaneous playback or a key. Check recording, monitoring, solos and existing playback before audition. Keep new-track levels conservative and leave Main and unrelated tracks alone. Stored-state verification does not prove audible output or sound quality.
+6. Offer audition unless requested or already authorized. launch_clip with explicit native launchQuantization affects the chosen new Session parts and can start playback; separate launches are not proven phase aligned. launch_scene can launch or stop unrelated tracks, including empty slots with stop buttons: inspect the entire affected row and obtain authority for its full effect first. Never record or change unrelated mutes to isolate the sketch without permission. For a requested stop, use stop_clip on created parts; transport_stop only when a global stop is intended. Explain remaining Arrangement overrides. Requested audio measurement follows listen-to-live-output through a separately authorized bounded capture, using only complete unchanged files.
+7. In collaborative mode ask what the user hears and refine the requested aspect. In autonomous mode make a bounded refinement only when the brief authorizes it, separating measurements from creative judgment. Re-read affected notes/timing/devices first and preserve intervening manual edits. Use clip/instrument variation workflows for alternatives; do not delete rejected versions automatically. Save only when requested or already authorized and verify the receipt. Report created parts, actual playback state, partial results and the next meaningful choice. Never claim the user heard audio from readback. ${confirmWorkflow}`)]};
+    }
+  },
   "resume-session-work": {
     name: "resume-session-work",
     description: "Refresh Live context after an interruption, reconcile unfinished work and continue while preserving user edits.",
@@ -161,7 +183,7 @@ export function listPrompts() {
 }
 
 export function getPrompt(name, args = {}) {
-  const contract = promptContracts[name];
+  const contract = Object.hasOwn(promptContracts,name) ? promptContracts[name] : undefined;
   if (!contract) throw Object.assign(new Error(`unknown prompt ${name}`), { code: -32602 });
   const required = contract.arguments.filter(({ required: isRequired }) => isRequired);
   const missing = required.filter(({ name: argument }) => args?.[argument] === undefined || args?.[argument] === null || args?.[argument] === "");
@@ -169,4 +191,20 @@ export function getPrompt(name, args = {}) {
     throw Object.assign(new Error(`missing required prompt argument(s): ${missing.map(({ name: key }) => key).join(", ")}`), { code: -32602 });
   }
   return contract.build(args ?? {});
+}
+
+export function getProducerWorkflow({workflow,arguments:args}={}) {
+  if (workflow === undefined) {
+    if (args !== undefined) throw new Error("arguments require a workflow");
+    return {workflows:listPrompts()};
+  }
+  const descriptor=listPrompts().find(prompt=>prompt.name===workflow);
+  if (!descriptor) throw new Error(`unknown workflow ${workflow}`);
+  const input=args===undefined?{}:args;
+  if (!input || typeof input!=="object" || Array.isArray(input)) throw new Error("workflow arguments must be an object");
+  for (const [name,value] of Object.entries(input)) {
+    if (!descriptor.arguments.some(argument=>argument.name===name) || typeof value!=="string")
+      throw new Error(`unknown or non-string workflow argument ${name}`);
+  }
+  return {workflow,...getPrompt(workflow,input)};
 }

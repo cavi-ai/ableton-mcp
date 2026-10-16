@@ -56,7 +56,7 @@ For a smaller initial tool catalog, set `ABLETON_MCP_TOOL_PROFILE=core` in the M
 - **Audio analysis**: loudness, true peak, spectrum, pitch, transients and tuning of local audio files.
 - **Optional NKS preset catalog**: search, tags and favorites for presets discovered from your plug-in libraries.
 
-It publishes 233 tools, 9 concrete resources, 13 resource templates and 10 prompt templates. When Live's Remote Script API doesn't expose something, such as Arrangement automation, Group Track creation, or freezing, the tool reports that boundary and fails closed.
+It publishes 234 tools, 9 concrete resources, 13 resource templates and 11 prompt templates. When Live's Remote Script API doesn't expose something, such as Arrangement automation, Group Track creation, or freezing, the tool reports that boundary and fails closed.
 
 ## Documentation
 
@@ -64,6 +64,7 @@ It publishes 233 tools, 9 concrete resources, 13 resource templates and 10 promp
 - [Guarded mutations](docs/ableton-mcp/source/pages/guides/guarded-mutations.md) and [MIDI clip variations](docs/ableton-mcp/source/pages/guides/midi-clip-variations.md)
 - [Cancel agent work](docs/ableton-mcp/source/pages/guides/request-cancellation.md)
 - [Resume work after an interruption](docs/ableton-mcp/source/pages/guides/resume-session-work.md)
+- [Create a playable musical sketch](docs/ableton-mcp/source/pages/guides/musical-sketch.md)
 - [Understand a Set and explore instruments](docs/ableton-mcp/source/pages/guides/session-orientation.md)
 - [Understand how MIDI parts relate](docs/ableton-mcp/source/pages/guides/musical-parts.md)
 - [Capture and inspect Live audio](docs/ableton-mcp/source/pages/guides/live-audio-capture.md)
