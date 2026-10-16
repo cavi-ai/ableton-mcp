@@ -109,6 +109,8 @@ class Track:
         self.mute = False
         self.solo = False
         self.arm = False
+        self.playing_slot_index = -1
+        self.fired_slot_index = -1
         route = lambda identifier, name: type("Route", (), {"identifier": identifier, "display_name": name})()
         self.available_input_routing_types = [route("all-ins", "All Ins"), route("no-input", "No Input")]
         self.available_input_routing_channels = [route("all-channels", "All Channels"), route("channel-1", "Ch. 1")]
@@ -4293,10 +4295,11 @@ class DispatchTest(unittest.TestCase):
         dispatch_request(song, {"method": "set_track_mixer", "params": {"trackId": "track-0", "volume": 0.5, "pan": -0.25, "mute": True}}, 3)
         self.assertEqual(song.tracks[0].mixer_device.volume.value, 0.5)
         self.assertTrue(song.tracks[0].mute)
-        dispatch_request(song, {"method": "launch_scene", "params": {"sceneId": "scene-0"}}, 4)
+        before = dispatch_request(song, {"method": "get_scene_launch_context", "params": {"sceneId": "scene-0"}}, 4)
+        dispatch_request(song, {"method": "launch_scene", "params": {"sceneId": "scene-0", "expectedStateVersion": 4, "before": before}}, 4)
         self.assertTrue(song.scenes[0].is_triggered)
         self.assertFalse(song.scenes[0].last_force_legato)
-        dispatch_request(song, {"method": "launch_scene", "params": {"sceneId": "scene-0", "forceLegato": True}}, 4)
+        dispatch_request(song, {"method": "launch_scene", "params": {"sceneId": "scene-0", "expectedStateVersion": 4, "before": before, "forceLegato": True}}, 4)
         self.assertTrue(song.scenes[0].last_force_legato)
         dispatch_request(song, {"method": "launch_clip", "params": {"trackId": "track-0", "clipId": "track-0:clip-0"}}, 5)
         self.assertTrue(song.tracks[0].clip_slots[0].clip.is_playing)

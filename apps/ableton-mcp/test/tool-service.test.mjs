@@ -131,6 +131,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
     async request(method, params = {}) {
       calls.push({ method, params });
       if (method === "get_live_state") return { stateVersion: 4, setFingerprint: "set:a" };
+      if (method === "get_scene_launch_context") return { stateVersion: 4, scene: { id: params.sceneId }, tracks: [] };
       if (method === "get_history_state") return { stateVersion: 4, canUndo: true, canRedo: false };
       if (method === "undo" || method === "redo") return { stateVersion: 5, canUndo: method === "redo", canRedo: method === "undo" };
       if (method === "get_song_musical_context") return {
@@ -2267,7 +2268,7 @@ test("clip parameter envelope replacement rejects invalid steps", async () => {
 
 test("core transport, mixer, scene, and clip operations use guarded mutation plans", async () => {
   const { service, calls } = fixture();
-  for (const name of ["transport_play", "transport_stop", "set_tempo", "launch_scene", "launch_clip", "stop_clip", "arm_track"]) {
+  for (const name of ["transport_play", "transport_stop", "set_tempo", "launch_clip", "stop_clip", "arm_track"]) {
     const dry = await service.call(name, { expectedStateVersion: 4, value: 0.5 });
     assert.equal(dry.dryRun, true);
     const live = await service.call(name, {
