@@ -63,6 +63,7 @@ const toolNames = [
   "get_selection_context",
   "get_session_orientation",
   "analyze_midi_parts",
+  "capture_live_audio", "get_live_audio_capture", "finish_live_audio_capture",
   "get_instrument_comparison", "prepare_instrument_comparison", "select_instrument_comparison",
   "duplicate_midi_clip_variations",
   "open_live_set",

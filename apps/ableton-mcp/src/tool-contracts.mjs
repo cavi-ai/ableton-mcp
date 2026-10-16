@@ -420,6 +420,14 @@ const contracts = {
     expectedSetFingerprint: string("Exact setFingerprint from get_live_state for the currently loaded Set.")
   }, ["expectedSetFingerprint"]) },
   get_history_state: { description: "Read current Ableton undo and redo availability.", inputSchema: empty },
+  capture_live_audio: { description: "Plan or start a bounded Live Resampling recording of current playback into a new muted, monitor-off audio track. Requires playback, recording off and no armed tracks. Only its capture is stopped/disarmed automatically, even after client disconnect. No isolated-stem, hardware or listener proof.", inputSchema: guarded({
+    beats: number("Record 1-16 beats, lasting 0.5-30 seconds at current tempo.", { minimum: 1, maximum: 16 }),
+    name: { type: "string", minLength: 1, maxLength: 128, description: "Name for the retained capture track." }
+  }, ["beats", "name"]) },
+  get_live_audio_capture: { description: "Read a capture's status, current native track/clip IDs, cleanup errors and stable completed file provenance. Omit captureId to list handles after reconnect or a timed-out start. No edits; runtime handles are not saved in the Set.", inputSchema: object({ captureId: string("Capture ID from start or listing.") }) },
+  finish_live_audio_capture: { description: "Plan or release a completed capture handle, keeping its track/file. Cancel true stops and disarms an active capture early and retains partial audio. A pending native stop returns captureActive true with stopping status; read until confirmed, then finish. Cleanup failure is explicit and preserves the handle. Never stops source playback.", inputSchema: guarded({
+    captureId: string("Capture ID from start or listing."), cancel: boolean("Explicitly stop an in-progress capture early; retain partial recording.")
+  }, ["captureId"]) },
   get_session_orientation: { description: "Read Set, recording, selection, clip and instruments together; configured scale and ambiguous MIDI evidence. No edits, playback or focus changes.", inputSchema: empty },
   analyze_midi_parts: { description: "Read 1-8 explicit Session/Arrangement clips together. Report per-part register, duration-weighted pitch classes and combined diatonic compatibility. Loop/marker ranges only; not simultaneous playback or detected key. Audio, drums, recording and oversized clips are excluded explicitly. No edits or focus changes.", inputSchema: object({
     parts: { ...array(clip, "Exact parts from list_clips or list_arrangement_clips; unique references, at most 16384 analyzed notes total."), minItems: 1, maxItems: 8, uniqueItems: true }
@@ -650,7 +658,7 @@ const contracts = {
 const readOnlyTools = new Set([
   "search_presets", "get_nks_generation_status", "get_nks_generation_job", "get_preset", "get_preset_metadata",
   "get_browser_item_metadata", "search_browser_item_metadata",
-  "get_live_state", "get_selection_context", "get_session_orientation", "analyze_midi_parts", "get_instrument_comparison", "get_transport_context", "get_history_state",
+  "get_live_state", "get_selection_context", "get_session_orientation", "analyze_midi_parts", "get_instrument_comparison", "get_live_audio_capture", "get_transport_context", "get_history_state",
   "get_song_musical_context", "get_live_scale_reference", "list_live_scales",
   "get_song_grid_reference", "plan_grid_envelope_pattern",
   "plan_drum_pattern", "plan_drum_pattern_edit", "plan_drum_variation",
