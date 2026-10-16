@@ -48,6 +48,20 @@ Finish with a brief musical summary and two relevant next actions. Offer explore
     ] })
   },
 
+  "listen-to-live-output": {
+    name: "listen-to-live-output",
+    description: "Capture current Live Resampling output, measure its recorded audio and discuss the result with the user.",
+    arguments: [{ name: "request", description: "What to inspect in the playing audio.", required: true }],
+    build: ({ request }) => ({ description: "Bounded Live output capture and feedback.", messages: [
+      userMessage(`Help me inspect the audio from Live: ${request}
+1. Read get_session_orientation and get_transport_recording_context. Establish the intended playback window and what reaches Live's Resampling input. This is the current Resampling mix, not an isolated stem, microphone, hardware-loopback measurement or proof of what the user heard. If stopped, ask for playback or use a separately authorized playback workflow. Resolve existing recording or armed tracks explicitly; never disarm another track silently. Do not change mutes, solo, routing or source playback to isolate material without permission.
+2. With capture authorized, use capture_live_audio in the all profile. Choose a meaningful name and 1-16 beats within its 0.5-30 second bound. Review the dry-run plan and confirm. It appends a muted, monitor-off track, records the current signal, then stops and disarms only its capture. Live mix changes during this window are included. Source playback continues; selection may move to the new track.
+3. Read get_live_audio_capture until status is complete or a terminal interruption/error is reported, within the requested duration plus three seconds, allowing up to three additional seconds for stop readback. A fixed-length launch receipt is not completion. A lost client does not cancel capture: list handles with get_live_audio_capture without an ID before retrying. To stop early, finish_live_audio_capture with cancel true; retain and label partial audio. If captureActive remains true with stopping status, wait for get_live_audio_capture to confirm the stop, then finish the handle. Never replay start blindly. Cleanup errors require inspecting the retained capture before another recording.
+4. Only analyze a complete capture with no cleanupErrors and fileUnchanged true. Use its exact file.path with analyze_audio_file, for at most the recorded duration. Start with loudness/true peak and optionally waveform or spectrum. Do not apply monophonic pitch inference to a polyphonic mix or claim whole-mix key detection. Re-read the capture afterward and compare file metadata and fileUnchanged; if the file or clip changed, discard those conclusions and resolve the difference. Source-audio measurements now describe this recorded Resampling window, not an original sample with Live processing omitted.
+5. Explain measured observations and remaining uncertainty, ask what the user hears, and offer a bounded refinement. Measurements do not establish sound quality, genre or preference. finish_live_audio_capture releases the completed handle while retaining its track and audio; nothing is deleted or saved automatically. Source playback stops only through a separately authorized transport or clip action. Handle restart/reload by inspecting retained tracks; handles are runtime state. ${confirmWorkflow}`)
+    ] })
+  },
+
   "explore-selected-instrument": {
     name: "explore-selected-instrument",
     description: "Understand the selected part and compare instrument directions with the user before changing sounds.",

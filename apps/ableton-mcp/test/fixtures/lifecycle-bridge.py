@@ -16,15 +16,18 @@ surface = SimpleNamespace(song=lambda: document, application=lambda: None)
 bridge = SocketBridge(surface, sys.argv[1])
 bridge.start()
 deadline = time.monotonic() + 3
-while not os.path.exists(sys.argv[1]):
-    if time.monotonic() >= deadline:
-        raise RuntimeError("bridge did not start")
-    time.sleep(0.01)
-with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
-    probe.settimeout(3)
-    probe.connect(sys.argv[1])
-    probe.sendall(encode_message({"id": "ready", "method": "get_bridge_protocol"}))
-    probe.recv(65536)
+while True:
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+            probe.settimeout(3)
+            probe.connect(sys.argv[1])
+            probe.sendall(encode_message({"id": "ready", "method": "get_bridge_protocol"}))
+            probe.recv(65536)
+        break
+    except (FileNotFoundError, ConnectionRefusedError):
+        if time.monotonic() >= deadline:
+            raise RuntimeError("bridge did not start")
+        time.sleep(0.01)
 print(json.dumps({"ready": True}), flush=True)
 record = None
 try:

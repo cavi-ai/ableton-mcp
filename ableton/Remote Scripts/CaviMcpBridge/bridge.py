@@ -2771,6 +2771,14 @@ def _session_orientation(song, state_version, application=None):
             "scope": "Set metadata and displayed clip sampled in one Live callback; tonal evidence is limited to that clip."}
 
 
+def _audio_capture_module():
+    try:
+        from . import audio_capture
+    except ImportError:
+        import audio_capture
+    return audio_capture
+
+
 def dispatch_request(song, request, state_version, application=None):
     method = request["method"]
     params = request.get("params", {})
@@ -2783,6 +2791,10 @@ def dispatch_request(song, request, state_version, application=None):
         return _session_orientation(song, state_version, application)
     if method == "analyze_midi_parts":
         return _musical_parts_context(song, params, state_version)
+    if method in ("get_audio_capture_source", "capture_live_audio", "get_live_audio_capture", "finish_live_audio_capture"):
+        capture = _audio_capture_module()
+        return {"get_audio_capture_source": capture.source, "capture_live_audio": capture.start,
+                "get_live_audio_capture": capture.read, "finish_live_audio_capture": capture.finish}[method](song, params, state_version)
     if method in ("get_instrument_comparison_source", "prepare_instrument_comparison",
                   "get_instrument_comparison", "select_instrument_comparison"):
         try:
@@ -6157,9 +6169,14 @@ class SocketBridge:
     def stop(self):
         self.stopped.set()
         try:
-            os.unlink(self.socket_path)
-        except FileNotFoundError:
-            pass
+            capture = _audio_capture_module()
+            if capture.has_active():
+                capture.shutdown(self.control_surface.song())
+        finally:
+            try:
+                os.unlink(self.socket_path)
+            except FileNotFoundError:
+                pass
 
     def _serve(self):
         try:
@@ -6237,6 +6254,9 @@ class SocketBridge:
                 record.finish()
 
     def drain(self):
+        capture = _audio_capture_module()
+        if capture.has_active():
+            self.state_version += capture.advance(self.control_surface.song())
         if self.deferred_request:
             return
         while True:

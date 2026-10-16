@@ -35,6 +35,7 @@
     "ableton/Remote Scripts/CaviMcpBridge/capabilities.json",
     "ableton/Remote Scripts/CaviMcpBridge/protocol.py",
     "ableton/Remote Scripts/CaviMcpBridge/instrument_comparison.py",
+    "ableton/Remote Scripts/CaviMcpBridge/audio_capture.py",
     "packages/nks-pipeline/src/catalog.mjs",
     "packages/nks-pipeline/src/generation-queue.mjs",
     "packages/nks-pipeline/src/preview-runner.mjs",
