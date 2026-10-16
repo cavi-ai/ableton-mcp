@@ -94,6 +94,32 @@ test("save_live_set reports a pending dialog instead of claiming an unchanged fi
   assert.equal(result.pendingUserAction, true);
 });
 
+test("save_live_set accepts native menu clean evidence only for an unchanged bridge identity and exact file", async () => {
+  for (const change of [null,"path","fingerprint","version","unavailable","error","dirty-before","dirty-after"]) {
+    const live={stateVersion:4,setFingerprint:"current",filePath:"/tmp/Song.als",scriptDirectory};
+    let reads=0,observations=0;
+    const host={appPathFor:()=>"/Live.app",fileInfo:async()=>({path:"/tmp/Song.als",size:1000,mtimeMs:100}),save:async()=>{},
+      observeSaveState:async()=>{
+        observations++;
+        if(change==="error")throw Error("Accessibility unavailable");
+        return {status:change==="unavailable"?"unavailable":"clean",path:change==="path"?"/tmp/Other.als":"/tmp/Song.als"};
+      }};
+    const service=new ToolService({liveSetHost:host,liveSetSaveTimeoutMs:0,bridge:{request:async()=>{
+      reads++;
+      if ((change==="dirty-before" && reads>=4) || (change==="dirty-after" && reads>=5)) return {...live,isDirty:true};
+      return reads>=5 && change==="fingerprint" ? {...live,setFingerprint:"other"}
+        : reads>=5 && change==="version" ? {...live,stateVersion:5} : {...live};
+    }}});
+    const args={expectedStateVersion:4,expectedSetFingerprint:"current"},plan=await service.call("save_live_set",args);
+    assert.equal(observations,0);
+    const result=await service.call("save_live_set",{...args,dryRun:false,confirmationToken:plan.confirmation.token,planHash:plan.confirmation.planHash});
+    assert.equal(result.saved,change===null,change);
+    assert.equal(result.pendingUserAction,change!==null,change);
+    if(change==="dirty-before")assert.equal(observations,0);
+    if(change===null)assert.deepEqual(result.verification,{basis:"native-save-menu",fileWriteObserved:false});
+  }
+});
+
 test("save_live_set refuses an unnamed Set rather than opening Save As", async () => {
   const service = new ToolService({ bridge: { request: async () => ({ stateVersion: 4,
     setFingerprint: "untitled", filePath: "", scriptDirectory }) },

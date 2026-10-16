@@ -2763,6 +2763,9 @@ export class ToolService {
     await this.liveSetHost.save(appPath);
     let after = currentFile;
     let observed = null;
+    let menuClean = false, menuChecked = false;
+    const sameSet = live => live?.filePath === file.path && live.setFingerprint === before.setFingerprint && live.stateVersion === before.stateVersion;
+    const menuEligible = live => sameSet(live) && (live.isDirty === null || live.isDirty === undefined);
     const deadline = Date.now() + this.liveSetSaveTimeoutMs;
     do {
       requestSignal()?.throwIfAborted();
@@ -2771,12 +2774,27 @@ export class ToolService {
       catch { requestSignal()?.throwIfAborted(); /* Preserve unverified status. */ }
       const clean = observed?.filePath === file.path && observed.isDirty === false;
       if (after.mtimeMs !== file.mtimeMs || after.size !== file.size || clean) break;
+      if (!menuChecked && menuEligible(observed) && this.liveSetHost.observeSaveState) {
+        menuChecked = true;
+        try {
+          const native = await this.liveSetHost.observeSaveState(appPath, { signal: requestSignal() });
+          if (native.status === "clean" && native.path === file.path) {
+            // Bracket UI evidence with bridge identity; a changed observed
+            // document identity or topology must not certify this save.
+            observed = await this.bridge.request("get_live_state", {});
+            menuClean = menuEligible(observed);
+            if (menuClean) { after = await this.liveSetHost.fileInfo(file.path);break; }
+          }
+        } catch { requestSignal()?.throwIfAborted(); /* An optional observation cannot establish clean state. */ }
+      }
       if (Date.now() >= deadline) break;
       await new Promise(resolve => setTimeout(resolve, 250));
     } while (true);
-    const saved = after.mtimeMs !== file.mtimeMs || after.size !== file.size ||
-      (observed?.filePath === file.path && observed.isDirty === false);
+    const fileWriteObserved = after.mtimeMs !== file.mtimeMs || after.size !== file.size;
+    const bridgeClean = observed?.filePath === file.path && observed.isDirty === false;
+    const saved = fileWriteObserved || bridgeClean || menuClean;
     return { dryRun: false, requested: plan, saved, pendingUserAction: !saved, after,
+      verification: { basis: fileWriteObserved ? "file-change" : bridgeClean ? "bridge-clean" : menuClean ? "native-save-menu" : "unverified", fileWriteObserved },
       ...(!saved ? { limitation: "Save was requested in Live, but no changed file or clean-state readback was observed. Live may be showing Save As or another dialog; resolve it in Live before relying on this save." } : {}) };
   }
 

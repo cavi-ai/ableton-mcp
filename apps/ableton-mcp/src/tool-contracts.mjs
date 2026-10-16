@@ -419,7 +419,7 @@ const contracts = {
   }), required: ["path"], anyOf: [{ required: ["expectedStateVersion", "expectedSetFingerprint"],
     properties: { expectedStateVersion: {}, expectedSetFingerprint: {} } },
     { required: ["mode"], properties: { mode: { const: "launch" } } }] } },
-  save_live_set: { description: "Plan/save macOS Set; path uses non-overwriting Save As.", inputSchema: guarded({
+  save_live_set: { description: "Save macOS Set; verify write or clean state. Path: Save As without overwrite.", inputSchema: guarded({
     path: string("New absolute .als; parent must exist."),
     expectedSetFingerprint: string("Current setFingerprint.")
   }, ["expectedSetFingerprint"]) },
