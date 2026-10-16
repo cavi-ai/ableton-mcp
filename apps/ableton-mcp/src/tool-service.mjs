@@ -49,6 +49,7 @@ import { matchDrumVariationReadback, planDrumVariation } from "./drum-variation.
 import { duplicateMidiClipVariations } from "./midi-clip-variations.mjs";
 import { requestSignal } from "./request-context.mjs";
 import { getProducerWorkflow } from "./prompts.mjs";
+import { auditionArrangementPassage } from "./arrangement-audition.mjs";
 
 function canonicalLocalSpliceMetadataItem(item, configuredRoots) {
   const root = configuredRoots.roots.filter(candidate => candidate.available &&
@@ -782,6 +783,7 @@ export class ToolService {
     if (name === "get_track_routing") return this.bridge.request("get_track_routing", args);
     if (name === "get_set_mixer") return this.bridge.request("get_set_mixer", {});
     if (name === "get_producer_workflow") return getProducerWorkflow(args);
+    if (name === "audition_arrangement_passage") return auditionArrangementPassage(this.bridge,this.confirmations,args);
     if (name === "list_producer_chain_blueprints") return { blueprints: listProducerChainBlueprints() };
     if (name === "get_producer_chain_blueprint") return { blueprint: getProducerChainBlueprint(args.target) };
     if (name === "inspect_producer_chain") {
@@ -3001,6 +3003,7 @@ export class ToolService {
     assertExpectedState(args, observed);
     const scene = observed.scenes.find(({ id }) => id === args.sceneId);
     if (!scene) throw new Error(`unknown scene ${args.sceneId}`);
+    if (!Array.isArray(scene.launchQuantization?.choices)) throw new Error("scene launch quantization is unavailable in this Live API");
     const value = normalizeChoice(args.launchQuantization, "launchQuantization", scene.launchQuantization.choices);
     if (value === scene.launchQuantization.value) throw new Error("scene launch quantization is already selected");
     return this.#confirmedMutation({ method: "set_scene_launch_quantization", sceneId: scene.id,
@@ -4619,8 +4622,14 @@ export class ToolService {
 
   async #genericMutation(name, args) {
     requireExpectedState(args);
-    if (name === "launch_scene" && args.forceLegato !== undefined && typeof args.forceLegato !== "boolean") {
-      throw new Error("forceLegato must be boolean");
+    if (name === "launch_scene") {
+      if (typeof args.sceneId !== "string" || !/^scene-(0|[1-9][0-9]*)$/.test(args.sceneId)) throw new Error("sceneId must be a canonical Session scene ID");
+      if (args.forceLegato !== undefined && typeof args.forceLegato !== "boolean") throw new Error("forceLegato must be boolean");
+      const before = await this.bridge.request("get_scene_launch_context", {sceneId:args.sceneId});
+      assertExpectedState(args, before);
+      return this.#confirmedMutation({method:name,sceneId:args.sceneId,forceLegato:args.forceLegato??false,
+        expectedStateVersion:args.expectedStateVersion,before,
+        warning:"Scene launch affects the entire row: clips can replace playback, empty stop buttons can stop tracks, armed empty tracks may start recording, and scene overrides can change global tempo or meter. Live's launch preference is not exposed. Review all tracks, Group slots and recording context. The request may start global playback and select the scene; its receipt does not prove playback or recording completed."},args);
     }
     const recording = name === "launch_clip" && args.recordLengthBeats !== undefined;
     if (recording && (typeof args.recordLengthBeats !== "number" || !Number.isFinite(args.recordLengthBeats) || args.recordLengthBeats <= 0)) {

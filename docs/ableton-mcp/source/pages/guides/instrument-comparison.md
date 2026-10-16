@@ -30,7 +30,7 @@ Native track duplication carries the instrument through Live's own copy operatio
 
 Selection does not launch clips or start or stop transport. It refuses recording, frozen tracks, solo conflicts, armed tracks and live-input monitoring. Resolve these states explicitly rather than changing them silently.
 
-For a sequential Session comparison, launch the chosen part with explicit quantization, listen, stop that part, select the other version, and launch its corresponding clip. Separately launched clips are not proven phase aligned. Arrangement material uses the Arrangement transport; never send an Arrangement clip ID to `launch_clip`. Explain the playback effect and obtain authorization before auditioning. A mute readback does not establish that audio reached the listener.
+For a sequential Session comparison, launch the chosen part with explicit quantization, listen, stop that part, select the other version, and launch its corresponding clip. Separately launched clips are not proven phase aligned. For Arrangement material, use [passage audition](arrangement-audition.md) to resolve explicit boundaries, return the intended ordinary pair tracks and start a guarded loop after playback is authorized. Never send an Arrangement clip ID to `launch_clip` or clear the whole Set's Session overrides as a shortcut. A mute or playback readback does not establish that audio reached the listener.
 
 When the user chooses a version, pass that choice with `finish: true`. Both tracks remain with the selected mute states, and the comparison handle ends. Nothing is deleted or saved automatically. Stop playback separately when requested. Rejected alternatives remain until the user requests deletion.
 

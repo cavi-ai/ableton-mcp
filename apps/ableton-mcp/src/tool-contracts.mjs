@@ -374,6 +374,11 @@ const envelopePoint = object({
 }, ["time", "duration", "value"]);
 
 const contracts = {
+  audition_arrangement_passage: { description: "Plan/start a looping Arrangement passage from stopped transport with recording off and no pending launches. Return only explicit ordinary tracks from Session override; reject Groups. Changes global loop/playhead and starts global playback until stopped. Other tracks may sound. Partial failure reports observed controls; earlier Session phase is not restored. Requires all profile.", inputSchema: guarded({
+    trackIds: { ...array(ids.trackId,"Ordinary tracks to return to Arrangement; other overrides stay in place."),minItems:1,maxItems:64,uniqueItems:true },
+    startBeats: number("Inclusive song-time start in quarter-note beats.",{minimum:0}),
+    endBeats: number("Exclusive end; increasing range of at most 512 beats.",{exclusiveMinimum:0})
+  },["trackIds","startBeats","endBeats"]) },
   capture_device_chain_snapshot: { description: "Capture ordered devices, nested rack topology, exposed parameters, Return or master mixer, available master output channel, chain mixer, Drum Rack note routing and populated pad mute/solo as persistable JSON. Not a native rack or preset; excludes hidden plugin state, samples, automation, and mappings.", inputSchema: object({ trackId: ids.deviceOwnerId }, ["trackId"]) },
   list_saved_snapshots: { description: "List names of regular local capture files in the private track, device-chain, group-system, or MIDI-feel library. Does not validate capture contents or change Live; load a name to inspect its format and contents.", inputSchema: object({ kind: { type: "string", enum: ["track", "device-chain", "group-system", "midi-feel"] } }, ["kind"]) },
   save_device_chain_snapshot: { description: "Capture a device chain including Return or master mixer, available master output channel, exposed rack-chain controls and populated Drum Rack pad mute/solo into the private named local chain library. Never overwrites. Does not save hidden plugin state, samples, automation, or mappings.", inputSchema: object({ trackId: ids.deviceOwnerId, name: string("New local chain snapshot name; letters, numbers, dot, underscore and hyphen only.") }, ["trackId", "name"]) },
@@ -647,7 +652,7 @@ const contracts = {
   transport_stop: { description: "Plan or stop Ableton transport playback.", inputSchema: guarded() },
   set_tempo: { description: "Plan or set song tempo within Live's accepted range.", inputSchema: guarded({ tempo: number("Tempo in BPM.", { minimum: 20, maximum: 999 }) }, ["tempo"]) },
   set_track_mixer: { description: "Plan or apply guarded track volume, pan, mute, solo, and return-send changes.", inputSchema: guarded({ trackId: ids.trackId, volume: number("Track volume."), pan: number("Track pan.", { minimum: -1, maximum: 1 }), mute: boolean("Mute track."), solo: boolean("Solo track."), sends: array(object({ id: string("Send ID."), value: number("Send value.") }, ["id", "value"]), "Named return-send changes.") }, ["trackId"]) },
-  launch_scene: { description: "Plan or launch one exact Session scene. Optional forceLegato launches all scene clips immediately in Legato, overriding their clip launch modes.", inputSchema: guarded({ sceneId: ids.sceneId, forceLegato: boolean("Force immediate Legato launch for every clip in this scene; defaults to false.") }, ["sceneId"]) },
+  launch_scene: { description: "Plan/fire a scene with full-row recheck. May stop, record or change tempo/meter. Request-only receipt. Requires updated bridge.", inputSchema: guarded({ sceneId: ids.sceneId, forceLegato: boolean("Force immediate Legato launch for every clip in this scene; defaults to false.") }, ["sceneId"]) },
   launch_clip: { description: "Plan/launch a Session slot. recordLengthBeats requests fixed-length recording in an empty armed slot. launchQuantization overrides once, preserving stored settings. Immediate response does not prove recording completed.", inputSchema: guarded({ trackId: ids.trackId, clipId: ids.clipId, recordLengthBeats: number("Fixed recording length in beats for an empty armed slot.", { exclusiveMinimum: 0 }), launchQuantization: choice("One-shot native launch quantization choice from get_clip_timing or list_clips.launchQuantizationChoices.") }, ["trackId", "clipId"]) },
   stop_clip: { description: "Plan or stop one exact Session clip slot.", inputSchema: guarded({ trackId: ids.trackId, clipId: ids.clipId }, ["trackId", "clipId"]) },
   arm_track: { description: "Plan or set the record-arm state of one exact track.", inputSchema: guarded({ trackId: ids.trackId, armed: boolean("Requested arm state.") }, ["trackId", "armed"]) },
@@ -713,6 +718,7 @@ const readOnlyTools = new Set([
 ]);
 
 const destructiveTools = new Set([
+  "audition_arrangement_passage",
   "open_live_set", "save_live_set",
   "delete_session_object", "delete_clip", "delete_arrangement_clip",
   "delete_arrangement_cue_point", "remove_audio_warp_marker",
