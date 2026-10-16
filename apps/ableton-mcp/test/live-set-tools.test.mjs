@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { ToolService } from "../src/tool-service.mjs";
 import { validateToolArguments } from "../src/tool-validation.mjs";
 import { toolContracts } from "../src/tool-contracts.mjs";
+import { withRequestSignal } from "../src/request-context.mjs";
 
 const scriptDirectory = "/Applications/Ableton Live 12 Suite.app/Contents/App-Resources/MIDI Remote Scripts/CaviMcpBridge";
 
@@ -99,4 +100,103 @@ test("save_live_set refuses an unnamed Set rather than opening Save As", async (
   liveSetHost: { appPathFor: () => "/Applications/Ableton Live 12 Suite.app" } });
   await assert.rejects(() => service.call("save_live_set", {
     expectedStateVersion: 4, expectedSetFingerprint: "untitled" }), /named Live Set/);
+});
+
+function launchFixture() {
+  const appPath = "/Applications/Ableton Live 12 Suite.app";
+  const context = { app: { path: appPath, executable: appPath + "/Contents/MacOS/Live", version: "12.4.6", binary: { size: 123, mtimeNs: "123" } }, running: [] };
+  const file = { path: "/tmp/Launch.als", size: 100, mtimeMs: 200 };
+  const calls = [];
+  let live = null, bridgeReads = 0;
+  const host = { launchContext: async () => structuredClone(context), fileInfo: async () => structuredClone(file),
+    open: async (app, path) => { calls.push([app, path]); context.running = [{ pid: 42, path: context.app.executable }];
+      live = { stateVersion: 1, setFingerprint: "launched", filePath: path, scriptDirectory }; } };
+  const service = new ToolService({ liveSetHost: host, liveSetLaunchTimeoutMs: 0,
+    bridge: { request: async () => { bridgeReads++; if (!live) throw new Error("bridge unavailable"); return live; } } });
+  return { service, host, context, file, calls, reads: () => bridgeReads, setLive: value => { live = value; } };
+}
+
+test("launch mode plans without a bridge and confirms exact app/file identity before opening", async () => {
+  const { service, calls, reads } = launchFixture();
+  const args = { mode: "launch", path: "/tmp/Launch.als" };
+  assert.deepEqual(validateToolArguments("open_live_set", args), args);
+  const plan = await service.call("open_live_set", args);
+  assert.equal(reads(), 0);assert.deepEqual(calls, []);
+  const result = await service.call("open_live_set", { ...args, dryRun: false,
+    confirmationToken: plan.confirmation.token, planHash: plan.confirmation.planHash });
+  assert.equal(result.opened, true);assert.equal(result.launchRequested, true);
+  assert.equal(result.observed.filePath, args.path);
+  assert.deepEqual(calls, [["/Applications/Ableton Live 12 Suite.app", args.path]]);
+  await assert.rejects(service.call("open_live_set", { ...args, dryRun: false,
+    confirmationToken: plan.confirmation.token, planHash: plan.confirmation.planHash }));
+});
+
+test("launch mode refuses running Live and stale app, file or source path without starting another instance", async () => {
+  for (const change of ["running", "app", "file", "path"]) {
+    const { service, context, file, calls } = launchFixture();
+    const args = { mode: "launch", path: "/tmp/Launch.als" };
+    const plan = await service.call("open_live_set", args);
+    if (change === "running") context.running = [{ pid: 99, path: context.app.executable }];
+    if (change === "app") context.app.binary.mtimeNs = "456";
+    if (change === "file") file.mtimeMs = 300;
+    if (change === "path") file.path = "/tmp/Other.als";
+    await assert.rejects(service.call("open_live_set", { ...args, dryRun: false,
+      confirmationToken: plan.confirmation.token, planHash: plan.confirmation.planHash }));
+    assert.deepEqual(calls, [], change);
+  }
+});
+
+test("launch receipt stays unverified when requested Set or process identity is not observed", async () => {
+  for (const outcome of ["loading", "wrong-app"]) {
+    const { service, host, context, calls, setLive } = launchFixture();
+    host.open = async () => { calls.push("open");
+      context.running = [{ pid: 42, path: outcome === "wrong-app" ? "/Other.app/Contents/MacOS/Live" : context.app.executable }];
+      setLive(outcome === "loading" ? null : { stateVersion: 1, filePath: "/tmp/Launch.als" }); };
+    const args = { mode: "launch", path: "/tmp/Launch.als" }, plan = await service.call("open_live_set", args);
+    const result = await service.call("open_live_set", { ...args, dryRun: false,
+      confirmationToken: plan.confirmation.token, planHash: plan.confirmation.planHash });
+    assert.equal(result.opened, false);assert.equal(result.launchRequested, true);
+    assert.equal(calls.length, 1);
+  }
+});
+
+test("cancelled launch never transmits the host action", async () => {
+  const { service, calls } = launchFixture();
+  const args = { mode: "launch", path: "/tmp/Launch.als" }, plan = await service.call("open_live_set", args);
+  const abort = new AbortController();abort.abort();
+  await assert.rejects(withRequestSignal(abort.signal, () => service.call("open_live_set", { ...args, dryRun: false,
+    confirmationToken: plan.confirmation.token, planHash: plan.confirmation.planHash })));
+  assert.deepEqual(calls, []);
+});
+
+test("a Live process appearing during the final file read prevents launch", async () => {
+  const { service, host, context, file, calls } = launchFixture();
+  let reads = 0;
+  host.fileInfo = async () => {
+    if (++reads === 3) context.running = [{ pid: 99, path: context.app.executable }];
+    return structuredClone(file);
+  };
+  const args = { mode: "launch", path: file.path }, plan = await service.call("open_live_set", args);
+  await assert.rejects(service.call("open_live_set", { ...args, dryRun: false,
+    confirmationToken: plan.confirmation.token, planHash: plan.confirmation.planHash }));
+  assert.deepEqual(calls, []);
+});
+
+test("post-launch observation failures retain an explicit unknown startup receipt", async () => {
+  for (const failure of ["dispatch", "observation"]) {
+    const { service, host, calls } = launchFixture();
+    const open = host.open;
+    host.open = async (...args) => {
+      await open(...args);
+      if (failure === "dispatch") throw new Error("launch reply lost");
+      host.launchContext = async () => { throw new Error("process observation unavailable"); };
+    };
+    const args = { mode: "launch", path: "/tmp/Launch.als" }, plan = await service.call("open_live_set", args);
+    const result = await service.call("open_live_set", { ...args, dryRun: false,
+      confirmationToken: plan.confirmation.token, planHash: plan.confirmation.planHash });
+    assert.equal(calls.length, 1);assert.equal(result.launchRequested, true);
+    assert.equal(result.opened, false);assert.equal(result.startupStatus, "unverified");
+    assert.equal(result.running, null);assert.ok(result.observationError);
+    assert.match(result.limitation, /before retrying/);
+  }
 });

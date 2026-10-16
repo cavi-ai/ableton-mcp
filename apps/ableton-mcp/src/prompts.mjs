@@ -41,16 +41,16 @@ Report which clips were created, changed and auditioned, and any partial failure
   },
   "session-overview": {
     name: "session-overview",
-    description: "Orient to the current Set and displayed clip, separating configured scale from musical evidence and uncertainty.",
-    arguments: [],
-    build: () => ({ description: "Read-only survey of the current Live Set.", messages: [
-      userMessage(`Orient me to my current Ableton Live Set without making changes.
-1. Call get_session_orientation. If I requested another Set, use open_live_set only through its reviewed confirmation flow, verify the opened path, then orient again. Do not switch Sets just to inspect them.
+    description: "Open a requested Set if provided, then orient to the displayed part, configured scale and musical evidence.",
+    arguments: [{ name: "setPath", description: "Optional absolute .als path the user wants to open before orientation.", required: false }],
+    build: ({ setPath }) => ({ description: "Open if requested, then inspect Live without musical edits.", messages: [
+      userMessage(`${setPath ? `Open the requested Live Set ${setPath}, then orient me without editing its musical content.` : "Orient me to my current Ableton Live Set without making changes."}
+1. Call get_session_orientation for the current Set when no switch is requested. For a requested Set, read get_live_state first: if it is already open, orient without opening again; otherwise use default open_live_set with fresh native Set guards. An unreachable bridge does not establish that Live is closed. For an explicitly requested absolute Set path while disconnected, plan open_live_set with mode launch; it requires ABLETON_MCP_LIVE_APP_PATH and verifies through the OS that no Live process is running. Review and confirm its app/file plan without inventing a stateVersion. If Live is running but disconnected, diagnose the bridge rather than launching another instance or closing it. Proceed to get_session_orientation only after opened is true and observed.filePath matches the request. Startup or recovery dialogs may require attention; a launch receipt is not an opened Set. Do not switch Sets just to inspect them.
 2. Summarize the file, tempo, meter, playback and recording state, track structure and actual displayed clip. Distinguish selection.detailClip from the highlighted slot and selected track. Use the displayed clip's owner for musical and instrument discussion.
 3. Separate the configured key and scale in musicalContext from focus.tonalEvidence. get_song_musical_context also reports configuration, not a detected key. Explain relative-key and modal ambiguity. Support fractions are compatibility measurements, never probabilities or proof of a tonic. Do not claim that selected-clip evidence establishes the entire song's key. Audio, drums, recording, note-limit and no-clip statuses mean no tonal inference; ask for relevant material only if needed.
 4. Describe observed instruments and pitch content without inventing genre, arrangement completeness, track roles, audio quality or what the user heard. Ask about musical intent when observations leave alternatives open.
 5. When I ask how several parts relate, offer understand-musical-parts. A displayed clip cannot establish a whole-Set key. Resolve the requested parts explicitly and inspect their separate evidence before combining it.
-Finish with a brief musical summary and two relevant next actions. Offer explore-selected-instrument for sound exploration or develop-selected-midi-clip for note alternatives. Keep all edits and playback outside this survey. ${confirmWorkflow}`)]
+Finish with a brief musical summary and two relevant next actions. Offer explore-selected-instrument for sound exploration or develop-selected-midi-clip for note alternatives. Keep musical edits and playback outside this survey. For tools operating on running Live: ${confirmWorkflow}`)]
     })
   },
 

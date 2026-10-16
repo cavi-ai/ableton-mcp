@@ -412,12 +412,15 @@ const contracts = {
   set_browser_item_metadata: { description: "Plan or edit private MCP-managed tags and favorite state with observed Live browser identity or local audio-file version, exact revision, and single-use confirmation. A Live user-folder sample shares the local Splice record only when its URI unambiguously matches a configured local Splice file; reserved URI delimiters and existing separate Live metadata preserve exact Live identity. For a local sample, use root local_splice and path [absolute directory, relative audio path]. Does not modify native collections.", inputSchema: metadataGuarded({ root: string("Live browser root or local_splice."), path: array(string("Exact browser segment, or [absolute directory, relative audio path] for local_splice."), "Non-empty path to one item."), favorite: boolean("Private favorite state."), tags: array(string("Private user tag."), "Complete replacement tag set, up to 32 entries.") }, ["root", "path"]) },
   search_browser_item_metadata: { description: "Search saved private tags and favorites for Live browser items or local_splice samples. Results are not reverified against Live or the local filesystem and do not represent native collections.", inputSchema: object({ root: string("Optional browser root or local_splice filter."), favorite: boolean("Optional private favorite filter."), tags: array(string("Required private user tag."), "Require all tags."), limit: { type: "integer", minimum: 1, maximum: 200 } }) },
   get_live_state: { description: "Read Ableton bridge identity, capabilities, set file path, tempo, playback, and state version.", inputSchema: empty },
-  open_live_set: { description: "Plan/open an existing absolute .als in running macOS Live. Binds Set and source identities. Reports opened only after bridge path readback; user must resolve unsaved/file-load dialogs.", inputSchema: guarded({
-    path: string("Absolute path to an existing .als Live Set."),
-    expectedSetFingerprint: string("Exact setFingerprint from get_live_state for the currently loaded Set.")
-  }, ["path", "expectedSetFingerprint"]) },
-  save_live_set: { description: "Plan/Save the named Set in running macOS Live; binds Set identity and disk version. No Save As for untitled Sets. Reports saved only after changed-file or clean-state readback.", inputSchema: guarded({
-    expectedSetFingerprint: string("Exact setFingerprint from get_live_state for the currently loaded Set.")
+  open_live_set: { description: "Plan/open a macOS Set. Launch needs closed Live and a configured app. Opened requires path readback.", inputSchema: { ...guarded({
+    path: string("Existing absolute .als path."),
+    mode: { type: "string", enum: ["open", "launch"], description: "launch if closed; omit for running Live." },
+    expectedSetFingerprint: string("Current setFingerprint unless launching.")
+  }), required: ["path"], anyOf: [{ required: ["expectedStateVersion", "expectedSetFingerprint"],
+    properties: { expectedStateVersion: {}, expectedSetFingerprint: {} } },
+    { required: ["mode"], properties: { mode: { const: "launch" } } }] } },
+  save_live_set: { description: "Plan/save a named macOS Set. No Save As; verify disk change or clean state.", inputSchema: guarded({
+    expectedSetFingerprint: string("Current setFingerprint.")
   }, ["expectedSetFingerprint"]) },
   get_history_state: { description: "Read current Ableton undo and redo availability.", inputSchema: empty },
   capture_live_audio: { description: "Plan or start a bounded Live Resampling recording of current playback into a new muted, monitor-off audio track. Requires playback, recording off and no armed tracks. Only its capture is stopped/disarmed automatically, even after client disconnect. No isolated-stem, hardware or listener proof.", inputSchema: guarded({

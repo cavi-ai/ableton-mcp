@@ -31,7 +31,7 @@ export function createConfiguredService(environment = process.env, { persistentC
   const browserMetadata = () => (browserLibrary ??= new BrowserMetadataLibrary({ path: browserMetadataPath }));
   return {
     service: new ToolService({ bridge, catalog, confirmations, spliceRoots, generationQueuePath: catalogPath,
-      liveSetHost: new MacLiveSetHost({ appPath: liveAppPath }),
+      liveSetHost: new MacLiveSetHost({ appPath: liveAppPath, bridgeSocketPath: socketPath }),
       snapshotLibrary: new SnapshotLibrary({ directory: snapshotDirectory }),
       groupSystemLibrary: new SnapshotLibrary({ directory: join(snapshotDirectory, "group-systems"),
         formats: ["cavi-group-system-v1"] }),

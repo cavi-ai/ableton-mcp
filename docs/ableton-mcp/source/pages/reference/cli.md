@@ -26,7 +26,19 @@ npm run cli -- call list_devices --args '{"trackId":"track-0"}' --json
 
 ## Live Set files on macOS
 
-`open_live_set` opens an existing absolute `.als` path in the Live app that hosts the bridge. `save_live_set` sends Save to the currently named Set. Both require `expectedStateVersion` and `expectedSetFingerprint` from a fresh `get_live_state` call, and default to a dry-run plan; apply that plan with its single-use `confirmationToken`, `planHash`, and `dryRun:false`. A changed Set or source file invalidates the plan.
+`open_live_set` opens an existing absolute `.als` path in the Live app that hosts the bridge. `save_live_set` sends Save to the currently named Set. Default opening and saving require `expectedStateVersion` and `expectedSetFingerprint` from a fresh `get_live_state` call, and default to a dry-run plan; apply that plan with its single-use `confirmationToken`, `planHash`, and `dryRun:false`. A changed Set or source file invalidates the plan.
+
+### Open a Set when Live is closed
+
+Set `ABLETON_MCP_LIVE_APP_PATH` to the installed Live `.app` bundle in the MCP server's environment. Plan `open_live_set` with `mode: "launch"` and an existing absolute `.als` path:
+
+```bash
+npm run cli -- call open_live_set --args '{"mode":"launch","path":"/absolute/path/Song.als"}' --json
+```
+
+Launch mode uses the configured app identity, Set file version and observed OS process state instead of `expectedStateVersion` and `expectedSetFingerprint`. It refuses any running Live process, including one whose bridge is unavailable. It rechecks app, file and process state before consuming the single-use confirmation. Execute the reviewed plan with the same `mode` and `path`, plus its token/hash and `dryRun:false`. An expired or stale plan requires a fresh observation.
+
+The configured bridge socket is passed to a new app instance through Launch Services. Cold launch does not send the Set to an intervening existing process. If another instance appears concurrently, running-app identity remains unverified; inspect the apps before retrying. The tool waits for bridge readiness for up to 45 seconds, subject to individual request timeouts, and reports `opened:true` only when the requested Set path and configured running app are both observed. `launchRequested:true` alone is not success. A lost launch reply or failed process observation returns `startupStatus: "unverified"` with the launch request retained. Live may still be loading or waiting at a dialog. The tool does not close apps or dismiss dialogs. After successful opening, use `get_session_orientation` to understand the actual Set before editing.
 
 These host-side operations may need macOS Automation and Accessibility access for the terminal or MCP host. Live may display a Save As, missing-media, version, or overwrite dialog; the tools do not dismiss dialogs. `open_live_set` reports `opened:true` only after bridge readback identifies the requested path. `save_live_set` reports `saved:true` only after an on-disk change or a clean-state readback. If Live opens a dialog instead, `saved:false` means the save is not verified. Saving an untitled Set requires a manual Save As; this tool does not choose a destination.
 

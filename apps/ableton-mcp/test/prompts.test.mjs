@@ -38,6 +38,15 @@ test("prompts/get rejects unknown prompt names", async () => {
   assert.throws(() => getPrompt("nonexistent"), /unknown prompt/);
 });
 
+test("overview can request a Set and distinguishes a missing bridge from closed Live", async () => {
+  const prompt = getPrompt("session-overview", { setPath: "/tmp/Idea.als" });
+  const text = prompt.messages[0].content.text;
+  assert.match(text, /\/tmp\/Idea\.als/);
+  assert.match(text, /mode.*launch/);
+  assert.match(text, /unreachable bridge.*not.*closed/i);
+  assert.match(text, /opened.*true/);
+});
+
 test("resume discovery requires the user's intended continuation and never calls Live", async () => {
   let calls = 0;
   const route = createRouter({ call: async () => { calls++; throw new Error("prompt rendering must not call Live"); } });

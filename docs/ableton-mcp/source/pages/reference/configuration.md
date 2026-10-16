@@ -13,11 +13,11 @@ All configuration is environment variables. Each one is optional.
 | `ABLETON_MCP_SNAPSHOT_DIR` | `~/.cavi/ableton-mcp/snapshots` | Private named track-state snapshots; device-chain and MIDI-feel templates use separate subdirectories. |
 | `ABLETON_MCP_FIXTURE` | unset | `1` makes `npm start` serve fixture data without Live. `ableton-mcp serve` ignores it. |
 | `ABLETON_MCP_TOOL_PROFILE` | `all` | `core` advertises 63 common MCP tools; `all` advertises the full catalog. Changing this requires a server restart. CLI `call` is unaffected. |
-| `ABLETON_MCP_LIVE_APP_PATH` | Detected from the running bridge | Absolute path to the running Ableton Live `.app` bundle for macOS Set open/save control, if automatic detection is unavailable. |
+| `ABLETON_MCP_LIVE_APP_PATH` | Detected from the running bridge | Absolute Ableton Live `.app` bundle path. Required for `open_live_set` with `mode: "launch"` while Live is closed; optional for open/save when detection from a running bridge succeeds. |
 
 Local Splice search is separate from Live's browser. To load a local cache file through Live, add its containing folder to Live's **Places → Add Folder**, then search that exact `user_folders` subtree with `search_browser_items` and pass the returned path to `load_browser_item`. A WAV loaded onto an audio track can create a Session clip without adding a device; inspect `clipEffect` and the clip state, not only `deviceChainEffect`. Live's built-in Splice browser root may still be unavailable when its account integration is not active.
 
-Live reads `ABLETON_MCP_BRIDGE_SOCKET` from its own launch environment. Apps started from the Dock or Finder don't inherit your shell's variables. If you change the socket, start Live's executable from the same shell, for example `"/Applications/Ableton Live 12 Suite.app/Contents/MacOS/Live"`.
+Live reads `ABLETON_MCP_BRIDGE_SOCKET` from its own launch environment. `open_live_set` with `mode: "launch"` passes the configured socket to the new process through macOS Launch Services. Apps started from the Dock or Finder don't inherit your shell's variables. For a custom socket, use launch mode or start Live's executable from the same shell, for example `"/Applications/Ableton Live 12 Suite.app/Contents/MacOS/Live"`.
 
 ## Files
 

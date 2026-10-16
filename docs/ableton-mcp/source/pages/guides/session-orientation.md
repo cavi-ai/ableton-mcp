@@ -2,6 +2,8 @@
 
 Start with the `session-overview` prompt or call `get_session_orientation`. This read-only tool samples the Set's file, tempo, configured scale, recording state, tracks, history, selection, displayed clip and its owner's top-level devices in one Live callback. It does not change selection, start playback or edit the Set. Update and reload the packaged Remote Script before using this tool.
 
+Give `session-overview` an optional absolute `setPath` to request opening a Set first. With Live running, opening uses the current Set's native identity guards. With Live closed, explicit `open_live_set` launch mode uses the configured app, source file and OS process guards; see [Live Set file control](../reference/cli.md#open-a-set-when-live-is-closed). A disconnected bridge is not evidence that Live is closed. The workflow verifies the requested path before orientation and does not replace an already open Set merely to inspect it.
+
 The displayed clip can belong to a different track from the selected track. `selection.detailClip` identifies the material being discussed; `focus.trackId` identifies its owner. An empty highlighted slot is not evidence that the displayed clip is empty. With no displayed clip, the response still reports Set context and the selected owner's devices, but has no clip evidence.
 
 ## Configuration and evidence

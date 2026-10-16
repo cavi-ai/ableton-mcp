@@ -444,7 +444,7 @@ function normalizeBrowserSearch(args) {
 
 export class ToolService {
   constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, deviceChainLibrary, groupSystemLibrary, midiFeelLibrary, browserMetadata, spliceRoots = [], generationQueuePath,
-    liveSetHost = new MacLiveSetHost(), liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000 }) {
+    liveSetHost = new MacLiveSetHost(), liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000 }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
@@ -458,6 +458,7 @@ export class ToolService {
     this.liveSetHost = liveSetHost;
     this.liveSetOpenTimeoutMs = liveSetOpenTimeoutMs;
     this.liveSetSaveTimeoutMs = liveSetSaveTimeoutMs;
+    this.liveSetLaunchTimeoutMs = liveSetLaunchTimeoutMs;
   }
 
   discoveryExamples() {
@@ -2689,6 +2690,7 @@ export class ToolService {
   }
 
   async #openLiveSet(args) {
+    if (args.mode === "launch") return this.#launchLiveSet(args);
     const before = await this.#liveSetState(args);
     const appPath = this.liveSetHost.appPathFor(before);
     const source = await this.liveSetHost.fileInfo(args.path);
@@ -2706,6 +2708,36 @@ export class ToolService {
     const observed = await this.#pollLiveSet(live => live.filePath === source.path, this.liveSetOpenTimeoutMs);
     return { dryRun: false, requested: plan, opened: Boolean(observed), pendingUserAction: !observed,
       observed, ...(!observed ? { limitation: "Live has not loaded the requested Set. Check Live for an unsaved-changes or file-load dialog; no dialog was dismissed." } : {}) };
+  }
+
+  async #launchLiveSet(args) {
+    requestSignal()?.throwIfAborted();
+    const context = await this.liveSetHost.launchContext();
+    if (context.running.length) throw new Error("Live is already running; use default open mode with fresh Set identity guards");
+    const source = await this.liveSetHost.fileInfo(args.path);
+    const plan = { method: "open_live_set", mode: "launch", app: context.app, source, environment: context.environment ?? {} };
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan),
+      warning: "Launches the configured app with this Set. Startup or recovery dialogs can delay loading; a launch request is not proof that the Set opened." };
+    const currentSource = await this.liveSetHost.fileInfo(args.path);
+    const current = await this.liveSetHost.launchContext();
+    if (current.running.length) throw new Error("Live started after planning; inspect it before opening a Set");
+    this.#consumeConfirmation({ ...plan, app: current.app, source: currentSource, environment: current.environment ?? {} }, args);
+    let observed = null, after = null, observationError;
+    try {
+      await this.liveSetHost.open(context.app.path, source.path, { launch: true });
+      observed = await this.#pollLiveSet(live => live.filePath === source.path, this.liveSetLaunchTimeoutMs);
+      after = await this.liveSetHost.launchContext();
+    } catch (error) {
+      requestSignal()?.throwIfAborted();
+      observationError = String(error.message ?? error).slice(0, 300);
+    }
+    const exactApp = after && after.running.length === 1 && after.running[0].path === context.app.executable &&
+      hashPlan(after.app) === hashPlan(context.app);
+    const opened = Boolean(observed && exactApp);
+    return { dryRun: false, requested: plan, launchRequested: true, opened, pendingUserAction: !opened,
+      startupStatus: opened ? "opened" : "unverified", observed, running: after?.running ?? null,
+      ...(observationError ? { observationError } : {}), ...(!opened ? { limitation:
+        "Launch was requested, but the configured app and requested Set are not both verified. Live may still be loading or displaying a dialog; inspect it before retrying. No app was closed or dialog dismissed." } : {}) };
   }
 
   async #saveLiveSet(args) {
