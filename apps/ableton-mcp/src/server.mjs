@@ -44,6 +44,7 @@ const resourceTemplates = resourceUris.filter((uri) => uri.includes("{"))
 const toolNames = [
   'get_parameter_automation_context', 're_enable_parameter_automation',
   'get_browser_preview_context', 'set_browser_preview',
+  'override_parameter_automation',
   "group_tracks",
   "get_track_grouping_status",
   "ungroup_tracks",

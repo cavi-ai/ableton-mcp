@@ -104,12 +104,15 @@ def context(song, params, version):
             'controls': controls}
 
 
-def _safe(view):
+def _safe(view, allow_active=False):
     if view['parameterId'] is None or len(view['controls']) != 1: raise ValueError('select one exact parameterId')
     p = view['controls'][0]
     if not p['supported'] or not p['reEnableSupported']: raise ValueError('native automation handoff is not supported for this control')
     if p.get('enabled') is not True: raise ValueError('automation control must be enabled')
-    if p.get('automationState') != {'value': 2, 'name': 'overridden'}: raise ValueError('control must have known overridden automation')
+    states = [{'value': 2, 'name': 'overridden'}]
+    if allow_active: states.append({'value': 1, 'name': 'playing'})
+    if p.get('automationState') not in states:
+        raise ValueError('control must have known active or overridden automation' if allow_active else 'control must have known overridden automation')
     if view['frozen'] is not False: raise ValueError('target is frozen or freeze state unavailable')
     t = view['transport']
     if t['arrangementRecord'] or t['sessionRecord'] or t['countingIn']: raise ValueError('resolve recording and count-in before automation handoff')

@@ -28,6 +28,30 @@ test("signal snapshot rejects missing targets and mutation or sampling options b
   assert.equal(calls, 0);
 });
 
+test("batch signal activity uses one read and preserves the native ordered response", async () => {
+  const calls = [], observed = {stateVersion: 4, transport: {isPlaying: true}, tracks: [
+    {trackId: "track-0"}, {trackId: "return-0"}, {trackId: "master"}
+  ]};
+  const service = new ToolService({bridge: {request: async (method, args) => {
+    calls.push({method, args}); return observed;
+  }}}), route = createRouter(service);
+  const args = {trackIds: ["track-0", "return-0", "master"]};
+  const result = await route({id: 1, method: "tools/call", params: {name: "get_track_signal_activity", arguments: args}});
+  assert.deepEqual(result.result?.structuredContent, observed);
+  assert.deepEqual(calls, [{method: "get_track_signal_activity", args}]);
+});
+
+test("batch signal scope is exclusive bounded and unique before native access", async () => {
+  let calls = 0;
+  const route = createRouter(new ToolService({bridge: {request: async () => {calls++;}}}));
+  for (const args of [{trackIds: []}, {trackIds: ["master", "master"]}, {trackIds: [1]},
+    {trackIds: "master"}, {trackIds: Array.from({length: 65}, (_, n) => `track-${n}`)},
+    {trackId: "master", trackIds: ["track-0"]}, {trackIds: ["master"], durationSeconds: 1}]) {
+    assert.equal((await route({id: 1, method: "tools/call", params: {name: "get_track_signal_activity", arguments: args}})).error?.code, -32602);
+  }
+  assert.equal(calls, 0);
+});
+
 test("silent-part workflow resolves actual signal evidence and preserves the performance", () => {
   assert.throws(() => getProducerWorkflow({workflow: "diagnose-silent-part"}), /request/);
   const workflow = getProducerWorkflow({workflow: "diagnose-silent-part", arguments: {request: "Why is the bass silent?"}});

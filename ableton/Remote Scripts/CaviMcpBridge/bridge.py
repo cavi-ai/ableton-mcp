@@ -3210,6 +3210,12 @@ def dispatch_request(song, request, state_version, application=None):
         except ImportError:
             import arrangement_section
         return arrangement_section.read(song, params, state_version)
+    if method in ('get_parameter_override_context', 'override_parameter_automation'):
+        try:
+            from . import manual_override
+        except ImportError:
+            import manual_override
+        return (manual_override.source if method == 'get_parameter_override_context' else manual_override.apply)(song, params, state_version)
     if method in ('get_parameter_automation_context', 're_enable_parameter_automation'):
         try:
             from . import parameter_automation
@@ -3496,9 +3502,12 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "get_transport_recording_context":
         return _transport_recording_context(song, state_version)
     if method == "set_transport_recording_context":
-        if _transport_recording_context(song, state_version) != params["before"]:
-            raise ValueError("transport recording context changed after planning")
         changes = params["changes"]
+        before = _transport_recording_context(song, state_version)
+        if before["isPlaying"] and "currentSongTime" not in changes:
+            del before["currentSongTime"]
+        if before != params["before"]:
+            raise ValueError("transport recording context changed after planning")
         writes = []
         recording_command_applied = False
         def write(attribute, value):
@@ -6995,7 +7004,7 @@ class SocketBridge:
                 if request.get("method") == "prepare_instrument_comparison":
                     self._defer_instrument_comparison(client, request, song, record)
                     return
-                if request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state", "re_enable_parameter_automation", "set_mixer_panning"):
+                if request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state", "re_enable_parameter_automation", "override_parameter_automation", "set_mixer_panning"):
                     self._defer_observed_mutation(client, request, song, record)
                     return
                 result = dispatch_request(
@@ -7058,14 +7067,15 @@ class SocketBridge:
     def _defer_observed_mutation(self, client, request, song, record=None):
         try:
             try:
-                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, panning
+                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning
             except ImportError:
-                import arrangement_audition, arrangement_return, crossfader, parameter_automation, panning
+                import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning
             module, success_key = {
                 'return_tracks_to_arrangement': (arrangement_return, 'returned'),
                 'audition_arrangement_passage': (arrangement_audition, 'started'),
                 'set_crossfader_state': (crossfader, 'verified'),
                 're_enable_parameter_automation': (parameter_automation, 'verified'),
+                'override_parameter_automation': (manual_override, 'verified'),
                 'set_mixer_panning': (panning, 'verified'),
             }[request['method']]
             operation = module.begin(song, request.get("params", {}), self.state_version)

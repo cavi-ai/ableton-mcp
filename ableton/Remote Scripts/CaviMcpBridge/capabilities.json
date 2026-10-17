@@ -7,6 +7,8 @@
   "get_bridge_protocol",
   "get_parameter_automation_context",
   "re_enable_parameter_automation",
+  "get_parameter_override_context",
+  "override_parameter_automation",
   "get_track_grouping_source",
   "get_track_grouping_status",
   "get_track_ungrouping_source",
