@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 239 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 240 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (103)
 
@@ -112,7 +112,7 @@ The server publishes 239 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (119)
+## Mutations (120)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -143,6 +143,7 @@ The server publishes 239 tools. Mutations of the Live Set require `expectedState
 | `correct_midi_clip_to_scale` | Plan or apply guarded pitch correction of exact chromatic MIDI notes into the current Live scale. Direction is explicit; equal nearest choices require an explicit tie break. Existing in-scale notes are never changed. | `expectedStateVersion`, `trackId`, `clipId`, `direction` |
 | `create_arrangement_cue_point` | Plan or create an Arrangement cue point at an exact beat position. | `expectedStateVersion`, `name`, `timeBeats` |
 | `create_audio_clip` | Plan/import local audio into an empty Session slot on an unfrozen audio track. Binds source identity, size and mtime; Live validates format. | `expectedStateVersion`, `trackId`, `clipId`, `sourcePath` |
+| `create_clip_parameter_envelope` | Create an absent Session clip device-parameter envelope with 1–128 ordered, nonoverlapping steps in beats. Accepts exact native values or supported unit displays. Requires stopped playback and recording off; preserves existing lanes. Verifies sampled steps, not the full curve. Requires all profile. | `expectedStateVersion`, `trackId`, `clipId`, `deviceId`, `parameterId`, `points` |
 | `create_drum_pattern_clip` | Plan or create one exact multi-lane drum pattern in an empty Session clip. Binds current meter, tempo, grid, lanes, destination, and state; native execution verifies every generated note. | `expectedStateVersion`, `trackId`, `clipId`, `name`, `grid`, `bars`, `lanes` |
 | `create_groove` | Plan or create a new groove in Live's Groove Pool with an optional name. Adjust its base grid and amounts afterward with set_groove; groove deletion is not exposed by Live's public API. | `expectedStateVersion` |
 | `create_midi_clip` | Plan or create a MIDI clip in an exact empty Session slot. | `expectedStateVersion`, `trackId`, `clipId`, `lengthBeats`, `notes` |

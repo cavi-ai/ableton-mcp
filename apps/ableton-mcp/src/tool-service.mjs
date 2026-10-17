@@ -3,6 +3,7 @@ import { assertExpectedState } from "./bridge-protocol.mjs";
 import {setTrackVolumeDb} from "./track-volume.mjs";
 import {setTrackSendDb} from "./track-send.mjs";
 import {setDeviceParameterDisplay} from "./parameter-display.mjs";
+import {createClipParameterEnvelope} from "./clip-envelope.mjs";
 import { enrichSessionOrientation, enrichMidiPartsContext } from "./session-orientation.mjs";
 import { instrumentComparison } from "./instrument-comparison.mjs";
 import { liveAudioCapture } from "./live-audio-capture.mjs";
@@ -1589,6 +1590,7 @@ export class ToolService {
     if (name === "apply_midi_diatonic_chord_quality") return this.#applyMidiDiatonicChordQuality(args);
     if (name === "create_audio_clip") return this.#createAudioClip(args);
     if (name === "set_clip_parameter_envelope") return this.#setClipParameterEnvelope(args);
+    if (name === "create_clip_parameter_envelope") return createClipParameterEnvelope(this.bridge,this.confirmations,args);
     if (name === "set_midi_note_properties") return this.#setMidiNoteProperties(args);
     if (name === "correct_midi_clip_to_scale") return this.#correctMidiClipToScale(args);
     if (name === "transform_midi_notes") return this.#transformMidiNotes(args);

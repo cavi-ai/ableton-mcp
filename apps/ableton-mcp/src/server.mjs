@@ -278,6 +278,7 @@ const toolNames = [
   "set_track_volume_db",
   "set_track_send_db",
   "set_device_parameter_display",
+  "create_clip_parameter_envelope",
   "stop_all_clips"
 ];
 // A smaller first-session surface for hosts with a tight tool-context budget.
