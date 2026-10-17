@@ -12,7 +12,7 @@ const readNames = ["get_live_state", "get_selection_context", "get_song_musical_
   "list_devices", "list_device_parameters", "get_device_parameter_edit_context", "get_clip_timing",
   "get_midi_clip_notes_extended", "get_audio_clip_state", "get_track_mixer", "get_track_routing",
   "get_factory_device_context", "get_plugin_integration_context", "analyze_midi_clip_scale", "analyze_midi_clip_chords"];
-const operationNames = ["set_tempo", "set_song_musical_context", "set_device_parameters", "set_track_mixer",
+const operationNames = ["set_tempo", "set_song_musical_context", "set_device_parameters", "set_track_mixer", "set_track_volume_db", "set_track_send_db",
   "set_clip_timing", "set_audio_clip_state", "set_midi_note_properties", "transform_midi_notes",
   "duplicate_midi_clip_variations", "create_midi_clip", "set_device_active"];
 const executionFields = ["dryRun", "confirmationToken", "planHash", "expectedStateVersion"];
@@ -171,7 +171,7 @@ export class ProducerService {
       for (const ref of contextRefs) this.artifacts.get(projectId, ref);
       const sessionRoot = join(this.artifacts.directory, ".sessions");
       mkdirSync(sessionRoot, { recursive: true, mode: 0o700 });
-      const results = []; let exhausted = false, reads = 0;
+      const results = [], turnRefs = []; let exhausted = false, reads = 0, stopReason;
       const allowedReads = [...readNames], allowedOperations = [...operationNames];
       for (const role of selected) {
         checkSignal();
@@ -180,17 +180,24 @@ export class ProducerService {
           const runtime = this.runtimeFactory(this.config[role]);
           const packet = { role, goal, scope, constraints, context: contextRefs.map(ref => this.#preview(projectId, ref)),
             ...(workflow?{workflow}:{}),
-            tools: this.#schemas(role), ...(role === "functional" && results.length ? { creativeProposal: results[0].result } : {}) };
+            tools: this.#schemas(role), progress: { completedReads: [] },
+            ...(role === "functional" && results.length ? { creativeProposal: results[0].result } : {}) };
           for (let round = 0; round < 3; round++) {
             checkSignal();
-            if (Buffer.byteLength(JSON.stringify(packet)) > 48000) { exhausted = true; break; }
+            Object.assign(packet.progress, { turn: round + 1, maxTurns: 3, readsRemaining: 8 - reads });
+            if (Buffer.byteLength(JSON.stringify(packet)) > 48000) { exhausted = true; stopReason = "input_limit"; break; }
             const inputRef = this.artifacts.put(projectId, "specialist-input", packet);
             const result = await runtime.generate(packet, { signal: taskSignal, cwd });
             checkSignal(); this.#validateProposal(result, role, scope, allowedReads, allowedOperations);
             const resultRef = this.artifacts.put(projectId, "specialist-result", { role, result, inputRef,
               runtime: { type: this.config[role].type, model: this.config[role].model || null } });
+            turnRefs.push({ role, turn: round + 1, inputRef, resultRef });
+            packet.progress.previousResultRef = resultRef;
+            packet.progress.previousResponse = result;
             if (!result.reads.length) { results.push({ role, result, resultRef }); break; }
-            if (round === 2 || reads + result.reads.length > 8) { exhausted = true; break; }
+            if (round === 2 || reads + result.reads.length > 8) {
+              exhausted = true; stopReason = round === 2 ? "model_turn_limit" : "read_limit"; break;
+            }
             for (const read of result.reads) {
               checkSignal(); reads++;
               if (read.tool === "discover_production_tools") {
@@ -203,15 +210,21 @@ export class ProducerService {
                     : { name, inputSchema: toolContracts[name].inputSchema });
                 }
                 packet.context.push({ discovery: { ...read.args, ...found } });
+                packet.progress.completedReads.push({ ...read, discovery: found });
               } else if (read.tool === "read_production_artifact") {
                 const readArgs = { ...read.args, projectId };
                 validateToolArguments(read.tool, readArgs);
-                if (!contextRefs.includes(readArgs.artifactId)) throw new Error("artifact read is outside task context");
-                packet.context.push(this.artifacts.page(projectId, readArgs.artifactId, readArgs.offset, readArgs.limit));
+                if (!contextRefs.includes(readArgs.artifactId) &&
+                    !turnRefs.some(turn => turn.role === role && turn.resultRef === readArgs.artifactId))
+                  throw new Error("artifact read is outside task context");
+                const page = this.artifacts.page(projectId, readArgs.artifactId, readArgs.offset, readArgs.limit);
+                packet.context.push(page);
+                packet.progress.completedReads.push({ ...read, nextOffset: page.nextOffset });
               } else {
                 const value = await this.service.call(read.tool, read.args);
                 const ref = this.artifacts.put(projectId, "observation", { tool: read.tool, args: read.args, value });
                 contextRefs.push(ref); packet.context.push(this.#preview(projectId, ref));
+                packet.progress.completedReads.push({ ...read, artifactId: ref });
               }
             }
           }
@@ -226,13 +239,14 @@ export class ProducerService {
       const operations = status === "proposed" ? functional?.operations || [] : [];
       const taskId = this.artifacts.put(projectId, "task", { goal, scope, constraints, basis: identity(observed), observedAfter: identity(after), contextRefs,
         ...(workflowRef?{workflowRef}:{}),
-        results, status, operations, checks: functional?.checks || [], allowedReads, allowedOperations, createdAt: new Date().toISOString() });
-      return { taskId, status, summary: (results.at(-1)?.result.summary || "Specialist read budget exhausted; no executable proposal.").slice(0, 1000),
+        results, turnRefs, status, ...(stopReason ? { stopReason } : {}), operations, checks: functional?.checks || [], allowedReads, allowedOperations, createdAt: new Date().toISOString() });
+      return { taskId, status, ...(stopReason ? { stopReason } : {}),
+        summary: (exhausted ? `Specialist stopped at ${stopReason}; no executable proposal.` : results.at(-1)?.result.summary || "No specialist proposal.").slice(0, 1000),
         ...(workflowRef?{workflowRef}:{}),
         ...identity(observed), operationCount: operations.length, questions: questions.slice(0, 4).map(question => question.slice(0, 300)),
         questionsTruncated: questions.length > 4 || questions.some(question => question.length > 300),
         resultRefs: results.map(value => ({ role: value.role, artifactId: value.resultRef })),
-        contextRef: observed.contextRef, readsUsed: reads };
+        contextRef: observed.contextRef, readsUsed: reads, turnRefs };
     });
   }
 

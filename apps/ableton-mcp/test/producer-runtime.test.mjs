@@ -5,7 +5,9 @@ import { once } from "node:events";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import Ajv from "ajv";
 import { createProducerRuntime, parseProducerConfig } from "../src/producer-runtime.mjs";
+import { toolContracts } from "../src/tool-contracts.mjs";
 
 const reply = { summary: "Try a sparse bass variation.", reads: [], operations: [], checks: [], questions: [], alternatives: [] };
 const packet = { role: "creative", goal: "Simplify bass", context: [] };
@@ -93,6 +95,69 @@ test("Ollama cloud aliases fail before project context is transmitted", async ()
   } });
   await assert.rejects(runtime.generate(packet), /local model|remote/);
   assert.equal(requests, 1);
+});
+
+test("Ollama generation permits only operation names supplied for the current functional turn", async () => {
+  let format;
+  const runtime = createProducerRuntime({ type: "ollama", model: "local-model" }, { fetch: async (url, options) => {
+    if (String(url).endsWith("/api/show")) return new Response(JSON.stringify({ details: { format: "gguf" }, modelfile: "FROM local-file" }));
+    format = JSON.parse(options.body).format;
+    return new Response(JSON.stringify({ message: { content: JSON.stringify(reply) } }));
+  } });
+  const ajv = new Ajv({ strict: true });
+  await runtime.generate({ ...packet, role: "functional", tools: { operations: [{ name: "set_track_mixer", inputSchema: {
+    type: "object", properties: { trackId: { type: "string" }, volume: { type: "number" } }, required: ["trackId"], additionalProperties: false
+  } }] } });
+  let validate = ajv.compile(format);
+  assert.equal(validate({ ...reply, operations: [{ tool: "set_track_mixer", args: { trackId: "track-0", volume: 0.5 } }] }), true);
+  assert.equal(validate({ ...reply, operations: [{ tool: "set_track_volume_db", args: { trackId: "track-0", volumeDb: -12 } }] }), false);
+  assert.equal(validate({ ...reply, operations: [{ tool: "set_track_mixer", args: { trackId: "track-0", volume: "-12 dB" } }] }), false);
+  assert.equal(validate({ ...reply, operations: [{ tool: "set_track_mixer", args: { trackId: "track-0", volumeDb: -12 } }] }), false);
+  assert.equal(validate({ ...reply, reads: [{ tool: "get_track_mixer", args: { trackId: "track-0" } }] }), true);
+  assert.equal(validate({ ...reply, reads: [{ tool: "discover_production_tools", args: { query: "set_track_volume_db", kind: "operation" } }] }), true);
+  assert.equal(validate({ ...reply, checks: [{ tool: "get_track_mixer", args: { trackId: "track-0" }, path: ["volume", "decibels"], expected: -12 }] }), true);
+  await runtime.generate({ ...packet, role: "functional", tools: { operations: [{ name: "set_track_volume_db", inputSchema: {
+    type: "object", properties: { trackId: { type: "string" }, volumeDb: { type: "number" } }, required: ["trackId", "volumeDb"], additionalProperties: false
+  } }] } });
+  validate = ajv.compile(format);
+  assert.equal(validate({ ...reply, operations: [{ tool: "set_track_volume_db", args: { trackId: "track-0", volumeDb: -12 } }] }), true);
+  await runtime.generate(packet);
+  validate = ajv.compile(format);
+  assert.equal(validate(reply), true);
+  assert.equal(validate({ ...reply, operations: [{ tool: "set_track_mixer", args: {} }] }), false);
+  assert.equal(validate({ ...reply, reads: [{ tool: "get_track_mixer", args: { trackId: "track-0" } }] }), true);
+});
+
+test("Ollama continuation carries the actual prior reply once as assistant history", async () => {
+  let body;
+  const runtime = createProducerRuntime({ type: "ollama", model: "local-model" }, { fetch: async (url, options) => {
+    if (String(url).endsWith("/api/show")) return new Response(JSON.stringify({ details: { format: "gguf" }, modelfile: "FROM local-file" }));
+    body = JSON.parse(options.body);
+    return new Response(JSON.stringify({ message: { content: JSON.stringify(reply) } }));
+  } });
+  const previousResponse = { ...reply, reads: [{ tool: "get_track_mixer", args: { trackId: "track-0" } }] };
+  await runtime.generate({ ...packet, progress: { turn: 2, maxTurns: 3, readsRemaining: 7, previousResponse } });
+  const assistant = body.messages.filter(message => message.role === "assistant");
+  assert.equal(assistant.length, 1);assert.deepEqual(JSON.parse(assistant[0].content), previousResponse);
+  const current = JSON.parse(body.messages.at(-1).content);
+  assert.equal(current.progress.turn, 2);assert.equal(current.progress.previousResponse, undefined);
+  await assert.rejects(runtime.generate({ ...packet, progress: { previousResponse: { ...previousResponse, summary: "x".repeat(48000) } } }), /input.*limit/);
+});
+
+test("embedded recursive snapshot operation schemas retain their local references", async () => {
+  let format;
+  const runtime = createProducerRuntime({ type: "ollama", model: "local-model" }, { fetch: async (url, options) => {
+    if (String(url).endsWith("/api/show")) return new Response(JSON.stringify({ details: { format: "gguf" }, modelfile: "FROM local-file" }));
+    format = JSON.parse(options.body).format;
+    return new Response(JSON.stringify({ message: { content: JSON.stringify(reply) } }));
+  } });
+  const inputSchema = structuredClone(toolContracts.recall_track_state_snapshot.inputSchema);
+  for (const key of ["dryRun", "confirmationToken", "planHash", "expectedStateVersion"]) delete inputSchema.properties[key];
+  inputSchema.required = inputSchema.required.filter(key => key !== "expectedStateVersion");
+  await runtime.generate({ ...packet, role: "functional", tools: { operations: [{ name: "recall_track_state_snapshot", inputSchema }] } });
+  const validate = new Ajv({ strict: true }).compile(format);
+  assert.equal(validate(reply), true);
+  assert.equal(validate({ ...reply, operations: [{ tool: "recall_track_state_snapshot", args: { trackId: "track-0", snapshot: {} } }] }), false);
 });
 
 test("ACP cancellation terminates an owned launcher and its inherited-pipe descendant", async t => {
