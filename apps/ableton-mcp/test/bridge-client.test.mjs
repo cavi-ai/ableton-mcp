@@ -91,7 +91,9 @@ test("requests carry a bounded deadline and timeout sends connection-scoped canc
   });
   client.timeoutMs = 100;
   const started = Date.now();
-  await assert.rejects(client.request("set_tempo", { tempo: 130 }), error => {
+  const request = client.request("set_tempo", { tempo: 130 });
+  const createdBy = Date.now();
+  await assert.rejects(request, error => {
     assert.equal(error.code, "BRIDGE_TIMEOUT");
     assert.equal(error.outcome, "unknown");
     assert.match(error.message, /read.*before.*retry/i);
@@ -99,8 +101,8 @@ test("requests carry a bounded deadline and timeout sends connection-scoped canc
   });
   const frame = await cancelled;
   assert.deepEqual(frame.cancelRequestIds, [received[0].id]);
-  assert.ok(received[0].deadlineUnixMs >= started);
-  assert.ok(received[0].deadlineUnixMs <= started + 100);
+  assert.ok(received[0].deadlineUnixMs >= started + client.timeoutMs);
+  assert.ok(received[0].deadlineUnixMs <= createdBy + client.timeoutMs);
 });
 
 test("an already aborted request opens no connection and reports not executed", async t => {

@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 247 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 253 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (106)
+## Read-only (108)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -49,11 +49,13 @@ The server publishes 247 tools. Mutations of the Live Set require `expectedState
 | `get_preset` | Read one exact NKS preset catalog record. | `presetId` |
 | `get_preset_metadata` | Read user tags, favorite state, and revision for one preset. | `presetId` |
 | `get_producer_chain_blueprint` | Return one ordered factory-device chain or shared-bus topology with exact browser paths, stage roles, execution tools, and explicit limitations. | `target` |
-| `get_producer_workflow` | List producer workflows, or retrieve one with named string arguments. Returns shared MCP prompt instructions without calling Live or executing work. Omit workflow to list names and required arguments. Requires all profile. | none |
+| `get_producer_workflow` | List producer workflows, or retrieve one with named string arguments. Returns shared MCP prompt instructions without calling Live or executing work. Omit workflow to list names and required arguments. Available in all and producer profiles. | none |
 | `get_production_context` | Read a consistent Live selection and musical context into a private artifact; return a bounded overview and contextRef. No model call. | `projectId` |
+| `get_scene_launch_context` | Preview an exact Session scene in one native read: every track/slot, clip/stop/Group actions, arms, recording risks, current playback and global/scene musical context. Preserves selection and playback. Launch metadata only; no audible or follow-action prediction. All profile. | `sceneId` |
 | `get_selection_context` | Read selected track/scene/device, displayed clip and highlighted slot together without changing focus. Null is unresolved; clip and slot can differ. | none |
 | `get_session_orientation` | Read Set, recording, selection, clip and instruments together; configured scale and ambiguous MIDI evidence. No edits, playback or focus changes. | none |
 | `get_set_mixer` | Read master and return-bus mixer levels, sends, and routing from the current Live Set. | none |
+| `get_simpler_sample_state` | Read one existing Simpler, including nested racks: path, length/start-end markers/slices in sample frames, rate in Hz, native warp/slicing controls, playback mode, parameters and edit context. No edits. All profile; requires updated bridge. | `trackId`, `deviceId` |
 | `get_song_grid_reference` | Read a meter/tempo-aware bar of straight 16ths and eighth/sixteenth triplets, downbeats/offbeats and advisory 4/4 genre placements. Read-only. | none |
 | `get_song_musical_context` | Read key, scale, time signature, quantization, groove, swing, and Arrangement loop context. | none |
 | `get_track_freeze_state` | Read one track's native freeze state. On the tested Live 12.4.5, is_frozen is readable but has no setter, so freeze/unfreeze remain UI-only; Live's native error surfaces if a future version exposes the setter. | `trackId` |
@@ -115,7 +117,7 @@ The server publishes 247 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (122)
+## Mutations (123)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -209,6 +211,7 @@ The server publishes 247 tools. Mutations of the Live Set require `expectedState
 | `set_beat_repeat_interval` | Plan or request one exact native Beat Repeat Interval display from get_beat_repeat_performance_context.intervalChoices. Native integer-position labels are mapped without assuming a quantized parameter or scheduled trigger. Ambiguous or unavailable labels fail closed; execution rechecks the complete device, routing, and transport snapshot and reports immediately observed parameter equality, not an audible result. | `expectedStateVersion`, `trackId`, `deviceId`, `intervalDisplayValue` |
 | `set_browser_item_metadata` | Plan or edit private MCP-managed tags and favorite state with observed Live browser identity or local audio-file version, exact revision, and single-use confirmation. A Live user-folder sample shares the local Splice record only when its URI unambiguously matches a configured local Splice file; reserved URI delimiters and existing separate Live metadata preserve exact Live identity. For a local sample, use root local_splice and path [absolute directory, relative audio path]. Does not modify native collections. | `expectedMetadataRevision`, `root`, `path` |
 | `set_bulk_track_mixer` | Plan or apply guarded volume, pan, mute, and solo changes to multiple existing ordinary tracks in one confirmed step. Per-track values clamp to each observed native range; sends are unchanged. | `expectedStateVersion`, `trackIds` |
+| `set_clip_slot_stop_button` | Plan or change the stop button of one empty ordinary Session slot. Binds native full-row context, verifies readback and attempts owned rollback. Does not launch, stop playback or guarantee armed-empty recording behavior. Requires updated bridge; all profile. | `expectedStateVersion`, `trackId`, `clipId`, `hasStopButton` |
 | `set_clip_timing` | Plan or apply guarded clip loop, signature, launch quantization, Session launch Legato, native clip mute, groove, and editor-grid changes. | `expectedStateVersion`, `trackId`, `clipId` |
 | `set_device_active` | Plan or set the active state of one exact loaded device on an ordinary, Return, or Main track. | `expectedStateVersion`, `trackId`, `deviceId`, `active` |
 | `set_device_parameter_display` | Set one continuous device parameter to a finite native unit display (Hz/kHz, ms/s, dB, %). Resolves through Live's formatter without guessing raw values; refuses automation, recording and unrepresentable targets. Requires all profile. | `expectedStateVersion`, `trackId`, `deviceId`, `parameterId`, `targetDisplay` |
@@ -242,7 +245,7 @@ The server publishes 247 tools. Mutations of the Live Set require `expectedState
 | `transport_stop` | Plan or stop Ableton transport playback. | `expectedStateVersion` |
 | `undo` | Plan or apply one guarded Ableton undo operation. | `expectedStateVersion` |
 
-## Destructive mutations (19)
+## Destructive mutations (22)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -258,10 +261,13 @@ The server publishes 247 tools. Mutations of the Live Set require `expectedState
 | `delete_rack_macro_variation` | Plan or delete one exact zero-based rack macro variation. Destructive: Live does not expose saved variation contents for preview or reconstruction. Requires confirmation and reports observed count. | `expectedStateVersion`, `trackId`, `deviceId`, `variationIndex` |
 | `delete_session_object` | Plan or delete an exact track, Return Track, scene, or Session clip with explicit content authority. Return deletion discloses its devices and affected track-send lanes. | `expectedStateVersion`, `targetType`, `targetId` |
 | `fail_nks_generation_job` | Record a worker failure and return the leased NKS job to pending, or quarantine it after the retry limit. Does not change preset lifecycle. | `presetId`, `workerId`, `reason` |
+| `load_simpler_sample` | Load a local audio file into an existing single-sample Simpler. Requires stopped transport and an inactive unarmed target; loaded samples require allowReplace. Binds native context/file metadata and verifies exposed readback. Failure may leave partial state; no full sample rollback. All profile. | `expectedStateVersion`, `trackId`, `deviceId`, `sourcePath` |
 | `open_live_set` | Plan/open a macOS Set; launch requires closed Live and configured app. | `path` |
 | `remove_audio_warp_marker` | Plan or apply deletion of an exact visible audio warp marker. Rejects the hidden terminal marker and stale clip state. | `expectedStateVersion`, `trackId`, `clipId`, `beatTime` |
 | `save_live_set` | Save macOS Set; verify write or clean state. Path: Save As without overwrite. | `expectedStateVersion`, `expectedSetFingerprint` |
 | `set_clip_parameter_envelope` | Plan/set 1–512 ordered Session envelope steps with native context checks and explicit clamping. Existing lanes require replaceExisting:true, which discards the whole curve, including unsampled edits. No full-curve backup or restoration. Playback must be stopped; recording off. Verifies sampled interiors. | `expectedStateVersion`, `trackId`, `clipId`, `deviceId`, `parameterId`, `points` |
 | `set_device_parameters` | Plan/set bounded device parameters on ordinary/Return/Main tracks. Strings select exact unambiguous quantized labels; numbers retain native clamping. Looper State Record/Overdub writes mutate recorded content: restoring a parameter does not restore captured audio. | `expectedStateVersion`, `trackId`, `deviceId`, `changes` |
 | `set_looper_state` | Plan or request one exact native Looper State choice: Stop, Record, Play, or Overdub. Native execution rechecks the complete Looper, routing, and transport snapshot before writing State; result reports the immediately observed State parameter and whether it matches the target, not an audible or quantized-boundary outcome. Record/Overdub can mutate captured audio and cannot be rolled back by restoring a parameter value. This does not promise beat-scheduled execution; verify native quantization behavior separately. | `expectedStateVersion`, `trackId`, `deviceId`, `targetState` |
+| `set_simpler_manual_slices` | Set an exact manual slice layout on a loaded single-sample Simpler, including nested racks. Selects Slicing/Manual mode, disables Pad Slicing and clears prior manual cuts, including outside the active region. Requires stopped transport and an inactive unarmed target; verifies native slices and retained sample. No file crop/reload or automatic rollback. All profile. | `expectedStateVersion`, `trackId`, `deviceId`, `slicesFrames` |
+| `set_simpler_sample_region` | Set a loaded Simpler playback region in native sample frames, including nested racks. At least one marker; omitted bound stays unchanged. Requires stopped transport and an inactive unarmed single-sample target. Binds native context and verifies exact markers; does not crop the source file. Partial failure requires inspection; no automatic rollback. All profile. | `expectedStateVersion`, `trackId`, `deviceId` |
 | `set_track_freeze_state` | Plan or toggle guarded track freeze. On the tested Live 12.4.5 the native is_frozen property has no setter, so execution fails closed with Live's own error; the plan still binds the observed state so newer Live versions can adopt the write without contract changes. Freezing renders the track's live material to audio and mutates audible content until unfrozen. | `expectedStateVersion`, `trackId`, `frozen` |

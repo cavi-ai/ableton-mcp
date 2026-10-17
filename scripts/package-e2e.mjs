@@ -89,7 +89,7 @@ const producer = await exchange(bin, ["serve"], producerEnvironment, [
   { id: 2, method: "tools/call", params: { name: "record_production_note", arguments: {
     projectId: "song", kind: "intent", text: "Preserve the original bass." } } }
 ]);
-assert.equal(producer[0].result.tools.length, 8);
+assert.equal(producer[0].result.tools.length, 9);
 const noteRef = producer[1].result.structuredContent.noteRef;
 assert.match(noteRef, /^[a-f0-9]{64}$/);
 const note = JSON.parse(execFileSync(bin, ["call", "read_production_artifact", "--args",
@@ -107,7 +107,7 @@ assert.match(producerFixture[0].result.structuredContent.text, /Preserve the ori
 const remoteScripts = path.join(work, "Remote Scripts");
 execFileSync(bin, ["install", "--destination", remoteScripts, "--json"], { encoding: "utf8" });
 const bridgeFiles = readdirSync(path.join(remoteScripts, "CaviMcpBridge")).sort();
-assert.deepEqual(bridgeFiles, ["__init__.py", "arrangement_audition.py", "arrangement_section.py", "audio_capture.py", "audio_export.py", "bridge.py", "capabilities.json", "clip_duplication.py", "clip_envelope.py", "instrument_comparison.py", "parameter_display.py", "protocol.py", "session_recording.py", "track_send.py", "track_volume.py"]);
+assert.deepEqual(bridgeFiles, ["__init__.py", "arrangement_audition.py", "arrangement_section.py", "audio_capture.py", "audio_export.py", "bridge.py", "capabilities.json", "clip_duplication.py", "clip_envelope.py", "instrument_comparison.py", "parameter_display.py", "protocol.py", "session_recording.py", "simpler_sample.py", "track_send.py", "track_volume.py"]);
 
 const doctor = JSON.parse(execFileSync(bin, ["doctor", "--json"], {
   encoding: "utf8",

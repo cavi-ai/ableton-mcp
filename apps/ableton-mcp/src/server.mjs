@@ -106,6 +106,12 @@ const toolNames = [
   "jump_to_arrangement_cue_point",
   "list_tracks",
   "list_scenes",
+  "get_scene_launch_context",
+  "get_simpler_sample_state",
+  "load_simpler_sample",
+  "set_simpler_sample_region",
+  "set_simpler_manual_slices",
+  "set_clip_slot_stop_button",
   "list_clips",
   "get_midi_clip_notes",
   "get_midi_clip_notes_extended",
@@ -312,7 +318,7 @@ const coreToolNames = new Set([
 
 function listedTools(profile) {
   if (!["all", "core", "producer"].includes(profile)) throw new Error(`unknown tool profile: ${profile}`);
-  const producerNames = new Set([...Object.keys(producerToolContracts), "get_live_state", "transport_stop", "panic"]);
+  const producerNames = new Set([...Object.keys(producerToolContracts), "get_producer_workflow", "get_live_state", "transport_stop", "panic"]);
   return toolNames.filter((name) => profile === "all" || (profile === "producer" ? producerNames : coreToolNames).has(name))
     .map((name) => ({ name, ...toolContracts[name] }));
 }
