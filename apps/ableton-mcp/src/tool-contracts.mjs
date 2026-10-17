@@ -499,6 +499,8 @@ const contracts = {
   list_tracks: { description: "List stable Ableton track identities, mixer state, and existing group hierarchy.", inputSchema: empty },
   list_scenes: { description: "List stable Session scene identities, names, and per-scene launch quantization.", inputSchema: empty },
   get_scene_launch_context: {description:'Preview an exact Session scene in one native read: every track/slot, clip/stop/Group actions, arms, recording risks, current playback and global/scene musical context. Preserves selection and playback. Launch metadata only; no audible or follow-action prediction. All profile.',inputSchema:object({sceneId:ids.sceneId},['sceneId'])},
+  get_simpler_sample_state: {description:'Read one existing Simpler, including nested racks: path, length/start-end markers/slices in sample frames, rate in Hz, native warp/slicing controls, playback mode, parameters and edit context. No edits. All profile; requires updated bridge.',inputSchema:object({trackId:ids.trackId,deviceId:ids.deviceId},['trackId','deviceId'])},
+  load_simpler_sample: {description:'Load a local audio file into an existing single-sample Simpler. Requires stopped transport and an inactive unarmed target; loaded samples require allowReplace. Binds native context/file metadata and verifies exposed readback. Failure may leave partial state; no full sample rollback. All profile.',inputSchema:guarded({trackId:ids.trackId,deviceId:ids.deviceId,sourcePath:string('Existing absolute local audio-file path; Live validates format.'),allowReplace:boolean('Explicitly permit replacing an already loaded sample. Defaults to false.'),playbackMode:{type:'string',enum:['classic','one-shot','slicing'],description:'Optional native playback mode after loading; omit to leave mode selection to Live.'}},['trackId','deviceId','sourcePath'])},
   list_clips: { description: "List clip slots and clips on one exact track, including arm/freeze recording readiness and native one-shot launch quantization choices.", inputSchema: track },
   create_track: { description: "Plan/create an audio/MIDI track at an insertion index. Live rechecks neighbors and verifies inserted type/name in one undo step.", inputSchema: guarded({ type: { type: "string", enum: ["audio", "midi"] }, index: { type: "integer", minimum: 0 }, name: string("Track name.") }, ["type", "name"]) },
   create_return_track: { description: "Plan or append a Return Track for shared send effects using Live's native bus API. Name is the raw label; Live prefixes the displayed return letter, and the result reports the observed display name.", inputSchema: guarded({ name: string("Raw Return Track label without its automatic bus-letter prefix.") }, ["name"]) },
@@ -696,7 +698,7 @@ const readOnlyTools = new Set([
   "plan_drum_pattern", "plan_drum_pattern_edit", "plan_drum_variation",
   "get_clip_groove_context", "analyze_midi_feel", "load_midi_feel_template", "inspect_clip_groove_postconditions",
   "get_transport_recording_context", "list_arrangement_cue_points",
-  "list_tracks", "list_scenes", "get_scene_launch_context", "list_clips",
+  "list_tracks", "list_scenes", "get_scene_launch_context", "get_simpler_sample_state", "list_clips",
   "get_midi_clip_notes", "get_midi_clip_notes_extended",
   "analyze_midi_clip_scale", "analyze_midi_clip_chords",
   "plan_scale_chord_progression", "plan_scale_bassline", "plan_scale_melody",
@@ -725,6 +727,7 @@ const readOnlyTools = new Set([
 ]);
 
 const destructiveTools = new Set([
+  "load_simpler_sample",
   "audition_arrangement_passage",
   "open_live_set", "save_live_set",
   "delete_session_object", "delete_clip", "delete_arrangement_clip",
