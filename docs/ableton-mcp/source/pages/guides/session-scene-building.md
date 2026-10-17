@@ -14,6 +14,14 @@ Append a named scene with `create_scene`, then resolve each track's actual empty
 
 Scene creation and copies are separate operations. After interruption, inspect the identified partial scene and verify completed copies before planning missing entries. A name alone does not establish ownership or completion. Preserve ambiguous content and partial work; never append another scene or replay the whole map to make a retry easier.
 
+## Configure requested launch behavior
+
+Read `get_clip_timing` for each exact copied Session clip. Its `launchMode` reports native `trigger`, `gate`, `toggle` and `repeat` choices when supported. Change a requested mode with `set_clip_timing`, for example `launchMode: "toggle"`; numeric choices also use the observed native value. Preserve existing quantization, Legato, loop settings and source clips unless the brief requests their change.
+
+Launch-mode edits require an updated bridge, stopped playback, recording off, an unfrozen track and no pending target launches. The plan binds the native track, slot and clip; replacing a clip with identical settings invalidates it. Arrangement clips and unavailable native modes report `supported: false`. Configuration changes no playback or focus.
+
+Gate and Repeat rely on held-button input. The current `launch_clip` tool sends a one-shot fire request, so it does not provide a sustained press. Configure these modes for the intended controller interaction; do not infer a held performance from configuration or from launching a scene. Mode names and held-button behavior follow the [Live Clip API](https://docs.cycling74.com/apiref/lom/clip/).
+
 ## Preview before listening
 
 `get_scene_launch_context` reads the entire row in one native callback without moving selection or launching. It reports every track's target slot, current playback, arm/monitoring, mute/solo, Group membership and scene/global musical controls. `rowSummary` groups clip launches, empty stop/continue slots, Groups, armed empties, native `willRecordOnStart` and already-recording tracks. Unknown raw fields remain unknown; the summary is not a safety verdict.

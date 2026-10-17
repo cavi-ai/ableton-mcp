@@ -37,6 +37,7 @@ CLIP_QUANTIZATION_NAMES = (
     "1_4", "1_4_triplet", "1_8", "1_8_triplet", "1_16", "1_16_triplet", "1_32",
 )
 CLIP_GRID_NAMES = ("none", "8_bars", "4_bars", "2_bars", "1_bar", "1_2", "1_4", "1_8", "1_16", "1_32")
+CLIP_LAUNCH_MODE_NAMES = ("trigger", "gate", "toggle", "repeat")
 AUDIO_WARP_MODE_NAMES = ("beats", "tones", "texture", "re_pitch", "complex", "rex", "complex_pro")
 COUNT_IN_DURATION_NAMES = ("none", "one_bar", "two_bars", "four_bars")
 
@@ -339,6 +340,8 @@ def _clip_timing(song, track_id, clip_id, state_version):
         if hasattr(clip, "start_marker") and hasattr(clip, "end_marker") else {"supported": False},
         "timeSignature": {"numerator": int(clip.signature_numerator), "denominator": int(clip.signature_denominator)},
         "launchQuantization": _enum_record(clip.launch_quantization, CLIP_QUANTIZATION_NAMES),
+        "launchMode": {"supported": True, **_enum_record(clip.launch_mode, CLIP_LAUNCH_MODE_NAMES)}
+        if timeline is None and hasattr(clip, "launch_mode") and int(clip.launch_mode) in range(4) else {"supported": False},
         "editorGrid": {
             "quantization": _enum_record(clip.view.grid_quantization, CLIP_GRID_NAMES),
             "isTriplet": bool(clip.view.grid_is_triplet),
@@ -5062,11 +5065,30 @@ def dispatch_request(song, request, state_version, application=None):
         return _clip_list(song, track_id, state_version + 1)
     if method == "get_clip_timing":
         return _clip_timing(song, params["trackId"], params["clipId"], state_version)
+    if method == "get_clip_launch_edit_context":
+        try:
+            from .clip_launch import source
+        except ImportError:
+            from clip_launch import source
+        return source(song, params, state_version)
     if method == "set_clip_timing":
         if "before" in params and _clip_timing(song, params["trackId"], params["clipId"], state_version) != params["before"]:
             raise ValueError("clip timing changed since observation")
         clip, timeline = _clip_reference(song, params["trackId"], params["clipId"])
         changes = params["changes"]
+        launch_identity = None
+        if "launchMode" in changes:
+            if timeline is not None:
+                raise ValueError("Session clip launch mode is unavailable in Arrangement")
+            if type(changes["launchMode"]) is not int or changes["launchMode"] not in range(4):
+                raise ValueError("launchMode must be an exact native launch mode")
+            try:
+                from . import clip_launch as launch_guard
+            except ImportError:
+                import clip_launch as launch_guard
+            if params.get("launchEditContext") != launch_guard.source(song, params, state_version):
+                raise ValueError("clip launch identity or context changed since planning")
+            launch_identity = launch_guard.objects(song, params)
         if "launchLegato" in changes:
             if timeline is not None or not hasattr(clip, "legato"):
                 raise ValueError("clip launch Legato is unavailable")
@@ -5106,10 +5128,16 @@ def dispatch_request(song, request, state_version, application=None):
         signature = changes.get("timeSignature", {})
         writes = []
         def write(owner, attribute, value):
+            if launch_identity is not None:
+                launch_guard.assert_owned(song, params, launch_identity)
             previous = getattr(owner, attribute)
             if previous != value:
                 setattr(owner, attribute, value)
-                writes.append((owner, attribute, previous))
+                writes.append((owner, attribute, previous, value))
+                if launch_identity is not None:
+                    launch_guard.assert_owned(song, params, launch_identity)
+                    if attribute == "launch_mode" and int(clip.launch_mode) != value:
+                        raise ValueError("native launch mode readback did not match requested value")
         with _undo_step(song):
             try:
                 if start_key in loop or end_key in loop:
@@ -5127,6 +5155,8 @@ def dispatch_request(song, request, state_version, application=None):
                     write(clip, "signature_denominator", int(signature["denominator"]))
                 if "launchQuantization" in changes:
                     write(clip, "launch_quantization", int(changes["launchQuantization"]))
+                if "launchMode" in changes:
+                    write(clip, "launch_mode", changes["launchMode"])
                 if "launchLegato" in changes:
                     write(clip, "legato", changes["launchLegato"])
                 if "mute" in changes:
@@ -5138,14 +5168,36 @@ def dispatch_request(song, request, state_version, application=None):
                     write(clip.view, "grid_is_triplet", editor_grid["isTriplet"])
                 if "grooveId" in changes:
                     write(clip, "groove", selected_groove)
+                if launch_identity is not None:
+                    launch_guard.assert_owned(song, params, launch_identity)
+                    if int(clip.launch_mode) != changes["launchMode"]:
+                        raise ValueError("native launch mode readback did not match requested value")
             except Exception as error:
                 try:
-                    for owner, attribute, previous in reversed(writes):
+                    if launch_identity is not None:
+                        launch_guard.assert_owned(song, params, launch_identity)
+                    for owner, attribute, previous, applied in reversed(writes):
+                        if launch_identity is not None:
+                            launch_guard.assert_owned(song, params, launch_identity)
+                            current = getattr(owner, attribute)
+                            if current == previous:
+                                continue
+                            if current != applied:
+                                raise RuntimeError("later clip edit preserved; rollback ownership lost")
                         setattr(owner, attribute, previous)
+                        if launch_identity is not None:
+                            launch_guard.assert_owned(song, params, launch_identity)
                 except Exception as rollback_error:
+                    if launch_identity is not None:
+                        raise RuntimeError(f"partial clip launch edit: {error}; identity or edit ownership lost: {rollback_error}; inspect current clips before continuing") from error
                     raise RuntimeError(f"clip timing failed: {error}; rollback failed: {rollback_error}; use Live undo") from error
                 raise
-        return _clip_timing(song, params["trackId"], params["clipId"], state_version + 1)
+        if launch_identity is not None:
+            launch_guard.assert_owned(song, params, launch_identity)
+        result = _clip_timing(song, params["trackId"], params["clipId"], state_version + 1)
+        if launch_identity is not None:
+            launch_guard.assert_owned(song, params, launch_identity)
+        return result
     if method == "duplicate_clip_loop":
         track_id, clip_id = params["trackId"], params["clipId"]
         _, _, slot = _clip_slot(song, track_id, clip_id)
