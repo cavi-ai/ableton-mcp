@@ -41,6 +41,7 @@
         { "title": "Develop an audio clip", "path": "guides/audio-clip-development.md" },
         { "title": "Shared instrument buses", "path": "guides/shared-instrument-buses.md" },
         { "title": "Create a native track Group", "path": "guides/track-grouping.md" },
+        { "title": "Ungroup tracks", "path": "guides/track-ungrouping.md" },
         { "title": "Native saving and recall", "path": "guides/native-saving-and-recall.md" },
         { "title": "Keep a device sound", "path": "guides/native-device-presets.md" },
         { "title": "Prepare a Project for handoff", "path": "guides/project-handoff.md" },

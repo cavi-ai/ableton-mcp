@@ -47,6 +47,7 @@ const resourceTemplates = resourceUris.filter((uri) => uri.includes("{"))
 
 const toolNames = [
   "group_tracks", "get_track_grouping_status",
+  "ungroup_tracks", "get_track_ungrouping_status",
   ...Object.keys(producerToolContracts),
   "audition_arrangement_passage",
   "get_producer_workflow",

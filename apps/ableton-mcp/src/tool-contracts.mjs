@@ -386,6 +386,8 @@ const gainEnvelopePoint={oneOf:creationEnvelopePoint.oneOf.map(schema=>({...sche
     {targetDisplay:string('Finite native dB target, such as -24 dB or -6 dB. Decimal point only; -inf is not accepted.')})}}))};
 
 const contracts = {
+  ungroup_tracks:{description:'Remove one native Group through macOS English Live UI, promoting its children to the enclosing Group or root. Removes its processing/mixer stage, shifts IDs and numbered labels, and can change sound/routing. Saved Set, stopped transport/recording, unarmed/unfrozen descendants and visible Group required. Refuses exposed external dependencies. Group devices require allowContent. Verifies retained descendants and exposed controls. No automatic undo/regrouping. Retain ungroupingId before execution. All profile.',inputSchema:guarded({groupTrackId:ids.trackId,allowContent:boolean('Allow discarding the Group device chain; does not preserve hidden plug-in state.'),expectedSetFingerprint:string('Current Set fingerprint.')},['groupTrackId','expectedSetFingerprint'])},
+  get_track_ungrouping_status:{description:'Inspect actual removal, retained descendants, membership, exposed material and routing for a retained ungroupingId, including after a lost reply. Read-only; never repeats removal or regroups. Runtime handles can expire or disappear after bridge reload. Missing handles require current-track inspection. All profile.',inputSchema:object({ungroupingId:string('Retained ungroupingId from the plan or result.')},['ungroupingId'])},
   group_tracks:{description:'Create a native Group through macOS English Live UI from two to 64 consecutive ungrouped ordinary audio-producing tracks feeding Main. Saved Set, stopped playback/recording, unarmed/unfrozen sources and no pending launches required. Changes focus, hierarchy, routing and track IDs. Verifies retained objects and exposed material/controls. Partial results remain; no automatic undo. Retain groupingId for lost-response inspection. All profile.',inputSchema:guarded({trackIds:{...array(ids.trackId,'Consecutive exact track IDs in Live order.'),minItems:2,maxItems:64,uniqueItems:true},expectedSetFingerprint:string('Current Set fingerprint from get_live_state.')},['trackIds','expectedSetFingerprint'])},
   get_track_grouping_status:{description:'Inspect a retained native grouping handle from a group_tracks plan, including after a lost reply. Resolves actual Group/member IDs, hierarchy, exposed material and controls. Read-only; does not repeat grouping or restore anything. Runtime handles can expire or disappear after bridge reload; missing handles require current-track inspection. All profile.',inputSchema:object({groupingId:string('Retained groupingId from the plan or result.')},['groupingId'])},
   save_native_device_preset: {description:'Save an exact device or rack as a new native User Library preset through macOS English Live. Sets intended preset naming and changes focus; may rename the source. Requires saved Set and stopped transport. Refuses existing names; verifies Live XML/VST3 artifacts and exposed source state. Audio Unit artifact verification is unavailable. No recall, audible-equivalence or sample-portability claim.',inputSchema:guarded({trackId:ids.deviceOwnerId,deviceId:ids.deviceId,name:string('New visible filename stem, without extension; at most 80 characters. Existing native User Library preset names refuse.')},['trackId','deviceId','name'])},
@@ -710,6 +712,7 @@ const contracts = {
 };
 
 const readOnlyTools = new Set([
+  "get_track_ungrouping_status",
   "get_track_grouping_status",
   "get_project_media",
   "get_producer_workflow",
@@ -755,7 +758,7 @@ const destructiveTools = new Set([
   "set_simpler_manual_slices",
   "audition_arrangement_passage",
   "open_live_set", "save_live_set", "collect_project_media", "save_native_device_preset",
-  "delete_session_object", "delete_clip", "delete_arrangement_clip",
+  "ungroup_tracks", "delete_session_object", "delete_clip", "delete_arrangement_clip",
   "delete_arrangement_cue_point", "remove_audio_warp_marker",
   "delete_device", "crop_audio_clip", "set_looper_state", "set_device_parameters", "set_clip_parameter_envelope",
   "fail_nks_generation_job", "complete_nks_generation_job",

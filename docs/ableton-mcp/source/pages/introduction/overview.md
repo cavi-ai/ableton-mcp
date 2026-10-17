@@ -24,7 +24,7 @@ Live's Remote Script API limits what can be controlled. In Live 12.4.5:
 
 - Arrangement automation envelopes are not exposed.
 - Per-note pitch bend, pressure and slide are not exposed.
-- Native Group creation uses the macOS English UI for consecutive ungrouped audio-producing tracks on Main; nested grouping, reparenting and ungrouping are not provided. See [track grouping](../guides/track-grouping.md).
+- Native Group creation uses the macOS English UI for consecutive ungrouped audio-producing tracks on Main; nested grouping and reparenting are not provided. [Ungrouping](../guides/track-ungrouping.md) removes a resolved Group and its processing stage while retaining descendants. See [track grouping](../guides/track-grouping.md).
 - Grooves cannot be created or deleted through the public Groove Pool API.
 - `Track.is_frozen` has no setter.
 
