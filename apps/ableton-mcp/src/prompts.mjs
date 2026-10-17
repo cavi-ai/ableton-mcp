@@ -6,6 +6,18 @@ const confirmWorkflow = [
 const userMessage = (text) => ({ role: "user", content: { type: "text", text } });
 
 export const promptContracts = {
+  "organize-session": {
+    name: "organize-session",
+    description: "Apply an explicit naming and color scheme to resolved Set objects while preserving content and focus.",
+    arguments: [{name:"request",description:"Objects, desired names/colors and any existing labels or colors to preserve.",required:true}],
+    build: ({request}) => ({description:"Organize the current Set.",messages:[userMessage(`Organize this Set: ${request}
+1. Read get_live_state, list_tracks and list_scenes. Resolve the requested existing objects and actual hierarchy; use list_clips or list_arrangement_clips for clip targets. Do not invent musical roles from position or color. Use the user's explicit roles and names; ask one focused question only when materially different targets or schemes remain. Preserve manual names and colors outside the requested scope. Do not switch Sets or create, move, group, delete or alter musical content as part of visual organization.
+2. In the all profile, read get_live_object_colors for the exact canonical object IDs. Tracks use track-N, Returns return-N, Main master, scenes scene-N, Session clips track-N:clip-M and Arrangement clips track-N:arrangement-clip-M. Empty slots are not colorable clips. Review a concrete object/name/color map against current readback. Keep useful labels; colors supplement names and must not be the sole way to identify a part.
+3. Use set_live_object_colors with explicit unique objectId/color pairs, six-digit RGB values, fresh expectedStateVersion and expectedSetFingerprint. Never recolor every clip merely because its track was requested. For an explicitly requested matching theme, use an observed color from the user's reference object. Review the inert plan before confirming; same-version manual changes or replacement objects require fresh reads and a new plan.
+4. Inspect writeCompleted, identityRetained, selectionUnchanged and each object's observed color, colorIndex, writeReturned and exactMatch. Live can adjust RGB to its palette; report the observed value when exactMatch is false. Re-read requested objects afterward. A partial or lost reply requires inspection before deciding what remains; do not automatically replay or undo over manual edits.
+5. If renaming is explicitly requested, use separate fresh rename_session_object plans for supported tracks, Returns, scenes or Session clips. Return names omit Live's automatic letter prefix. Arrangement clip renaming is outside that tool; do not substitute a Session clip or use deletion/recreation. Verify actual names after each rename, then refresh IDs and color context.
+Report the actual changed names/colors, unchanged requested targets and any partial failure. These operations request no playback, recording, note, device or routing changes. ${confirmWorkflow}`)]})
+  },
   "shape-clip-automation": {
     name:"shape-clip-automation",
     description:"Add stepped device, volume or Return-send automation to a preserved Session clip alternative using native values or units.",

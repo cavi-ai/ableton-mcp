@@ -107,7 +107,7 @@ assert.match(producerFixture[0].result.structuredContent.text, /Preserve the ori
 const remoteScripts = path.join(work, "Remote Scripts");
 execFileSync(bin, ["install", "--destination", remoteScripts, "--json"], { encoding: "utf8" });
 const bridgeFiles = readdirSync(path.join(remoteScripts, "CaviMcpBridge")).sort();
-assert.deepEqual(bridgeFiles, ["__init__.py", "arrangement_audition.py", "arrangement_section.py", "audio_capture.py", "audio_export.py", "bridge.py", "capabilities.json", "clip_duplication.py", "clip_envelope.py", "instrument_comparison.py", "parameter_display.py", "protocol.py", "session_recording.py", "simpler_sample.py", "track_send.py", "track_volume.py"]);
+assert.deepEqual(bridgeFiles, ["__init__.py", "arrangement_audition.py", "arrangement_section.py", "audio_capture.py", "audio_export.py", "bridge.py", "capabilities.json", "clip_duplication.py", "clip_envelope.py", "instrument_comparison.py", "object_colors.py", "parameter_display.py", "protocol.py", "session_recording.py", "simpler_sample.py", "track_send.py", "track_volume.py"]);
 
 const doctor = JSON.parse(execFileSync(bin, ["doctor", "--json"], {
   encoding: "utf8",

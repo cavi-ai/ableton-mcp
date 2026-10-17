@@ -1,5 +1,6 @@
 import { enrichArrangementSection, assertArrangementRange } from "./arrangement-section.mjs";
 import { assertExpectedState } from "./bridge-protocol.mjs";
+import {getLiveObjectColors,setLiveObjectColors} from './object-colors.mjs';
 import {getSceneLaunchContext} from "./scene-context.mjs";
 import {setTrackVolumeDb} from "./track-volume.mjs";
 import {setTrackSendDb} from "./track-send.mjs";
@@ -1552,6 +1553,8 @@ export class ToolService {
     if (name === "set_clip_slot_stop_button") return this.#setClipSlotStopButton(args);
     if (name === "set_scene_musical_context") return this.#setSceneMusicalContext(args);
     if (name === "rename_session_object") return this.#renameSessionObject(args);
+    if (name === "get_live_object_colors") return getLiveObjectColors(this.bridge,args);
+    if (name === "set_live_object_colors") return setLiveObjectColors(this.bridge,this.confirmations,args);
     if (name === "duplicate_session_object") return this.#duplicateSessionObject(args);
     if (name === "delete_session_object") return this.#deleteSessionObject(args);
     if (name === "set_audio_clip_state") return this.#setAudioClipState(args);
