@@ -79,6 +79,7 @@ def source(song, params, version):
             "trackId": params["trackId"], "deviceId": params["deviceId"],
             "identityToken": cached[1], "device": _device_record(device, params["deviceId"]), "track": row,
             "canReplaceSample": callable(getattr(device, "replace_sample", None)),
+            "canEditSlices": sample is not None and all(callable(getattr(sample, name, None)) for name in ("clear_slices", "insert_slice")),
             "multiSampleMode": bool(device.multi_sample_mode),
             "playbackMode": {"value": mode, "name": MODES[mode] if 0 <= mode < len(MODES) else None},
             "nativeControls": {name: _optional(device, name, kind) for name, kind in (
@@ -150,6 +151,73 @@ def set_region(song, params, version):
     return {"stateVersion": version + 1, **target, "verified": True, "identityToken": after["identityToken"],
             "region": region, "sample": after["sample"], "context": after,
             "limitation": "Verified native marker frames and sample identity; Live may derive slices and normalized sample/loop controls from these bounds. Source file is not cropped. Audition separately; no complete sample-state backup or automatic rollback."}
+
+
+def set_manual_slices(song, params, version):
+    if type(params.get("expectedStateVersion")) is not int or params["expectedStateVersion"] != version:
+        raise ValueError("Simpler sample state version changed")
+    target = {"trackId": params["trackId"], "deviceId": params["deviceId"]}
+    before = source(song, target, version)
+    if before != params.get("before"):
+        raise ValueError("Simpler sample context changed; review a fresh plan")
+    _assert_inactive(before)
+    original, frames, playback = before["sample"], params.get("slicesFrames"), params.get("slicingPlaybackMode")
+    if (original is None or not before["canEditSlices"] or original["slicesFrames"] is None or
+            original["nativeControls"]["slicing_style"] is None or before["nativeControls"]["pad_slicing"] is None or
+            type(playback) is not int or not 0 <= playback <= 2 or not isinstance(frames, list) or not 1 <= len(frames) <= 64 or
+            any(type(frame) is not int for frame in frames) or frames[0] != original["startMarkerFrames"] or
+            frames[-1] >= original["endMarkerFrames"] or any(a >= b for a, b in zip(frames, frames[1:]))):
+        raise ValueError("manual slices require native support and 1-64 increasing integer frames, beginning at the sample start and below its end")
+    if (before["playbackMode"]["value"] == 2 and original["nativeControls"]["slicing_style"] == 3 and
+            not before["nativeControls"]["pad_slicing"] and before["nativeControls"]["slicing_playback_mode"] == playback and
+            original["slicesFrames"] == frames):
+        raise ValueError("Simpler manual slice layout is unchanged")
+    _, track, owner, device = _objects(song, target)
+    sample = device.sample
+    identity = (tuple(song.tracks), track, owner, device, sample)
+
+    def check_owner():
+        _, current_track, current_owner, current_device = _objects(song, target)
+        if (tuple(song.tracks), current_track, current_owner, current_device, current_device.sample) != identity:
+            raise RuntimeError("Simpler sample ownership changed during slicing")
+
+    with _undo_step(song):
+        try:
+            for item, name, value in ((device, "playback_mode", 2), (sample, "slicing_style", 3),
+                                      (device, "pad_slicing", False), (device, "slicing_playback_mode", playback)):
+                if getattr(item, name) != value:
+                    setattr(item, name, value)
+                    check_owner()
+            sample.clear_slices()
+            check_owner()
+            for frame in frames:
+                if frame not in sample.slices:
+                    sample.insert_slice(frame)
+                    check_owner()
+            after = source(song, target, version + 1)
+            check_owner()
+            if (after["playbackMode"]["value"] != 2 or after["sample"]["nativeControls"]["slicing_style"] != 3 or
+                    after["nativeControls"]["pad_slicing"] or after["nativeControls"]["slicing_playback_mode"] != playback or
+                    after["sample"]["slicesFrames"] != frames):
+                raise RuntimeError("Simpler manual slice readback mismatch")
+            for key in ("path", "lengthFrames", "sampleRate", "startMarkerFrames", "endMarkerFrames", "gain", "warping", "warpMode", "warpMarkers"):
+                if after["sample"][key] != original[key]:
+                    raise RuntimeError("Simpler source properties changed during slicing")
+            for key, value in original["nativeControls"].items():
+                if key != "slicing_style" and after["sample"]["nativeControls"][key] != value:
+                    raise RuntimeError("Simpler sample controls changed during slicing")
+            for key in ("setFingerprint", "device", "track"):
+                if after[key] != before[key]:
+                    raise RuntimeError("Simpler context changed during slicing")
+            if {key: value for key, value in after["recording"].items() if key != "stateVersion"} != {
+                    key: value for key, value in before["recording"].items() if key != "stateVersion"}:
+                raise RuntimeError("Simpler recording context changed during slicing")
+        except Exception as error:
+            raise RuntimeError(f"Simpler manual slicing may be partial: {error}; inspect the device before retrying. No automatic rollback was attempted.") from error
+    return {"stateVersion": version + 1, **target, "verified": True, "beforeIdentityToken": before["identityToken"],
+            "sampleIdentityRetained": True, "sample": after["sample"], "playbackMode": after["playbackMode"],
+            "nativeControls": after["nativeControls"], "context": after,
+            "limitation": "Verified playable manual slices, mode and retained native sample. Clearing removes manual cuts including outside the active region; hidden cuts cannot be backed up from playable slices. Mode changes can alter exposed parameters. Source file is not cropped or reloaded. Audition note mapping separately; no automatic rollback."}
 
 
 def load(song, params, version):

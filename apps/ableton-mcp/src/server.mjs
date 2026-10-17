@@ -110,6 +110,7 @@ const toolNames = [
   "get_simpler_sample_state",
   "load_simpler_sample",
   "set_simpler_sample_region",
+  "set_simpler_manual_slices",
   "set_clip_slot_stop_button",
   "list_clips",
   "get_midi_clip_notes",

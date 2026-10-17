@@ -727,6 +727,7 @@ export class ToolService {
     if (name === "get_simpler_sample_state") return this.#readSimplerSampleState(args);
     if (name === "load_simpler_sample") return this.#loadSimplerSample(args);
     if (name === "set_simpler_sample_region") return this.#setSimplerSampleRegion(args);
+    if (name === "set_simpler_manual_slices") return this.#setSimplerManualSlices(args);
     if (name === "list_clips") return this.bridge.request("list_clips", args);
     if (name === "list_arrangement_clips") return this.bridge.request(name, args);
     if (name === "place_session_clip_in_arrangement") return this.#placeSessionClipInArrangement(args);
@@ -3641,6 +3642,36 @@ export class ToolService {
         value.sample?.lengthFrames!==sample.lengthFrames || value.sample?.sampleRate!==sample.sampleRate ||
         keys.some(key=>value.region?.[key]!==region[key] || value.sample?.[key]!==region[key])) {
         throw Error('Simpler region readback mismatch; inspect the device before retrying');
+      }
+    }
+    return result;
+  }
+
+  async #setSimplerManualSlices(args) {
+    requireExpectedState(args);
+    const frames=args.slicesFrames, modes=['mono','poly','thru'];
+    if (!Array.isArray(frames) || frames.length<1 || frames.length>64 || frames.some(frame=>!Number.isSafeInteger(frame)) ||
+      frames.some((frame,index)=>index>0 && frame<=frames[index-1]) ||
+      args.slicingPlaybackMode!==undefined && !modes.includes(args.slicingPlaybackMode)) throw Error('manual slices require 1-64 increasing integer sample frames and mono, poly or thru playback');
+    const before=await this.#readSimplerSampleState(args);assertExpectedState(args,before);assertInactiveSimpler(before);
+    const sample=before.sample,playback=args.slicingPlaybackMode===undefined?before.nativeControls?.slicing_playback_mode:modes.indexOf(args.slicingPlaybackMode);
+    if (before.canEditSlices!==true || !sample || !Array.isArray(sample.slicesFrames) || sample.nativeControls?.slicing_style==null ||
+      typeof before.nativeControls?.pad_slicing!=='boolean' || ![0,1,2].includes(playback) ||
+      !Number.isSafeInteger(sample.startMarkerFrames) || !Number.isSafeInteger(sample.endMarkerFrames) ||
+      frames[0]!==sample.startMarkerFrames || frames.at(-1)>=sample.endMarkerFrames) throw Error('native manual-slice support and frames beginning at the loaded sample start, below its end, are required');
+    if (before.playbackMode?.value===2 && sample.nativeControls.slicing_style===3 && before.nativeControls.pad_slicing===false &&
+      before.nativeControls.slicing_playback_mode===playback && sample.slicesFrames.length===frames.length && frames.every((frame,index)=>frame===sample.slicesFrames[index])) throw Error('Simpler manual slice layout is unchanged');
+    const result=await this.#confirmedMutation({method:'set_simpler_manual_slices',trackId:args.trackId,deviceId:args.deviceId,
+      expectedStateVersion:args.expectedStateVersion,before,slicesFrames:frames,slicingPlaybackMode:playback,
+      warning:'Selects Slicing/Manual mode, disables Pad Slicing, clears all manual cuts including outside the active region and inserts this complete playable layout. Mode changes may alter parameters. Preserve an original through native comparison. Does not crop or reload the file. Partial failure requires inspection; no complete slice-state backup or automatic rollback.'},args);
+    if (!result.dryRun) {
+      const value=result.observed;
+      if (value.stateVersion!==args.expectedStateVersion+1 || value.verified!==true || value.sampleIdentityRetained!==true || value.beforeIdentityToken!==before.identityToken ||
+        value.trackId!==args.trackId || value.deviceId!==args.deviceId || value.playbackMode?.value!==2 || value.nativeControls?.pad_slicing!==false ||
+        value.nativeControls?.slicing_playback_mode!==playback || value.sample?.nativeControls?.slicing_style!==3 ||
+        ['path','lengthFrames','sampleRate','startMarkerFrames','endMarkerFrames'].some(key=>value.sample?.[key]!==sample[key]) ||
+        !Array.isArray(value.sample?.slicesFrames) || value.sample.slicesFrames.length!==frames.length || frames.some((frame,index)=>frame!==value.sample.slicesFrames[index])) {
+        throw Error('Simpler manual slice readback mismatch; inspect the device before retrying');
       }
     }
     return result;

@@ -4517,13 +4517,13 @@ def dispatch_request(song, request, state_version, application=None):
         return {"stateVersion": state_version, "scenes": [_scene_record(scene, index) for index, scene in enumerate(song.scenes)]}
     if method == "get_scene_launch_context":
         return _scene_launch_context(song, params, state_version)
-    if method in ("get_simpler_sample_state", "load_simpler_sample", "set_simpler_sample_region"):
+    if method in ("get_simpler_sample_state", "load_simpler_sample", "set_simpler_sample_region", "set_simpler_manual_slices"):
         try:
             from . import simpler_sample
         except ImportError:
             import simpler_sample
         handler = {"get_simpler_sample_state": simpler_sample.source, "load_simpler_sample": simpler_sample.load,
-                   "set_simpler_sample_region": simpler_sample.set_region}[method]
+                   "set_simpler_sample_region": simpler_sample.set_region, "set_simpler_manual_slices": simpler_sample.set_manual_slices}[method]
         return handler(song, params, state_version)
     if method == "create_scene":
         index, name = params.get("index"), params.get("name")
