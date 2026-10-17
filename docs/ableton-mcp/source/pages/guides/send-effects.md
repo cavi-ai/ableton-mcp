@@ -10,7 +10,7 @@ An existing Return can already serve other parts. Reusing its send does not auth
 
 ## Inspect the destination
 
-`get_return_routing` reads one exact `returnTrackId` from `get_set_mixer`. It returns the native current output type/channel and available choices without changing them or assuming ordinary-track input/monitoring controls. Unsupported native properties fail explicitly. Routing IDs can be labels rather than persistent object identities: re-read after renaming or topology changes. This reader does not provide a Return-routing write or prove audio flow.
+`get_return_routing` reads one exact `returnTrackId` from `get_set_mixer`. It returns the native current output type/channel and available choices without changing them or assuming ordinary-track input/monitoring controls. Missing native routing properties return `supported: false` with null selections and empty choices; other read failures remain errors. More than 512 choices per field is refused. Modern properties are preferred, with the existing legacy routing read retained when needed. Routing IDs can be labels rather than persistent object identities: re-read after renaming or topology changes. This reader does not provide a Return-routing write or prove audio flow.
 
 Append a new bus with guarded `create_return_track` when intended. Supply the raw label; Live adds its bus-letter prefix. Retain the returned ID and observed name. Appending adds a new send lane to tracks, so re-read actual sends before balancing them. Preserve existing Return and track levels, and do not introduce Return-to-Return feedback paths.
 

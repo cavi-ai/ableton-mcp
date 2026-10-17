@@ -9,6 +9,15 @@ function service() {
   return new ToolService({bridge:{request:async()=>{throw Error("workflow retrieval must not call Live");}}});
 }
 
+test("effect workflow names share the canonical instructions",()=>{
+  for(const [alias,canonical] of [["set-up-sidechain-ducking","duck-against-source"],["build-shared-return-effect","add-send-effect"]])
+    for(const mode of [undefined,"collaborative","autonomous"]){
+      const args={request:"Preserve the original and configure the chosen effect.",...(mode?{mode}:{})};
+      assert.deepEqual(getPrompt(alias,args).messages,getPrompt(canonical,args).messages);
+      if(canonical==="duck-against-source")assert.match(getPrompt(alias,args).messages[0].content.text,/select_instrument_comparison/);
+    }
+});
+
 test("workflow tool lists canonical prompts and renders the same instructions without executing them",async()=>{
   const tools=service(),listed=await tools.call("get_producer_workflow",{});
   assert.deepEqual(listed.workflows,listPrompts());

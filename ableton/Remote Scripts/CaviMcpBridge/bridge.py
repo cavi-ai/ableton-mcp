@@ -802,19 +802,6 @@ def _track_routing(song, track_id, state_version):
     }
 
 
-def _return_routing(song, return_id, state_version):
-    if not isinstance(return_id, str) or not return_id.startswith("return-"):
-        raise ValueError("an exact Return Track ID is required")
-    return_id, track = _device_owner(song, return_id)
-    output_types = list(track.available_output_routing_types)
-    output_channels = list(track.available_output_routing_channels)
-    return {"stateVersion": state_version, "returnTrackId": return_id, "name": track.name,
-            "output": {"type": _current_routing_option(track.current_output_routing, output_types),
-                       "channel": _current_routing_option(track.current_output_sub_routing, output_channels),
-                       "availableTypes": [_routing_option(option) for option in output_types],
-                       "availableChannels": [_routing_option(option) for option in output_channels]}}
-
-
 def _track_midi_routing(song, track_id, state_version):
     _, track = _track(song, track_id)
     midi_map = getattr(track, "midi_map", None)
@@ -853,6 +840,29 @@ def _return_mixer_record(track, index):
         "devices": [_device_tree(device, f"return-{index}:device-{device_index}")
                     for device_index, device in enumerate(getattr(track, "devices", ()))],
     }
+
+
+def _return_routing(song, return_id, state_version):
+    if not isinstance(return_id, str) or not return_id.startswith('return-'):
+        raise ValueError('canonical Return Track ID required')
+    _, track = _device_owner(song, return_id)
+    supported = all(hasattr(track, name) for name in ('output_routing_type', 'output_routing_channel',
+                    'available_output_routing_types', 'available_output_routing_channels'))
+    legacy = not supported and all(hasattr(track, name) for name in ('current_output_routing', 'current_output_sub_routing',
+                                  'available_output_routing_types', 'available_output_routing_channels'))
+    supported = supported or legacy
+    types = list(track.available_output_routing_types) if supported else []
+    channels = list(track.available_output_routing_channels) if supported else []
+    if len(types) > 512 or len(channels) > 512:
+        raise ValueError('Return routing supports at most 512 choices per field')
+    return {'stateVersion': state_version, 'returnTrackId': return_id, 'name': str(track.name),
+            'output': {'supported': supported,
+                       'type': _current_routing_option(track.current_output_routing, types) if legacy else
+                               _routing_option(track.output_routing_type) if supported else None,
+                       'channel': _current_routing_option(track.current_output_sub_routing, channels) if legacy else
+                                  _routing_option(track.output_routing_channel) if supported else None,
+                       'availableTypes': [_routing_option(option) for option in types],
+                       'availableChannels': [_routing_option(option) for option in channels]}}
 
 
 def _set_mixer(song, state_version):

@@ -4,6 +4,8 @@ Use `duck-against-source` or `set-up-sidechain-ducking` through the MCP prompt o
 
 `mode: "collaborative"` is the default. Materially different source, target, processor and character choices are resolved with the user. `mode: "autonomous"` lets the agent choose bounded initial settings within the brief. Both modes use the same guarded operations and preserve unrelated parts and manual edits.
 
+`set-up-sidechain-ducking` is an alias of `duck-against-source` and uses the same instructions. For a requested preserved MIDI comparison, use [instrument comparison](instrument-comparison.md), resolve the returned alternative IDs and process only that chosen alternative.
+
 ## Keep the two audio paths
 
 For a preserved MIDI alternative, [instrument comparison](instrument-comparison.md) copies the whole track and starts the alternative muted and unarmed. Track IDs shift: resolve the returned identities before another edit. Reuse an identified alternative rather than making repeated copies. Editing the existing target in place must be intended; exposed snapshots cannot reconstruct hidden plug-in state or complete automation.
@@ -23,3 +25,5 @@ Loading, external enable, source, channel and parameter edits are separate guard
 Audition only within the user's authority. During the intended passage, `get_track_signal_activity` can observe the trigger, target and Main with the `all` profile and updated bridge. These native snapshots are not simultaneous or isolated, and do not expose compressor gain reduction or prove audible ducking. A zero can miss an intermittent trigger; unavailable readings remain unknown. Separately authorized recording follows [Live audio capture](live-audio-capture.md) and includes other sounding parts.
 
 Ask what the user hears and refine the chosen threshold, timing, blend or authorized routing with fresh guards. Report configuration, observed playback and listening judgment separately. Preserve later manual changes; bypass, restoration, deletion and saving each need their own scope and current identity/value checks.
+
+For an authorized preserved comparison, resolve the retained handle with `get_instrument_comparison` and switch only the pair using `select_instrument_comparison`. Preparation leaves the alternative muted; selection does not launch playback. Resolve the returned Session clips or the intended Arrangement audition separately, inspect the final pair mute state and preserve both tracks.
