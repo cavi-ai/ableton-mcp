@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 253 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 254 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (108)
+## Read-only (109)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -20,6 +20,7 @@ The server publishes 253 tools. Mutations of the Live Set require `expectedState
 | `capture_device_parameter_snapshot` | Capture exposed device parameters as persistable JSON, with a consistent live identity check. Not a native preset: excludes hidden plugin state, samples, automation and mappings. | `trackId`, `deviceId` |
 | `capture_group_system_snapshot` | Capture an existing Group Track, nested groups and all descendant tracks in Live order as persistable JSON. Every track snapshot and the final hierarchy must match one state version. Read-only; does not save clips, samples, hidden plug-in state, automation or mappings, or create/recall tracks. | `busTrackId` |
 | `capture_track_state_snapshot` | Capture one consistent, persistable JSON snapshot of group membership, track mixer, routing, ordered devices, nested rack parameters, chain mixer, Drum Rack note routing and populated pad mute/solo. Not a native track preset; excludes clips, hidden state, samples, automation and mappings. | `trackId` |
+| `compare_audio_reference` | Compare equal 3–60-second local mono/stereo mix and reference windows for LUFS, true peak and loudness range. Binds both files with identity and SHA-256 before/after measurement; maximum 512 MiB each. Returns mix-minus-reference differences and attenuation-only level-match proposals. Read-only: no playback, normalization, mix edits, tonal or quality judgment. All profile; ffmpeg/ffprobe required. | `mixPath`, `referencePath` |
 | `get_audio_clip_state` | Read Session/Arrangement gain, pitch, warp, markers and fade-switch availability; includes Arrangement timeline identity. Unsupported fades report supported=false. | `trackId`, `clipId` |
 | `get_audio_source_beat_times` | Read native warped clip-beat positions for source-audio seconds. Uses Live's sample-to-beat converter, not interpolation from sparse warp markers; does not edit the clip. | `trackId`, `clipId`, `sourceSeconds` |
 | `get_automation_capabilities` | Report exact supported and unsupported automation and per-note expression surfaces. | none |

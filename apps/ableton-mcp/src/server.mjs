@@ -150,6 +150,7 @@ const toolNames = [
   "get_device_sidechain_routing",
   "set_device_sidechain_routing",
   "analyze_audio_file",
+  "compare_audio_reference",
   "analyze_audio_clip",
   "set_audio_clip_state",
   "apply_monophonic_audio_tuning",
