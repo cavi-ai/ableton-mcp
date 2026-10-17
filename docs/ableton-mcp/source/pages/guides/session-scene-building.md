@@ -20,4 +20,6 @@ Scene creation and copies are separate operations. After interruption, inspect t
 
 An empty stop slot can stop unrelated Session playback. Groups can affect descendants. Armed empties may record under a Live preference that is not exposed, and scene tempo/meter overrides affect the whole Set. The preview does not inspect complete notes, devices, follow actions or audible output. Review the full row, including tracks outside the chosen source map.
 
+When the intended section explicitly keeps another part playing, use [empty-slot stop buttons](session-stop-buttons.md) to configure only those resolved ordinary slots. Each edit needs its own fresh guarded plan and readback. Preserve all other row settings and read the entire row again before auditioning. Removing a stop button does not prove that armed empties cannot record.
+
 Audition follows [Session scene playback](scene-launch.md) only when requested or already authorized. It uses a fresh guarded launch plan and actual playback/recording readback after quantization. Building or previewing a scene does not launch it, alter stop buttons or authorize unrelated control changes. Keep the original clips and chosen scene; saving and deleting partial work have their own scope.

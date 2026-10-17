@@ -107,6 +107,7 @@ const toolNames = [
   "list_tracks",
   "list_scenes",
   "get_scene_launch_context",
+  "set_clip_slot_stop_button",
   "list_clips",
   "get_midi_clip_notes",
   "get_midi_clip_notes_extended",

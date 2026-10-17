@@ -1552,6 +1552,7 @@ export class ToolService {
     if (name === "create_return_track") return this.#createReturnTrack(args);
     if (name === "create_scene") return this.#createScene(args);
     if (name === "set_scene_launch_quantization") return this.#setSceneLaunchQuantization(args);
+    if (name === "set_clip_slot_stop_button") return this.#setClipSlotStopButton(args);
     if (name === "set_scene_musical_context") return this.#setSceneMusicalContext(args);
     if (name === "rename_session_object") return this.#renameSessionObject(args);
     if (name === "duplicate_session_object") return this.#duplicateSessionObject(args);
@@ -3022,6 +3023,32 @@ export class ToolService {
       method: "create_scene", expectedStateVersion: args.expectedStateVersion,
       index, name: sessionName(args.name), before: insertionContext(observed.scenes, index)
     }, args);
+  }
+
+  async #setClipSlotStopButton(args) {
+    requireExpectedState(args);
+    if (typeof args.trackId !== 'string' || !/^track-(0|[1-9][0-9]*)$/.test(args.trackId) ||
+      typeof args.clipId !== 'string' || !args.clipId.startsWith(`${args.trackId}:clip-`) ||
+      !/^(0|[1-9][0-9]*)$/.test(args.clipId.slice(`${args.trackId}:clip-`.length))) throw Error('canonical trackId and owned clipId required');
+    if (typeof args.hasStopButton !== 'boolean') throw Error('hasStopButton must be boolean');
+    const sceneId = `scene-${args.clipId.split(':clip-')[1]}`;
+    const {rowSummary, limitation, ...before} = await getSceneLaunchContext(this.bridge, {sceneId});
+    assertExpectedState({expectedStateVersion:args.expectedStateVersion}, before);
+    const row = before.tracks.find(track=>track.id===args.trackId);
+    if (!row || row.slot.id !== args.clipId || row.isGroup || row.slot.hasClip) throw Error('stop-button edits require an empty ordinary track slot');
+    if (typeof row.slot.hasStopButton !== 'boolean') throw Error('native stop button is unavailable');
+    if (row.frozen !== false || row.slot.isTriggered !== false || !Number.isInteger(row.firedSlotIndex) || row.firedSlotIndex >= 0 ||
+      before.recording.arrangement?.record !== false || before.recording.session?.record !== false || rowSummary.alreadyRecordingTrackIds.length) {
+      throw Error('resolve frozen tracks, recording and pending target launches before editing the stop button');
+    }
+    if (row.slot.hasStopButton === args.hasStopButton) throw Error('stop button already has the requested value');
+    const result = await this.#confirmedMutation({method:'set_clip_slot_stop_button', trackId:args.trackId, clipId:args.clipId,
+      sceneId, hasStopButton:args.hasStopButton, expectedStateVersion:args.expectedStateVersion, before,
+      warning:'Changes future Session scene launch behavior only; does not launch or stop playback. An armed empty slot can record under Live preferences. Disabling its stop button is not proof that recording is impossible; re-read the entire row before a separately authorized launch.'}, args);
+    if (!result.dryRun && (result.observed.stateVersion !== args.expectedStateVersion + 1 || result.observed.verified !== true ||
+      result.observed.trackId !== args.trackId || result.observed.clipId !== args.clipId || result.observed.sceneId !== sceneId ||
+      result.observed.hasStopButton !== args.hasStopButton)) throw Error('stop-button readback mismatch; inspect the slot before retrying');
+    return result;
   }
 
   async #setSceneLaunchQuantization(args) {

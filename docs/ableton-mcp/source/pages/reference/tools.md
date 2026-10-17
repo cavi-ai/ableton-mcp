@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 245 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 246 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (106)
 
@@ -115,7 +115,7 @@ The server publishes 245 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (121)
+## Mutations (122)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -208,6 +208,7 @@ The server publishes 245 tools. Mutations of the Live Set require `expectedState
 | `set_browser_item_metadata` | Plan or edit private MCP-managed tags and favorite state with observed Live browser identity or local audio-file version, exact revision, and single-use confirmation. A Live user-folder sample shares the local Splice record only when its URI unambiguously matches a configured local Splice file; reserved URI delimiters and existing separate Live metadata preserve exact Live identity. For a local sample, use root local_splice and path [absolute directory, relative audio path]. Does not modify native collections. | `expectedMetadataRevision`, `root`, `path` |
 | `set_bulk_track_mixer` | Plan or apply guarded volume, pan, mute, and solo changes to multiple existing ordinary tracks in one confirmed step. Per-track values clamp to each observed native range; sends are unchanged. | `expectedStateVersion`, `trackIds` |
 | `set_clip_parameter_envelope` | Plan or replace one Session clip parameter envelope with exact step data. | `expectedStateVersion`, `trackId`, `clipId`, `deviceId`, `parameterId`, `points` |
+| `set_clip_slot_stop_button` | Plan or change the stop button of one empty ordinary Session slot. Binds native full-row context, verifies readback and attempts owned rollback. Does not launch, stop playback or guarantee armed-empty recording behavior. Requires updated bridge; all profile. | `expectedStateVersion`, `trackId`, `clipId`, `hasStopButton` |
 | `set_clip_timing` | Plan or apply guarded clip loop, signature, launch quantization, Session launch Legato, native clip mute, groove, and editor-grid changes. | `expectedStateVersion`, `trackId`, `clipId` |
 | `set_device_active` | Plan or set the active state of one exact loaded device on an ordinary, Return, or Main track. | `expectedStateVersion`, `trackId`, `deviceId`, `active` |
 | `set_device_parameter_display` | Set one continuous device parameter to a finite native unit display (Hz/kHz, ms/s, dB, %). Resolves through Live's formatter without guessing raw values; refuses automation, recording and unrepresentable targets. Requires all profile. | `expectedStateVersion`, `trackId`, `deviceId`, `parameterId`, `targetDisplay` |
