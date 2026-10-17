@@ -149,6 +149,7 @@ const toolNames = [
   "propose_audio_transient_warp",
   "get_device_sidechain_routing",
   "set_device_sidechain_routing",
+  "plan_audio_midi_sketch",
   "analyze_audio_file",
   "analyze_audio_clip",
   "set_audio_clip_state",

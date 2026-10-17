@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 253 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 254 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (108)
+## Read-only (109)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -85,6 +85,7 @@ The server publishes 253 tools. Mutations of the Live Set require `expectedState
 | `load_group_system_snapshot` | Read one saved group-system JSON capture for review or guarded recall onto compatible existing topology. Loading the JSON does not mutate Live or recreate tracks. | `name` |
 | `load_midi_feel_template` | Load a named stored-MIDI feel template from the private local library for review or guarded transfer. Does not change Live or retrieve native Groove Pool patterns. | `name` |
 | `load_track_state_snapshot` | Read a previously saved local track-state JSON capture for review and explicit guarded recall onto an already compatible track. Does not mutate Live. | `name` |
+| `plan_audio_midi_sketch` | Propose approximate monophonic source-audio MIDI notes in native warped clip beats. Uses current loop/markers or an explicit region, 0.256–30 seconds, one selected channel and assigned uniform velocity. Does not render clip pitch, groove or effects, change audio, or create MIDI. | `trackId`, `clipId` |
 | `plan_drum_pattern` | Plan explicit multi-lane drum notes against the current Live meter on a straight-sixteenth, eighth-triplet, or sixteenth-triplet grid. Supports per-lane accents without treating style examples as universal rules. | `grid`, `bars`, `lanes` |
 | `plan_drum_pattern_edit` | Plan replacement of explicitly selected drum lanes and bars in an existing MIDI clip while preserving unrelated notes. Empty activeSteps clears that lane in the range. | `trackId`, `clipId`, `grid`, `startBar`, `bars`, `lanes` |
 | `plan_drum_variation` | Plan deterministic bounded timing and velocity humanization plus an optional explicit final-bar fill. Preserves unrelated notes and rejects collisions. | `trackId`, `clipId`, `grid`, `startBar`, `bars`, `laneNotes`, `seed`, `timingAmount`, `velocityAmount`, `preserveAccentsAbove` |

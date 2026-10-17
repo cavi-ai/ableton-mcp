@@ -38,6 +38,7 @@
         { "title": "Arrange Session ideas", "path": "guides/session-arrangement.md" },
         { "title": "MIDI clip variations", "path": "guides/midi-clip-variations.md" },
         { "title": "Reuse Session clips", "path": "guides/clip-reuse.md" },
+        { "title": "Sketch MIDI from audio", "path": "guides/audio-midi-sketch.md" },
         { "title": "Develop an audio clip", "path": "guides/audio-clip-development.md" },
         { "title": "Shared instrument buses", "path": "guides/shared-instrument-buses.md" },
         { "title": "Native saving and recall", "path": "guides/native-saving-and-recall.md" },

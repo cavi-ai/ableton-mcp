@@ -13,6 +13,7 @@ import { createReadStream } from "node:fs";
 import { createHash } from "node:crypto";
 import { isAbsolute, relative, sep } from "node:path";
 import { analyzeAudioFile } from "./audio-analysis.mjs";
+import {planAudioMidiSketch} from "./audio-midi-sketch.mjs";
 import { planClipPitchAdjustment } from "./audio-tuning.mjs";
 import { buildSongGridReference, planGridEnvelopePattern } from "./song-grid-reference.mjs";
 import { browseLocalSpliceDirectory, listConfiguredSpliceRoots, observeLocalSpliceSample, searchLocalSpliceSamples } from "./splice-local-search.mjs";
@@ -1258,6 +1259,7 @@ export class ToolService {
         limitation: "Heuristic source-only candidates and review-only actions. Offsets no larger than one 10-ms detector hop in native beat coordinates are reported but not proposed as marker edits. Each remaining marker must be dry-run against fresh Live state; neighbor/BPM constraints may reject it. Does not modify or audibly validate the clip." };
     }
     if (name === "get_device_sidechain_routing") return this.bridge.request("get_device_sidechain_routing", args);
+    if (name === "plan_audio_midi_sketch") return planAudioMidiSketch(this.bridge,args);
     if (name === "analyze_audio_file") return analyzeAudioFile(args.sourcePath, args);
     if (name === "analyze_audio_clip") {
       const target = { trackId: args.trackId, clipId: args.clipId };
