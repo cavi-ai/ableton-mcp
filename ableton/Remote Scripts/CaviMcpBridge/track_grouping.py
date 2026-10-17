@@ -316,8 +316,9 @@ def ungroup_source(song, params, version):
                 'visibleTracks': [{'trackId': f'track-{tracks.index(t)}', 'name': str(t.name), 'isGroup': bool(getattr(t, 'is_foldable', False))} for t in visible],
                 'members': members, 'controls': controls, 'sidechains': sidechains, 'auxiliaryRouting': auxiliary,
                 'globalContext': _global(song)}
+    parents = tuple(_parent(t) for t in tracks)
     identity = (song, tuple(tracks), tuple(song.return_tracks), tuple(song.scenes), song.master_track,
-                tuple(native), group_refs, sidechain_refs)
+                tuple(native), group_refs, sidechain_refs, parents)
     digest = _hash(observed)
     previous = next(((token, entry) for token, entry in _ungroup_contexts.items() if entry['identity'] == identity and entry['digest'] == digest), None)
     if previous is None:
@@ -326,7 +327,8 @@ def ungroup_source(song, params, version):
         token = str(uuid.uuid4())
         _ungroup_contexts[token] = {'identity': identity, 'digest': digest, 'before': observed, 'group': group,
                                    'tracks': tuple(tracks), 'retained': tuple(retained), 'descendants': tuple(descendants),
-                                   'parents': tuple(_parent(t) for t in retained), 'parent': _parent(group), 'owners': owners,
+                                   'parents': tuple(_parent(t) for t in retained),
+                                   'expectedParents': tuple(_parent(group) if _parent(t) == group else _parent(t) for t in retained), 'owners': owners,
                                    'groupMaterial': group_material, 'material': material, 'native': native}
     else:
         token = previous[0]
@@ -384,8 +386,7 @@ def ungroup_status(song, params, version):
     membership, controls, global_context, sidechains_preserved, routing = False, False, False, False, False
     group_unchanged = False
     try:
-        membership = removed and all(_parent(t) == (entry['parent'] if parent == group else parent)
-                                     for t, parent in zip(retained, entry['parents']))
+        membership = removed and all(_parent(t) == parent for t, parent in zip(retained, entry['expectedParents']))
         expected_controls = []
         for i, (track, row) in enumerate(zip(retained, before['controls'])):
             expected = {**row, 'routing': translated(row['routing'])}

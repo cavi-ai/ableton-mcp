@@ -65,6 +65,33 @@ class UngroupingTests(unittest.TestCase):
         self.remove_group()
         self.assertTrue(self.status(source)['ungroupVerified'])
 
+    def test_deleted_native_group_can_compare_equal_to_none(self):
+        class DeletedGroup(Track):
+            __hash__ = object.__hash__
+            invalid = False
+            def __eq__(self, other):
+                return other is None if self.invalid else self is other
+        outer = Track()
+        outer.is_foldable, outer.is_grouped, outer.fold_state, outer.can_be_armed = True, False, 0, False
+        self.song.tracks.insert(0, outer)
+        self.group.__class__ = DeletedGroup
+        self.group.is_grouped, self.group.group_track = True, outer
+        self.group_id = 'track-1'
+        source = self.source()
+        self.remove_group()
+        self.group.invalid = True
+        self.assertEqual(self.group, None)
+        self.assertTrue(self.status(source)['ungroupVerified'])
+
+    def test_retained_hierarchy_changes_replace_the_source_handle(self):
+        outer = Track()
+        outer.is_foldable, outer.is_grouped, outer.fold_state, outer.can_be_armed = True, False, 0, False
+        self.song.tracks.append(outer)
+        source = self.source()
+        unrelated = self.song.tracks[-2]
+        unrelated.is_grouped, unrelated.group_track = True, outer
+        self.assertNotEqual(source['ungroupingId'], self.source()['ungroupingId'])
+
     def test_group_processing_or_child_material_edits_change_the_handle(self):
         source = self.source()
         self.group.devices = [Device()]

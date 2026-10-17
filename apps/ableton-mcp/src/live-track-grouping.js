@@ -4,6 +4,11 @@ function groupingSelectionMatches(actual, expected) {
 function groupingRangeMatches(actual, expected, focusId, ownerFocused) {
  return groupingSelectionMatches(actual, expected) && (focusId === expected[expected.length - 1] || ownerFocused === true);
 }
+function groupingApplicationWindows(listed, main, focused, equal) {
+ var windows=listed.slice();
+ [main,focused].forEach(function(window){if(window&&!windows.some(function(existing){return equal(existing,window);}))windows.push(window);});
+ return windows;
+}
 function ungroupHeaderId(rows, visible, target) {
  function label(row, native) {
   return row.name === native.name || /^track-(0|[1-9][0-9]*)$/.test(native.trackId) && native.name === String(Number(native.trackId.slice(6)) + 1) + '-' + row.name;
@@ -26,8 +31,8 @@ function run(argv) {
  var app=$.NSRunningApplication.runningApplicationWithProcessIdentifier(input.pid);
  if(!app||ObjC.unwrap(app.bundleIdentifier)!=='com.ableton.live'||ObjC.unwrap(app.bundleURL.path)!==input.appPath)throw Error('Expected exact Live process');
  var root=$.AXUIElementCreateApplication(input.pid);
- function foreground(){if(Number(app.active)!==1)throw Error('Live is not frontmost');}
- function windows(){return list(read(root,'AXWindows'));}
+ function foreground(){if(get(root,'AXFrontmost')!==true)throw Error('Live is not frontmost');}
+ function windows(){return groupingApplicationWindows(list(read(root,'AXWindows')),read(root,'AXMainWindow'),read(root,'AXFocusedWindow'),function(a,b){return !!$.CFEqual(a,b);});}
  function main(){var all=windows();if(all.some(function(w){return get(w,'AXModal')===true||get(w,'AXSubrole')==='AXDialog'||list(read(w,'AXSheets')).length;}))throw Error('Resolve native dialog before grouping');var w=one(all.filter(function(w){return get(w,'AXTitle')===input.setName;}),'Exact Set window unavailable'),value=get(w,'AXDocument');if(typeof value!=='string'||!/^file:\/\//.test(value))throw Error('Saved Set document unavailable');var url=$.NSURL.URLWithString($(value));if(Number(url.isFileURL)!==1||ObjC.unwrap(url.path.stringByResolvingSymlinksInPath)!==ObjC.unwrap($(input.filePath).stringByResolvingSymlinksInPath))throw Error('Saved Set document changed');return w;}
  function cg(visible){return ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(visible?1:0,0))).filter(function(w){return w.kCGWindowOwnerPID===input.pid;});}
  function screenIds(){return cg(true).map(function(w){return Number(w.kCGWindowNumber);}).sort(function(a,b){return a-b;});}
