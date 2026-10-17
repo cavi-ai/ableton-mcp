@@ -1,4 +1,4 @@
-"""Create an absent Session automation lane without replacing a curve."""
+"""Guarded creation and explicit whole-lane Session envelope replacement."""
 import hashlib
 import json
 import math
@@ -42,16 +42,17 @@ def _same(song, params, identity):
         return False
 
 
-def _points(parameter, requested, end):
-    if not isinstance(requested, list) or not 1 <= len(requested) <= 128:
-        raise ValueError("points must contain 1 to 128 ordered steps")
+def _points(parameter, requested, end, limit=128):
+    if not isinstance(requested, list) or not 1 <= len(requested) <= limit:
+        raise ValueError(f"points must contain 1 to {limit} ordered steps")
     result, previous_end = [], 0
     for point in requested:
         if not isinstance(point, dict) or set(point) not in ({"time", "duration", "value"}, {"time", "duration", "targetDisplay"}):
             raise ValueError("each step requires time, duration and exactly one value or targetDisplay")
         time, duration = point["time"], point["duration"]
         if any(type(value) not in (int, float) or not math.isfinite(value) for value in (time, duration)) or \
-                time < previous_end or duration <= 0 or time + duration > end:
+                time < 0 or time < previous_end and not math.isclose(time, previous_end, rel_tol=0, abs_tol=1e-9) or \
+                duration <= 0 or time + duration > end and not math.isclose(time + duration, end, rel_tol=0, abs_tol=1e-9):
             raise ValueError("steps must be finite, ordered, nonoverlapping and within the clip beat range")
         if "targetDisplay" in point:
             if parameter.is_quantized:
@@ -69,30 +70,66 @@ def _points(parameter, requested, end):
     return result
 
 
-def source(song, params, version):
+def _replacement_points(parameter, requested, end):
+    if not isinstance(requested, list) or not 1 <= len(requested) <= 512:
+        raise ValueError("points must contain 1 to 512 ordered steps")
+    normalized = []
+    for point in requested:
+        if not isinstance(point, dict) or set(point) != {"time", "duration", "value"}:
+            raise ValueError("replacement steps require time, duration and a native value")
+        value = point["value"]
+        if type(value) not in (int, float) or not math.isfinite(value):
+            raise ValueError("replacement step value must be finite")
+        normalized.append({**point, "value": max(parameter.min, min(parameter.max, value))})
+    points = _points(parameter, normalized, end, limit=512)
+    return [{**point, "requestedValue": raw["value"]} for point, raw in zip(points, requested)]
+
+
+def _envelope_samples(envelope, parameter, points, end):
+    if envelope is None:
+        return []
+    times = {end * index / 16 for index in range(17)}
+    for point in points:
+        times.update(point["time"] + point["duration"] * fraction for fraction in (0, .000001, .5, .999999))
+    samples = []
+    for time in sorted(times):
+        value = float(envelope.value_at_time(time))
+        if not math.isfinite(value):
+            raise ValueError("existing envelope samples are unavailable")
+        samples.append({"time": time, "value": value, "displayValue": parameter.str_for_value(value)})
+    return samples
+
+
+def source(song, params, version, replacement=False):
     global _song
     objects = _objects(song, params)
     track, slot, clip, device, index, parameter = objects
     if song.is_playing or song.record_mode or song.session_record or bool(getattr(clip, "is_recording", False)) or \
             bool(getattr(clip, "is_playing", False)) or bool(getattr(clip, "is_triggered", False)) or bool(getattr(slot, "is_triggered", False)):
-        raise ValueError("resolve playback, recording and pending clip launches before creating an envelope")
+        raise ValueError("resolve playback, recording and pending clip launches before editing an envelope")
     if bool(getattr(track, "is_frozen", False)):
         raise ValueError("clip owner is frozen")
     if bool(getattr(clip, "is_audio_clip", False)) and not bool(clip.warping):
         raise ValueError("unwarped audio envelope timing is unsupported; beat-based clips required")
     if getattr(parameter, "is_enabled", None) is not True or _parameter_automation_state(parameter) != {"value": 0, "name": "none"}:
         raise ValueError("parameter must be enabled with known inactive automation")
-    if clip.automation_envelope(parameter) is not None:
+    envelope = clip.automation_envelope(parameter)
+    if replacement:
+        if "replaceExisting" in params and type(params["replaceExisting"]) is not bool:
+            raise ValueError("replaceExisting must be a boolean")
+        if envelope is not None and params.get("replaceExisting") is not True:
+            raise ValueError("replaceExisting: true is required to discard the entire existing envelope")
+    elif envelope is not None:
         raise ValueError("existing envelope is preserved; choose another clip or parameter")
     content = _content(song, params["trackId"], params["clipId"], version)
     end = max(float(clip.loop_end), float(getattr(clip, "end_marker", clip.length)))
     if not math.isfinite(end) or end <= 0:
         raise ValueError("clip beat range is unavailable")
-    points = _points(parameter, params.get("points"), end)
+    points = (_replacement_points if replacement else _points)(parameter, params.get("points"), end)
     if _song != song:
         _song = song
         _identities.clear()
-    key, identity = (params["trackId"], params["clipId"], params["deviceId"]), _identity(objects)
+    key, identity = (params["trackId"], params["clipId"], params["deviceId"]), (*_identity(objects), envelope)
     cached = _identities.get(key)
     if cached is None or cached[0] != identity:
         if key not in _identities and len(_identities) >= 64:
@@ -103,45 +140,61 @@ def source(song, params, version):
             "trackId": params["trackId"], "clipId": params["clipId"], "deviceId": params["deviceId"],
             "parameterId": params["parameterId"], "clipName": clip.name, "clipTiming": content["timing"],
             "contentDigest": _digest(content), "parametersDigest": _digest(_parameters(device)),
-            "parameter": _parameter_record(parameter, index), "envelopeExists": False,
-            "endBeats": end, "points": points}
+            "parameter": _parameter_record(parameter, index), "envelopeExists": envelope is not None,
+            "endBeats": end, "points": points,
+            **({"replaceExisting": params.get("replaceExisting", False), "fullCurveCaptured": False,
+                "envelopeSamples": _envelope_samples(envelope, parameter, points, end)} if replacement else {})}
+
+
+def replacement_source(song, params, version):
+    return source(song, params, version, replacement=True)
+
+
+def _insert_and_read(song, params, version, objects, before, created, identity):
+    _, _, clip, _, index, parameter = objects
+    if created is None or not _same(song, params, identity) or clip.automation_envelope(parameter) != created:
+        raise RuntimeError("new envelope ownership is unconfirmed")
+    for point in before["points"]:
+        created.insert_step(float(point["time"]), float(point["duration"]), float(point["value"]))
+    samples, boundaries = [], []
+    for point in before["points"]:
+        # Live returns the preceding value exactly at a step's start.
+        # Observe boundaries separately; verify the step to their right.
+        boundary = float(created.value_at_time(point["time"]))
+        if not math.isfinite(boundary):
+            raise RuntimeError("clip envelope boundary readback is unavailable")
+        boundaries.append({"time": point["time"], "value": boundary,
+                           "displayValue": parameter.str_for_value(boundary)})
+        for fraction in (.000001, .5, .999999):
+            time = point["time"] + point["duration"] * fraction
+            value = float(created.value_at_time(time))
+            display = parameter.str_for_value(value)
+            if not math.isfinite(value) or abs(value - point["value"]) > 1e-6 or display != point["displayValue"]:
+                raise RuntimeError(f"clip envelope step readback mismatch at {time}: expected {point['value']} ({point['displayValue']}), observed {value} ({display})")
+            samples.append({"time": time, "value": value, "displayValue": display})
+    parameter_after = _parameter_record(parameter, index)
+    if not _same(song, params, identity) or clip.automation_envelope(parameter) != created:
+        raise RuntimeError("clip envelope topology changed during editing")
+    if _digest(_content(song, params["trackId"], params["clipId"], version)) != before["contentDigest"]:
+        raise RuntimeError("clip material changed during envelope editing")
+    return samples, boundaries, parameter_after
 
 
 def create(song, params, version):
     before = source(song, params, version)
     if type(params.get("expectedStateVersion")) is not int or params["expectedStateVersion"] != version or before != params.get("before"):
         raise ValueError("clip envelope context changed; review a fresh plan")
+    return _create_prepared(song, params, version, before)
+
+
+def _create_prepared(song, params, version, before):
     objects = _objects(song, params)
     _, _, clip, device, index, parameter = objects
     identity, original, created = _identity(objects), parameter.value, None
     with _undo_step(song):
         try:
             created = clip.create_automation_envelope(parameter)
-            if created is None or not _same(song, params, identity) or clip.automation_envelope(parameter) != created:
-                raise RuntimeError("new envelope ownership is unconfirmed")
-            for point in before["points"]:
-                created.insert_step(float(point["time"]), float(point["duration"]), float(point["value"]))
-            samples, boundaries = [], []
-            for point in before["points"]:
-                # Live returns the preceding value exactly at a step's start.
-                # Observe boundaries separately; verify the step to their right.
-                boundary = float(created.value_at_time(point["time"]))
-                if not math.isfinite(boundary):
-                    raise RuntimeError("clip envelope boundary readback is unavailable")
-                boundaries.append({"time": point["time"], "value": boundary,
-                                   "displayValue": parameter.str_for_value(boundary)})
-                for fraction in (.000001, .5, .999999):
-                    time = point["time"] + point["duration"] * fraction
-                    value = float(created.value_at_time(time))
-                    display = parameter.str_for_value(value)
-                    if not math.isfinite(value) or abs(value - point["value"]) > 1e-6 or display != point["displayValue"]:
-                        raise RuntimeError(f"clip envelope step readback mismatch at {time}: expected {point['value']} ({point['displayValue']}), observed {value} ({display})")
-                    samples.append({"time": time, "value": value, "displayValue": display})
-            parameter_after = _parameter_record(parameter, index)
-            if not _same(song, params, identity) or clip.automation_envelope(parameter) != created:
-                raise RuntimeError("clip envelope topology changed during creation")
-            if _digest(_content(song, params["trackId"], params["clipId"], version)) != before["contentDigest"]:
-                raise RuntimeError("clip material changed during envelope creation")
+            samples, boundaries, parameter_after = _insert_and_read(song, params, version, objects, before, created, identity)
         except Exception as error:
             if created is None or not _same(song, params, identity) or clip.automation_envelope(parameter) != created:
                 raise RuntimeError(f"envelope creation failed: {error}; cleanup skipped because ownership is unconfirmed; inspect current clip") from error
@@ -164,3 +217,27 @@ def create(song, params, version):
             "deviceId": params["deviceId"], "parameterId": params["parameterId"], "created": True,
             "verified": True, "verificationScope": "sampled_steps", "samples": samples, "boundarySamples": boundaries,
             "parameter": parameter_after}
+
+
+def replace(song, params, version):
+    before = replacement_source(song, params, version)
+    if type(params.get("expectedStateVersion")) is not int or params["expectedStateVersion"] != version or before != params.get("before"):
+        raise ValueError("clip envelope replacement context changed; review a fresh plan")
+    if not before["envelopeExists"]:
+        return {**_create_prepared(song, params, version, before), "replaced": True, "replacedExisting": False}
+    objects = _objects(song, params)
+    _, _, clip, _, _, parameter = objects
+    identity = _identity(objects)
+    with _undo_step(song):
+        try:
+            clip.clear_envelope(parameter)
+            if not _same(song, params, identity) or clip.automation_envelope(parameter) is not None:
+                raise RuntimeError("native envelope target changed during clear")
+            created = clip.create_automation_envelope(parameter)
+            samples, boundaries, parameter_after = _insert_and_read(song, params, version, objects, before, created, identity)
+        except Exception as error:
+            raise RuntimeError(f"envelope replacement failed after clear was requested: {error}; previous curve was not backed up; partial state preserved; inspect current lane before retrying") from error
+    return {"stateVersion": version + 1, "trackId": params["trackId"], "clipId": params["clipId"],
+            "deviceId": params["deviceId"], "parameterId": params["parameterId"], "replaced": True,
+            "replacedExisting": True, "verified": True, "verificationScope": "sampled_steps",
+            "fullCurveCaptured": False, "samples": samples, "boundarySamples": boundaries, "parameter": parameter_after}

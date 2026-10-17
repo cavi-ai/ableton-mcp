@@ -5931,6 +5931,7 @@ class DispatchTest(unittest.TestCase):
 
     def test_clip_parameter_envelope_can_be_sampled_and_replaced(self):
         song = Song()
+        song.tracks[0].devices[0].parameters[0].automation_state = 0
         params = {
             "trackId": "track-0", "clipId": "track-0:clip-0",
             "deviceId": "track-0:device-0", "parameterId": "parameter-0"
@@ -5941,21 +5942,20 @@ class DispatchTest(unittest.TestCase):
         }, 3)
         self.assertFalse(missing["exists"])
 
-        written = dispatch_request(song, {
-            "method": "set_clip_parameter_envelope",
-            "params": {**params, "points": [
+        request = {**params, "points": [
                 {"time": 0.0, "duration": 1.0, "value": 0.2},
                 {"time": 2.0, "duration": 0.5, "value": 0.8},
             ]}
-        }, 3)
+        before = dispatch_request(song, {"method": "get_clip_envelope_replacement_context", "params": request}, 3)
+        written = dispatch_request(song, {"method": "set_clip_parameter_envelope",
+            "params": {**request, "expectedStateVersion": 3, "before": before}}, 3)
         self.assertTrue(written["replaced"])
-        self.assertEqual(written["samples"], [
-            {"time": 0.0, "value": 0.2},
-            {"time": 2.0, "value": 0.8},
-        ])
+        self.assertTrue(written["verified"])
+        self.assertEqual([sample["value"] for sample in written["samples"]], [.2] * 3 + [.8] * 3)
 
     def test_audio_clip_parameter_envelope_can_be_sampled_and_replaced(self):
         song = Song()
+        song.tracks[0].devices[0].parameters[0].automation_state = 0
         clip = AudioClip()
         clip.is_midi_clip = False
         song.tracks[0].clip_slots[0].clip = clip
@@ -5964,15 +5964,16 @@ class DispatchTest(unittest.TestCase):
         missing = dispatch_request(song, {"method": "get_clip_parameter_envelope",
                                           "params": {**params, "sampleTimes": [0.0]}}, 3)
         self.assertFalse(missing["exists"])
-        written = dispatch_request(song, {"method": "set_clip_parameter_envelope",
-                                          "params": {**params, "points": [
+        request = {**params, "points": [
                                               {"time": 0.0, "duration": 0.25, "value": 0.2},
-                                              {"time": 0.5, "duration": 0.25, "value": 0.8}]}}, 3)
-        self.assertEqual(written["samples"], [
-            {"time": 0.0, "value": 0.2}, {"time": 0.5, "value": 0.8}])
+                                              {"time": 0.5, "duration": 0.25, "value": 0.8}]}
+        before = dispatch_request(song, {"method": "get_clip_envelope_replacement_context", "params": request}, 3)
+        written = dispatch_request(song, {"method": "set_clip_parameter_envelope",
+                                          "params": {**request, "expectedStateVersion": 3, "before": before}}, 3)
+        self.assertEqual([sample["value"] for sample in written["samples"]], [.2] * 3 + [.8] * 3)
         sampled = dispatch_request(song, {"method": "get_clip_parameter_envelope",
-                                          "params": {**params, "sampleTimes": [0.0, 0.5]}}, 4)
-        self.assertEqual(sampled["samples"], written["samples"])
+                                          "params": {**params, "sampleTimes": [sample["time"] for sample in written["samples"]]}}, 4)
+        self.assertEqual(sampled["samples"], [{"time": sample["time"], "value": sample["value"]} for sample in written["samples"]])
 
     def test_looper_performance_context_and_state_write_recheck_routing(self):
         song = Song()

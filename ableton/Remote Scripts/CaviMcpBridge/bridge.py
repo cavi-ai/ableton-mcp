@@ -5633,7 +5633,13 @@ def dispatch_request(song, request, state_version, application=None):
         except ImportError:
             import clip_envelope
         return (clip_envelope.source if method == "get_clip_envelope_creation_context" else clip_envelope.create)(song, params, state_version)
-    if method in ("get_clip_parameter_envelope", "set_clip_parameter_envelope"):
+    if method in ("get_clip_envelope_replacement_context", "set_clip_parameter_envelope"):
+        try:
+            from . import clip_envelope
+        except ImportError:
+            import clip_envelope
+        return (clip_envelope.replacement_source if method == "get_clip_envelope_replacement_context" else clip_envelope.replace)(song, params, state_version)
+    if method == "get_clip_parameter_envelope":
         _, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
         if not slot.has_clip:
             raise ValueError("clip slot is empty")
@@ -5641,23 +5647,14 @@ def dispatch_request(song, request, state_version, application=None):
         _, _, device = _device(song, params["trackId"], params["deviceId"])
         parameter_index = int(params["parameterId"].removeprefix("parameter-"))
         parameter = device.parameters[parameter_index]
-        if method == "set_clip_parameter_envelope":
-            if not parameter.is_enabled:
-                raise ValueError("parameter is disabled")
-            clip.clear_envelope(parameter)
-            envelope = clip.create_automation_envelope(parameter)
-            for point in params["points"]:
-                envelope.insert_step(float(point["time"]), float(point["duration"]), _clamp(point["value"], parameter))
-            sample_times = [float(point["time"]) for point in params["points"]]
-        else:
-            envelope = clip.automation_envelope(parameter)
-            sample_times = [float(time) for time in params.get("sampleTimes", [])]
+        envelope = clip.automation_envelope(parameter)
+        sample_times = [float(time) for time in params.get("sampleTimes", [])]
         return {
-            "stateVersion": state_version + (1 if method == "set_clip_parameter_envelope" else 0),
+            "stateVersion": state_version,
             "trackId": params["trackId"], "clipId": params["clipId"],
             "deviceId": params["deviceId"], "parameterId": params["parameterId"],
             "clipLengthBeats": float(clip.length), "parameter": _parameter_record(parameter, parameter_index),
-            "exists": envelope is not None, "replaced": method == "set_clip_parameter_envelope",
+            "exists": envelope is not None, "replaced": False,
             "samples": [] if envelope is None else [
                 {"time": time, "value": float(envelope.value_at_time(time))} for time in sample_times
             ],

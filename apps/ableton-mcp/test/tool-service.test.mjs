@@ -320,6 +320,11 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
       if (["duplicate_session_object", "delete_session_object"].includes(method)) {
         return { stateVersion: 5, method, ...params };
       }
+      if (method === "get_clip_envelope_replacement_context") return {
+        stateVersion:4,trackId:params.trackId,clipId:params.clipId,deviceId:params.deviceId,parameterId:params.parameterId,
+        identityToken:"native-envelope",contentDigest:"clip-content",parametersDigest:"device-parameters",envelopeExists:true,fullCurveCaptured:false,
+        envelopeSamples:[{time:0,value:.2}],points:params.points.map(point=>({...point,requestedValue:point.value,value:Math.max(0,Math.min(1,point.value))}))
+      };
       if (method === "get_clip_parameter_envelope") return {
         stateVersion: 4,
         trackId: params.trackId,
@@ -363,7 +368,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         clipId: params.clipId,
         deviceId: params.deviceId,
         parameterId: params.parameterId,
-        replaced: true,
+        replaced: true,replacedExisting:true,verified:true,verificationScope:"sampled_steps",
         samples: params.points.map(({ time, value }) => ({ time, value }))
       };
       if (["transport_play", "transport_stop", "set_tempo", "set_transport_context", "set_song_musical_context", "set_transport_recording_context", "create_arrangement_cue_point", "rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point", "set_clip_timing", "duplicate_clip_loop", "set_track_mixer", "launch_scene", "launch_clip", "stop_clip", "arm_track"].includes(method)) {
@@ -2246,7 +2251,7 @@ test("clip parameter envelope replacement validates and signs exact steps", asyn
   const args = {
     expectedStateVersion: 4,
     trackId: "track-0", clipId: "track-0:clip-0",
-    deviceId: "track-0:device-0", parameterId: "cutoff",
+    deviceId: "track-0:device-0", parameterId: "parameter-0", replaceExisting:true,
     points: [{ time: 0, duration: 1, value: -1 }, { time: 2, duration: 0.5, value: 0.8 }]
   };
   const dry = await service.call("set_clip_parameter_envelope", args);
@@ -2262,19 +2267,18 @@ test("clip parameter envelope replacement validates and signs exact steps", asyn
   assert.equal(calls.at(-1).method, "set_clip_parameter_envelope");
 });
 
-test("clip parameter envelope replacement rejects invalid steps", async () => {
-  const { service } = fixture();
+test("clip parameter envelope contract rejects invalid step times and durations", () => {
   const base = {
     expectedStateVersion: 4,
     trackId: "track-0", clipId: "track-0:clip-0",
     deviceId: "track-0:device-0", parameterId: "cutoff"
   };
-  await assert.rejects(
-    () => service.call("set_clip_parameter_envelope", { ...base, points: [{ time: -1, duration: 1, value: 0.5 }] }),
+  assert.throws(
+    () => validateToolArguments("set_clip_parameter_envelope", { ...base, points: [{ time: -1, duration: 1, value: 0.5 }] }),
     /time/
   );
-  await assert.rejects(
-    () => service.call("set_clip_parameter_envelope", { ...base, points: [{ time: 0, duration: 0, value: 0.5 }] }),
+  assert.throws(
+    () => validateToolArguments("set_clip_parameter_envelope", { ...base, points: [{ time: 0, duration: 0, value: 0.5 }] }),
     /duration/
   );
 });
