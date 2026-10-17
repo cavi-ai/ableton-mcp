@@ -10,6 +10,8 @@ Plan `duplicate_clip` with the source `clipId`, an empty `destinationClipId` on 
 
 `copyVerified: true` covers exposed timing, name, color, MIDI note properties or audio source reference, gain, pitch, warp mode, warp markers and available fade state. Native duplication handles envelopes; their contents, hidden state and external file bytes are not compared. Audio copies share the source file and are not independent sample backups.
 
+To reuse the clip through another existing audio track's processing, follow [Reuse Session clips](clip-reuse.md). `destinationTrackId` selects that compatible owner; omitting it retains this workflow's same-track behavior. Cross-track envelope retargeting is not verified.
+
 ## Refine the copy
 
 Read the copy's own `get_audio_clip_state` and `get_clip_timing` before each change. Use `set_audio_clip_state` for requested pitch, gain, warp mode or playback markers, and `set_clip_timing` for a loop interval. Warped clips use beats; unwarped clips use seconds. Change warping separately and re-read the resulting timing before editing markers or loops. A loop change alone does not trim all playback.
