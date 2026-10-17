@@ -34,6 +34,7 @@
         { "title": "Keep a Looper performance", "path": "guides/looper-performance.md" },
         { "title": "Compare a mix with a reference", "path": "guides/reference-comparison.md" },
         { "title": "Resample into an instrument", "path": "guides/resample-instrument.md" },
+        { "title": "Export a native MIDI clip", "path": "guides/midi-export.md" },
         { "title": "Import MIDI files", "path": "guides/midi-import.md" },
         { "title": "Export a native audio mix", "path": "guides/audio-export.md" },
         { "title": "Compare instruments", "path": "guides/instrument-comparison.md" },

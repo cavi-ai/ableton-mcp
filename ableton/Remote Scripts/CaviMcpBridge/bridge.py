@@ -3153,6 +3153,12 @@ def dispatch_request(song, request, state_version, application=None):
                                      "openDocument": callable(getattr(application, "open_document", None)),
                                      "saveDocument": callable(getattr(application, "save_document", None)),
                                      "saveDocumentAs": callable(getattr(application, "save_document_as", None))}}
+    if method in ("get_midi_export_source", "select_midi_export_source"):
+        try:
+            from . import midi_export
+        except ImportError:
+            import midi_export
+        return midi_export.source(song, params, state_version) if method == "get_midi_export_source" else midi_export.select(song, params, state_version, application)
     if method == "get_audio_export_source":
         try:
             from .audio_export import source

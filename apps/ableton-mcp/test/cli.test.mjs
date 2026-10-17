@@ -150,7 +150,7 @@ test("doctor exposes a stale bundled Remote Script beside a current User Library
   try {
     for (const directory of [source, userCopy, bundledCopy]) await mkdir(directory, { recursive: true });
     for (const staleFile of ["capabilities.json", "simpler_sample.py"]) {
-      for (const name of ["__init__.py", "arrangement_audition.py", "arrangement_recording.py", "arrangement_section.py", "audio_capture.py", "audio_export.py", "audio_midi_sketch.py", "beat_repeat_fill.py", "bridge.py", "browser_load.py", "capabilities.json", "clip_duplication.py", "clip_envelope.py", "device_ab.py", "device_preset.py", "instrument_comparison.py", "looper_export.py", "midi_capture.py", "midi_import.py", "parameter_display.py", "protocol.py", "rack_performance.py", "recording_setup.py", "session_recording.py", "signal_activity.py", "simpler_sample.py", "take_lanes.py", "track_bounce.py", "track_freeze.py", "track_send.py", "track_volume.py"]) {
+      for (const name of ["__init__.py", "arrangement_audition.py", "arrangement_recording.py", "arrangement_section.py", "audio_capture.py", "audio_export.py", "audio_midi_sketch.py", "beat_repeat_fill.py", "bridge.py", "browser_load.py", "capabilities.json", "clip_duplication.py", "clip_envelope.py", "device_ab.py", "device_preset.py", "instrument_comparison.py", "looper_export.py", "midi_capture.py", "midi_export.py", "midi_import.py", "parameter_display.py", "protocol.py", "rack_performance.py", "recording_setup.py", "session_recording.py", "signal_activity.py", "simpler_sample.py", "take_lanes.py", "track_bounce.py", "track_freeze.py", "track_send.py", "track_volume.py"]) {
         await writeFile(join(source, name), `${name}: current`);
         await writeFile(join(userCopy, name), `${name}: current`);
         await writeFile(join(bundledCopy, name), name === staleFile ? `${name}: stale` : `${name}: current`);
@@ -218,7 +218,7 @@ test("prompts commands render templates without opening a runtime", async () => 
   const runtimeFactory = () => { opened.push(true); return { close() {} }; };
   const output = [];
   const listed = await runCli(["prompts", "--json"], { runtimeFactory, stdout: (line) => output.push(line) });
-  assert.equal(listed.prompts.length, 46);
+  assert.equal(listed.prompts.length, 47);
   const rendered = await runCli(["prompt", "produce-drum-pattern", "--args", '{"trackId":"track-3"}', "--json"],
     { runtimeFactory, stdout: () => {} });
   assert.match(rendered.messages[0].content.text, /track-3/);

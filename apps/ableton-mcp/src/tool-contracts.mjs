@@ -388,6 +388,7 @@ const mixerEnvelopePoint={oneOf:creationEnvelopePoint.oneOf.map(schema=>({...sch
     {targetDisplay:string('Volume/send only: finite native dB target, such as -24 dB or -6 dB. Pan requires value. Decimal point only; -inf is not accepted.')})}}))};
 
 const contracts = {
+  export_midi_clip: {description:'Export one exact Session or Arrangement MIDI clip through native macOS English Live to a new .mid file. Changes selection/focus; requires stopped recording/playback. Refuses overwrites. Verifies SMF0, source preservation and unmuted note pitch/timing/velocity within file resolution. Includes stored notes outside loop markers; no Live playback, MPE/controller or audible equivalence claim.',inputSchema:guarded({trackId:ids.trackId,clipId:ids.clipId,path:string('Absolute new .mid destination in an existing directory. Native export may include notes outside playback/loop markers and omit muted notes.')},['trackId','clipId','path'])},
   bounce_track_in_place: {description:"Destructively commit one whole ordinary track to audio, removing its devices in Session and Arrangement. Duplicate first to keep an editable source. Requires saved Set, stopped transport, unarmed visible target and macOS English Live. Rechecks native identity/selection and verifies audio layout, controls and file coverage; no audible-equivalence claim.",inputSchema:guarded({trackId:ids.trackId},["trackId"])},
   record_arrangement_take:{description:"Record one armed unfrozen ordinary track into an empty Arrangement beat range. Requires stopped playback/recording, no other arms, Session playback/overrides or pending launches. Uses native punch-in/out, disables loop/overdub/Automation Arm, changes loop bounds/playhead, and stops owned record/playback at the end without a client. Leaves target armed and setup controls in place. Partial material retained; all profile.",inputSchema:guarded({trackId:ids.trackId,startBeats:number("Inclusive quarter-note song beat.",{minimum:0}),endBeats:number("Exclusive song beat; at most 512 beats and 300 seconds from start.",{exclusiveMinimum:0})},["trackId","startBeats","endBeats"])},
   get_arrangement_take:{description:"Read one Arrangement recording handle, new clip spans, range coverage and control ownership, or list handles after a lost reply. Start acceptance and range coverage do not prove recorded performance, audio-file finalization or sound. Handles last until release or bridge restart; all profile.",inputSchema:object({takeId:string("Runtime take ID; omit to list retained handles.")})},
@@ -803,6 +804,7 @@ const destructiveTools = new Set([
   "audition_arrangement_passage",
   "open_live_set",
   "save_live_set",
+  "export_midi_clip",
   "import_midi_file",
   "collect_project_media",
   "save_native_device_preset",

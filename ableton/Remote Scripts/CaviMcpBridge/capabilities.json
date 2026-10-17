@@ -5,6 +5,8 @@
   "get_arrangement_take",
   "finish_arrangement_take",
   "get_bridge_protocol",
+  "get_midi_export_source",
+  "select_midi_export_source",
   "get_device_ab_context",
   "copy_device_ab_slot",
   "select_device_ab_slot",
