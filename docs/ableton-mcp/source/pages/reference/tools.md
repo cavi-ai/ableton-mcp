@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 291 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 293 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (125)
+## Read-only (126)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -33,6 +33,7 @@ The server publishes 291 tools. Mutations of the Live Set require `expectedState
 | `get_clip_mixer_envelope` | Read an ordinary Session clip volume, Stereo pan or exact Return-send envelope without changing focus or playback. MIDI/warped audio beats. Pan requires known Stereo mode. Samples do not recover the complete curve. | `trackId`, `clipId`, `mixerControl` |
 | `get_clip_parameter_envelope` | Sample one Session clip parameter envelope at exact beat positions. | `trackId`, `clipId`, `deviceId`, `parameterId` |
 | `get_clip_timing` | Read Session/Arrangement loops and markers, plus Session launch modes. Units: MIDI/warped beats, unwarped seconds. Unavailable: supported=false. | `trackId`, `clipId` |
+| `get_crossfader_context` | Read Main crossfader value, native bounds, availability and automation plus every ordinary/Group/Return A/B assignment and Group relationship. Unsupported fields remain explicit. No playback, selection or mixer changes; all profile. | none |
 | `get_device_ab_context` | Read one device's native A/B capability, active slot, exposed parameters, identity and recording context without changing focus. Other-slot contents and hidden state are unavailable. Updated bridge; all profile. | `trackId`, `deviceId` |
 | `get_device_hierarchy` | Read rack chains/mixers, populated Drum Rack pads and macro/variation state. Available macro_mappings include displayed target path, parameter and min/max; paths are descriptive, not stable IDs. Variation contents are unavailable. | `trackId`, `deviceId` |
 | `get_device_sidechain_routing` | Read exact native external-sidechain source type and channel choices for one loaded device. Reports unsupported explicitly; does not confuse device-sidechain routing with track input routing. | `trackId`, `deviceId` |
@@ -134,7 +135,7 @@ The server publishes 291 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (137)
+## Mutations (138)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -241,6 +242,7 @@ The server publishes 291 tools. Mutations of the Live Set require `expectedState
 | `set_bulk_track_mixer` | Plan or apply guarded volume, pan, mute, and solo changes to multiple existing ordinary tracks in one confirmed step. Per-track values clamp to each observed native range; sends are unchanged. | `expectedStateVersion`, `trackIds` |
 | `set_clip_slot_stop_button` | Plan or change the stop button of one empty ordinary Session slot. Binds native full-row context, verifies readback and attempts owned rollback. Does not launch, stop playback or guarantee armed-empty recording behavior. Requires updated bridge; all profile. | `expectedStateVersion`, `trackId`, `clipId`, `hasStopButton` |
 | `set_clip_timing` | Guarded loop, meter, launch, Session Legato, mute, groove and grid edits. | `expectedStateVersion`, `trackId`, `clipId` |
+| `set_crossfader_state` | Change either 1-64 exact track/Group/Return A/B assignments or the Main crossfader position in separate confirmations. Binds all native mixer identities and bus membership; requires recording/count-in off and known inactive Main automation. Position affects all assigned members. Immediate requests, not a timed fade or atomic audio transition. Partial work retained; no rollback/replay. Updated bridge; all profile. | `expectedStateVersion` |
 | `set_device_active` | Plan or set the active state of one exact loaded device on an ordinary, Return, or Main track. | `expectedStateVersion`, `trackId`, `deviceId`, `active` |
 | `set_device_parameter_display` | Set one continuous device parameter to a finite native unit display (Hz/kHz, ms/s, dB, %). Resolves through Live's formatter without guessing raw values; refuses automation, recording and unrepresentable targets. Requires all profile. | `expectedStateVersion`, `trackId`, `deviceId`, `parameterId`, `targetDisplay` |
 | `set_device_sidechain_routing` | Plan or apply one guarded native device-sidechain source type or channel change. Read refreshed channels after changing source type. Rejects unsupported devices and ambiguous choices; does not enable external sidechain automatically. | `expectedStateVersion`, `trackId`, `deviceId` |

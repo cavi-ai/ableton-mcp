@@ -3136,6 +3136,12 @@ def dispatch_request(song, request, state_version, application=None):
         return (object_colors.source if method == "get_live_object_colors" else object_colors.write)(song, params, state_version)
     if method == "get_session_orientation":
         return _session_orientation(song, state_version, application)
+    if method in ("get_crossfader_context", "set_crossfader_state"):
+        try:
+            from . import crossfader
+        except ImportError:
+            import crossfader
+        return (crossfader.context if method == "get_crossfader_context" else crossfader.apply)(song, params, state_version)
     if method in ("get_arrangement_return_source", "return_tracks_to_arrangement"):
         try:
             from . import arrangement_return
@@ -6882,8 +6888,8 @@ class SocketBridge:
                 if request.get("method") == "prepare_instrument_comparison":
                     self._defer_instrument_comparison(client, request, song, record)
                     return
-                if request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement"):
-                    self._defer_arrangement_operation(client, request, song, record)
+                if request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state"):
+                    self._defer_observed_mutation(client, request, song, record)
                     return
                 result = dispatch_request(
                     song, request, self.state_version, self.control_surface.application()
@@ -6942,15 +6948,17 @@ class SocketBridge:
                 self._last_topology_signature = _track_topology_signature(song)
                 self._reply(client, {"id": request.get("id"), "error": {"message": str(failure) or failure.__class__.__name__}}, record)
 
-    def _defer_arrangement_operation(self, client, request, song, record=None):
+    def _defer_observed_mutation(self, client, request, song, record=None):
         try:
             try:
-                from . import arrangement_audition, arrangement_return
+                from . import arrangement_audition, arrangement_return, crossfader
             except ImportError:
-                import arrangement_audition, arrangement_return
-            returning = request['method'] == 'return_tracks_to_arrangement'
-            module = arrangement_return if returning else arrangement_audition
-            success_key = 'returned' if returning else 'started'
+                import arrangement_audition, arrangement_return, crossfader
+            module, success_key = {
+                'return_tracks_to_arrangement': (arrangement_return, 'returned'),
+                'audition_arrangement_passage': (arrangement_audition, 'started'),
+                'set_crossfader_state': (crossfader, 'verified'),
+            }[request['method']]
             operation = module.begin(song, request.get("params", {}), self.state_version)
             self.state_version += 1
         except Exception as error:
@@ -6959,7 +6967,7 @@ class SocketBridge:
         self.deferred_request = True
 
         def reply_unverified(error):
-            operation["error"] = f"Arrangement readback failed: {error}"[:600]
+            operation["error"] = f"Native readback failed: {error}"[:600]
             try:
                 result = module.complete(self.control_surface.song(), operation, self.state_version)
                 response = {"id": request.get("id"), "result": result}
