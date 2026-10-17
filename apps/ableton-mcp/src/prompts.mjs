@@ -6,6 +6,18 @@ const confirmWorkflow = [
 const userMessage = (text) => ({ role: "user", content: { type: "text", text } });
 
 export const promptContracts = {
+  'keep-device-sound': {
+    name:'keep-device-sound',description:'Save a useful native device or rack sound as a new User Library preset and verify recall separately.',
+    arguments:[{name:'request',description:'Exact sound/device, new preset name and whether recall or audition is intended.',required:true}],
+    build:({request})=>({description:'Keep this device sound for reuse.',messages:[userMessage(`Keep this sound: ${request}
+1. Read get_live_state, get_selection_context, list_devices/get_device_hierarchy and the exact device’s exposed parameters. Resolve the intended track/device and a new preset name. Read sample-instrument state when relevant. Preserve music, routing, device settings and manual edits. A preset captures the current device state, not a full track, its clips, all A/B alternatives or an entire Project.
+2. save_native_device_preset requires a saved Set, stopped playback/recording, an unfrozen target and macOS English Live with the updated bridge. Save an untitled Set through the guarded Save As workflow only when intended. Do not silently stop a performance. Native preparation sets the intended preset name and changes focus; Live may rename the source. If source metadata must stay exact, prepare an authorized native duplicate before saving rather than promise an untouched source.
+3. Choose a unique visible filename stem without an extension. Plan save_native_device_preset with exact trackId/deviceId and fresh expectedStateVersion. Review the native User Library location, naming/focus changes and existing-name refusal. Saving can copy samples according to Live preferences. This is separate from saving the Set and does not package plug-ins, licenses or opaque sample libraries.
+4. Confirm the unchanged plan within scope. Require presetSaveVerified:true, exposedStatePreserved:true and artifact.verified:true, then inspect the actual file path, native format, SHA-256 and observed source. Source naming may have changed even after failure. Never replay an uncertain Save, accept an overwrite prompt, auto-delete a partial file, use global undo or reconstruct hidden state from parameters. Inspect unexpected sample-copy or save dialogs before further input.
+5. For requested recall, discover the exact saved browser item with search_browser_items under user_library and use its returned path; browser indexing may lag file creation. Load into an empty compatible staging track through guarded load_browser_item. Verify the loaded class and complete exposed parameter names/values against the source. Loading adds a device and is not implicit replacement. Keep source and staging material distinct and muted as appropriate. A native file does not establish recall, hidden-state equivalence or portable samples. If a plug-in format does not verify directly, consider an explicitly prepared native Rack without silently changing the original topology.
+6. Audition only when intended, with recording off and an observed clip/passage. Resolve which version should sound and preserve manual changes. Ask what the user hears before accepting an audible match. Report preset-file verification, exposed recall checks, listening evidence and Set saving separately.
+${confirmWorkflow}`)]})
+  },
   'prepare-project-handoff': {
     name:'prepare-project-handoff',description:'Collect the current Set’s samples into its Project and identify remaining device requirements before moving or sharing it.',
     arguments:[{name:'request',description:'Intended Set, recipient environment and handoff or backup purpose. No upload or sharing is implied.',required:true}],

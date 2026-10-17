@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 255 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 256 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (109)
 
@@ -246,7 +246,7 @@ The server publishes 255 tools. Mutations of the Live Set require `expectedState
 | `transport_stop` | Plan or stop Ableton transport playback. | `expectedStateVersion` |
 | `undo` | Plan or apply one guarded Ableton undo operation. | `expectedStateVersion` |
 
-## Destructive mutations (23)
+## Destructive mutations (24)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -267,6 +267,7 @@ The server publishes 255 tools. Mutations of the Live Set require `expectedState
 | `open_live_set` | Plan/open a macOS Set; launch requires closed Live and configured app. | `path` |
 | `remove_audio_warp_marker` | Plan or apply deletion of an exact visible audio warp marker. Rejects the hidden terminal marker and stale clip state. | `expectedStateVersion`, `trackId`, `clipId`, `beatTime` |
 | `save_live_set` | Save macOS Set; verify write or clean state. Path: Save As without overwrite. | `expectedStateVersion`, `expectedSetFingerprint` |
+| `save_native_device_preset` | Save an exact device or rack as a new native User Library preset through macOS English Live. Sets intended preset naming and changes focus; may rename the source. Requires saved Set and stopped transport. Refuses existing names; verifies Live XML/VST3 artifacts and exposed source state. Audio Unit artifact verification is unavailable. No recall, audible-equivalence or sample-portability claim. | `expectedStateVersion`, `trackId`, `deviceId`, `name` |
 | `set_clip_parameter_envelope` | Plan/set 1–512 ordered Session envelope steps with native context checks and explicit clamping. Existing lanes require replaceExisting:true, which discards the whole curve, including unsampled edits. No full-curve backup or restoration. Playback must be stopped; recording off. Verifies sampled interiors. | `expectedStateVersion`, `trackId`, `clipId`, `deviceId`, `parameterId`, `points` |
 | `set_device_parameters` | Plan/set bounded device parameters on ordinary/Return/Main tracks. Strings select exact unambiguous quantized labels; numbers retain native clamping. Looper State Record/Overdub writes mutate recorded content: restoring a parameter does not restore captured audio. | `expectedStateVersion`, `trackId`, `deviceId`, `changes` |
 | `set_looper_state` | Plan or request one exact native Looper State choice: Stop, Record, Play, or Overdub. Native execution rechecks the complete Looper, routing, and transport snapshot before writing State; result reports the immediately observed State parameter and whether it matches the target, not an audible or quantized-boundary outcome. Record/Overdub can mutate captured audio and cannot be rolled back by restoring a parameter value. This does not promise beat-scheduled execution; verify native quantization behavior separately. | `expectedStateVersion`, `trackId`, `deviceId`, `targetState` |

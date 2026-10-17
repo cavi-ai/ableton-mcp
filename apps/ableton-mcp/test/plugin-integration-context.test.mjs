@@ -72,7 +72,7 @@ test("plugin integration context joins installed variants, Live exposure, and NK
   assert.equal(result.capabilities.nativePresetRecall, false);
   assert.equal(result.capabilities.liveUserLibraryPresetLoad, true);
   assert.deepEqual(result.livePresetWorkflow, {
-    save: { surface: "Live UI", action: "Save Preset", mcpAvailable: false },
+    save: { surface: "Live UI", action: "Save Preset", mcpAvailable: true, tool: "save_native_device_preset", platform: "macOS English Live 12" },
     discover: { tool: "search_browser_items", root: "user_library" },
     load: { tool: "load_browser_item", useReturnedPath: true, stagingTrackRecommended: true },
     verify: { tool: "list_devices", scope: "loaded device identity and exposed parameters only",
