@@ -173,6 +173,7 @@ const toolNames = [
   "route_tracks_to_bus",
   "route_tracks_to_return_bus",
   "get_set_mixer",
+  "get_return_routing",
   "list_producer_chain_blueprints",
   "get_producer_chain_blueprint",
   "inspect_producer_chain",

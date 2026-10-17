@@ -36,6 +36,7 @@
         { "title": "Chop a sample into a groove", "path": "guides/sample-chopping.md" },
         { "title": "Balance track levels", "path": "guides/mix-balance.md" },
         { "title": "Set up sidechain ducking", "path": "guides/sidechain-ducking.md" },
+        { "title": "Build a shared Return effect", "path": "guides/shared-return-effects.md" },
         { "title": "Arrange Session ideas", "path": "guides/session-arrangement.md" },
         { "title": "MIDI clip variations", "path": "guides/midi-clip-variations.md" },
         { "title": "Reuse Session clips", "path": "guides/clip-reuse.md" },

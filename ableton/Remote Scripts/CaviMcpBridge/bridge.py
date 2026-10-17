@@ -842,6 +842,24 @@ def _return_mixer_record(track, index):
     }
 
 
+def _return_routing(song, return_id, state_version):
+    if not isinstance(return_id, str) or not return_id.startswith('return-'):
+        raise ValueError('canonical Return Track ID required')
+    _, track = _device_owner(song, return_id)
+    supported = all(hasattr(track, name) for name in ('output_routing_type', 'output_routing_channel',
+                    'available_output_routing_types', 'available_output_routing_channels'))
+    types = list(track.available_output_routing_types) if supported else []
+    channels = list(track.available_output_routing_channels) if supported else []
+    if len(types) > 512 or len(channels) > 512:
+        raise ValueError('Return routing supports at most 512 choices per field')
+    return {'stateVersion': state_version, 'returnTrackId': return_id, 'name': str(track.name),
+            'output': {'supported': supported,
+                       'type': _routing_option(track.output_routing_type) if supported else None,
+                       'channel': _routing_option(track.output_routing_channel) if supported else None,
+                       'availableTypes': [_routing_option(option) for option in types],
+                       'availableChannels': [_routing_option(option) for option in channels]}}
+
+
 def _set_mixer(song, state_version):
     mixer = song.master_track.mixer_device
     master = song.master_track
@@ -3721,6 +3739,8 @@ def dispatch_request(song, request, state_version, application=None):
                 "deviceChain": dispatch_request(song, {"method": "list_devices", "params": {"trackId": params["trackId"]}}, state_version + 1)}
     if method == "get_set_mixer":
         return _set_mixer(song, state_version)
+    if method == "get_return_routing":
+        return _return_routing(song, params['returnTrackId'], state_version)
     if method == "create_return_track":
         before = _set_mixer(song, state_version)["returns"]
         if before != params["beforeReturns"]:
