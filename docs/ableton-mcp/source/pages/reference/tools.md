@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 236 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 237 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (103)
 
@@ -112,7 +112,7 @@ The server publishes 236 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (116)
+## Mutations (117)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -160,6 +160,7 @@ The server publishes 236 tools. Mutations of the Live Set require `expectedState
 | `duplicate_session_object` | Plan or duplicate an exact track, Session scene, or clip, optionally naming a duplicated track. | `expectedStateVersion`, `targetType`, `targetId` |
 | `edit_drum_pattern_clip` | Plan or apply guarded replacement of selected drum lanes and bars in an existing MIDI clip. Preserves unrelated notes and verifies the complete native note set. | `expectedStateVersion`, `trackId`, `clipId`, `grid`, `startBar`, `bars`, `lanes` |
 | `enqueue_nks_generation_jobs` | Plan or enqueue only explicitly selected eligible discovered presets, in batches of at most 100, using a single-use confirmation. Serum 2 and Omnisphere are limited to their deterministic factory pilots until every pilot record is validated. Does not generate or mark any preset saved. | `productSlug`, `presetIds` |
+| `export_audio_mix` | Export Main as stereo WAV through the macOS English Live dialog. Requires stopped transport, recording off, unarmed tracks and an absent destination. Rechecks document/mix controls and verifies native settings and file format. Full-range render completion remains unconfirmed. Current Session overrides are included. Updates export preferences; no overwrite or musical-quality claim. | `expectedStateVersion`, `path`, `start`, `length`, `expectedSetFingerprint` |
 | `finish_live_audio_capture` | Plan or release a completed capture handle, keeping its track/file. Cancel true stops and disarms an active capture early and retains partial audio. A pending native stop returns captureActive true with stopping status; read until confirmed, then finish. Cleanup failure is explicit and preserves the handle. Never stops source playback. | `expectedStateVersion`, `captureId` |
 | `heartbeat_nks_generation_job` | Extend an unexpired NKS generation lease owned by this worker. | `presetId`, `workerId` |
 | `humanize_midi_notes` | Plan or apply guarded deterministic MIDI timing and velocity humanization with exact clip, grid, and complete native note readback. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `seed`, `gridBeats`, `maxTimingOffsetBeats`, `maxVelocityOffset` |

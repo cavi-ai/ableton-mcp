@@ -7,12 +7,12 @@ const source = readFileSync(new URL("../src/live-set-save-dialog.js", import.met
 
 function dialog({ windowId = 123, purpose = "Save Live Set As:", frontmost = true, bundle = "com.ableton.live",
   filename = "Original.als", directory = "/tmp/work", folderUnavailable = false, retainedClosedWindow = false,
-  unexpectedSheet = false, saveEnabled = true } = {}) {
+  unexpectedSheet = false, saveEnabled = true, windowOrderChanges = false, staleRole = false } = {}) {
   const keys = [], saves = [];
   let visible = true;
   const element = (role, id, value, children = []) => {
     const attributes = { AXIdentifier: id, AXMain: true, AXModal: true, AXFocused: false };
-    const result = { role: () => role, uiElements: () => children, position: () => [10,20], size: () => [800,400],
+    const result = { name: () => "Save", role: () => role, uiElements: () => children, position: () => [10,20], size: () => [800,400],
       enabled: () => id !== "OKButton" || saveEnabled, sheets: () => [], actions: { byName: () => ({ perform: () => {
         saves.push(id);if(id === "CancelButton")visible = false;
       } }) },
@@ -31,31 +31,49 @@ function dialog({ windowId = 123, purpose = "Save Live Set As:", frontmost = tru
     element("AXButton", "OKButton", ""), element("AXButton", "CancelButton", "")]);
   let navigating = false;
   panel.sheets = () => unexpectedSheet ? [element("AXSheet", "Replace", "")] : navigating ? [sheet] : [];
-  const process = { bundleIdentifier: () => bundle, frontmost: () => frontmost, windows: () => visible ? [panel] : [] };
+  const indexedPanel=new Proxy(panel,{get(target,key){if(windowOrderChanges&&navigating)throw Error("Window index changed");return target[key];}});
+  const windows=Object.assign(()=>visible?[indexedPanel]:[],{byName:()=>panel});
+  const process = { bundleIdentifier: () => bundle, frontmost: () => frontmost, windows };
   const events = { applicationProcesses: { whose: () => () => [process] },
     keystroke: key => { keys.push(key);navigating = true; }, keyCode: key => { keys.push(key);navigating = false; } };
   const array = items => ({ count: items.length, objectAtIndex: index => items[index] });
   const folder = { AXURL: { isFileURL: true, hasDirectoryPath: true, filePathURL: { get path() { return directory; } } } };
   const browser = { AXIdentifier: "ColumnView", AXRole: "AXBrowser", AXColumns: array([
     { AXChildren: array([{ AXRole: "AXList", AXSelectedChildren: array([{ AXChildren: array([folder]) }]) }]) }, {}]) };
-  const nativePanel = { AXIdentifier: "save-panel", AXRole: "AXWindow", AXChildren: array([browser]) };
-  const nativeApp = { AXWindows: array([nativePanel]) };
+  const wrapped=new Map();
+  function asNative(element){
+    if(wrapped.has(element))return wrapped.get(element);
+    const node={AXIdentifier:element.attributes.byName("AXIdentifier").value(),AXRole:element.role(),AXTitle:element.name(),AXEnabled:element.enabled()};
+    wrapped.set(element,node);
+    for(const key of ["AXMain","AXModal","AXFocused"])Object.defineProperty(node,key,{
+      get:()=>element.attributes.byName(key).value(),set:value=>{element.attributes.byName(key).value=value;}});
+    Object.defineProperty(node,"AXValue",{get:()=>element.value(),set:value=>{element.value=value;}});
+    Object.defineProperty(node,"AXChildren",{get:()=>array([...(element===panel?[browser]:[]),...element.uiElements().map(asNative),...element.sheets().map(asNative)])});
+    Object.defineProperty(node,"AXSheets",{get:()=>array(element.sheets().map(asNative))});
+    node.perform=action=>element.actions.byName(action).perform();return node;
+  }
+  const nativePanel=asNative(panel),nativeApp={get AXWindows(){return array(visible?[nativePanel]:[]);}};
   const native = Object.assign(value => value, {
+    NSRunningApplication: { runningApplicationWithProcessIdentifier: () => ({ activateWithOptions() {} }) },
     AXUIElementCreateApplication: () => nativeApp,
     AXUIElementCopyAttributeValue: (element, key, ref) => {
+      if(staleRole&&key==="AXRole"){staleRole=false;return -25202;}
       if (folderUnavailable || element[key] === undefined) return -25212;
       ref[0] = element[key];return 0;
     },
+    AXUIElementSetAttributeValue:(element,key,value)=>{element[key]=value;return 0;},
+    AXUIElementPerformAction:(element,action)=>{element.perform(action);return 0;},
+    CFEqual:(a,b)=>a===b,
     CGWindowListCopyWindowInfo: option => [
-      ...(visible ? [{ kCGWindowOwnerPID: 42, kCGWindowNumber: windowId, kCGWindowIsOnscreen: true,
+      ...(visible ? [{ kCGWindowOwnerPID: 42, kCGWindowNumber: windowId, kCGWindowName:"Save", kCGWindowIsOnscreen: true,
         kCGWindowBounds: { X: 10, Y: 20, Width: 800, Height: 400 } }] : []),
-      ...(retainedClosedWindow && option === 0 ? [{ kCGWindowOwnerPID: 42, kCGWindowNumber: 122,
+      ...(retainedClosedWindow && option === 0 ? [{ kCGWindowOwnerPID: 42, kCGWindowNumber: 122, kCGWindowName:"Save",
         kCGWindowBounds: { X: 10, Y: 20, Width: 800, Height: 400 } }] : [])] });
   const run = vm.runInNewContext(`${source}\nrun`, { Application: () => events, Ref: () => [],
     ObjC: { import() {}, unwrap: value => value, deepUnwrap: value => value, castRefToObject: value => value },
     $: native, delay() {} });
-  return { execute: action => run([JSON.stringify({ pid: 42, action, windowId: 123, purpose: "Save Live Set As:",
-    panelState: {name:"Original.als",folder:"/tmp/work"},parent: "/tmp/work", name: "Working.als" })]), keys, saves };
+  return { execute: (action,overrides={}) => run([JSON.stringify({ pid: 42, action, windowId: 123, purpose: "Save Live Set As:",
+    panelState: {name:"Original.als",folder:"/tmp/work"},parent: "/tmp/work", name: "Working.als",...overrides })]), keys, saves };
 }
 
 test("Save As refuses a replacement window, other Save purpose, wrong app or lost focus before input", () => {
@@ -70,6 +88,22 @@ test("Save As refuses a preexisting modal and never accepts Replace", () => {
   const native = dialog();
   assert.throws(() => native.execute("prepare"), /existing Live dialog/);
   assert.deepEqual(native.keys, []);assert.deepEqual(native.saves, []);
+});
+
+test("audio export binds its exact Save purpose and window before preparing the requested directory",()=>{
+  const native=dialog({purpose:"Save Audio File As:"});
+  const prepared=JSON.parse(native.execute("adoptAudioExport"));
+  assert.equal(prepared.purpose,"Save Audio File As:");assert.equal(prepared.windowId,123);
+  assert.deepEqual(native.keys,["g",36]);assert.deepEqual(native.saves,[]);
+  for(const state of [{purpose:"Save Live Set As:"},{purpose:"Save Audio File As:",windowId:124}]){
+    const other=dialog(state);assert.throws(()=>other.execute("adoptAudioExport"));assert.deepEqual(other.keys,[]);assert.deepEqual(other.saves,[]);
+  }
+});
+
+test("Save panels retain their identity when Go to Folder changes native window order",()=>{
+  const native=dialog({purpose:"Save Audio File As:",windowOrderChanges:true});
+  assert.equal(JSON.parse(native.execute("adoptAudioExport")).prepared,true);
+  assert.deepEqual(native.keys,["g",36]);assert.deepEqual(native.saves,[]);
 });
 
 test("Save As focuses the exact folder field and presses only the bound Save button", () => {
@@ -108,4 +142,17 @@ test("Save As verifies closure when AppKit retains an offscreen window",()=>{
   const native=dialog({retainedClosedWindow:true});
   assert.equal(JSON.parse(native.execute("cancel")).cancelled,true);
   assert.deepEqual(native.saves,["CancelButton"]);
+});
+
+test("audio Save cleanup prefers the owned onscreen panel over a retained same-title window",()=>{
+  const native=dialog({purpose:"Save Audio File As:",retainedClosedWindow:true});
+  assert.equal(JSON.parse(native.execute("adoptAudioExport")).prepared,true);
+  assert.equal(JSON.parse(native.execute("cancel",{purpose:"Save Audio File As:"})).cancelled,true);
+  assert.deepEqual(native.saves,["CancelButton"]);
+});
+
+test("audio Save observes fresh child references after a stale native AX element",()=>{
+  const native=dialog({purpose:"Save Audio File As:",staleRole:true});
+  assert.equal(JSON.parse(native.execute("adoptAudioExport")).prepared,true);
+  assert.deepEqual(native.saves,[]);
 });
