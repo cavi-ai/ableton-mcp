@@ -1,4 +1,5 @@
 [
+  "get_selected_parameter_context", "get_selected_parameter_edit_context", "set_selected_parameter",
   "get_recording_setup_source",
   "get_arrangement_recording_source",
   "record_arrangement_take",

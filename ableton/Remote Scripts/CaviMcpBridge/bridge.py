@@ -3819,6 +3819,16 @@ def dispatch_request(song, request, state_version, application=None):
         return {"stateVersion": state_version, "query": query, "searchedRoots": searched,
                 "unavailableRoots": unavailable, "results": results[:limit],
                 "visitedItems": visited, "truncated": reason is not None, "truncationReason": reason}
+    if method in ("get_selected_parameter_context", "get_selected_parameter_edit_context", "set_selected_parameter"):
+        try:
+            from . import selected_control
+        except ImportError:
+            import selected_control
+        if method == "get_selected_parameter_context":
+            return selected_control.context(song, state_version)
+        if method == "get_selected_parameter_edit_context":
+            return selected_control.prepare(song, params, state_version)
+        return selected_control.apply(song, params, state_version)
     if method in ("get_browser_preview_context", "set_browser_preview"):
         try:
             from . import browser_preview
