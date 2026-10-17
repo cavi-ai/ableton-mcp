@@ -16,7 +16,7 @@ Everything runs on the local machine. The bridge opens no TCP port. The server m
 - **Audio analysis**: loudness, true peak, spectrum, pitch, transients and tuning of local audio files, using `ffmpeg`.
 - **An optional NKS preset catalog**: search, tags and favorites for presets discovered from local plug-in libraries.
 
-The server publishes 9 concrete resources, 13 resource templates and 20 prompt templates. Agents can list and retrieve shared workflow instructions through the read-only `get_producer_workflow` tool in the default `all` profile. Start with [a musical sketch](../guides/musical-sketch.md), [Set orientation](../guides/session-orientation.md), [instrument comparison](../guides/instrument-comparison.md) or [MIDI clip variations](../guides/midi-clip-variations.md). Retrieving instructions does not execute the workflow. [Tools](../reference/tools.md) lists every tool.
+The server publishes 9 concrete resources, 13 resource templates and 29 prompt templates. Agents can list and retrieve shared workflow instructions through the read-only `get_producer_workflow` tool in the default `all` profile. Start with [a musical sketch](../guides/musical-sketch.md), [Set orientation](../guides/session-orientation.md), [instrument comparison](../guides/instrument-comparison.md) or [MIDI clip variations](../guides/midi-clip-variations.md). Retrieving instructions does not execute the workflow. [Tools](../reference/tools.md) lists every tool.
 
 ## Boundaries
 
@@ -24,7 +24,7 @@ Live's Remote Script API limits what can be controlled. In Live 12.4.5:
 
 - Arrangement automation envelopes are not exposed.
 - Per-note pitch bend, pressure and slide are not exposed.
-- Group Tracks cannot be created or ungrouped.
+- Native Group creation uses the macOS English UI for consecutive ungrouped audio-producing tracks on Main; nested grouping and reparenting are not provided. [Ungrouping](../guides/track-ungrouping.md) removes a resolved Group and its processing stage while retaining descendants. See [track grouping](../guides/track-grouping.md).
 - Grooves cannot be created or deleted through the public Groove Pool API.
 - `Track.is_frozen` has no setter.
 

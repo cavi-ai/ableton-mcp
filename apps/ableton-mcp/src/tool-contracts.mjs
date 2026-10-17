@@ -388,6 +388,10 @@ const mixerEnvelopePoint={oneOf:creationEnvelopePoint.oneOf.map(schema=>({...sch
     {targetDisplay:string('Volume/send only: finite native dB target, such as -24 dB or -6 dB. Pan requires value. Decimal point only; -inf is not accepted.')})}}))};
 
 const contracts = {
+  ungroup_tracks:{description:'Remove one native Group through macOS English Live UI, promoting its children to the enclosing Group or root. Removes its processing/mixer stage, shifts IDs and numbered labels, and can change sound/routing. Saved Set, stopped transport/recording, unarmed/unfrozen descendants and visible Group required. Refuses exposed external dependencies. Group devices require allowContent. Verifies retained descendants and exposed controls. No automatic undo/regrouping. Retain ungroupingId before execution. All profile.',inputSchema:guarded({groupTrackId:ids.trackId,allowContent:boolean('Allow discarding the Group device chain; does not preserve hidden plug-in state.'),expectedSetFingerprint:string('Current Set fingerprint.')},['groupTrackId','expectedSetFingerprint'])},
+  get_track_ungrouping_status:{description:'Inspect actual removal, retained descendants, membership, exposed material and routing for a retained ungroupingId, including after a lost reply. Read-only; never repeats removal or regroups. Runtime handles can expire or disappear after bridge reload. Missing handles require current-track inspection. All profile.',inputSchema:object({ungroupingId:string('Retained ungroupingId from the plan or result.')},['ungroupingId'])},
+  group_tracks:{description:'Create a native Group through macOS English Live UI from two to 64 consecutive ungrouped ordinary audio-producing tracks feeding Main. Saved Set, stopped playback/recording, unarmed/unfrozen sources and no pending launches required. Changes focus, hierarchy, routing and track IDs. Verifies retained objects and exposed material/controls. Partial results remain; no automatic undo. Retain groupingId for lost-response inspection. All profile.',inputSchema:guarded({trackIds:{...array(ids.trackId,'Consecutive exact track IDs in Live order.'),minItems:2,maxItems:64,uniqueItems:true},expectedSetFingerprint:string('Current Set fingerprint from get_live_state.')},['trackIds','expectedSetFingerprint'])},
+  get_track_grouping_status:{description:'Inspect a retained native grouping handle from a group_tracks plan, including after a lost reply. Resolves actual Group/member IDs, hierarchy, exposed material and controls. Read-only; does not repeat grouping or restore anything. Runtime handles can expire or disappear after bridge reload; missing handles require current-track inspection. All profile.',inputSchema:object({groupingId:string('Retained groupingId from the plan or result.')},['groupingId'])},
   get_live_object_colors: {description:'Read native RGB colors and palette indices for one to 64 explicit tracks, Returns, Main, scenes or existing Session/Arrangement clips. Preserves focus. All profile.',inputSchema:object({objectIds:{...array(string('Canonical ID: track-N, return-N, master, scene-N, track-N:clip-M or track-N:arrangement-clip-M.'),'Exact objects to inspect.'),minItems:1,maxItems:64,uniqueItems:true}},['objectIds'])},
   set_live_object_colors: {description:'Set colors for one to 64 exact tracks, Returns, Main, scenes or existing Session/Arrangement clips in one undo step. Binds native identity and current color/name/selection. Live may choose a nearby palette color; reports actual RGB and exactMatch. Track color inheritance can affect Rack-chain appearance. No automatic clip recoloring or musical writes. Partial changes remain. All profile.',inputSchema:guarded({changes:{...array(object({objectId:string('Canonical ID from get_live_object_colors.'),color:{type:'string',pattern:'^#[0-9A-Fa-f]{6}$',description:'Explicit RGB hex, such as #FF0000. Native palette may adjust it.'}},['objectId','color']),'Explicit unique object/color pairs.'),minItems:1,maxItems:64},expectedSetFingerprint:string('Current Set fingerprint from get_live_state.')},['changes','expectedSetFingerprint'])},
   show_live_object: {description: 'Select and show an exact track, Session slot/clip, Arrangement clip or device in native Live views. Omit clipId/deviceId for the track. Plans preserve focus; confirmation changes selection and control-surface focus and may unfold Group ancestors, expand devices and reveal Rack chains. No playback or musical writes requested. Recording must be off. Native view readback does not prove desktop activation, timeline scrolling or plug-in editor visibility. All profile.',
@@ -738,6 +742,8 @@ const contracts = {
 };
 
 const readOnlyTools = new Set([
+  "get_track_ungrouping_status",
+  "get_track_grouping_status",
   "get_live_object_colors",
   "get_arrangement_take",
   "get_device_ab_context",
@@ -809,11 +815,14 @@ const destructiveTools = new Set([
   "audition_arrangement_passage",
   "open_live_set",
   "save_live_set",
-  "export_midi_clip",
-  "import_midi_file",
   "collect_project_media",
   "save_native_device_preset",
-  "delete_session_object", "delete_clip", "delete_arrangement_clip",
+  "ungroup_tracks",
+  "delete_session_object",
+  "delete_clip",
+  "delete_arrangement_clip",
+  "export_midi_clip",
+  "import_midi_file",
   "delete_arrangement_cue_point", "remove_audio_warp_marker",
   "delete_device", "crop_audio_clip", "set_looper_state", "set_device_parameters", "set_clip_parameter_envelope",
   "fail_nks_generation_job", "complete_nks_generation_job",

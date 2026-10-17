@@ -8,6 +8,7 @@ import {saveNativeDevicePreset,MacDevicePresetHost} from './device-preset.mjs';
 import {collectProjectMedia,projectMediaInventory,MacProjectMediaHost} from './project-media.mjs';
 import { enrichArrangementSection, assertArrangementRange } from "./arrangement-section.mjs";
 import { assertExpectedState } from "./bridge-protocol.mjs";
+import {groupTracks,getTrackGroupingStatus,ungroupTracks,getTrackUngroupingStatus,MacTrackGroupingHost} from './track-grouping.mjs';
 import {getLiveObjectColors,setLiveObjectColors} from './object-colors.mjs';
 import {getSceneLaunchContext} from "./scene-context.mjs";
 import {readTakeLaneContext} from "./take-lanes.mjs";
@@ -460,7 +461,7 @@ function normalizeBrowserSearch(args) {
 
 export class ToolService {
   constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, deviceChainLibrary, groupSystemLibrary, midiFeelLibrary, browserMetadata, spliceRoots = [], generationQueuePath,
-    liveSetHost = new MacLiveSetHost(), audioExportHost, projectMediaHost, devicePresetHost, midiExportHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000, trackFreezeHost, trackBounceHost, recordingSetupHost, midiImportHost, takeLaneAuditionHost, grooveRemovalHost }) {
+    liveSetHost = new MacLiveSetHost(), audioExportHost, projectMediaHost, devicePresetHost, trackGroupingHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000, midiExportHost, trackFreezeHost, trackBounceHost, recordingSetupHost, midiImportHost, takeLaneAuditionHost, grooveRemovalHost }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
@@ -480,6 +481,7 @@ export class ToolService {
     this.devicePresetHost=devicePresetHost??new MacDevicePresetHost({liveSetHost});
     this.projectMediaHost=projectMediaHost??new MacProjectMediaHost({liveSetHost});
     this.audioExportHost = audioExportHost ?? new MacAudioExportHost({liveSetHost});
+    this.trackGroupingHost = trackGroupingHost ?? new MacTrackGroupingHost({liveSetHost});
     this.takeLaneAuditionHost=takeLaneAuditionHost??new MacTakeLaneAuditionHost({liveSetHost});
     this.grooveRemovalHost = grooveRemovalHost ?? new MacClipGrooveHost({liveSetHost});
     this.liveSetOpenTimeoutMs = liveSetOpenTimeoutMs;
@@ -502,6 +504,10 @@ export class ToolService {
     if(name==='get_project_media')return projectMediaInventory(this.bridge,this.projectMediaHost);
     if(name==='collect_project_media')return collectProjectMedia(this.bridge,this.confirmations,this.projectMediaHost,args);
     if(name === "export_audio_mix")return exportAudioMix(this.bridge,this.confirmations,this.audioExportHost,args);
+    if(name === "group_tracks")return groupTracks(this.bridge,this.confirmations,this.trackGroupingHost,args);
+    if(name === "get_track_grouping_status")return getTrackGroupingStatus(this.bridge,args);
+    if(name === "ungroup_tracks")return ungroupTracks(this.bridge,this.confirmations,this.trackGroupingHost,args);
+    if(name === "get_track_ungrouping_status")return getTrackUngroupingStatus(this.bridge,args);
     if (name === "list_local_splice_roots") return listConfiguredSpliceRoots(this.spliceRoots);
     if (name === "browse_local_splice_directory") {
       if (args.includeMetadata !== undefined && typeof args.includeMetadata !== "boolean") throw new Error("includeMetadata must be boolean");

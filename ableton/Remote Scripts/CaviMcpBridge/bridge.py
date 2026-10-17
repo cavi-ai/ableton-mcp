@@ -3095,6 +3095,14 @@ def dispatch_request(song, request, state_version, application=None):
         return dict(BRIDGE_PROTOCOL)
     if method == "get_selection_context":
         return _selection_context(song, state_version)
+    if method in ("get_track_grouping_source", "get_track_grouping_status", "get_track_ungrouping_source", "get_track_ungrouping_status"):
+        try:
+            from . import track_grouping
+        except ImportError:
+            import track_grouping
+        handler = {"get_track_grouping_source": track_grouping.source, "get_track_grouping_status": track_grouping.status,
+                   "get_track_ungrouping_source": track_grouping.ungroup_source, "get_track_ungrouping_status": track_grouping.ungroup_status}[method]
+        return handler(song, params, state_version)
     if method in ("get_live_object_colors", "set_live_object_colors"):
         try:
             from . import object_colors

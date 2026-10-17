@@ -46,7 +46,12 @@ const resourceTemplates = resourceUris.filter((uri) => uri.includes("{"))
   .map((uriTemplate) => ({ uriTemplate, name: uriTemplate, mimeType: "application/json" }));
 
 const toolNames = [
-  "get_live_object_colors", "set_live_object_colors",
+  "group_tracks",
+  "get_track_grouping_status",
+  "ungroup_tracks",
+  "get_track_ungrouping_status",
+  "get_live_object_colors",
+  "set_live_object_colors",
   ...Object.keys(producerToolContracts),
   "audition_arrangement_passage",
   "get_producer_workflow",
