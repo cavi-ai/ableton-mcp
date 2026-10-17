@@ -40,6 +40,73 @@ class ClipMixerEnvelopeTests(unittest.TestCase):
     def send(self):
         self.args.update(mixerControl="send", sendId="send-0", returnTrackId="return-0")
 
+    def pan(self):
+        self.mixer.panning_mode = 0
+        self.mixer.panning.min, self.mixer.panning.max = -1, 1
+        self.mixer.panning.automation_state = 0
+        self.args.update(mixerControl="pan", points=[
+            {"time": 0, "duration": 1, "value": -1},
+            {"time": 1, "duration": 1, "value": 0},
+            {"time": 2, "duration": 2, "value": 1}])
+
+    def test_pan_steps_target_only_the_stereo_pan_lane_and_read_back_during_playback(self):
+        self.pan()
+        unrelated = self.clip.create_automation_envelope(self.mixer.volume)
+        unrelated.insert_step(0, 4, .8)
+        before = self.source()
+        self.assertEqual(before["panningMode"], 0)
+        result = self.apply(before)
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["mixerControl"], "pan")
+        self.assertEqual([x["value"] for x in result["samples"]], [-1] * 3 + [0] * 3 + [1] * 3)
+        self.assertIs(self.clip.automation_envelope(self.mixer.volume), unrelated)
+        self.assertEqual(unrelated.value_at_time(3), .8)
+        self.song.is_playing = True
+        read = dispatch_request(self.song, {"method": "get_clip_mixer_envelope", "params": {
+            "trackId": "track-0", "clipId": "track-0:clip-0", "mixerControl": "pan", "sampleTimes": [.5, 1.5, 3]}}, 4)
+        self.assertEqual(read["panningMode"], 0)
+        self.assertEqual([x["value"] for x in read["samples"]], [-1, 0, 1])
+        self.assertTrue(self.song.is_playing)
+
+    def test_pan_refuses_split_or_unknown_modes_and_display_targets(self):
+        for mode in [1, None, 2]:
+            self.setUp()
+            self.pan()
+            self.mixer.panning_mode = mode
+            with self.assertRaisesRegex(ValueError, "pan|stereo"):
+                self.source()
+            self.assertEqual(self.clip.envelopes, {})
+        self.setUp()
+        self.pan()
+        self.args["points"] = [{"time": 0, "duration": 4, "targetDisplay": "50 %"}]
+        with self.assertRaisesRegex(ValueError, "pan|native"):
+            self.source()
+
+    def test_pan_plan_preserves_intervening_edits_and_refuses_mode_changes_during_creation(self):
+        self.pan()
+        before = self.source()
+        self.mixer.panning.value = .7
+        with self.assertRaisesRegex(ValueError, "changed"):
+            self.apply(before)
+        self.assertEqual(self.clip.envelopes, {})
+        before = self.source()
+        self.mixer.panning_mode = 1
+        with self.assertRaisesRegex(ValueError, "pan|stereo"):
+            self.apply(before)
+        self.assertEqual(self.clip.envelopes, {})
+        self.mixer.panning_mode = 0
+
+        def create(parameter):
+            envelope = AutomationEnvelope()
+            self.clip.envelopes[id(parameter)] = envelope
+            self.mixer.panning_mode = 1
+            return envelope
+
+        self.clip.create_automation_envelope = create
+        with self.assertRaisesRegex(RuntimeError, "ownership is unconfirmed"):
+            self.apply()
+        self.assertEqual(self.clip.automation_envelope(self.mixer.panning).steps, [])
+
     def test_volume_targets_resolve_without_writes_and_create_verified_native_steps(self):
         before = self.source()
         self.assertIsNone(self.clip.automation_envelope(self.mixer.volume))
