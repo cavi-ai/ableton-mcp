@@ -55,6 +55,7 @@ const toolNames = [
   ...Object.keys(producerToolContracts),
   "audition_arrangement_passage",
   "return_tracks_to_arrangement",
+  "get_crossfader_context", "set_crossfader_state",
   "get_producer_workflow",
   "search_presets",
   "get_nks_generation_status",
