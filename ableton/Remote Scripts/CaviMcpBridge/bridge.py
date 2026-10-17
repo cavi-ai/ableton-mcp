@@ -4584,6 +4584,12 @@ def dispatch_request(song, request, state_version, application=None):
             "sends": [{**row, **send_record(track.mixer_device.sends[index])}
                       for index, row in enumerate(_send_records(song, track))],
         }
+    if method == "get_track_signal_activity":
+        try:
+            from .signal_activity import snapshot
+        except ImportError:
+            from signal_activity import snapshot
+        return snapshot(song, params, state_version)
     if method == "list_scenes":
         return {"stateVersion": state_version, "scenes": [_scene_record(scene, index) for index, scene in enumerate(song.scenes)]}
     if method == "get_scene_launch_context":

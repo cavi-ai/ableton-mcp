@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 256 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 257 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (109)
+## Read-only (110)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -63,6 +63,7 @@ The server publishes 256 tools. Mutations of the Live Set require `expectedState
 | `get_track_midi_routing` | Read one track's native MIDI note routing (input/output notes and scale transposition) from its MIDIMap. Reports unsupported explicitly when Live does not expose it. | `trackId` |
 | `get_track_mixer` | Read bounded track volume, pan, mute, solo, and named return sends. | `trackId` |
 | `get_track_routing` | Read exact input, output, and monitoring choices for one track. Group Tracks expose monitoring as null because Live does not support it. | `trackId` |
+| `get_track_signal_activity` | Read one native input/output peak-hold meter snapshot and playback/monitoring flags for an exact track, Return or Main. Values are native 0–1, not dB or proof of silence or speaker output. Unavailable meters remain unknown. No playback or control changes; all profile. | `trackId` |
 | `get_transport_context` | Read transport playback, metronome, and count-in state. | none |
 | `get_transport_recording_context` | Read playhead, Arrangement and Session recording modes, automation arm, and native Capture MIDI readiness with MIDI track IDs. | none |
 | `inspect_clip_groove_postconditions` | Read current native context and inspect extraction, baking, or plain groove-removal postconditions against a supplied pre-action get_clip_groove_context snapshot. Does not execute the UI action, prove provenance, or validate audible equivalence. Extraction expects one appended groove and unchanged source/timing; baking expects removed assignment and unchanged unrelated timing/shared context; removal also requires unchanged source content. | `trackId`, `clipId`, `operation`, `before` |
