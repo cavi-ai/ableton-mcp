@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 280 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 281 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (121)
 
@@ -130,7 +130,7 @@ The server publishes 280 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (131)
+## Mutations (132)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -257,6 +257,7 @@ The server publishes 280 tools. Mutations of the Live Set require `expectedState
 | `set_track_volume_db` | Set a track fader in dB using Live's native display, with identity, value and automation rechecks. Refuses recording, disabled or automated faders and unrepresentable levels. | `expectedStateVersion`, `trackId`, `volumeDb` |
 | `set_transport_context` | Plan/apply metronome or count-in settings. Count-in requires stopped playback/recording, a saved Set and macOS English Live UI; changes focus. | `expectedStateVersion` |
 | `set_transport_recording_context` | Plan or apply guarded playhead and recording-mode changes. | `expectedStateVersion` |
+| `show_live_object` | Select and show an exact track, Session slot/clip, Arrangement clip or device in native Live views. Omit clipId/deviceId for the track. Plans preserve focus; confirmation changes selection and control-surface focus and may unfold Group ancestors, expand devices and reveal Rack chains. No playback or musical writes requested. Recording must be off. Native view readback does not prove desktop activation, timeline scrolling or plug-in editor visibility. All profile. | `expectedStateVersion`, `trackId`, `view`, `expectedSetFingerprint` |
 | `show_take_lanes` | Show Arrangement and one track take lanes through the macOS English Live UI. Requires an unarmed unfrozen track, recording off and unfolded ancestor groups. Requires a saved Set with native document identity and one Live instance. Changes visible UI/focus; no playback or comp edit. | `expectedStateVersion`, `trackId` |
 | `stop_all_clips` | Plan or stop every playing Session clip in one guarded step using Live's native stop-all action. Playback-only; does not delete or mute clips. | `expectedStateVersion` |
 | `stop_clip` | Plan or stop one exact Session clip slot. | `expectedStateVersion`, `trackId`, `clipId` |

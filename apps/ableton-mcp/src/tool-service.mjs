@@ -14,6 +14,7 @@ import {MacTakeLaneAuditionHost,takeLaneAudition} from "./take-lane-audition.mjs
 import {setTrackVolumeDb} from "./track-volume.mjs";
 import {setTrackSendDb} from "./track-send.mjs";
 import {setDeviceParameterDisplay} from "./parameter-display.mjs";
+import {showLiveObject} from "./live-navigation.mjs";
 import {createClipParameterEnvelope,createClipMixerEnvelope,replaceClipParameterEnvelope} from "./clip-envelope.mjs";
 import { enrichSessionOrientation, enrichMidiPartsContext } from "./session-orientation.mjs";
 import { instrumentComparison } from "./instrument-comparison.mjs";
@@ -492,6 +493,7 @@ export class ToolService {
 
   async call(name, args = {}) {
     requestSignal()?.throwIfAborted();
+    if (name === 'show_live_object') return showLiveObject(this.bridge, this.confirmations, args);
     if(name === "export_midi_clip")return saveMidiClip(this.bridge,this.confirmations,this.midiExportHost,args);
     if(name === "bounce_track_in_place")return trackBounce(this.bridge,this.confirmations,this.trackBounceHost,args);
     if(name==='import_midi_file')return importMidiFile(this.bridge,this.confirmations,this.midiImportHost,args);
