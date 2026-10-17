@@ -35,6 +35,7 @@
         { "title": "Build a sample instrument", "path": "guides/sample-instrument.md" },
         { "title": "Chop a sample into a groove", "path": "guides/sample-chopping.md" },
         { "title": "Balance track levels", "path": "guides/mix-balance.md" },
+        { "title": "Sidechain ducking", "path": "guides/sidechain-ducking.md" },
         { "title": "Diagnose a silent part", "path": "guides/signal-diagnosis.md" },
         { "title": "Arrange Session ideas", "path": "guides/session-arrangement.md" },
         { "title": "MIDI clip variations", "path": "guides/midi-clip-variations.md" },
