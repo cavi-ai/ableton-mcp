@@ -3063,6 +3063,14 @@ def _audio_capture_module():
     return audio_capture
 
 
+def _beat_repeat_fill_module():
+    try:
+        from . import beat_repeat_fill
+    except ImportError:
+        import beat_repeat_fill
+    return beat_repeat_fill
+
+
 def dispatch_request(song, request, state_version, application=None):
     if request.get('method') in ('get_device_preset_source', 'select_device_preset_source'):
         try:
@@ -3099,6 +3107,10 @@ def dispatch_request(song, request, state_version, application=None):
         capture = _audio_capture_module()
         return {"get_audio_capture_source": capture.source, "capture_live_audio": capture.start,
                 "get_live_audio_capture": capture.read, "finish_live_audio_capture": capture.finish}[method](song, params, state_version)
+    if method in ("get_beat_repeat_fill_source", "perform_beat_repeat_fill", "get_beat_repeat_fill", "finish_beat_repeat_fill"):
+        fill = _beat_repeat_fill_module()
+        return {"get_beat_repeat_fill_source": fill.source, "perform_beat_repeat_fill": fill.start,
+                "get_beat_repeat_fill": fill.read, "finish_beat_repeat_fill": fill.finish}[method](song, params, state_version)
     if method in ("get_instrument_comparison_adoption_source", "adopt_instrument_comparison",
                   "get_instrument_comparison_source", "prepare_instrument_comparison",
                   "get_instrument_comparison", "select_instrument_comparison"):
@@ -6633,6 +6645,8 @@ class SocketBridge:
     def stop(self):
         self.stopped.set()
         try:
+            fill = _beat_repeat_fill_module()
+            fill.shutdown(self.control_surface.song())
             capture = _audio_capture_module()
             if capture.has_active():
                 capture.shutdown(self.control_surface.song())
@@ -6718,6 +6732,9 @@ class SocketBridge:
                 record.finish()
 
     def drain(self):
+        fill = _beat_repeat_fill_module()
+        if fill.has_active():
+            self.state_version += fill.advance(self.control_surface.song())
         capture = _audio_capture_module()
         if capture.has_active():
             self.state_version += capture.advance(self.control_surface.song())

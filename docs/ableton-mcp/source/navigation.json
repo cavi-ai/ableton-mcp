@@ -35,6 +35,7 @@
         { "title": "Refine instrument sound", "path": "guides/instrument-refinement.md" },
         { "title": "Build instrument layers", "path": "guides/instrument-layers.md" },
         { "title": "Shape clip automation", "path": "guides/clip-automation.md" },
+        { "title": "Perform a temporary Repeat fill", "path": "guides/repeat-fill.md" },
         { "title": "Try native clip grooves", "path": "guides/native-grooves.md" },
         { "title": "Build a sample instrument", "path": "guides/sample-instrument.md" },
         { "title": "Chop a sample into a groove", "path": "guides/sample-chopping.md" },

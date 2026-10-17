@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 263 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 266 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (113)
+## Read-only (114)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -23,6 +23,7 @@ The server publishes 263 tools. Mutations of the Live Set require `expectedState
 | `get_audio_clip_state` | Read Session/Arrangement gain, pitch, warp, markers and fade-switch availability; includes Arrangement timeline identity. Unsupported fades report supported=false. | `trackId`, `clipId` |
 | `get_audio_source_beat_times` | Read native warped clip-beat positions for source-audio seconds. Uses Live's sample-to-beat converter, not interpolation from sparse warp markers; does not edit the clip. | `trackId`, `clipId`, `sourceSeconds` |
 | `get_automation_capabilities` | Report exact supported and unsupported automation and per-note expression surfaces. | none |
+| `get_beat_repeat_fill` | Read a temporary Repeat fill or list retained handles after reconnect. Reports current native IDs, status, Off observation, historical release verification and cleanup errors. Handles are not saved in the Set. | none |
 | `get_beat_repeat_performance_context` | Read one native snapshot of a loaded Beat Repeat's Repeat, Grid, Interval, Block Triplets, Mix Type, all exposed parameters and their display values, track routing, monitoring, and transport. Grid and Interval expose labels at their native integer positions; duplicate labels are not assumed equivalent, and quantized behavior is not inferred from this mapping. Read-only; no audible outcome is inferred. | `trackId`, `deviceId` |
 | `get_browser_item_metadata` | Read private MCP-managed tags, favorite state, and revision for one exact observed Live browser item or local audio sample. A Live user-folder sample shares the local Splice record only when its URI unambiguously matches a configured local Splice file; reserved URI delimiters and existing separate Live metadata preserve exact Live identity. For a local sample, use root local_splice and path [absolute directory, relative audio path]. Does not read native collections. | `root`, `path` |
 | `get_browser_items` | Browse one level of Live factory/plug-in/Pack/Max/project/user content. Page with offset and limit together. Optional private MCP tags/favorites use exact child identities; not native collections. | `root` |
@@ -122,7 +123,7 @@ The server publishes 263 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (125)
+## Mutations (127)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -173,6 +174,7 @@ The server publishes 263 tools. Mutations of the Live Set require `expectedState
 | `edit_drum_pattern_clip` | Plan or apply guarded replacement of selected drum lanes and bars in an existing MIDI clip. Preserves unrelated notes and verifies the complete native note set. | `expectedStateVersion`, `trackId`, `clipId`, `grid`, `startBar`, `bars`, `lanes` |
 | `enqueue_nks_generation_jobs` | Plan or enqueue only explicitly selected eligible discovered presets, in batches of at most 100, using a single-use confirmation. Serum 2 and Omnisphere are limited to their deterministic factory pilots until every pilot record is validated. Does not generate or mark any preset saved. | `productSlug`, `presetIds` |
 | `export_audio_mix` | Export Main as stereo WAV through the macOS English Live dialog. Requires stopped transport, recording off, unarmed tracks and an absent destination. Rechecks document/mix controls and verifies native settings and file format. Full-range render completion remains unconfirmed. Current Session overrides are included. Updates export preferences; no overwrite or musical-quality claim. | `expectedStateVersion`, `path`, `start`, `length`, `expectedSetFingerprint` |
+| `finish_beat_repeat_fill` | Release a terminal fill handle; cancel true attempts owned Repeat Off early. Preserves manual Repeat edits and other controls. Cleanup failure stays explicit; releasing a terminal handle does not repair its device. Updated bridge; all profile. | `expectedStateVersion`, `fillId` |
 | `finish_live_audio_capture` | Plan or release a completed capture handle, keeping its track/file. Cancel true stops and disarms an active capture early and retains partial audio. A pending native stop returns captureActive true with stopping status; read until confirmed, then finish. Cleanup failure is explicit and preserves the handle. Never stops source playback. | `expectedStateVersion`, `captureId` |
 | `heartbeat_nks_generation_job` | Extend an unexpired NKS generation lease owned by this worker. | `presetId`, `workerId` |
 | `humanize_midi_notes` | Plan or apply guarded deterministic MIDI timing and velocity humanization with exact clip, grid, and complete native note readback. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `seed`, `gridBeats`, `maxTimingOffsetBeats`, `maxVelocityOffset` |
@@ -187,6 +189,7 @@ The server publishes 263 tools. Mutations of the Live Set require `expectedState
 | `move_device` | Plan or reorder one exact device within its current ordinary, Return, Main, or rack chain. Live may choose the nearest valid position; read actualPosition and the new device ID from the result. | `expectedStateVersion`, `trackId`, `deviceId`, `targetPosition` |
 | `move_device_to_chain` | Plan or move an exact device into a rack chain across ordinary, Return, or Main tracks, including nested destinations. Live may choose the nearest valid position; use the returned device ID and actualPosition. | `expectedStateVersion`, `trackId`, `deviceId`, `targetTrackId`, `targetChainId`, `targetPosition` |
 | `panic` | Plan or stop Live playback immediately using the guarded panic operation. | `expectedStateVersion` |
+| `perform_beat_repeat_fill` | Set an existing native Beat Repeat's Repeat On for 0.25–8 requested wall-clock seconds, then release Off on Live display ticks without a client. Requires authorized playback, Repeat Off and no source recording/Repeat automation. Owns only Repeat; manual changes relinquish ownership. No beat timing, bypass or audible-result guarantee. Updated bridge; all profile. | `expectedStateVersion`, `trackId`, `deviceId`, `durationSeconds` |
 | `place_session_clip_in_arrangement` | Plan/copy a Session clip onto its own Arrangement track. Updated bridge binds source identity and notes/timing or audio settings; excludes file bytes and automation. Rejects overlap and verifies interval. Limits: 4096 source notes and 4096 timeline clips. Refuses frozen, recording, pending-launch or unwarped sources. | `expectedStateVersion`, `trackId`, `clipId`, `startBeats` |
 | `prepare_instrument_comparison` | Plan or natively duplicate a MIDI instrument track for comparison. Binds exposed devices, routing, clips and notes; verifies source/copy and cleans up a failed copy. Requires stopped transport. Temporarily mutes source, restores it, leaves copy muted/unarmed with input monitoring off. IDs shift. Opaque state/audio unverified. | `expectedStateVersion`, `trackId`, `clipId`, `name` |
 | `quantize_audio_clip` | Plan or request Live native quantization for one warped audio clip at a selected grid, amount, and observed global swing. Dry runs warn that Live may insert many warp markers and shift existing source start/end anchors; duplicate the clip first if the original edit must be preserved. Returns native anchors and a measured before/after marker-change summary; an existing marker is not guaranteed to snap to the grid. Use move_audio_warp_marker for an exact anchor move. Requires unchanged audio state and swing. Does not quantize MIDI note ends. | `expectedStateVersion`, `trackId`, `clipId`, `grid`, `amount` |
