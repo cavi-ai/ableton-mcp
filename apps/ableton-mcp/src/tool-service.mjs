@@ -2483,6 +2483,15 @@ export class ToolService {
     const observed = await this.bridge.request("get_clip_timing", { trackId: args.trackId, clipId: args.clipId });
     assertExpectedState(args, observed);
     const changes = {};
+    let launchEditContext;
+    if (args.launchMode !== undefined) {
+      if (observed.location !== "session" || observed.launchMode?.supported !== true) throw new Error("Session clip launch mode is unavailable");
+      changes.launchMode = normalizeChoice(args.launchMode, "launchMode", observed.launchMode.choices);
+      launchEditContext = await this.bridge.request("get_clip_launch_edit_context", {trackId:args.trackId,clipId:args.clipId});
+      assertExpectedState(args, launchEditContext);
+      if (!launchEditContext.identityToken || launchEditContext.trackId !== args.trackId || launchEditContext.clipId !== args.clipId ||
+          launchEditContext.launchMode !== observed.launchMode.value) throw new Error("updated native clip launch context required");
+    }
     if (args.loop !== undefined) {
       if (observed.loop.unit === "seconds" && (args.loop.startBeats !== undefined || args.loop.endBeats !== undefined)) {
         throw new Error("beat-based loop positions cannot be applied to unwarped audio");
@@ -2539,7 +2548,8 @@ export class ToolService {
     if (!Object.keys(changes).length) throw new Error("at least one clip timing change is required");
     return this.#confirmedMutation({
       method: "set_clip_timing", trackId: args.trackId, clipId: args.clipId,
-      expectedStateVersion: args.expectedStateVersion, before: observed, changes
+      expectedStateVersion: args.expectedStateVersion, before: observed, changes,
+      ...(launchEditContext ? {launchEditContext} : {})
     }, args);
   }
 
