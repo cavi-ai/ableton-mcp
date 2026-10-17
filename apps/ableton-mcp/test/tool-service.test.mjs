@@ -178,6 +178,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         stateVersion: 4, root: params.root, path: params.path, query: params.query,
         results: [{ path: ["Splice", "Drums", "Snare.wav"], name: "Snare.wav", uri: "query:snare", loadable: true, folder: false }]
       };
+      if (method === "get_browser_load_context") return {stateVersion:4,trackId:params.trackId,identityToken:"browser-context",tracks:[{id:"track-0",name:"Synth"}],scenes:[],item:{name:params.path.at(-1),uri:"query:Drift",loadable:true,folder:false}};
       if (method === "load_browser_item" || method === "load_factory_browser_item") return {
         stateVersion: 5, trackId: params.trackId,
         loadedItem: params.item
@@ -574,8 +575,8 @@ test("factory browser listing is read-only and exact-path device loading is guar
     ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash
   });
   assert.equal(live.observed.loadedItem.name, "Drift");
-  assert.deepEqual(calls.slice(-4).map(({ method }) => method), [
-    "list_devices", "list_clips", "get_factory_browser_items", "load_factory_browser_item"
+  assert.deepEqual(calls.slice(-5).map(({ method }) => method), [
+    "list_devices", "list_clips", "get_factory_browser_items", "get_browser_load_context", "load_factory_browser_item"
   ]);
 });
 
@@ -590,7 +591,7 @@ test("Live browser exposes plug-ins and user content through canonical guarded t
   });
   assert.equal(live.observed.loadedItem.name, "Drift");
   assert.deepEqual(calls.slice(-5).map(({ method }) => method), [
-    "get_browser_items", "list_devices", "list_clips", "get_browser_items", "load_browser_item"
+    "list_devices", "list_clips", "get_browser_items", "get_browser_load_context", "load_browser_item"
   ]);
 });
 
@@ -605,6 +606,8 @@ test("browser load plan signs clip occupancy when targeting an ordinary track", 
     { id: "track-0:clip-1", hasClip: false, name: null }
   ]);
   assert.match(dry.plan.loadBehavior.warning, /Session clip/);
+  assert.equal(dry.plan.loadBehavior.mayCreateTracks,true);
+  assert.equal(dry.plan.beforeLoadContext.identityToken,"browser-context");
 });
 
 test("browser root inventory forwards one read-only native request", async () => {
@@ -1106,20 +1109,20 @@ test("transport mutation reports an unconfirmed control instead of claiming succ
 });
 
 test("Capture MIDI signs session scope and refuses an empty native capture buffer", async () => {
-  const before = { stateVersion: 4, midiCapture: { available: true, midiTrackIds: ["track-0", "track-1"] } };
+  const before = { stateVersion: 4, available: true, possibleTrackIds: ["track-0", "track-1"], overdubClipIds: [] };
   const service = new ToolService({ bridge: { async request(method) {
-    if (method === "get_transport_recording_context") return before;
+    if (method === "get_midi_capture_context") return before;
     if (method === "capture_midi_session") return { stateVersion: 5, changedSlots: [{ clipId: "track-0:clip-1" }] };
     throw new Error(method);
   } } });
   const args = { expectedStateVersion: 4 };
   const dry = await service.call("capture_midi_session", args);
   assert.equal(dry.plan.destination, "session");
-  assert.deepEqual(dry.plan.before.midiTrackIds, ["track-0", "track-1"]);
+  assert.deepEqual(dry.plan.before.possibleTrackIds, ["track-0", "track-1"]);
   const applied = await service.call("capture_midi_session", { ...args, dryRun: false,
     confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
   assert.equal(applied.observed.changedSlots[0].clipId, "track-0:clip-1");
-  before.midiCapture.available = false;
+  before.available = false;
   await assert.rejects(() => service.call("capture_midi_session", args), /no MIDI material/);
 });
 
@@ -1202,7 +1205,7 @@ test("clip timing mutation rejects invalid loops and signs groove assignment", a
     ...base, loop: { startBeats: 4, endBeats: 2 }
   }), /endBeats must be greater/);
   await assert.rejects(() => service.call("set_clip_timing", {
-    ...base, grooveId: null
+    ...base, grooveId: 0
   }), /grooveId must identify/);
   const dry = await service.call("set_clip_timing", {
     ...base, loop: { enabled: true, startBeats: 1, endBeats: 5 },
@@ -1878,13 +1881,16 @@ test("named MIDI feel templates persist from an exact source clip without overwr
   const directory = await mkdtemp(join(tmpdir(), "cavi-feel-library-test-"));
   try {
     const { service, calls } = fixture({ midiFeelLibrary: new SnapshotLibrary({ directory, formats: ["cavi-midi-feel-v1"] }), extendedNotes: [
-      { noteId: 7, pitch: 42, start: 0.26, duration: 0.1, velocity: 90 }
+      { noteId: 7, pitch: 42, start: 0.26, duration: 0.1, velocity: 90 },
+      { noteId: 8, pitch: 36, start: 0.5, duration: 0.1, velocity: 30 }
     ] });
-    const args = { name: "house-hats", trackId: "track-0", clipId: "track-0:clip-0", grid: "straight16" };
+    const args = { name: "house-hats", trackId: "track-0", clipId: "track-0:clip-0", grid: "straight16", originBeats: 0.25, noteIds: [7] };
     const saved = await service.call("save_midi_feel_template", args);
     assert.equal(saved.name, "house-hats");
     assert.equal(saved.template.source.stateVersion, 4);
-    assert.deepEqual(saved.template.slots.map(slot => [slot.slot, slot.meanVelocity]), [[1, 90]]);
+    assert.equal(saved.template.source.originBeats, .25);
+    assert.deepEqual(saved.template.source.noteIds, [7]);
+    assert.deepEqual(saved.template.slots.map(slot => [slot.slot, slot.meanVelocity]), [[0, 90]]);
     const loaded = await service.call("load_midi_feel_template", { name: "house-hats" });
     assert.deepEqual(loaded.template, saved.template);
     await assert.rejects(() => service.call("save_midi_feel_template", args), /already exists/);
@@ -2356,13 +2362,13 @@ test("fixed-length Session recording signs the empty armed slot and one-shot gri
   await assert.rejects(() => service.call("launch_clip", { ...args, trackId: "track-1", clipId: "track-1:clip-0" }), /armed/);
 });
 
-test("transport context exposes and guards metronome and count-in changes", async () => {
+test("transport context exposes count-in and guards native metronome changes", async () => {
   const { service, calls } = fixture();
   const observed = await service.call("get_transport_context");
   assert.equal(observed.countInDuration.name, "one_bar");
-  const args = { expectedStateVersion: 4, metronome: true, countInDuration: "two_bars" };
+  const args = { expectedStateVersion: 4, metronome: true };
   const dry = await service.call("set_transport_context", args);
-  assert.deepEqual(dry.plan.changes, { metronome: { previous: false, value: true }, countInDuration: { previous: 1, value: 2 } });
+  assert.deepEqual(dry.plan.changes, { metronome: { previous: false, value: true } });
   const live = await service.call("set_transport_context", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
   assert.equal(live.dryRun, false);
   assert.equal(calls.at(-1).method, "set_transport_context");
