@@ -11,10 +11,15 @@ const contract = (description, properties, required, readOnlyHint = true) => ({ 
 
 export const producerToolContracts = {
   get_production_context: contract("Read a consistent Live selection and musical context into a private artifact; return a bounded overview and contextRef. No model call.", {}, []),
-  run_production_task: contract("Run configured creative and/or functional specialists with bounded private context. Returns an immutable proposal reference, never executes Live changes. Provider use follows explicit server configuration.", {
+  run_production_task: contract("Run configured creative and/or functional specialists with bounded private context. Returns an immutable proposal reference, never executes Live changes. Optional caller postconditions define required final field checks. Provider use follows explicit server configuration.", {
     goal: string("Requested musical or operational outcome.", 6000), roles: { type: "string", enum: ["creative", "functional", "both"] },
     scope: object({ trackId: string("Exact track ID.", 120), clipId: string("Exact clip ID.", 120), deviceId: string("Exact device ID.", 120) }, []),
     constraints: strings, contextRefs: refs,
+    postconditions: { type: "array", minItems: 1, maxItems: 8,
+      description: "Optional caller-owned required final field checks. Specialist checks remain suggestions when supplied.",
+      items: object({ tool: string("Exact read-only tool name.", 100), args: { type: "object" },
+        path: { type: "array", maxItems: 8, items: { anyOf: [{ type: "string", maxLength: 120 }, { type: "integer", minimum: 0 }] } },
+        expected: {} }, ["tool", "args", "path", "expected"]) },
     workflow: object({ name: string("Exact name from get_producer_workflow.", 100),
       arguments: { type: "object", maxProperties: 8, propertyNames: { minLength: 1, maxLength: 64 },
         additionalProperties: { type: "string", maxLength: 8192 } } }, ["name"])
