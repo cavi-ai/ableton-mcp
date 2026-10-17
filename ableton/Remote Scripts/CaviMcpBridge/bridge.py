@@ -5627,6 +5627,14 @@ def dispatch_request(song, request, state_version, application=None):
             "removedNoteIds": remove_note_ids, "addedNoteIds": added_note_ids,
             "notes": [_midi_note_record(note) for note in clip.get_all_notes_extended()],
         }
+    if method in ("get_clip_mixer_envelope", "get_clip_mixer_envelope_creation_context", "create_clip_mixer_envelope"):
+        try:
+            from . import clip_envelope
+        except ImportError:
+            import clip_envelope
+        if method == "get_clip_mixer_envelope":
+            return clip_envelope.read_mixer(song, params, state_version)
+        return (clip_envelope.source if method == "get_clip_mixer_envelope_creation_context" else clip_envelope.create)(song, params, state_version, mixer=True)
     if method in ("get_clip_envelope_creation_context", "create_clip_parameter_envelope"):
         try:
             from . import clip_envelope

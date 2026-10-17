@@ -7,11 +7,13 @@ import uuid
 try:
     from .bridge import _clip_slot, _parameter_record, _parameter_automation_state, _set_fingerprint, _undo_step
     from .clip_duplication import _content
-    from .parameter_display import _resolve, _parameters, _quantity, _target
+    from .parameter_display import _resolve, _quantity, _target
+    from .track_send import _resolve as _resolve_send
 except ImportError:
     from bridge import _clip_slot, _parameter_record, _parameter_automation_state, _set_fingerprint, _undo_step
     from clip_duplication import _content
-    from parameter_display import _resolve, _parameters, _quantity, _target
+    from parameter_display import _resolve, _quantity, _target
+    from track_send import _resolve as _resolve_send
 
 _song = None
 _identities = {}
@@ -21,23 +23,50 @@ def _digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, allow_nan=False).encode()).hexdigest()
 
 
-def _objects(song, params):
+def _selector(params, mixer=False):
+    if not mixer:
+        return {key: params[key] for key in ("deviceId", "parameterId")}
+    control = params.get("mixerControl")
+    if control == "volume":
+        if "sendId" in params or "returnTrackId" in params:
+            raise ValueError("volume envelopes do not accept send or Return IDs")
+        return {"mixerControl": control}
+    if control == "send":
+        return {"mixerControl": control, "sendId": params.get("sendId"), "returnTrackId": params.get("returnTrackId")}
+    raise ValueError("mixerControl must be volume or send")
+
+
+def _objects(song, params, mixer=False):
     track, _, slot = _clip_slot(song, params.get("trackId"), params.get("clipId"))
     if not slot.has_clip:
         raise ValueError("Session clip is empty")
-    _, device, index, parameter = _resolve(song, params)
+    _selector(params, mixer)
+    if mixer:
+        device = track.mixer_device
+        parameters = (device.volume, device.panning, *device.sends)
+        related = tuple(song.return_tracks)
+        if len(parameters) > 258 or len(related) > 256:
+            raise ValueError("mixer envelope context exceeds 256 sends or Returns")
+        index = 0
+        if params["mixerControl"] == "send":
+            _, send_index, _, _, _ = _resolve_send(song, params)
+            index = send_index + 2
+        parameter = parameters[index]
+    else:
+        _, device, index, parameter = _resolve(song, params)
+        parameters, related = tuple(device.parameters), ()
     clip = slot.clip
-    return track, slot, clip, device, index, parameter
+    return track, slot, clip, device, index, parameter, parameters, related
 
 
 def _identity(objects):
-    track, slot, clip, device, _, _ = objects
-    return track, slot, clip, device, tuple(device.parameters)
+    track, slot, clip, device, _, _, parameters, related = objects
+    return track, slot, clip, device, parameters, related
 
 
-def _same(song, params, identity):
+def _same(song, params, identity, mixer=False):
     try:
-        return _identity(_objects(song, params)) == identity
+        return _identity(_objects(song, params, mixer)) == identity
     except (ValueError, RuntimeError):
         return False
 
@@ -100,10 +129,10 @@ def _envelope_samples(envelope, parameter, points, end):
     return samples
 
 
-def source(song, params, version, replacement=False):
+def source(song, params, version, replacement=False, mixer=False):
     global _song
-    objects = _objects(song, params)
-    track, slot, clip, device, index, parameter = objects
+    objects = _objects(song, params, mixer)
+    track, slot, clip, device, index, parameter, parameters, _ = objects
     if song.is_playing or song.record_mode or song.session_record or bool(getattr(clip, "is_recording", False)) or \
             bool(getattr(clip, "is_playing", False)) or bool(getattr(clip, "is_triggered", False)) or bool(getattr(slot, "is_triggered", False)):
         raise ValueError("resolve playback, recording and pending clip launches before editing an envelope")
@@ -129,7 +158,9 @@ def source(song, params, version, replacement=False):
     if _song != song:
         _song = song
         _identities.clear()
-    key, identity = (params["trackId"], params["clipId"], params["deviceId"]), (*_identity(objects), envelope)
+    selector = _selector(params, mixer)
+    key = (params["trackId"], params["clipId"], tuple(sorted(selector.items())))
+    identity = (*_identity(objects), envelope)
     cached = _identities.get(key)
     if cached is None or cached[0] != identity:
         if key not in _identities and len(_identities) >= 64:
@@ -137,11 +168,12 @@ def source(song, params, version, replacement=False):
         cached = (identity, str(uuid.uuid4()))
         _identities[key] = cached
     return {"stateVersion": version, "setFingerprint": _set_fingerprint(song), "identityToken": cached[1],
-            "trackId": params["trackId"], "clipId": params["clipId"], "deviceId": params["deviceId"],
-            "parameterId": params["parameterId"], "clipName": clip.name, "clipTiming": content["timing"],
-            "contentDigest": _digest(content), "parametersDigest": _digest(_parameters(device)),
+            "trackId": params["trackId"], "clipId": params["clipId"], **selector,
+            "clipName": clip.name, "clipTiming": content["timing"],
+            "contentDigest": _digest(content), "parametersDigest": _digest([_parameter_record(p, i) for i, p in enumerate(parameters)]),
             "parameter": _parameter_record(parameter, index), "envelopeExists": envelope is not None,
             "endBeats": end, "points": points,
+            **({"returnName": song.return_tracks[index - 2].name} if mixer and params["mixerControl"] == "send" else {}),
             **({"replaceExisting": params.get("replaceExisting", False), "fullCurveCaptured": False,
                 "envelopeSamples": _envelope_samples(envelope, parameter, points, end)} if replacement else {})}
 
@@ -150,9 +182,9 @@ def replacement_source(song, params, version):
     return source(song, params, version, replacement=True)
 
 
-def _insert_and_read(song, params, version, objects, before, created, identity):
-    _, _, clip, _, index, parameter = objects
-    if created is None or not _same(song, params, identity) or clip.automation_envelope(parameter) != created:
+def _insert_and_read(song, params, version, objects, before, created, identity, mixer=False):
+    _, _, clip, _, index, parameter, _, _ = objects
+    if created is None or not _same(song, params, identity, mixer) or clip.automation_envelope(parameter) != created:
         raise RuntimeError("new envelope ownership is unconfirmed")
     for point in before["points"]:
         created.insert_step(float(point["time"]), float(point["duration"]), float(point["value"]))
@@ -173,34 +205,34 @@ def _insert_and_read(song, params, version, objects, before, created, identity):
                 raise RuntimeError(f"clip envelope step readback mismatch at {time}: expected {point['value']} ({point['displayValue']}), observed {value} ({display})")
             samples.append({"time": time, "value": value, "displayValue": display})
     parameter_after = _parameter_record(parameter, index)
-    if not _same(song, params, identity) or clip.automation_envelope(parameter) != created:
+    if not _same(song, params, identity, mixer) or clip.automation_envelope(parameter) != created:
         raise RuntimeError("clip envelope topology changed during editing")
     if _digest(_content(song, params["trackId"], params["clipId"], version)) != before["contentDigest"]:
         raise RuntimeError("clip material changed during envelope editing")
     return samples, boundaries, parameter_after
 
 
-def create(song, params, version):
-    before = source(song, params, version)
+def create(song, params, version, mixer=False):
+    before = source(song, params, version, mixer=mixer)
     if type(params.get("expectedStateVersion")) is not int or params["expectedStateVersion"] != version or before != params.get("before"):
         raise ValueError("clip envelope context changed; review a fresh plan")
-    return _create_prepared(song, params, version, before)
+    return _create_prepared(song, params, version, before, mixer)
 
 
-def _create_prepared(song, params, version, before):
-    objects = _objects(song, params)
-    _, _, clip, device, index, parameter = objects
+def _create_prepared(song, params, version, before, mixer=False):
+    objects = _objects(song, params, mixer)
+    _, _, clip, device, index, parameter, _, _ = objects
     identity, original, created = _identity(objects), parameter.value, None
     with _undo_step(song):
         try:
             created = clip.create_automation_envelope(parameter)
-            samples, boundaries, parameter_after = _insert_and_read(song, params, version, objects, before, created, identity)
+            samples, boundaries, parameter_after = _insert_and_read(song, params, version, objects, before, created, identity, mixer)
         except Exception as error:
-            if created is None or not _same(song, params, identity) or clip.automation_envelope(parameter) != created:
+            if created is None or not _same(song, params, identity, mixer) or clip.automation_envelope(parameter) != created:
                 raise RuntimeError(f"envelope creation failed: {error}; cleanup skipped because ownership is unconfirmed; inspect current clip") from error
             try:
                 clip.clear_envelope(parameter)
-                if not _same(song, params, identity):
+                if not _same(song, params, identity, mixer):
                     raise RuntimeError("native topology changed during cleanup")
                 if clip.automation_envelope(parameter) is not None:
                     raise RuntimeError("new envelope was not removed")
@@ -208,13 +240,13 @@ def _create_prepared(song, params, version, before):
                     if _parameter_automation_state(parameter) != {"value": 0, "name": "none"} or not parameter.is_enabled:
                         raise RuntimeError("original parameter ownership is unavailable")
                     parameter.value = original
-                    if not _same(song, params, identity) or parameter.value != original:
+                    if not _same(song, params, identity, mixer) or parameter.value != original:
                         raise RuntimeError("original parameter value was not restored")
             except Exception as cleanup_error:
                 raise RuntimeError(f"envelope creation failed: {error}; cleanup failed: {cleanup_error}; inspect current clip") from error
             raise
     return {"stateVersion": version + 1, "trackId": params["trackId"], "clipId": params["clipId"],
-            "deviceId": params["deviceId"], "parameterId": params["parameterId"], "created": True,
+            **_selector(params, mixer), "created": True,
             "verified": True, "verificationScope": "sampled_steps", "samples": samples, "boundarySamples": boundaries,
             "parameter": parameter_after}
 
@@ -226,7 +258,7 @@ def replace(song, params, version):
     if not before["envelopeExists"]:
         return {**_create_prepared(song, params, version, before), "replaced": True, "replacedExisting": False}
     objects = _objects(song, params)
-    _, _, clip, _, _, parameter = objects
+    _, _, clip, _, _, parameter, _, _ = objects
     identity = _identity(objects)
     with _undo_step(song):
         try:
@@ -241,3 +273,23 @@ def replace(song, params, version):
             "deviceId": params["deviceId"], "parameterId": params["parameterId"], "replaced": True,
             "replacedExisting": True, "verified": True, "verificationScope": "sampled_steps",
             "fullCurveCaptured": False, "samples": samples, "boundarySamples": boundaries, "parameter": parameter_after}
+
+
+def read_mixer(song, params, version):
+    _, _, clip, _, index, parameter, _, _ = _objects(song, params, mixer=True)
+    if bool(getattr(clip, "is_audio_clip", False)) and not bool(clip.warping):
+        raise ValueError("unwarped audio envelope timing is unsupported; beat-based clips required")
+    times = params.get("sampleTimes", [])
+    if not isinstance(times, list) or len(times) > 512 or any(type(t) not in (int, float) or not math.isfinite(t) or t < 0 for t in times):
+        raise ValueError("sampleTimes requires at most 512 finite nonnegative beat positions")
+    envelope = clip.automation_envelope(parameter)
+    samples = []
+    if envelope is not None:
+        for time in times:
+            value = float(envelope.value_at_time(time))
+            if not math.isfinite(value):
+                raise ValueError("mixer envelope sample is unavailable")
+            samples.append({"time": time, "value": value, "displayValue": parameter.str_for_value(value)})
+    return {"stateVersion": version, "trackId": params["trackId"], "clipId": params["clipId"],
+            **_selector(params, mixer=True), "clipLengthBeats": float(clip.length), "parameter": _parameter_record(parameter, index),
+            "exists": envelope is not None, "samples": samples}
