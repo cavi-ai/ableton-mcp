@@ -4015,6 +4015,12 @@ def dispatch_request(song, request, state_version, application=None):
         with _undo_step(song):
             setattr(device, "input_routing_type" if is_type else "input_routing_channel", matches[0])
         return _device_sidechain_routing(song, track_id, device_id, state_version + 1)
+    if method == "get_audio_midi_sketch_source":
+        try:
+            from .audio_midi_sketch import source
+        except ImportError:
+            from audio_midi_sketch import source
+        return source(song, params, state_version)
     if method == "get_audio_clip_state":
         return _audio_clip_state(song, params["trackId"], params["clipId"], state_version)
     if method == "get_audio_source_beat_times":
