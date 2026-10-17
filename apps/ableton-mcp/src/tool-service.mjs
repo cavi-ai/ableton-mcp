@@ -1,5 +1,6 @@
 import { enrichArrangementSection, assertArrangementRange } from "./arrangement-section.mjs";
 import { assertExpectedState } from "./bridge-protocol.mjs";
+import {getSceneLaunchContext} from "./scene-context.mjs";
 import {setTrackVolumeDb} from "./track-volume.mjs";
 import {setTrackSendDb} from "./track-send.mjs";
 import {setDeviceParameterDisplay} from "./parameter-display.mjs";
@@ -66,6 +67,15 @@ function canonicalLocalSpliceMetadataItem(item, configuredRoots) {
 function requireExpectedState(args) {
   if (!Number.isInteger(args.expectedStateVersion)) {
     throw new Error("expectedStateVersion is required for mutations");
+  }
+}
+
+function assertInactiveSimpler(before) {
+  const row=before.track, recording=before.recording;
+  if (before.multiSampleMode !== false || row.frozen !== false || row.armed !== false || ![1,2].includes(row.monitoring) ||
+    !Number.isInteger(row.firedSlotIndex) || row.firedSlotIndex >= 0 || recording.isPlaying !== false ||
+    recording.arrangement?.record !== false || recording.session?.record !== false || before.playingPositionEnabled !== false) {
+    throw Error('Simpler editing requires a single sample, stopped transport, no recording, and an inactive unarmed target without input monitoring or pending launches');
   }
 }
 
@@ -713,6 +723,10 @@ export class ToolService {
     if (name === "list_arrangement_cue_points") return this.bridge.request("list_arrangement_cue_points", {});
     if (name === "list_tracks") return this.bridge.request("list_tracks", {});
     if (name === "list_scenes") return this.bridge.request("list_scenes", {});
+    if (name === "get_scene_launch_context") return getSceneLaunchContext(this.bridge,args);
+    if (name === "get_simpler_sample_state") return this.#readSimplerSampleState(args);
+    if (name === "load_simpler_sample") return this.#loadSimplerSample(args);
+    if (name === "set_simpler_sample_region") return this.#setSimplerSampleRegion(args);
     if (name === "list_clips") return this.bridge.request("list_clips", args);
     if (name === "list_arrangement_clips") return this.bridge.request(name, args);
     if (name === "place_session_clip_in_arrangement") return this.#placeSessionClipInArrangement(args);
@@ -1550,6 +1564,7 @@ export class ToolService {
     if (name === "create_return_track") return this.#createReturnTrack(args);
     if (name === "create_scene") return this.#createScene(args);
     if (name === "set_scene_launch_quantization") return this.#setSceneLaunchQuantization(args);
+    if (name === "set_clip_slot_stop_button") return this.#setClipSlotStopButton(args);
     if (name === "set_scene_musical_context") return this.#setSceneMusicalContext(args);
     if (name === "rename_session_object") return this.#renameSessionObject(args);
     if (name === "duplicate_session_object") return this.#duplicateSessionObject(args);
@@ -3022,6 +3037,32 @@ export class ToolService {
     }, args);
   }
 
+  async #setClipSlotStopButton(args) {
+    requireExpectedState(args);
+    if (typeof args.trackId !== 'string' || !/^track-(0|[1-9][0-9]*)$/.test(args.trackId) ||
+      typeof args.clipId !== 'string' || !args.clipId.startsWith(`${args.trackId}:clip-`) ||
+      !/^(0|[1-9][0-9]*)$/.test(args.clipId.slice(`${args.trackId}:clip-`.length))) throw Error('canonical trackId and owned clipId required');
+    if (typeof args.hasStopButton !== 'boolean') throw Error('hasStopButton must be boolean');
+    const sceneId = `scene-${args.clipId.split(':clip-')[1]}`;
+    const {rowSummary, limitation, ...before} = await getSceneLaunchContext(this.bridge, {sceneId});
+    assertExpectedState({expectedStateVersion:args.expectedStateVersion}, before);
+    const row = before.tracks.find(track=>track.id===args.trackId);
+    if (!row || row.slot.id !== args.clipId || row.isGroup || row.slot.hasClip) throw Error('stop-button edits require an empty ordinary track slot');
+    if (typeof row.slot.hasStopButton !== 'boolean') throw Error('native stop button is unavailable');
+    if (row.frozen !== false || row.slot.isTriggered !== false || !Number.isInteger(row.firedSlotIndex) || row.firedSlotIndex >= 0 ||
+      before.recording.arrangement?.record !== false || before.recording.session?.record !== false || rowSummary.alreadyRecordingTrackIds.length) {
+      throw Error('resolve frozen tracks, recording and pending target launches before editing the stop button');
+    }
+    if (row.slot.hasStopButton === args.hasStopButton) throw Error('stop button already has the requested value');
+    const result = await this.#confirmedMutation({method:'set_clip_slot_stop_button', trackId:args.trackId, clipId:args.clipId,
+      sceneId, hasStopButton:args.hasStopButton, expectedStateVersion:args.expectedStateVersion, before,
+      warning:'Changes future Session scene launch behavior only; does not launch or stop playback. An armed empty slot can record under Live preferences. Disabling its stop button is not proof that recording is impossible; re-read the entire row before a separately authorized launch.'}, args);
+    if (!result.dryRun && (result.observed.stateVersion !== args.expectedStateVersion + 1 || result.observed.verified !== true ||
+      result.observed.trackId !== args.trackId || result.observed.clipId !== args.clipId || result.observed.sceneId !== sceneId ||
+      result.observed.hasStopButton !== args.hasStopButton)) throw Error('stop-button readback mismatch; inspect the slot before retrying');
+    return result;
+  }
+
   async #setSceneLaunchQuantization(args) {
     requireExpectedState(args);
     const observed = await this.bridge.request("list_scenes", {});
@@ -3534,6 +3575,75 @@ export class ToolService {
       throw new Error("drum variation verification mismatch");
     return { dryRun: false, requested: plan, observed,
       verification: { matchesExpectedNotes: true, notes: observed }, timestamp: new Date().toISOString() };
+  }
+
+  async #readSimplerSampleState(args) {
+    if (typeof args.trackId !== 'string' || !/^track-(0|[1-9][0-9]*)$/.test(args.trackId) ||
+      typeof args.deviceId !== 'string' || !args.deviceId.startsWith(args.trackId) ||
+      !/^:device-(?:0|[1-9][0-9]*)(?:\/(?:chain|return-chain)-(?:0|[1-9][0-9]*)\/device-(?:0|[1-9][0-9]*))*$/.test(args.deviceId.slice(args.trackId.length))) throw Error('canonical ordinary MIDI track and owned device path required');
+    const before = await this.bridge.request('get_simpler_sample_state',{trackId:args.trackId,deviceId:args.deviceId});
+    if (!Number.isInteger(before.stateVersion) || before.trackId !== args.trackId || before.deviceId !== args.deviceId ||
+      typeof before.identityToken !== 'string' || !before.identityToken || before.device?.id !== args.deviceId || before.device?.className !== 'OriginalSimpler' ||
+      before.track?.id !== args.trackId || !before.recording || !Array.isArray(before.parameters) || before.parameters.length > 512 ||
+      before.sample !== null && (!before.sample || typeof before.sample.path !== 'string')) throw Error('updated bridge Simpler sample context required');
+    return before;
+  }
+
+  async #loadSimplerSample(args) {
+    requireExpectedState(args);
+    if (args.allowReplace !== undefined && typeof args.allowReplace !== 'boolean') throw Error('allowReplace must be boolean');
+    const modes=['classic','one-shot','slicing'];
+    if (args.playbackMode !== undefined && !modes.includes(args.playbackMode)) throw Error('playbackMode must be classic, one-shot or slicing');
+    if (typeof args.sourcePath !== 'string' || !isAbsolute(args.sourcePath)) throw Error('sourcePath must be an absolute local audio-file path');
+    const sourcePath=await realpath(args.sourcePath), info=await stat(sourcePath,{bigint:true});
+    if (!info.isFile()) throw Error('sourcePath must reference a regular file');
+    const sourceFile={size:String(info.size),mtimeNs:String(info.mtimeNs),device:String(info.dev),inode:String(info.ino)};
+    const before=await this.#readSimplerSampleState(args);assertExpectedState(args,before);
+    if (before.multiSampleMode !== false || before.canReplaceSample !== true) throw Error('single-sample Simpler replacement is unavailable');
+    if (before.sample !== null && args.allowReplace !== true) throw Error('allowReplace is required for an existing sample');
+    assertInactiveSimpler(before);
+    const result=await this.#confirmedMutation({method:'load_simpler_sample',trackId:args.trackId,deviceId:args.deviceId,
+      expectedStateVersion:args.expectedStateVersion,sourcePath,sourceFile,allowReplace:args.allowReplace??false,
+      ...(args.playbackMode!==undefined?{playbackMode:modes.indexOf(args.playbackMode)}:{}),before,
+      warning:'Replaces this Simpler sample and may reset sample-derived controls, markers, slices or warp settings. Preserve an existing part through a separate native comparison when needed. File metadata is guarded, not decoded bytes or cache identity. Failure can leave a partial replacement; no complete sample-state backup or automatic rollback is available.'},args);
+    if (!result.dryRun) {
+      const value=result.observed;
+      let matchingPath=false;try {matchingPath=typeof value.sample?.path==='string' && await realpath(value.sample.path)===sourcePath;} catch {}
+      if (value.stateVersion!==args.expectedStateVersion+1 || value.verified!==true || value.trackId!==args.trackId || value.deviceId!==args.deviceId || !matchingPath ||
+        !Number.isSafeInteger(value.sample.lengthFrames) || value.sample.lengthFrames<=0 || !Number.isSafeInteger(value.sample.sampleRate) || value.sample.sampleRate<=0 ||
+        !Number.isSafeInteger(value.sample.startMarkerFrames) || !Number.isSafeInteger(value.sample.endMarkerFrames) ||
+        value.sample.startMarkerFrames<0 || value.sample.startMarkerFrames>=value.sample.endMarkerFrames || value.sample.endMarkerFrames>value.sample.lengthFrames ||
+        args.playbackMode!==undefined && value.playbackMode?.value!==modes.indexOf(args.playbackMode)) throw Error('Simpler sample readback mismatch; inspect the device and file before retrying');
+    }
+    return result;
+  }
+
+  async #setSimplerSampleRegion(args) {
+    requireExpectedState(args);
+    const keys=['startMarkerFrames','endMarkerFrames'];
+    if (!keys.some(key=>args[key]!==undefined) || keys.some(key=>args[key]!==undefined && !Number.isSafeInteger(args[key]))) {
+      throw Error('provide at least one integer sample-frame marker');
+    }
+    const before=await this.#readSimplerSampleState(args);assertExpectedState(args,before);assertInactiveSimpler(before);
+    const sample=before.sample;
+    if (!sample || !Number.isSafeInteger(sample.lengthFrames) || sample.lengthFrames<=1 ||
+      keys.some(key=>!Number.isSafeInteger(sample[key]))) throw Error('loaded Simpler sample with native frame bounds required');
+    const region=Object.fromEntries(keys.map(key=>[key,args[key]??sample[key]]));
+    if (region.startMarkerFrames<0 || region.startMarkerFrames>=region.endMarkerFrames || region.endMarkerFrames>=sample.lengthFrames ||
+      keys.every(key=>region[key]===sample[key])) throw Error('a changed sample region requires integer frames: 0 <= start < end < lengthFrames');
+    const result=await this.#confirmedMutation({method:'set_simpler_sample_region',trackId:args.trackId,deviceId:args.deviceId,
+      expectedStateVersion:args.expectedStateVersion,before,region,
+      warning:'Changes this Simpler playback region without cropping the source file. Live may derive slices and normalized sample/loop controls from the new bounds. Preserve an existing part through native comparison when needed. A failed edit can leave partial markers; inspect before retrying. No automatic rollback or complete sample-state backup.'},args);
+    if (!result.dryRun) {
+      const value=result.observed;
+      if (value.stateVersion!==args.expectedStateVersion+1 || value.verified!==true || value.identityToken!==before.identityToken ||
+        value.trackId!==args.trackId || value.deviceId!==args.deviceId || value.sample?.path!==sample.path ||
+        value.sample?.lengthFrames!==sample.lengthFrames || value.sample?.sampleRate!==sample.sampleRate ||
+        keys.some(key=>value.region?.[key]!==region[key] || value.sample?.[key]!==region[key])) {
+        throw Error('Simpler region readback mismatch; inspect the device before retrying');
+      }
+    }
+    return result;
   }
 
   async #createAudioClip(args) {
