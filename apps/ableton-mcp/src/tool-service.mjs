@@ -1111,7 +1111,8 @@ export class ToolService {
     }
     if (name === "get_automation_capabilities") return {
       sessionClipParameterEnvelopes: { read: true, write: true, shape: "steps" },
-      sessionClipMixerEnvelopes: { read: true, create: true, replace: false, controls: ["volume", "send"], shape: "steps" },
+      sessionClipMixerEnvelopes: { read: true, create: true, replace: false, controls: ["volume", "pan", "send"], shape: "steps",
+        pan: { panningMode: 0, splitStereo: false, targets: "raw_native_values" } },
       arrangementParameterAutomation: {
         read: false, write: false,
         reason: "Ableton Live's public Clip API returns no automation envelope for Arrangement clips"
