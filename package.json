@@ -41,6 +41,7 @@
     "ableton/Remote Scripts/CaviMcpBridge/take_lanes.py",
     "ableton/Remote Scripts/CaviMcpBridge/device_preset.py",
     "ableton/Remote Scripts/CaviMcpBridge/instrument_comparison.py",
+    "ableton/Remote Scripts/CaviMcpBridge/midi_capture.py",
     "ableton/Remote Scripts/CaviMcpBridge/audio_capture.py",
     "ableton/Remote Scripts/CaviMcpBridge/audio_export.py",
     "ableton/Remote Scripts/CaviMcpBridge/audio_midi_sketch.py",
