@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 253 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 255 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (108)
+## Read-only (109)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -59,6 +59,7 @@ The server publishes 253 tools. Mutations of the Live Set require `expectedState
 | `get_song_grid_reference` | Read a meter/tempo-aware bar of straight 16ths and eighth/sixteenth triplets, downbeats/offbeats and advisory 4/4 genre placements. Read-only. | none |
 | `get_song_musical_context` | Read key, scale, time signature, quantization, groove, swing, and Arrangement loop context. | none |
 | `get_track_freeze_state` | Read one track's native freeze state. On the tested Live 12.4.5, is_frozen is readable but has no setter, so freeze/unfreeze remain UI-only; Live's native error surfaces if a future version exposes the setter. | `trackId` |
+| `get_track_grouping_status` | Inspect a retained native grouping handle from a group_tracks plan, including after a lost reply. Resolves actual Group/member IDs, hierarchy, exposed material and controls. Read-only; does not repeat grouping or restore anything. Runtime handles can expire or disappear after bridge reload; missing handles require current-track inspection. All profile. | `groupingId` |
 | `get_track_midi_routing` | Read one track's native MIDI note routing (input/output notes and scale transposition) from its MIDIMap. Reports unsupported explicitly when Live does not expose it. | `trackId` |
 | `get_track_mixer` | Read bounded track volume, pan, mute, solo, and named return sends. | `trackId` |
 | `get_track_routing` | Read exact input, output, and monitoring choices for one track. Group Tracks expose monitoring as null because Live does not support it. | `trackId` |
@@ -117,7 +118,7 @@ The server publishes 253 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (123)
+## Mutations (124)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -169,6 +170,7 @@ The server publishes 253 tools. Mutations of the Live Set require `expectedState
 | `enqueue_nks_generation_jobs` | Plan or enqueue only explicitly selected eligible discovered presets, in batches of at most 100, using a single-use confirmation. Serum 2 and Omnisphere are limited to their deterministic factory pilots until every pilot record is validated. Does not generate or mark any preset saved. | `productSlug`, `presetIds` |
 | `export_audio_mix` | Export Main as stereo WAV through the macOS English Live dialog. Requires stopped transport, recording off, unarmed tracks and an absent destination. Rechecks document/mix controls and verifies native settings and file format. Full-range render completion remains unconfirmed. Current Session overrides are included. Updates export preferences; no overwrite or musical-quality claim. | `expectedStateVersion`, `path`, `start`, `length`, `expectedSetFingerprint` |
 | `finish_live_audio_capture` | Plan or release a completed capture handle, keeping its track/file. Cancel true stops and disarms an active capture early and retains partial audio. A pending native stop returns captureActive true with stopping status; read until confirmed, then finish. Cleanup failure is explicit and preserves the handle. Never stops source playback. | `expectedStateVersion`, `captureId` |
+| `group_tracks` | Create a native Group through macOS English Live UI from two to 64 consecutive ungrouped ordinary audio-producing tracks feeding Main. Saved Set, stopped playback/recording, unarmed/unfrozen sources and no pending launches required. Changes focus, hierarchy, routing and track IDs. Verifies retained objects and exposed material/controls. Partial results remain; no automatic undo. Retain groupingId for lost-response inspection. All profile. | `expectedStateVersion`, `trackIds`, `expectedSetFingerprint` |
 | `heartbeat_nks_generation_job` | Extend an unexpired NKS generation lease owned by this worker. | `presetId`, `workerId` |
 | `humanize_midi_notes` | Plan or apply guarded deterministic MIDI timing and velocity humanization with exact clip, grid, and complete native note readback. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `seed`, `gridBeats`, `maxTimingOffsetBeats`, `maxVelocityOffset` |
 | `jump_to_arrangement_cue_point` | Plan or move the playhead to one exact Arrangement cue point. | `expectedStateVersion`, `cuePointId` |

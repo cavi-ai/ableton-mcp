@@ -3007,6 +3007,12 @@ def dispatch_request(song, request, state_version, application=None):
         return dict(BRIDGE_PROTOCOL)
     if method == "get_selection_context":
         return _selection_context(song, state_version)
+    if method in ("get_track_grouping_source", "get_track_grouping_status"):
+        try:
+            from . import track_grouping
+        except ImportError:
+            import track_grouping
+        return (track_grouping.source if method == "get_track_grouping_source" else track_grouping.status)(song, params, state_version)
     if method == "get_session_orientation":
         return _session_orientation(song, state_version, application)
     if method in ("get_arrangement_audition_source", "audition_arrangement_passage"):

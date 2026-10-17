@@ -1,5 +1,6 @@
 import { enrichArrangementSection, assertArrangementRange } from "./arrangement-section.mjs";
 import { assertExpectedState } from "./bridge-protocol.mjs";
+import {groupTracks,getTrackGroupingStatus,MacTrackGroupingHost} from './track-grouping.mjs';
 import {getSceneLaunchContext} from "./scene-context.mjs";
 import {setTrackVolumeDb} from "./track-volume.mjs";
 import {setTrackSendDb} from "./track-send.mjs";
@@ -443,7 +444,7 @@ function normalizeBrowserSearch(args) {
 
 export class ToolService {
   constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, deviceChainLibrary, groupSystemLibrary, midiFeelLibrary, browserMetadata, spliceRoots = [], generationQueuePath,
-    liveSetHost = new MacLiveSetHost(), audioExportHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000 }) {
+    liveSetHost = new MacLiveSetHost(), audioExportHost, trackGroupingHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000 }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
@@ -456,6 +457,7 @@ export class ToolService {
     this.generationQueuePath = generationQueuePath;
     this.liveSetHost = liveSetHost;
     this.audioExportHost = audioExportHost ?? new MacAudioExportHost({liveSetHost});
+    this.trackGroupingHost = trackGroupingHost ?? new MacTrackGroupingHost({liveSetHost});
     this.liveSetOpenTimeoutMs = liveSetOpenTimeoutMs;
     this.liveSetSaveTimeoutMs = liveSetSaveTimeoutMs;
     this.liveSetLaunchTimeoutMs = liveSetLaunchTimeoutMs;
@@ -469,6 +471,8 @@ export class ToolService {
   async call(name, args = {}) {
     requestSignal()?.throwIfAborted();
     if(name === "export_audio_mix")return exportAudioMix(this.bridge,this.confirmations,this.audioExportHost,args);
+    if(name === "group_tracks")return groupTracks(this.bridge,this.confirmations,this.trackGroupingHost,args);
+    if(name === "get_track_grouping_status")return getTrackGroupingStatus(this.bridge,args);
     if (name === "list_local_splice_roots") return listConfiguredSpliceRoots(this.spliceRoots);
     if (name === "browse_local_splice_directory") {
       if (args.includeMetadata !== undefined && typeof args.includeMetadata !== "boolean") throw new Error("includeMetadata must be boolean");

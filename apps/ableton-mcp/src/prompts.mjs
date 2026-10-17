@@ -6,6 +6,18 @@ const confirmWorkflow = [
 const userMessage = (text) => ({ role: "user", content: { type: "text", text } });
 
 export const promptContracts = {
+  "group-session-tracks": {
+    name:"group-session-tracks",
+    description:"Create a real native Group from explicit consecutive tracks and verify its members and audio routing.",
+    arguments:[{name:"request",description:"Exact existing tracks to group, intended bus name and any processing request.",required:true}],
+    build:({request})=>({description:"Group existing tracks in Live.",messages:[userMessage(`Create this track Group: ${request}
+1. Read get_live_state, list_tracks and get_transport_recording_context. Resolve two to 64 exact consecutive ordinary root tracks in Live order; names can be duplicated. Do not invent musical roles, include intervening tracks, move tracks or silently group existing Groups. Ask one focused question only when materially different intended targets remain. The native grouping workflow requires a saved Set, macOS English Live, stopped playback/recording, unarmed/unfrozen targets with audio outputs currently feeding Main and no pending launches. Do not stop recording or change routes/arms to bypass these conditions. A MIDI track must already produce audio through its instrument.
+2. In the all profile, plan group_tracks with explicit trackIds, fresh expectedStateVersion and expectedSetFingerprint. Review target names, outputs, bound content and the warning. Grouping changes selection and routes these tracks through a newly inserted native Group to Main. Existing track IDs at and after insertion shift. Record the groupingId from the plan before confirming its token/hash. The tool selects and checks the exact native headers/menu; do not ask the user to make a resolved selection manually.
+3. Inspect groupRequested separately from groupVerified, native membership/order, materialPreserved, routingVerified and controlsPreserved. A command request is not proof of completion. After a partial or lost reply, use get_track_grouping_status with the retained groupingId and inspect current list_tracks. Runtime handles may disappear after bridge reload or expire; missing handles do not prove grouping failed. Never repeat an uncertain Group command, automatically ungroup or undo over manual edits. The UI action cannot be atomic with concurrent manual changes; postcondition failures require inspection.
+4. Use the returned original-to-current member mapping and re-read all affected track IDs before another edit. Resolve the newly created Group's exact ID. If the request names it, use a separate fresh rename_session_object plan with targetType track and that Group ID, then verify its actual name and refresh context again. Do not guess an ID from an earlier index. Read get_track_routing for members and Group, and get_track_mixer for the bus. Report actual routing and bus level; hierarchy does not prove audio equivalence or headroom.
+5. Add Group processing only when requested or already authorized, using exact browser paths and guarded device operations on the observed Group. Keep child instruments, notes, clips, sends and unrelated tracks intact. Native checks cover exposed target material and existing controls, not hidden plug-in state, complete automation envelopes or external file bytes. Saving and playback remain separate actions.
+Report the created Group, actual member IDs, observed routing, requested naming/processing and any unverified result. ${confirmWorkflow}`)]})
+  },
   "shape-clip-automation": {
     name:"shape-clip-automation",
     description:"Add stepped device, volume or Return-send automation to a preserved Session clip alternative using native values or units.",
