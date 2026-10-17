@@ -183,6 +183,11 @@ export function getProducerChainBlueprint(target) {
     execution: {
       loadTool: "load_browser_item",
       routeTool: blueprint.topology.startsWith("shared-") ? "route_tracks_to_bus" : null,
+      ...(blueprint.topology.startsWith("shared-") ? { audioBus: {
+        createTool:"create_track",trackType:"audio",routeTool:"set_track_routing",
+        verifyTool:"inspect_producer_bus",busKind:"audio",input:"No Input",monitoring:"in",output:"Main",childOutputChannel:"Track In",
+        instruction:"Resolve exact available routing choices and a unique bus name. Route each child directly to the ordinary audio bus and its Track In channel; do not use the Group-only route_tracks_to_bus tool."
+      } } : {}),
       ...(blueprint.topology.startsWith("shared-") ? { returnBus: {
         createTool: "create_return_track", routeTool: "route_tracks_to_return_bus",
         verifyTool: "inspect_producer_return_bus", requiredOutput: "Sends Only"

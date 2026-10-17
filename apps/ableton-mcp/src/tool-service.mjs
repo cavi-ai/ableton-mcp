@@ -1,10 +1,15 @@
 import {trackBounce,MacTrackBounceHost} from "./track-bounce.mjs";
 import {trackFreeze,MacTrackFreezeHost} from "./track-freeze.mjs";
+import {recordingSetup,MacRecordingSetupHost} from "./recording-setup.mjs";
+import {arrangementRecording} from "./arrangement-recording.mjs";
+import {importMidiFile,MacMidiImportHost} from './midi-import.mjs';
 import {saveNativeDevicePreset,MacDevicePresetHost} from './device-preset.mjs';
 import {collectProjectMedia,projectMediaInventory,MacProjectMediaHost} from './project-media.mjs';
 import { enrichArrangementSection, assertArrangementRange } from "./arrangement-section.mjs";
 import { assertExpectedState } from "./bridge-protocol.mjs";
 import {getSceneLaunchContext} from "./scene-context.mjs";
+import {readTakeLaneContext} from "./take-lanes.mjs";
+import {MacTakeLaneAuditionHost,takeLaneAudition} from "./take-lane-audition.mjs";
 import {setTrackVolumeDb} from "./track-volume.mjs";
 import {setTrackSendDb} from "./track-send.mjs";
 import {setDeviceParameterDisplay} from "./parameter-display.mjs";
@@ -17,11 +22,16 @@ import { createReadStream } from "node:fs";
 import { createHash } from "node:crypto";
 import { isAbsolute, relative, sep } from "node:path";
 import { analyzeAudioFile } from "./audio-analysis.mjs";
+import {compareAudioReference} from "./audio-reference.mjs";
+import {planAudioMidiSketch} from "./audio-midi-sketch.mjs";
 import { planClipPitchAdjustment } from "./audio-tuning.mjs";
 import { buildSongGridReference, planGridEnvelopePattern } from "./song-grid-reference.mjs";
 import { browseLocalSpliceDirectory, listConfiguredSpliceRoots, observeLocalSpliceSample, searchLocalSpliceSamples } from "./splice-local-search.mjs";
 import { inspectGroovePostconditions } from "./groove-workflow.mjs";
-import { analyzeMidiFeel, planMidiFeelTransfer } from "./midi-feel-analysis.mjs";
+import {beatRepeatFill} from "./beat-repeat-fill.mjs";
+import { analyzeMidiFeel, planMidiFeelTransfer, midiFeelClipEndBeats } from "./midi-feel-analysis.mjs";
+import {inspectProducerAudioBus} from "./producer-audio-bus.mjs";
+import {removeClipGroove, MacClipGrooveHost} from "./clip-groove-removal.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { MacLiveSetHost } from "./live-set-host.mjs";
 import {MacAudioExportHost,exportAudioMix} from "./audio-export.mjs";
@@ -447,7 +457,7 @@ function normalizeBrowserSearch(args) {
 
 export class ToolService {
   constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, deviceChainLibrary, groupSystemLibrary, midiFeelLibrary, browserMetadata, spliceRoots = [], generationQueuePath,
-    liveSetHost = new MacLiveSetHost(), audioExportHost, projectMediaHost, devicePresetHost, trackFreezeHost, trackBounceHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000 }) {
+    liveSetHost = new MacLiveSetHost(), audioExportHost, projectMediaHost, devicePresetHost, trackFreezeHost, trackBounceHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000, recordingSetupHost, midiImportHost, takeLaneAuditionHost, grooveRemovalHost }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
@@ -461,9 +471,13 @@ export class ToolService {
     this.liveSetHost = liveSetHost;
     this.trackBounceHost=trackBounceHost??new MacTrackBounceHost({liveSetHost});
     this.trackFreezeHost=trackFreezeHost??new MacTrackFreezeHost({liveSetHost});
+    this.recordingSetupHost=recordingSetupHost??new MacRecordingSetupHost({liveSetHost});
+    this.midiImportHost=midiImportHost??new MacMidiImportHost({liveSetHost});
     this.devicePresetHost=devicePresetHost??new MacDevicePresetHost({liveSetHost});
     this.projectMediaHost=projectMediaHost??new MacProjectMediaHost({liveSetHost});
     this.audioExportHost = audioExportHost ?? new MacAudioExportHost({liveSetHost});
+    this.takeLaneAuditionHost=takeLaneAuditionHost??new MacTakeLaneAuditionHost({liveSetHost});
+    this.grooveRemovalHost = grooveRemovalHost ?? new MacClipGrooveHost({liveSetHost});
     this.liveSetOpenTimeoutMs = liveSetOpenTimeoutMs;
     this.liveSetSaveTimeoutMs = liveSetSaveTimeoutMs;
     this.liveSetLaunchTimeoutMs = liveSetLaunchTimeoutMs;
@@ -477,6 +491,7 @@ export class ToolService {
   async call(name, args = {}) {
     requestSignal()?.throwIfAborted();
     if(name === "bounce_track_in_place")return trackBounce(this.bridge,this.confirmations,this.trackBounceHost,args);
+    if(name==='import_midi_file')return importMidiFile(this.bridge,this.confirmations,this.midiImportHost,args);
     if(name==='save_native_device_preset')return saveNativeDevicePreset(this.bridge,this.confirmations,this.devicePresetHost,args);
     if(name==='get_project_media')return projectMediaInventory(this.bridge,this.projectMediaHost);
     if(name==='collect_project_media')return collectProjectMedia(this.bridge,this.confirmations,this.projectMediaHost,args);
@@ -559,10 +574,10 @@ export class ToolService {
       const requested = planMidiFeelTransfer(before, clipTiming, args);
       const notes = new Map(before.notes.map(note => [note.noteId, note]));
       const changes = requested.map((change, index) =>
-        normalizeMidiNoteChange(change, index, notes.get(change.noteId), before.lengthBeats));
+        normalizeMidiNoteChange(change, index, notes.get(change.noteId), midiFeelClipEndBeats(before, clipTiming)));
       const plan = { method: "set_midi_note_properties", operation: "apply_midi_feel_template",
         ...target, expectedStateVersion: args.expectedStateVersion, before, clipTiming,
-        template: args.template, changes };
+        template: args.template, originBeats: args.originBeats ?? 0, changes };
       if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
       this.#consumeConfirmation(plan, args);
       const observed = await this.bridge.request("set_midi_note_properties", plan);
@@ -662,8 +677,11 @@ export class ToolService {
       return enrichArrangementSection(await this.bridge.request(name, args), {includeHarmony: args.includeHarmony ?? false});
     }
     if (name === "analyze_midi_parts") return enrichMidiPartsContext(await this.bridge.request(name, args));
+    if (["record_arrangement_take", "get_arrangement_take", "finish_arrangement_take"].includes(name)) return arrangementRecording(this.bridge,this.confirmations,name,args);
     if (["capture_live_audio", "get_live_audio_capture", "finish_live_audio_capture"].includes(name))
       return liveAudioCapture(this.bridge, this.confirmations, name, args);
+    if (["perform_beat_repeat_fill", "get_beat_repeat_fill", "finish_beat_repeat_fill"].includes(name))
+      return beatRepeatFill(this.bridge,this.confirmations,name,args);
     if (["get_instrument_comparison", "prepare_instrument_comparison", "adopt_instrument_comparison", "select_instrument_comparison"].includes(name))
       return instrumentComparison(this.bridge, this.confirmations, name, args);
     if (name === "get_selection_context") return this.bridge.request(name, {});
@@ -671,6 +689,9 @@ export class ToolService {
     if (name === "open_live_set") return this.#openLiveSet(args);
     if (name === "save_live_set") return this.#saveLiveSet(args);
     if (name === "get_transport_context") return this.bridge.request("get_transport_context", {});
+    if (name === "get_looper_export_context") return this.#readLooperExport(args);
+    if (name === "export_looper_clip") return this.#exportLooperClip(args);
+    if (name === "get_rack_performance_context") return this.bridge.request(name, args);
     if (name === "get_looper_performance_context") return this.bridge.request("get_looper_performance_context", args);
     if (name === "get_beat_repeat_performance_context") return this.bridge.request("get_beat_repeat_performance_context", args);
     if (name === "get_history_state") return this.bridge.request("get_history_state", {});
@@ -717,6 +738,8 @@ export class ToolService {
     if (name === "list_arrangement_cue_points") return this.bridge.request("list_arrangement_cue_points", {});
     if (name === "list_tracks") return this.bridge.request("list_tracks", {});
     if (name === "list_scenes") return this.bridge.request("list_scenes", {});
+    if (['get_take_lane_audition_context','show_take_lanes','select_take_lane_audition'].includes(name)) return takeLaneAudition(name,this.bridge,this.confirmations,this.takeLaneAuditionHost,args);
+    if (name === "get_take_lane_context") return readTakeLaneContext(this.bridge,args);
     if (name === "get_scene_launch_context") return getSceneLaunchContext(this.bridge,args);
     if (name === "get_simpler_sample_state") return this.#readSimplerSampleState(args);
     if (name === "load_simpler_sample") return this.#loadSimplerSample(args);
@@ -795,7 +818,9 @@ export class ToolService {
     if (name === "plan_midi_scale_chord_remapping") return this.#planMidiScaleChordRemapping(args);
     if (name === "plan_midi_diatonic_chord_quality") return this.#planMidiDiatonicChordQuality(args);
     if (name === "get_track_mixer") return this.bridge.request("get_track_mixer", args);
+    if (name === "get_track_signal_activity") return this.bridge.request("get_track_signal_activity", args);
     if (name === "get_track_routing") return this.bridge.request("get_track_routing", args);
+    if (name === "get_return_routing") return this.bridge.request("get_return_routing", args);
     if (name === "get_set_mixer") return this.bridge.request("get_set_mixer", {});
     if (name === "get_producer_workflow") return getProducerWorkflow(args);
     if (name === "audition_arrangement_passage") return auditionArrangementPassage(this.bridge,this.confirmations,args);
@@ -808,6 +833,7 @@ export class ToolService {
         verification: verifyProducerChain(args.target, observed.devices) };
     }
     if (name === "inspect_producer_bus") {
+      if (args.busKind === "audio") return inspectProducerAudioBus(this.bridge,args);
       const blueprint = getProducerChainBlueprint(args.target);
       if (!["shared-instrument-bus", "shared-audio-bus"].includes(blueprint.topology))
         throw new Error("target must be a shared-bus blueprint");
@@ -1116,7 +1142,8 @@ export class ToolService {
     }
     if (name === "get_automation_capabilities") return {
       sessionClipParameterEnvelopes: { read: true, write: true, shape: "steps" },
-      sessionClipMixerEnvelopes: { read: true, create: true, replace: false, controls: ["volume", "send"], shape: "steps" },
+      sessionClipMixerEnvelopes: { read: true, create: true, replace: false, controls: ["volume", "pan", "send"], shape: "steps",
+        pan: { panningMode: 0, splitStereo: false, targets: "raw_native_values" } },
       arrangementParameterAutomation: {
         read: false, write: false,
         reason: "Ableton Live's public Clip API returns no automation envelope for Arrangement clips"
@@ -1270,6 +1297,8 @@ export class ToolService {
         limitation: "Heuristic source-only candidates and review-only actions. Offsets no larger than one 10-ms detector hop in native beat coordinates are reported but not proposed as marker edits. Each remaining marker must be dry-run against fresh Live state; neighbor/BPM constraints may reject it. Does not modify or audibly validate the clip." };
     }
     if (name === "get_device_sidechain_routing") return this.bridge.request("get_device_sidechain_routing", args);
+    if (name === "compare_audio_reference") return compareAudioReference(args);
+    if (name === "plan_audio_midi_sketch") return planAudioMidiSketch(this.bridge,args);
     if (name === "analyze_audio_file") return analyzeAudioFile(args.sourcePath, args);
     if (name === "analyze_audio_clip") {
       const target = { trackId: args.trackId, clipId: args.clipId };
@@ -1482,9 +1511,16 @@ export class ToolService {
       const parameters = await this.bridge.request("list_device_parameters", { trackId: args.trackId, deviceId: args.deviceId });
       assertExpectedState(args, parameters);
       if (parameters.deviceId !== args.deviceId || !Array.isArray(parameters.parameters)) throw new Error("rack parameter identity mismatch");
-      return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+      const result = await this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
         expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, beforeParameters: parameters.parameters,
         limitation: "Live does not expose the stored variation's target values or mapping destinations." }, args);
+      if (!result.dryRun) {
+        const previousCount = rack.rackMacros.variationCount;
+        result.observed.storedVariationIndex = result.observed.stored === true &&
+          Number.isSafeInteger(previousCount) && previousCount >= 0 &&
+          result.observed.device?.rackMacros?.variationCount === previousCount + 1 ? previousCount : null;
+      }
+      return result;
     }
     if (name === "recall_rack_macro_variation") {
       requireExpectedState(args);
@@ -1541,6 +1577,19 @@ export class ToolService {
       return this.bridge.request("list_device_parameters", args);
     }
     if (name === "set_device_parameters") return this.#setDeviceParameters(args);
+    if (name === "get_device_ab_context") return this.bridge.request(name,{trackId:args.trackId,deviceId:args.deviceId});
+    if (name === "copy_device_ab_slot" || name === "select_device_ab_slot") {
+      requireExpectedState(args);
+      if(name==="copy_device_ab_slot"&&args.overwriteOtherSlot!==true)throw Error("overwriteOtherSlot: true is required to discard the other native A/B slot");
+      if(name==="select_device_ab_slot"&&!["A","B"].includes(args.targetSlot))throw Error("targetSlot must be A or B");
+      const before=await this.bridge.request("get_device_ab_context",{trackId:args.trackId,deviceId:args.deviceId});
+      assertExpectedState(args,before);
+      if(!before.supported||!["A","B"].includes(before.activeSlot)||typeof before.identityToken!=="string"||typeof before.parametersDigest!=="string")throw Error("updated bridge and a device with native A/B support required");
+      if(name==="copy_device_ab_slot"&&!before.canCopy)throw Error("native other-slot copy is unavailable");
+      return this.#confirmedMutation({method:name,trackId:args.trackId,deviceId:args.deviceId,expectedStateVersion:args.expectedStateVersion,before,
+        ...(name==="copy_device_ab_slot"?{overwriteOtherSlot:true}:{targetSlot:args.targetSlot}),
+        warning:name==="copy_device_ab_slot"?"Overwrites the other native device A/B slot with the current state. Other-slot contents and automation are unavailable and are not backed up or independently verified. No automatic retry or rollback.":"Loads the chosen native A/B slot and may change exposed controls and hidden device state. Native switching can disable automation without re-enabling it on return. Slot readback is not preset equivalence, automation preservation or audible proof; playback continues."},args);
+    }
     if (name === "set_device_parameter_display") return setDeviceParameterDisplay(this.bridge,this.confirmations,args);
     if (name === "set_looper_state") return this.#setLooperState(args);
     if (name === "set_beat_repeat_enabled") return this.#setBeatRepeatEnabled(args);
@@ -1551,6 +1600,7 @@ export class ToolService {
     if (name === "set_groove") return this.#setGroove(args);
     if (name === "create_groove") return this.#createGroove(args);
     if (name === "set_transport_recording_context") return this.#setTransportRecordingContext(args);
+    if (name === "get_midi_capture_context") return this.bridge.request(name, {});
     if (name === "capture_midi_session") return this.#captureMidiSession(args);
     if (["create_arrangement_cue_point", "rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point"].includes(name)) {
       return this.#arrangementCuePointMutation(name, args);
@@ -2051,6 +2101,48 @@ export class ToolService {
     };
   }
 
+  async #readLooperExport(args) {
+    const owner = /^(?:(?:track|return)-(?:0|[1-9][0-9]*)|master)$/;
+    if (!owner.test(args.trackId ?? '') || typeof args.deviceId !== 'string' || !args.deviceId.startsWith(args.trackId + ':device-') ||
+      !/^:device-(?:0|[1-9][0-9]*)(?:\/(?:chain|return-chain)-(?:0|[1-9][0-9]*)\/device-(?:0|[1-9][0-9]*))*$/.test(args.deviceId.slice(args.trackId.length)) ||
+      !/^track-(?:0|[1-9][0-9]*)$/.test(args.destinationTrackId ?? '') || typeof args.destinationClipId !== 'string' ||
+      !args.destinationClipId.startsWith(args.destinationTrackId + ':clip-') ||
+      !/^:clip-(?:0|[1-9][0-9]*)$/.test(args.destinationClipId.slice(args.destinationTrackId.length))) {
+      throw Error('canonical Looper device and ordinary destination audio slot required');
+    }
+    const target = Object.fromEntries(['trackId','deviceId','destinationTrackId','destinationClipId'].map(key=>[key,args[key]]));
+    const before = await this.bridge.request('get_looper_export_context', target);
+    if (!Number.isInteger(before.stateVersion) || Object.entries(target).some(([key,value])=>before[key]!==value) ||
+      typeof before.identityToken !== 'string' || !before.identityToken || !Array.isArray(before.parameters) ||
+      before.parameters.length > 512 || !before.destination || !before.recording || before.bufferContentAvailable !== false) {
+      throw Error('updated bridge Looper export context required');
+    }
+    return before;
+  }
+
+  async #exportLooperClip(args) {
+    requireExpectedState(args);
+    if (args.name !== undefined && (typeof args.name !== 'string' || !args.name.trim() || args.name.length > 128)) throw Error('name must contain 1 to 128 characters');
+    const before = await this.#readLooperExport(args); assertExpectedState(args,before);
+    const target = before.destination;
+    if (before.canExport !== true || !Number.isFinite(before.loopLength) || before.loopLength <= 0 || !['Stop','Play'].includes(before.state) ||
+      before.sourceFrozen !== false || before.recording.arrangement !== false || before.recording.session !== false ||
+      target.hasClip !== false || target.audioTrack !== true || target.frozen !== false || target.armed !== false ||
+      !Number.isInteger(target.firedSlotIndex) || target.firedSlotIndex >= 0 || target.isTriggered !== false) {
+      throw Error('Looper export requires a fixed nonempty buffer, Stop/Play state, no recording and an empty inactive unarmed audio destination');
+    }
+    const result = await this.#confirmedMutation({method:'export_looper_clip',
+      ...Object.fromEntries(['trackId','deviceId','destinationTrackId','destinationClipId','expectedStateVersion'].map(key=>[key,args[key]])),
+      ...(args.name !== undefined ? {name:args.name} : {}), before,
+      warning:'Creates a Session audio clip without launching it or clearing Looper. Buffer bytes and edits that preserve exposed controls/length cannot be compared. The audio engine must be enabled. A partial export is retained for inspection; never retry blindly.'},args);
+    if (!result.dryRun && (result.observed.stateVersion !== args.expectedStateVersion + 1 ||
+      ['trackId','deviceId','destinationTrackId','destinationClipId'].some(key=>result.observed[key]!==args[key]) ||
+      result.observed.exportRequested !== true || typeof result.observed.clipCreatedVerified !== 'boolean' || result.observed.bufferContentVerified !== false)) {
+      throw Error('Looper export receipt mismatch; inspect the destination before retrying');
+    }
+    return result;
+  }
+
   async #setLooperState(args) {
     requireExpectedState(args);
     const before = await this.bridge.request("get_looper_performance_context", {
@@ -2318,11 +2410,14 @@ export class ToolService {
 
   async #captureMidiSession(args) {
     requireExpectedState(args);
-    const observed = await this.bridge.request("get_transport_recording_context", {});
-    assertExpectedState(args, observed);
-    if (observed.midiCapture?.available !== true) throw new Error("no MIDI material is available to capture");
-    return this.#confirmedMutation({ method: "capture_midi_session", destination: "session",
-      expectedStateVersion: args.expectedStateVersion, before: observed.midiCapture }, args);
+    const before = await this.bridge.request("get_midi_capture_context", {});
+    assertExpectedState(args, before);
+    if (before.available !== true) throw new Error("no MIDI material is available to capture");
+    if (before.overdubClipIds?.length && args.allowExistingClipChanges !== true)
+      throw new Error("Capture MIDI may change a playing Session clip; explicit existing-clip scope required");
+    return this.#confirmedMutation({method:"capture_midi_session",destination:"session",
+      expectedStateVersion:args.expectedStateVersion,before,allowExistingClipChanges:args.allowExistingClipChanges??false,
+      warning:"Global capture of Live's current hidden MIDI buffer across armed/monitored tracks; not selected-track capture. May start playback, add scenes, change tempo or rebuild playing clips, including note IDs, repeated content and loop markers. Existing edits may fall outside the resulting loop. Buffer contents and the moving playhead are not reserved by this plan."},args);
   }
 
   async #setTransportContext(args) {
@@ -2339,6 +2434,7 @@ export class ToolService {
       value: normalizeChoice(args.countInDuration, "countInDuration", observed.countInDuration.choices)
     };
     if (!Object.keys(changes).length) throw new Error("at least one transport context change is required");
+    if (args.countInDuration!==undefined) return recordingSetup(this.bridge,this.confirmations,this.recordingSetupHost,args,{observed,changes});
     return this.#confirmedMutation({
       method: "set_transport_context", expectedStateVersion: args.expectedStateVersion,
       before: observed, changes
@@ -2368,6 +2464,7 @@ export class ToolService {
   }
 
   async #setClipTiming(args) {
+    if (args.grooveId === null) return removeClipGroove(this.bridge, this.confirmations, this.grooveRemovalHost, args);
     requireExpectedState(args);
     const observed = await this.bridge.request("get_clip_timing", { trackId: args.trackId, clipId: args.clipId });
     assertExpectedState(args, observed);
@@ -2421,8 +2518,8 @@ export class ToolService {
       changes.editorGrid = editorGrid;
     }
     if (args.grooveId !== undefined) {
-      if (typeof args.grooveId !== "string") throw new Error("grooveId must identify an available groove");
-      if (!observed.availableGrooves.some(({ id }) => id === args.grooveId)) throw new Error(`unknown groove ${args.grooveId}`);
+      if (args.grooveId !== null && typeof args.grooveId !== "string") throw new Error("grooveId must identify an available groove or be null");
+      if (args.grooveId !== null && !observed.availableGrooves.some(({ id }) => id === args.grooveId)) throw new Error(`unknown groove ${args.grooveId}`);
       changes.grooveId = args.grooveId;
     }
     if (!Object.keys(changes).length) throw new Error("at least one clip timing change is required");
@@ -4686,15 +4783,19 @@ export class ToolService {
     const listMethod = method === "load_browser_item" ? "get_browser_items" : "get_factory_browser_items";
     const listing = await this.bridge.request(listMethod, browserPath);
     if (!listing.item.loadable) throw new Error(`Live browser item ${listing.item.name} is not loadable`);
+    const beforeLoadContext=await this.bridge.request("get_browser_load_context",{trackId:args.trackId,...browserPath});
+    assertExpectedState(args,beforeLoadContext);
+    if(hashPlan(beforeLoadContext.item)!==hashPlan(listing.item))throw new Error("native browser item changed while planning");
     return this.#confirmedMutation({
       method, trackId: args.trackId,
       expectedStateVersion: args.expectedStateVersion,
       root: browserPath.root, path: browserPath.path, item: listing.item,
-      beforeClipTopology,
+      beforeClipTopology, beforeLoadContext,
       loadBehavior: {
+        mayCreateTracks:true,
         mayReplaceExistingDevices: observed.devices.length > 0,
         existingDeviceIds: observed.devices.map(({ id }) => id),
-        warning: "Live browser loading may replace an existing instrument or rack, or insert or replace a Session clip when loading audio. Inspect before and beforeClipTopology; use an empty staging track to avoid changing existing content."
+        warning: "Live browser loading may replace an existing instrument or rack, insert or replace a Session clip, or create tracks/scenes. MIDI files may create separate tracks instead of filling the selected destination. Inspect before, beforeClipTopology and beforeLoadContext; resolve returned trackEffect identities before further edits. Preserve uncertain imports and never replay automatically."
       },
       before: observed
     }, args);

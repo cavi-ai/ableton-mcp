@@ -91,6 +91,28 @@ Task inputs are limited to 48,000 bytes and returned model JSON to 16,000 bytes.
 
 ## Plan, confirm and observe
 
+Optional `postconditions` on `run_production_task` let the caller define the required final outcome. For a bounded gain change:
+
+```json
+{
+  "projectId": "my-song",
+  "goal": "Lower the named bass to -12 dB while preserving other controls.",
+  "scope": { "trackId": "track-2" },
+  "postconditions": [{
+    "tool": "get_track_mixer",
+    "args": { "trackId": "track-2" },
+    "path": ["volume", "decibels"],
+    "expected": -12
+  }]
+}
+```
+
+Use actual IDs and values from the intended outcome. Each of one to eight checks names a real read-only tool, valid arguments, a field path of at most eight property names or array indexes, and an expected JSON value. An empty path compares the whole response. Checks use exact JSON equality, including value types; they do not infer tolerances or formatted display strings. Invalid tools, arguments or scope fail before Live observation or a model request. An empty check list is rejected.
+
+The task returns `checkSource: "caller"` and an immutable `postconditionsRef`. Both roles receive the caller criteria, with their read schemas available without discovery. The saved criteria stay separate from observed facts and specialist suggestions. `suggestedCheckCount` counts checks in the final functional reply; those suggestions remain in its result artifact and must still pass tool and scope validation. They do not replace or add required caller checks. Without `postconditions`, the existing specialist-defined checks remain required and `checkSource` is `"specialist"`.
+
+Review the criteria reference along with the original operation plan before confirmation. Plans and receipts identify the check source and criteria reference. Checks run only after the final operation of the task; a proposal or an earlier operation does not establish that the final criteria passed. A false caller check produces `postconditions_failed`; an unavailable observation produces `outcome_unknown`. Caller criteria do not bypass unanswered questions, budgets, state or native guards, and passing field checks does not establish audible quality. Supplying an old criteria artifact as context alone does not make it the new task's required outcome.
+
 Call `apply_production_operation` with `projectId`, `taskId`, `operationIndex: 0` and the task's `expectedStateVersion`. It returns the original tool's plan reference, proposed arguments, plan hash and expiring confirmation token. Review the plan artifact, then repeat the same request with `dryRun: false`, `confirmationToken` and `planHash`.
 
 The original tool validates its arguments and its native mutation guards. All mutations entering the same configured service share an execution queue. Other clients and manual edits still require the original bridge's state and identity checks; this queue is not a cross-process lock.
