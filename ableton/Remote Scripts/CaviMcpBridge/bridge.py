@@ -3423,23 +3423,14 @@ def dispatch_request(song, request, state_version, application=None):
         return _track_midi_routing(song, params["trackId"], state_version + 1)
     if method == "get_track_freeze_state":
         return _track_freeze_state(song, params["trackId"], state_version)
+    if method == "get_track_freeze_source":
+        try:
+            from .track_freeze import source
+        except ImportError:
+            from track_freeze import source
+        return source(song, params, state_version)
     if method == "set_track_freeze_state":
-        if params.get("expectedStateVersion") != state_version:
-            raise ValueError("track freeze state version changed")
-        current = _track_freeze_state(song, params["trackId"], state_version)
-        if not current["freeze"]["supported"]:
-            raise ValueError("track freeze state is not exposed by this Live version")
-        if params.get("before") != current["freeze"]:
-            raise ValueError("track freeze state changed")
-        frozen = params["frozen"]
-        if type(frozen) is not bool:
-            raise ValueError("frozen must be boolean")
-        if current["freeze"]["frozen"] == frozen:
-            raise ValueError("track is already in the requested freeze state")
-        _, track = _track(song, params["trackId"])
-        with _undo_step(song):
-            track.is_frozen = frozen
-        return _track_freeze_state(song, params["trackId"], state_version + 1)
+        raise ValueError("track freeze is read-only in the native API; use the guarded native UI path")
     if method == "set_group_fold_state":
         track_index, track = _track(song, params["trackId"])
         if not bool(getattr(track, "is_foldable", False)):

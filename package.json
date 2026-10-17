@@ -41,6 +41,7 @@
     "ableton/Remote Scripts/CaviMcpBridge/arrangement_section.py",
     "ableton/Remote Scripts/CaviMcpBridge/arrangement_audition.py",
     "ableton/Remote Scripts/CaviMcpBridge/track_volume.py",
+    "ableton/Remote Scripts/CaviMcpBridge/track_freeze.py",
     "ableton/Remote Scripts/CaviMcpBridge/track_send.py",
     "ableton/Remote Scripts/CaviMcpBridge/session_recording.py",
     "ableton/Remote Scripts/CaviMcpBridge/simpler_sample.py",

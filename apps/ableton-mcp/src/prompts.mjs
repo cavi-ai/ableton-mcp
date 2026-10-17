@@ -6,6 +6,18 @@ const confirmWorkflow = [
 const userMessage = (text) => ({ role: "user", content: { type: "text", text } });
 
 export const promptContracts = {
+  "freeze-track-processing": {
+    name:"freeze-track-processing",
+    description:"Freeze one named track for playback or unfreeze it for editing, with explicit native command and state verification.",
+    arguments:[{name:"request",description:"Exact part, freeze/unfreeze intent and any playback, editing or saving instructions.",required:true}],
+    build:({request})=>({description:"Manage one track's native freeze state.",messages:[userMessage(`Prepare track processing: ${request}
+1. Read get_live_state, get_selection_context, list_tracks, get_transport_recording_context and get_track_freeze_state for the named target. Resolve the exact ordinary audio/MIDI track and requested frozen state. Selection is only a fallback after checking ownership. Ask one focused question if materially different tracks or intentions remain. Do not infer CPU cost or sound quality from device names. Freezing renders the entire track's Session and Arrangement clips, not just a selected phrase; some edits remain locked until unfreezing. Preserve original processing and musical material.
+2. Native preparation requires a saved Set, macOS English Live, the updated bridge and one expected Live instance. Playback and recording must be stopped, the target unarmed and pending launches resolved. Never silently stop a performance or disarm another part. The ordinary target must be visible in the current Session or Arrangement view; separately unfold containing Groups only when intended. Freeze requires clips. Groups, Returns and Main are excluded. Known External Instrument/External Audio Effect freezing requires manual preparation for real-time rendering. Do not substitute bounce, device deletion or a different track.
+3. Plan set_track_freeze_state with trackId, frozen and fresh expectedStateVersion. Read the warning and confirm the unchanged plan when authorized. Planning sends no UI input. Execution changes focus, selects exactly the target, verifies single-track selection and invokes only the explicit Freeze/Unfreeze menu item. Native identities, exposed notes/timing and device/mixer controls are bound; automation envelopes, hidden plug-in state and external file bytes are not. Preserve user edits to the selection or menu; stale context requires new observation.
+4. Inspect freezeRequested, freezeVerified, actual freeze.frozen, dialogCleanup and pendingUserAction. Require freezeVerified:true before relying on the requested state. It establishes native state and idle UI, not complete material preservation, audio equivalence, a measured CPU improvement or a saved Set. If rendering is pending, a dialog appears, the request is cancelled or the reply is lost, inspect Live and get_track_freeze_state before further input. Never repeat an uncertain command, cancel a render, use global undo, bounce or auto-unfreeze as recovery.
+5. After unfreezing, refresh native clip/device context before editing. After freezing, audition only when requested and ask what the user hears before claiming an acceptable result. Session freeze tails and nondeterministic processing can differ. Freeze again or save only when intended; configuration alone does not authorize playback or saving.
+${confirmWorkflow}`)]})
+  },
   "shape-clip-automation": {
     name:"shape-clip-automation",
     description:"Add stepped device, volume or Return-send automation to a preserved Session clip alternative using native values or units.",

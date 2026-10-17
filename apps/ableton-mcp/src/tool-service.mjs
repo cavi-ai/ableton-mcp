@@ -1,3 +1,4 @@
+import {trackFreeze,MacTrackFreezeHost} from "./track-freeze.mjs";
 import { enrichArrangementSection, assertArrangementRange } from "./arrangement-section.mjs";
 import { assertExpectedState } from "./bridge-protocol.mjs";
 import {getSceneLaunchContext} from "./scene-context.mjs";
@@ -443,7 +444,7 @@ function normalizeBrowserSearch(args) {
 
 export class ToolService {
   constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, deviceChainLibrary, groupSystemLibrary, midiFeelLibrary, browserMetadata, spliceRoots = [], generationQueuePath,
-    liveSetHost = new MacLiveSetHost(), audioExportHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000 }) {
+    liveSetHost = new MacLiveSetHost(), audioExportHost, trackFreezeHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000 }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
@@ -455,6 +456,7 @@ export class ToolService {
     this.spliceRoots = spliceRoots;
     this.generationQueuePath = generationQueuePath;
     this.liveSetHost = liveSetHost;
+    this.trackFreezeHost=trackFreezeHost??new MacTrackFreezeHost({liveSetHost});
     this.audioExportHost = audioExportHost ?? new MacAudioExportHost({liveSetHost});
     this.liveSetOpenTimeoutMs = liveSetOpenTimeoutMs;
     this.liveSetSaveTimeoutMs = liveSetSaveTimeoutMs;
@@ -4591,14 +4593,7 @@ export class ToolService {
   async #setTrackFreezeState(args) {
     requireExpectedState(args);
     if (typeof args.frozen !== "boolean") throw new Error("frozen must be boolean");
-    const observed = await this.bridge.request("get_track_freeze_state", { trackId: args.trackId });
-    assertExpectedState(args, observed);
-    if (!observed.freeze?.supported) throw new Error("track freeze state is not exposed by this Live version");
-    if (observed.freeze.frozen === args.frozen) throw new Error("track is already in the requested freeze state");
-    return this.#confirmedMutation({ method: "set_track_freeze_state", trackId: args.trackId,
-      expectedStateVersion: args.expectedStateVersion, before: observed.freeze, frozen: args.frozen,
-      contentMutationRisk: { kind: "rendered_track_audio", freezes: args.frozen,
-        parameterRollbackRestoresContent: false } }, args);
+    return trackFreeze(this.bridge,this.confirmations,this.trackFreezeHost,args);
   }
 
   async #setGroupFoldState(args) {
