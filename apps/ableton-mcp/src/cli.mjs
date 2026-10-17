@@ -13,7 +13,7 @@ import { getPrompt, listPrompts } from "./prompts.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const requiredCapabilities = JSON.parse(readFileSync(new URL("../../../ableton/Remote Scripts/CaviMcpBridge/capabilities.json", import.meta.url), "utf8"));
-const remoteScriptFiles = ["__init__.py", "arrangement_audition.py", "arrangement_section.py", "audio_capture.py", "audio_export.py", "bridge.py", "capabilities.json", "clip_duplication.py", "clip_envelope.py", "instrument_comparison.py", "midi_capture.py", "parameter_display.py", "protocol.py", "session_recording.py", "simpler_sample.py", "track_send.py", "track_volume.py"];
+const remoteScriptFiles = ["__init__.py", "arrangement_audition.py", "arrangement_section.py", "audio_capture.py", "audio_export.py", "bridge.py", "capabilities.json", "clip_duplication.py", "clip_envelope.py", "device_preset.py", "instrument_comparison.py", "midi_capture.py", "parameter_display.py", "protocol.py", "session_recording.py", "simpler_sample.py", "track_send.py", "track_volume.py"];
 
 async function remoteScriptCopies({ sourceRoot, platform, home, applicationsRoot }) {
   const roots = defaultRemoteScriptRoots({ platform, home });
