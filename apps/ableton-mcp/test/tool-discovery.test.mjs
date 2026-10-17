@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createRouter } from "../src/server.mjs";
 import { ToolService } from "../src/tool-service.mjs";
 import { toolContracts } from "../src/tool-contracts.mjs";
+import { ProducerService } from "../src/producer-service.mjs";
 
 test("MCP discovery exposes every contracted producer tool", async () => {
   const listed = await createRouter(new ToolService({}))({ id: 1, method: "tools/list" });
@@ -120,7 +121,9 @@ test("every tool advertises MCP annotations matching its mutation class", async 
 
 test("every contracted tool has a service handler", async () => {
   const bridge = { request: async () => { throw new Error("bridge unavailable"); } };
-  const service = new ToolService({ bridge, catalog: { search: () => [], get: () => undefined } });
+  const service = new ProducerService({
+    service: new ToolService({ bridge, catalog: { search: () => [], get: () => undefined } }), config: null
+  });
   const unhandled = [];
   for (const name of Object.keys(toolContracts)) {
     try {

@@ -2592,15 +2592,21 @@ export class ToolService {
     requireExpectedState(args);
     const sourceClipId = args.clipId ?? args.sourceClipId;
     const targetClipId = args.destinationClipId ?? args.targetClipId;
+    const targetTrackId = args.destinationTrackId ?? args.trackId;
     if (args.name !== undefined && (typeof args.name !== "string" || !args.name.trim() || args.name.length > 128)) throw new Error("name must contain 1 to 128 characters");
-    const observed = await this.bridge.request("get_clip_duplication_source", { trackId: args.trackId, sourceClipId, targetClipId });
+    const observed = await this.bridge.request("get_clip_duplication_source", { trackId: args.trackId, sourceClipId, targetTrackId, targetClipId });
     assertExpectedState({ expectedStateVersion: args.expectedStateVersion, trackId: args.trackId }, observed);
-    if (!observed.identityToken || observed.sourceClipId !== sourceClipId || observed.targetClipId !== targetClipId) throw new Error("updated bridge clip duplication context required");
-    return this.#confirmedMutation({
+    if (!observed.identityToken || observed.sourceClipId !== sourceClipId || observed.targetClipId !== targetClipId || observed.targetTrackId !== targetTrackId) throw new Error("updated bridge clip duplication context required");
+    const result = await this.#confirmedMutation({
       method: "duplicate_clip", trackId: args.trackId,
-      sourceClipId, targetClipId, ...(args.name !== undefined ? { name: args.name } : {}),
+      sourceClipId, targetTrackId, targetClipId, ...(args.name !== undefined ? { name: args.name } : {}),
       expectedStateVersion: args.expectedStateVersion, before: observed
     }, args);
+    if (!result.dryRun && (result.observed.stateVersion !== args.expectedStateVersion + 1 || result.observed.copyVerified !== true ||
+      result.observed.trackId !== targetTrackId || result.observed.sourceTrackId !== args.trackId || result.observed.sourceClipId !== sourceClipId || result.observed.copiedClipId !== targetClipId)) {
+      throw new Error("clip copy readback mismatch; inspect both tracks before retrying");
+    }
+    return result;
   }
 
   async #placeSessionClipInArrangement(args) {
@@ -2662,10 +2668,16 @@ export class ToolService {
   }
 
   #consumeConfirmation(plan, args) {
-    requestSignal()?.throwIfAborted();
-    const currentHash = hashPlan(plan);
-    if (args.planHash !== undefined && args.planHash !== currentHash) throw new Error("confirmation plan hash mismatch: observed plan changed");
-    return this.confirmations.consume(args.confirmationToken, currentHash);
+    try {
+      requestSignal()?.throwIfAborted();
+      const currentHash = hashPlan(plan);
+      if (args.planHash !== undefined && args.planHash !== currentHash) throw new Error("confirmation plan hash mismatch: observed plan changed");
+      return this.confirmations.consume(args.confirmationToken, currentHash);
+    } catch (error) {
+      error.outcome = "not_executed";
+      error.code ||= "CONFIRMATION_REJECTED";
+      throw error;
+    }
   }
 
   async #liveSetState(args) {

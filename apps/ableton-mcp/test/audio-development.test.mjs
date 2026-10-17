@@ -8,11 +8,11 @@ test("public clip duplication binds native source edits and carries a copy name"
   let pitch=0,writes=0;
   const service=new ToolService({bridge:{async request(method,params){
     if(method==="get_clip_duplication_source")return {stateVersion:3,trackId:params.trackId,
-      sourceClipId:params.sourceClipId,targetClipId:params.targetClipId,identityToken:"pair",
+      sourceClipId:params.sourceClipId,targetClipId:params.targetClipId,targetTrackId:params.targetTrackId,identityToken:"pair",
       source:{name:"Vocal",audio:{pitch}},target:{hasClip:false}};
     if(method==="list_clips")return {stateVersion:3,trackId:params.trackId,clips:[]};
     assert.equal(method,"duplicate_clip");assert.equal(params.name,"Warm alternative");assert.equal(params.before.source.audio.pitch,0);
-    writes++;return {stateVersion:4,copyVerified:true};
+    writes++;return {stateVersion:4,copyVerified:true,trackId:params.targetTrackId,sourceTrackId:params.trackId,sourceClipId:params.sourceClipId,copiedClipId:params.targetClipId};
   }}}),router=createRouter(service);
   const args={trackId:"track-0",clipId:"track-0:clip-0",destinationClipId:"track-0:clip-1",name:"Warm alternative",expectedStateVersion:3};
   const request=async args=>{const response=await router({id:1,method:"tools/call",params:{name:"duplicate_clip",arguments:args}});assert.ok(!response.error,JSON.stringify(response));return response.result;};
