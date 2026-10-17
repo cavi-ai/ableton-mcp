@@ -19,6 +19,7 @@
         { "title": "Manual control and automation", "path": "guides/parameter-automation.md" },
         { "title": "Resume session work", "path": "guides/resume-session-work.md" },
         { "title": "Understand a Set", "path": "guides/session-orientation.md" },
+        { "title": "Edit the selected control", "path": "guides/selected-control.md" },
         { "title": "Organize names and colors", "path": "guides/session-organization.md" },
         { "title": "Production specialists", "path": "guides/production-specialists.md" },
         { "title": "Create a musical sketch", "path": "guides/musical-sketch.md" },

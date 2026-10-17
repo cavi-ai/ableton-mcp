@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 300 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 302 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (129)
+## Read-only (130)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -66,6 +66,7 @@ The server publishes 300 tools. Mutations of the Live Set require `expectedState
 | `get_rack_performance_context` | Read one native snapshot of visible rack macros, exact mapped descendant parameters, ranges, current values, automation and variation count/index. Unresolved mappings and unknown layouts are explicit. Saved variation contents and audible results are unavailable. | `trackId`, `deviceId` |
 | `get_return_routing` | Read the exact output destination and available choices of one Return Track without changing routing, selection or playback. Reports unavailable native properties explicitly; send pre/post mode is not exposed. | `returnTrackId` |
 | `get_scene_launch_context` | Preview an exact Session scene in one native read: every track/slot, clip/stop/Group actions, arms, recording risks, current playback and global/scene musical context. Preserves selection and playback. Launch metadata only; no audible or follow-action prediction. All profile. | `sceneId` |
+| `get_selected_parameter_context` | Resolve Live’s selected native device or track/Return/Main mixer parameter without changing focus. Includes exact target IDs, control bounds/display/automation and selection token. None, unavailable and unresolved are distinct; chain mixers and hidden controls are unresolved. All profile. | none |
 | `get_selection_context` | Read selected track/scene/device, displayed clip and highlighted slot together without changing focus. Null is unresolved; clip and slot can differ. | none |
 | `get_session_clip_hold` | Read one retained Session clip hold, or list holds after a lost response. Reports press/release command receipts, current native clip IDs, playback snapshots and cleanup errors. No input or playback changes. Runtime state may disappear after reload; missing handles do not prove release. All profile. | none |
 | `get_session_orientation` | Read Set, recording, selection, clip and instruments together; configured scale and ambiguous MIDI evidence. No edits, playback or focus changes. | none |
@@ -138,7 +139,7 @@ The server publishes 300 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (142)
+## Mutations (143)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -266,6 +267,7 @@ The server publishes 300 tools. Mutations of the Live Set require `expectedState
 | `set_return_mixer` | Plan or apply return-bus volume, pan, mute, or solo changes. The native write rechecks the complete signed Return state and groups changes in one undo step with rollback on failure. | `expectedStateVersion`, `returnTrackId` |
 | `set_scene_launch_quantization` | Plan or apply a guarded per-scene clip-launch quantization override from list_scenes. The global setting stays in song musical context; only the selected scene changes. | `expectedStateVersion`, `sceneId`, `launchQuantization` |
 | `set_scene_musical_context` | Plan or set an exact Session scene tempo and/or time-signature override. Disabled overrides inherit the song context; enabled overrides take effect when the scene is launched. | `expectedStateVersion`, `sceneId` |
+| `set_selected_parameter` | Edit the exact currently selected native control at one absolute value or finite unit display. Requires fresh selection token and unchanged identity/value/context; rejects active/unknown automation, recording/count-in and unsafe owners. Preserves focus/playback; partial work retained without rollback/replay. All profile. | `expectedStateVersion`, `expectedSelectionToken` |
 | `set_song_musical_context` | Plan or apply guarded song key, scale, timing, quantization, groove, swing, or loop changes. | `expectedStateVersion` |
 | `set_tempo` | Plan or set song tempo within Live's accepted range. | `expectedStateVersion`, `tempo` |
 | `set_track_midi_routing` | Plan or apply guarded changes to one track's native MIDI input/output note and scale transposition. Affects every clip launched on the track; does not change device-level or rack-chain note routing. | `expectedStateVersion`, `trackId` |
