@@ -287,6 +287,9 @@ const toolNames = [
   "set_track_volume_db",
   "set_track_send_db",
   "set_device_parameter_display",
+  "get_device_ab_context",
+  "copy_device_ab_slot",
+  "select_device_ab_slot",
   "create_clip_parameter_envelope",
   "create_clip_mixer_envelope",
   "stop_all_clips"

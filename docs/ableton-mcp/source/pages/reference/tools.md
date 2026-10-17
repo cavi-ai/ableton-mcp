@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 253 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 256 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (108)
+## Read-only (109)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -30,6 +30,7 @@ The server publishes 253 tools. Mutations of the Live Set require `expectedState
 | `get_clip_mixer_envelope` | Read an ordinary Session clip volume or exact Return-send envelope without changing focus or playback. MIDI/warped audio beats. Samples do not recover the complete curve. | `trackId`, `clipId`, `mixerControl` |
 | `get_clip_parameter_envelope` | Sample one Session clip parameter envelope at exact beat positions. | `trackId`, `clipId`, `deviceId`, `parameterId` |
 | `get_clip_timing` | Read Session/Arrangement loop timing and actual markers. Markers use beats for MIDI/warped audio, seconds if unwarped; supported=false if unavailable. | `trackId`, `clipId` |
+| `get_device_ab_context` | Read one device's native A/B capability, active slot, exposed parameters, identity and recording context without changing focus. Other-slot contents and hidden state are unavailable. Updated bridge; all profile. | `trackId`, `deviceId` |
 | `get_device_hierarchy` | Read rack chains/mixers, populated Drum Rack pads and macro/variation state. Available macro_mappings include displayed target path, parameter and min/max; paths are descriptive, not stable IDs. Variation contents are unavailable. | `trackId`, `deviceId` |
 | `get_device_sidechain_routing` | Read exact native external-sidechain source type and channel choices for one loaded device. Reports unsupported explicitly; does not confuse device-sidechain routing with track input routing. | `trackId`, `deviceId` |
 | `get_factory_browser_items` | Browse one exact level of a Live factory browser root; optional offset and limit return a bounded child page. Optionally join private MCP tags and favorites for exact child identities, not native Live collections. | `root` |
@@ -117,7 +118,7 @@ The server publishes 253 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (123)
+## Mutations (125)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -145,6 +146,7 @@ The server publishes 253 tools. Mutations of the Live Set require `expectedState
 | `capture_live_audio` | Plan or start a bounded Live Resampling recording of current playback into a new muted, monitor-off audio track. Requires playback, recording off and no armed tracks. Only its capture is stopped/disarmed automatically, even after client disconnect. No isolated-stem, hardware or listener proof. | `expectedStateVersion`, `beats`, `name` |
 | `capture_midi_session` | Plan or invoke Live's native Capture MIDI into Session View for recently played MIDI on audible tracks. May create or change clips on multiple MIDI tracks or add a scene; the target is determined by Live, not guaranteed by the plan. Reports immediate slot changes plus note count/digest changes in armed playing MIDI clips; inspect notes separately for content. Requires native can_capture_midi readiness and confirmation. | `expectedStateVersion` |
 | `claim_nks_generation_job` | Atomically lease one pending NKS generation job for a worker. Returns its catalog preset without loading the plugin or saving a file. | `workerId`, `productSlug` |
+| `copy_device_ab_slot` | Request native copying of current device state over the other A/B slot. Requires explicit overwriteOtherSlot true; previous other-slot contents are not backed up. Binds native identity/current controls and refuses recording, frozen owner or active/unknown automation. Copy request is not hidden-state verification. No automatic rollback. | `expectedStateVersion`, `trackId`, `deviceId`, `overwriteOtherSlot` |
 | `correct_midi_clip_to_scale` | Plan or apply guarded pitch correction of exact chromatic MIDI notes into the current Live scale. Direction is explicit; equal nearest choices require an explicit tie break. Existing in-scale notes are never changed. | `expectedStateVersion`, `trackId`, `clipId`, `direction` |
 | `create_arrangement_cue_point` | Plan or create an Arrangement cue point at an exact beat position. | `expectedStateVersion`, `name`, `timeBeats` |
 | `create_audio_clip` | Plan/import local audio into an empty Session slot on an unfrozen audio track. Binds source identity, size and mtime; Live validates format. | `expectedStateVersion`, `trackId`, `clipId`, `sourcePath` |
@@ -204,6 +206,7 @@ The server publishes 253 tools. Mutations of the Live Set require `expectedState
 | `save_group_system_snapshot` | Capture an existing Group Track and descendants into a private named local JSON file. Never overwrites; preserves exposed mixer, routing, device and rack state but not clips, samples, hidden plug-in state, automation or mappings. | `busTrackId`, `name` |
 | `save_midi_feel_template` | Analyze one exact MIDI clip and save its stored-note timing and velocity template in the private named local library. Never overwrites. Rejects clips assigned a native groove; does not capture Groove Pool playback effects. | `name`, `trackId`, `clipId`, `grid` |
 | `save_track_state_snapshot` | Capture one exact track state and save its JSON to the private named local snapshot library. Never overwrites; excludes clips, hidden plugin state, samples, automation and mappings. | `trackId`, `name` |
+| `select_device_ab_slot` | Load exact native device A/B slot A or B while preserving transport. Binds current device identity/parameters and refuses recording, frozen owner or active/unknown automation. Switching can disable automation without re-enabling it on return. Reports observed slot/controls; no hidden preset, automation-preservation, phase or audible proof. | `expectedStateVersion`, `trackId`, `deviceId`, `targetSlot` |
 | `select_instrument_comparison` | Plan or switch only the original/alternative pair's mutes in one native step. Restore uses the reported preparation/adoption mute baseline. Refuses recording, frozen, solo and live-input conflicts. No playback, routing or note edits. Optional finish ends the handle and preserves both tracks. | `expectedStateVersion`, `comparisonId`, `choice` |
 | `set_audio_clip_state` | Plan or apply guarded audio-clip gain, pitch offsets, warp, and marker changes. Use beats for warped clips and seconds for unwarped clips; change warping separately from markers. | `expectedStateVersion`, `trackId`, `clipId` |
 | `set_beat_repeat_enabled` | Plan or request one exact native Beat Repeat Repeat choice, Off or On. Native execution rechecks the complete device, routing, and transport snapshot before writing Repeat and reports its immediately observed value. Does not promise beat-scheduled execution, a captured buffer, or an audible effect. | `expectedStateVersion`, `trackId`, `deviceId`, `enabled` |
