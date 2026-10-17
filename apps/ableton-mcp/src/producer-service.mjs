@@ -99,6 +99,14 @@ export class ProducerService {
     this.#scope(read.args, scope);
   }
 
+  #validatePostconditions(checks, scope) {
+    for (const check of checks) {
+      if (Object.hasOwn(producerToolContracts, check.tool) || !toolContracts[check.tool]?.annotations.readOnlyHint)
+        throw new Error(`postcondition tool must be read-only: ${check.tool}`);
+      this.#validateRead(check, scope, [check.tool]);
+    }
+  }
+
   #scope(args, scope) {
     for (const key of ["trackId", "clipId", "deviceId"])
       if (scope[key] && args[key] && args[key] !== scope[key]) throw new Error(`specialist ${key} is outside task scope`);
@@ -141,9 +149,9 @@ export class ProducerService {
       nextOffset: offset + 4 < matches.length ? offset + 4 : null };
   }
 
-  #schemas(role) {
+  #schemas(role, initialReads = readNames) {
     const operations = role === "functional" ? operationNames.filter(eligibleOperation).map(operationSchema) : [];
-    return { reads: readNames.filter(name => toolContracts[name]).map(name => ({ name, inputSchema: toolContracts[name].inputSchema })), operations,
+    return { reads: initialReads.filter(name => toolContracts[name]).map(name => ({ name, inputSchema: toolContracts[name].inputSchema })), operations,
       discovery: { tool: "discover_production_tools", args: { query: "words from the tool name or description", kind: "read or operation", offset: 0 },
         description: "Find at most four additional tool schemas. Creative may discover reads only. Operations are proposed, never executed by a specialist." },
       artifactRead: { tool: "read_production_artifact", args: { artifactId: "ID present in this task", offset: 0, limit: 4000 } } };
@@ -158,6 +166,8 @@ export class ProducerService {
 
   async #runTask(args) {
     const workflow=args.workflow?getProducerWorkflow({workflow:args.workflow.name,arguments:args.workflow.arguments}):null;
+    const postconditions = args.postconditions === undefined ? null : structuredClone(args.postconditions);
+    if (postconditions) this.#validatePostconditions(postconditions, args.scope || {});
     const selected = args.roles === "both" ? roles : [args.roles || "functional"];
     for (const role of selected) if (!this.config?.[role]) throw new Error(`${role} specialist is not configured`);
     const signal = requestSignal();
@@ -167,12 +177,15 @@ export class ProducerService {
       const { projectId, goal, scope = {}, constraints = [] } = args;
       const observed = await this.#context(projectId);
       const workflowRef=workflow?this.artifacts.put(projectId,"workflow",{selection:args.workflow,guidance:workflow}):null;
+      const checkMetadata = { checkSource: postconditions ? "caller" : "specialist",
+        ...(postconditions ? { postconditionsRef: this.artifacts.put(projectId, "postconditions", postconditions) } : {}) };
       const contextRefs = [...new Set([observed.contextRef, ...(args.contextRefs || [])])];
       for (const ref of contextRefs) this.artifacts.get(projectId, ref);
       const sessionRoot = join(this.artifacts.directory, ".sessions");
       mkdirSync(sessionRoot, { recursive: true, mode: 0o700 });
       const results = [], turnRefs = []; let exhausted = false, reads = 0, stopReason;
-      const allowedReads = [...readNames], allowedOperations = [...operationNames];
+      const initialReads = [...new Set([...readNames, ...(postconditions || []).map(check => check.tool)])];
+      const allowedReads = [...initialReads], allowedOperations = [...operationNames];
       for (const role of selected) {
         checkSignal();
         const cwd = mkdtempSync(join(sessionRoot, `${role}-`));
@@ -180,7 +193,8 @@ export class ProducerService {
           const runtime = this.runtimeFactory(this.config[role]);
           const packet = { role, goal, scope, constraints, context: contextRefs.map(ref => this.#preview(projectId, ref)),
             ...(workflow?{workflow}:{}),
-            tools: this.#schemas(role), progress: { completedReads: [] },
+            ...(postconditions ? { postconditions: structuredClone(postconditions) } : {}),
+            tools: this.#schemas(role, initialReads), progress: { completedReads: [] },
             ...(role === "functional" && results.length ? { creativeProposal: results[0].result } : {}) };
           for (let round = 0; round < 3; round++) {
             checkSignal();
@@ -236,11 +250,13 @@ export class ProducerService {
       const questions = results.flatMap(value => value.result.questions);
       const status = exhausted ? "budget_exhausted" : stale ? "stale_context" : questions.length ? "needs_input" : "proposed";
       const functional = results.find(value => value.role === "functional")?.result;
+      checkMetadata.suggestedCheckCount = functional?.checks.length || 0;
       const operations = status === "proposed" ? functional?.operations || [] : [];
       const taskId = this.artifacts.put(projectId, "task", { goal, scope, constraints, basis: identity(observed), observedAfter: identity(after), contextRefs,
         ...(workflowRef?{workflowRef}:{}),
-        results, turnRefs, status, ...(stopReason ? { stopReason } : {}), operations, checks: functional?.checks || [], allowedReads, allowedOperations, createdAt: new Date().toISOString() });
-      return { taskId, status, ...(stopReason ? { stopReason } : {}),
+        results, turnRefs, status, ...checkMetadata, ...(stopReason ? { stopReason } : {}), operations,
+        checks: postconditions || functional?.checks || [], allowedReads, allowedOperations, createdAt: new Date().toISOString() });
+      return { taskId, status, ...checkMetadata, ...(stopReason ? { stopReason } : {}),
         summary: (exhausted ? `Specialist stopped at ${stopReason}; no executable proposal.` : results.at(-1)?.result.summary || "No specialist proposal.").slice(0, 1000),
         ...(workflowRef?{workflowRef}:{}),
         ...identity(observed), operationCount: operations.length, questions: questions.slice(0, 4).map(question => question.slice(0, 300)),
@@ -255,6 +271,13 @@ export class ProducerService {
     const taskRecord = this.artifacts.get(projectId, taskId);
     if (taskRecord.kind !== "task" || taskRecord.value.status !== "proposed") throw new Error("task is incomplete or not executable");
     const task = taskRecord.value;
+    const checkMetadata = { checkSource: task.checkSource || "specialist", suggestedCheckCount: task.suggestedCheckCount ?? task.checks.length,
+      ...(task.postconditionsRef ? { postconditionsRef: task.postconditionsRef } : {}) };
+    if (checkMetadata.checkSource === "caller") {
+      const declared = this.artifacts.get(projectId, task.postconditionsRef);
+      if (declared.kind !== "postconditions" || !isDeepStrictEqual(declared.value, task.checks)) throw new Error("task postconditions do not match their saved reference");
+      this.#validatePostconditions(task.checks, task.scope);
+    }
     const operation = task.operations[operationIndex];
     if (!operation) throw new Error("operation index is outside this task");
     let basis = task.basis;
@@ -282,13 +305,13 @@ export class ProducerService {
     catch (error) {
       if (args.dryRun !== false) throw error;
       const status = error.outcome === "not_executed" ? "rejected" : "outcome_unknown";
-      const receiptId = this.artifacts.put(projectId, "receipt", { taskId, operationIndex, status,
+      const receiptId = this.artifacts.put(projectId, "receipt", { taskId, operationIndex, status, ...checkMetadata,
         error: error.message, outcome: error.outcome || null });
-      return { taskId, operationIndex, status, outcome: error.outcome || "unknown", receiptId,
+      return { taskId, operationIndex, status, ...checkMetadata, outcome: error.outcome || "unknown", receiptId,
         message: "Inspect Live and the receipt before proposing further changes; execution is not retried." };
     }
     const resultRef = this.artifacts.put(projectId, "operation-result", value);
-    if (args.dryRun !== false) return { taskId, operationIndex, status: "planned", tool: operation.tool,
+    if (args.dryRun !== false) return { taskId, operationIndex, status: "planned", ...checkMetadata, tool: operation.tool,
       ...(JSON.stringify(operation.args).length <= 2000 ? { arguments: operation.args }
         : { argumentsOmitted: true, reviewRequired: "Read the planRef artifact for complete proposed arguments before confirming." }),
       planRef: resultRef, confirmationToken: value.confirmation?.token,
@@ -310,8 +333,8 @@ export class ProducerService {
     const status = observationError ? "outcome_unknown" : value.pendingUserAction ? "pending_user_action"
       : value.playbackVerified === false ? "pending_postconditions"
       : checks.some(check => !check.matches) || value.saved === false || value.opened === false ? "postconditions_failed" : "applied";
-    const receiptId = this.artifacts.put(projectId, "receipt", { taskId, operationIndex, status, after, checks, resultRef, observationError });
-    return { taskId, operationIndex, status, receiptId, resultRef, ...(after ? identity(after) : {}), checks,
+    const receiptId = this.artifacts.put(projectId, "receipt", { taskId, operationIndex, status, ...checkMetadata, after, checks, resultRef, observationError });
+    return { taskId, operationIndex, status, ...checkMetadata, receiptId, resultRef, ...(after ? identity(after) : {}), checks,
       verification: checks.length ? "declared_field_checks" : "operation_response_and_state_readback", audibleQualityVerified: false };
   }
 }

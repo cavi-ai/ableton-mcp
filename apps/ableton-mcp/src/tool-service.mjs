@@ -21,6 +21,7 @@ import { planClipPitchAdjustment } from "./audio-tuning.mjs";
 import { buildSongGridReference, planGridEnvelopePattern } from "./song-grid-reference.mjs";
 import { browseLocalSpliceDirectory, listConfiguredSpliceRoots, observeLocalSpliceSample, searchLocalSpliceSamples } from "./splice-local-search.mjs";
 import { inspectGroovePostconditions } from "./groove-workflow.mjs";
+import {removeClipGroove, MacClipGrooveHost} from "./clip-groove-removal.mjs";
 import { analyzeMidiFeel, planMidiFeelTransfer } from "./midi-feel-analysis.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { MacLiveSetHost } from "./live-set-host.mjs";
@@ -447,7 +448,7 @@ function normalizeBrowserSearch(args) {
 
 export class ToolService {
   constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, deviceChainLibrary, groupSystemLibrary, midiFeelLibrary, browserMetadata, spliceRoots = [], generationQueuePath,
-    liveSetHost = new MacLiveSetHost(), audioExportHost, projectMediaHost, devicePresetHost, takeLaneAuditionHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000 }) {
+    liveSetHost = new MacLiveSetHost(), audioExportHost, projectMediaHost, devicePresetHost, takeLaneAuditionHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000, grooveRemovalHost }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
@@ -463,6 +464,7 @@ export class ToolService {
     this.projectMediaHost=projectMediaHost??new MacProjectMediaHost({liveSetHost});
     this.audioExportHost = audioExportHost ?? new MacAudioExportHost({liveSetHost});
     this.takeLaneAuditionHost=takeLaneAuditionHost??new MacTakeLaneAuditionHost({liveSetHost});
+    this.grooveRemovalHost = grooveRemovalHost ?? new MacClipGrooveHost({liveSetHost});
     this.liveSetOpenTimeoutMs = liveSetOpenTimeoutMs;
     this.liveSetSaveTimeoutMs = liveSetSaveTimeoutMs;
     this.liveSetLaunchTimeoutMs = liveSetLaunchTimeoutMs;
@@ -795,7 +797,9 @@ export class ToolService {
     if (name === "plan_midi_scale_chord_remapping") return this.#planMidiScaleChordRemapping(args);
     if (name === "plan_midi_diatonic_chord_quality") return this.#planMidiDiatonicChordQuality(args);
     if (name === "get_track_mixer") return this.bridge.request("get_track_mixer", args);
+    if (name === "get_track_signal_activity") return this.bridge.request("get_track_signal_activity", args);
     if (name === "get_track_routing") return this.bridge.request("get_track_routing", args);
+    if (name === "get_return_routing") return this.bridge.request("get_return_routing", args);
     if (name === "get_set_mixer") return this.bridge.request("get_set_mixer", {});
     if (name === "get_producer_workflow") return getProducerWorkflow(args);
     if (name === "audition_arrangement_passage") return auditionArrangementPassage(this.bridge,this.confirmations,args);
@@ -1116,7 +1120,8 @@ export class ToolService {
     }
     if (name === "get_automation_capabilities") return {
       sessionClipParameterEnvelopes: { read: true, write: true, shape: "steps" },
-      sessionClipMixerEnvelopes: { read: true, create: true, replace: false, controls: ["volume", "send"], shape: "steps" },
+      sessionClipMixerEnvelopes: { read: true, create: true, replace: false, controls: ["volume", "pan", "send"], shape: "steps",
+        pan: { panningMode: 0, splitStereo: false, targets: "raw_native_values" } },
       arrangementParameterAutomation: {
         read: false, write: false,
         reason: "Ableton Live's public Clip API returns no automation envelope for Arrangement clips"
@@ -2368,6 +2373,7 @@ export class ToolService {
   }
 
   async #setClipTiming(args) {
+    if (args.grooveId === null) return removeClipGroove(this.bridge, this.confirmations, this.grooveRemovalHost, args);
     requireExpectedState(args);
     const observed = await this.bridge.request("get_clip_timing", { trackId: args.trackId, clipId: args.clipId });
     assertExpectedState(args, observed);
@@ -2421,8 +2427,8 @@ export class ToolService {
       changes.editorGrid = editorGrid;
     }
     if (args.grooveId !== undefined) {
-      if (typeof args.grooveId !== "string") throw new Error("grooveId must identify an available groove");
-      if (!observed.availableGrooves.some(({ id }) => id === args.grooveId)) throw new Error(`unknown groove ${args.grooveId}`);
+      if (args.grooveId !== null && typeof args.grooveId !== "string") throw new Error("grooveId must identify an available groove or be null");
+      if (args.grooveId !== null && !observed.availableGrooves.some(({ id }) => id === args.grooveId)) throw new Error(`unknown groove ${args.grooveId}`);
       changes.grooveId = args.grooveId;
     }
     if (!Object.keys(changes).length) throw new Error("at least one clip timing change is required");

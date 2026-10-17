@@ -44,6 +44,7 @@ test("context and role results are stored as bounded references; creative and fu
   assert.equal(result.operationCount, 1);
   assert.equal(packets[0].role, "creative"); assert.equal(packets[1].role, "functional");
   assert.equal(packets[0].workflow, undefined);
+  assert.equal(packets[0].postconditions, undefined);
   assert.equal(packets[0].creativeProposal, undefined);
   assert.ok(packets[1].creativeProposal);
   assert.ok(JSON.stringify(packets).length < 48000 * 2);
@@ -274,6 +275,97 @@ test("failed declared postconditions cannot produce an applied receipt", async t
   const plan = await service.call("apply_production_operation", args);
   const result = await service.call("apply_production_operation", { ...args, dryRun: false, confirmationToken: plan.confirmationToken, planHash: plan.planHash });
   assert.equal(result.status, "postconditions_failed"); assert.equal(result.checks[0].matches, false);
+  assert.equal(task.checkSource, "specialist");assert.equal(result.checkSource, "specialist");
+  assert.equal(result.postconditionsRef, undefined);
+});
+
+for (const { expected, status, matches } of [
+  { expected: 100, status: "applied", matches: true },
+  { expected: 101, status: "postconditions_failed", matches: false }
+]) test(`caller postconditions determine ${status} while specialist suggestions stay visible`, async t => {
+  const postconditions = [{ tool: "get_live_state", args: {}, path: ["tempo"], expected }];
+  const { service, artifacts, packets } = await setup(t, packet => {
+    packet.postconditions?.splice(0, 1);
+    return response({ operations: [{ tool: "set_tempo", args: { tempo: 100 } }],
+      checks: [{ tool: "get_live_state", args: {}, path: ["tempo"], expected: 999 }] });
+  });
+  const task = await service.call("run_production_task", { projectId: "song", goal: "Set tempo to 100", postconditions });
+  postconditions[0].expected = 777;
+  assert.equal(task.checkSource, "caller");assert.equal(task.suggestedCheckCount, 1);
+  assert.equal(packets[0].postconditions[0].expected, expected);
+  const saved = artifacts.get("song", task.postconditionsRef);
+  assert.equal(saved.kind, "postconditions");assert.equal(saved.value[0].expected, expected);
+  const proposal = artifacts.get("song", task.taskId).value;
+  assert.equal(proposal.checks[0].expected, expected);
+  assert.equal(proposal.results[0].result.checks[0].expected, 999);
+  const args = { projectId: "song", taskId: task.taskId, operationIndex: 0, expectedStateVersion: 1 };
+  const plan = await service.call("apply_production_operation", args);
+  assert.equal(plan.postconditionsRef, task.postconditionsRef);assert.equal(plan.checkSource, "caller");
+  const receipt = await service.call("apply_production_operation", { ...args, dryRun: false,
+    confirmationToken: plan.confirmationToken, planHash: plan.planHash });
+  assert.equal(receipt.status, status);assert.equal(receipt.checkSource, "caller");
+  assert.equal(receipt.postconditionsRef, task.postconditionsRef);assert.equal(receipt.checks.length, 1);
+  assert.equal(receipt.checks[0].matches, matches);assert.equal(receipt.audibleQualityVerified, false);
+  assert.equal(artifacts.get("song", receipt.receiptId).value.checkSource, "caller");
+});
+
+test("invalid caller postconditions fail before Live or model calls", async t => {
+  for (const postconditions of [[],
+    [{ tool: "missing", args: {}, path: [], expected: null }],
+    [{ tool: "set_tempo", args: { tempo: 100 }, path: [], expected: null }],
+    [{ tool: "get_live_state", args: { unexpected: true }, path: [], expected: null }],
+    [{ tool: "get_track_mixer", args: { trackId: "track-1" }, path: ["mute"], expected: false }],
+    [{ tool: "get_production_context", args: { projectId: "song" }, path: [], expected: null }]
+  ]) {
+    const { service, calls, packets } = await setup(t, () => response());
+    await assert.rejects(service.call("run_production_task", { projectId: "song", goal: "Inspect this track",
+      scope: { trackId: "track-0" }, postconditions }));
+    assert.equal(calls.length, 0);assert.equal(packets.length, 0);
+  }
+});
+
+test("caller postcondition read schemas reach both roles without discovery and do not authorize writes", async t => {
+  const { service, packets, artifacts } = await setup(t, () => response());
+  const task = await service.call("run_production_task", { projectId: "song", goal: "Plan the next edit", roles: "both",
+    scope: { trackId: "track-0" }, postconditions: [{ tool: "get_track_freeze_state", args: { trackId: "track-0" }, path: ["frozen"], expected: false }] });
+  assert.equal(task.status, "proposed");assert.equal(task.operationCount, 0);assert.equal(task.readsUsed, 0);
+  for (const packet of packets) {
+    assert.equal(packet.postconditions[0].tool, "get_track_freeze_state");
+    assert.ok(packet.tools.reads.some(tool => tool.name === "get_track_freeze_state"));
+    assert.equal(packet.tools.operations.some(tool => tool.name === "get_track_freeze_state"), false);
+  }
+  assert.equal(artifacts.get("song", task.taskId).value.allowedReads.includes("get_track_freeze_state"), true);
+});
+
+test("caller criteria preserve unanswered-question and input-budget barriers", async t => {
+  const { service } = await setup(t, () => response({ operations: [{ tool: "set_tempo", args: { tempo: 100 } }], questions: ["Which passage?"] }));
+  const task = await service.call("run_production_task", { projectId: "song", goal: "Set tempo",
+    postconditions: [{ tool: "get_live_state", args: {}, path: ["tempo"], expected: 100 }] });
+  assert.equal(task.status, "needs_input");assert.equal(task.operationCount, 0);
+  const budget = await setup(t, () => response());
+  const large = await budget.service.call("run_production_task", { projectId: "song", goal: "Inspect",
+    postconditions: [{ tool: "get_live_state", args: {}, path: [], expected: "x".repeat(48000) }] });
+  assert.equal(large.status, "budget_exhausted");assert.equal(large.stopReason, "input_limit");
+  assert.equal(large.operationCount, 0);assert.equal(budget.packets.length, 0);
+});
+
+test("caller criteria cannot authorize an out-of-scope specialist check", async t => {
+  const { service, calls } = await setup(t, () => response({ operations: [{ tool: "set_tempo", args: { tempo: 100 } }],
+    checks: [{ tool: "get_track_mixer", args: { trackId: "track-1" }, path: ["mute"], expected: false }] }));
+  await assert.rejects(service.call("run_production_task", { projectId: "song", goal: "Plan", scope: { trackId: "track-0" },
+    postconditions: [{ tool: "get_live_state", args: {}, path: ["tempo"], expected: 100 }] }), /scope/);
+  assert.equal(calls.some(call => call.name === "set_tempo"), false);
+});
+
+test("execution refuses caller checks that differ from their saved criteria reference", async t => {
+  const { service, artifacts, calls } = await setup(t, () => response({ operations: [{ tool: "set_tempo", args: { tempo: 100 } }] }));
+  const task = await service.call("run_production_task", { projectId: "song", goal: "Set tempo to 100",
+    postconditions: [{ tool: "get_live_state", args: {}, path: ["tempo"], expected: 100 }] });
+  const changed = artifacts.get("song", task.taskId).value;
+  changed.checks[0].expected = 999;
+  const taskId = artifacts.put("song", "task", changed);
+  await assert.rejects(service.call("apply_production_operation", { projectId: "song", taskId, operationIndex: 0, expectedStateVersion: 1 }), /saved reference/);
+  assert.equal(calls.some(call => call.name === "set_tempo"), false);
 });
 
 test("specialists discover additional tool schemas lazily without executing operations", async t => {
