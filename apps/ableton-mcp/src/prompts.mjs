@@ -6,6 +6,16 @@ const confirmWorkflow = [
 const userMessage = (text) => ({ role: "user", content: { type: "text", text } });
 
 export const promptContracts = {
+  "ungroup-session-tracks": {
+    name:"ungroup-session-tracks",
+    description:"Remove an exact native Group while checking retained descendants and disclosing processing and routing loss.",
+    arguments:[{name:"request",description:"Exact Group to dissolve and explicit authority for any Group processing loss.",required:true}],
+    build:({request})=>({description:"Ungroup existing tracks in Live.",messages:[userMessage(`Ungroup this bus: ${request}
+1. Read get_live_state, list_tracks, get_transport_recording_context and the exact Group snapshot/routing. Resolve the intended Group and its enclosing Groups, direct children and descendants. Ask one focused question when materially different targets remain. The all-profile tool requires a saved Set, stopped playback/recording, unarmed/unfrozen descendants and no pending launches. Do not stop recording or change signal routes to bypass refusal. If enclosing Groups hide the target, use separate guarded set_group_fold_state actions to reveal them and refresh context; do not ask the user to select a resolved Group manually. Empty Groups use explicit track deletion.
+2. Plan ungroup_tracks with groupTrackId, fresh expectedStateVersion and expectedSetFingerprint. Review removedGroup, descendants, expected output routes and the warning. Removing the Group discards its entire mixer/processing stage; its gain, pan, mute/solo, sends, devices and output route are not transferred to children. Root children routed to Group become Main; nested children feed the enclosing Group. Existing custom child routes stay in place. This can change sound. Exposed external dependencies are refused. If Group devices exist, use allowContent:true only when the request explicitly authorizes discarding that processing; otherwise obtain scoped authorization after showing what would be lost. An exposed snapshot cannot restore hidden plug-in state or complete automation.
+3. Retain plan.before.ungroupingId before confirming its single-use token/hash. The tool checks the exact UI/native selected Group and context before issuing the command. Read ungroupRequested separately from ungroupVerified, then inspect membership, material, routing and controls. Concurrent manual edits cannot be made atomic with the UI action. Never automatically undo, regroup or repeat an uncertain command.
+4. After a lost or partial reply, read get_track_ungrouping_status with ungroupingId and inspect current list_tracks. Runtime handles can expire or disappear after bridge reload; a missing handle does not establish whether removal happened. Track IDs and numbered labels shift. Re-read affected track IDs and use returned source-to-current member mappings before another edit. Report the removed bus stage, actual child destinations, retained material and any unverified result. Saving, playback and audio equivalence remain separate. ${confirmWorkflow}`)]})
+  },
   "group-session-tracks": {
     name:"group-session-tracks",
     description:"Create a real native Group from explicit consecutive tracks and verify its members and audio routing.",

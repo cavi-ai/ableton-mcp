@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 258 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 260 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (110)
+## Read-only (111)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -64,6 +64,7 @@ The server publishes 258 tools. Mutations of the Live Set require `expectedState
 | `get_track_midi_routing` | Read one track's native MIDI note routing (input/output notes and scale transposition) from its MIDIMap. Reports unsupported explicitly when Live does not expose it. | `trackId` |
 | `get_track_mixer` | Read bounded track volume, pan, mute, solo, and named return sends. | `trackId` |
 | `get_track_routing` | Read exact input, output, and monitoring choices for one track. Group Tracks expose monitoring as null because Live does not support it. | `trackId` |
+| `get_track_ungrouping_status` | Inspect actual removal, retained descendants, membership, exposed material and routing for a retained ungroupingId, including after a lost reply. Read-only; never repeats removal or regroups. Runtime handles can expire or disappear after bridge reload. Missing handles require current-track inspection. All profile. | `ungroupingId` |
 | `get_transport_context` | Read transport playback, metronome, and count-in state. | none |
 | `get_transport_recording_context` | Read playhead, Arrangement and Session recording modes, automation arm, and native Capture MIDI readiness with MIDI track IDs. | none |
 | `inspect_clip_groove_postconditions` | Read current native context and inspect extraction, baking, or plain groove-removal postconditions against a supplied pre-action get_clip_groove_context snapshot. Does not execute the UI action, prove provenance, or validate audible equivalence. Extraction expects one appended groove and unchanged source/timing; baking expects removed assignment and unchanged unrelated timing/shared context; removal also requires unchanged source content. | `trackId`, `clipId`, `operation`, `before` |
@@ -248,7 +249,7 @@ The server publishes 258 tools. Mutations of the Live Set require `expectedState
 | `transport_stop` | Plan or stop Ableton transport playback. | `expectedStateVersion` |
 | `undo` | Plan or apply one guarded Ableton undo operation. | `expectedStateVersion` |
 
-## Destructive mutations (24)
+## Destructive mutations (25)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -276,3 +277,4 @@ The server publishes 258 tools. Mutations of the Live Set require `expectedState
 | `set_simpler_manual_slices` | Set an exact manual slice layout on a loaded single-sample Simpler, including nested racks. Selects Slicing/Manual mode, disables Pad Slicing and clears prior manual cuts, including outside the active region. Requires stopped transport and an inactive unarmed target; verifies native slices and retained sample. No file crop/reload or automatic rollback. All profile. | `expectedStateVersion`, `trackId`, `deviceId`, `slicesFrames` |
 | `set_simpler_sample_region` | Set a loaded Simpler playback region in native sample frames, including nested racks. At least one marker; omitted bound stays unchanged. Requires stopped transport and an inactive unarmed single-sample target. Binds native context and verifies exact markers; does not crop the source file. Partial failure requires inspection; no automatic rollback. All profile. | `expectedStateVersion`, `trackId`, `deviceId` |
 | `set_track_freeze_state` | Plan or toggle guarded track freeze. On the tested Live 12.4.5 the native is_frozen property has no setter, so execution fails closed with Live's own error; the plan still binds the observed state so newer Live versions can adopt the write without contract changes. Freezing renders the track's live material to audio and mutates audible content until unfrozen. | `expectedStateVersion`, `trackId`, `frozen` |
+| `ungroup_tracks` | Remove one native Group through macOS English Live UI, promoting its children to the enclosing Group or root. Removes its processing/mixer stage, shifts IDs and numbered labels, and can change sound/routing. Saved Set, stopped transport/recording, unarmed/unfrozen descendants and visible Group required. Refuses exposed external dependencies. Group devices require allowContent. Verifies retained descendants and exposed controls. No automatic undo/regrouping. Retain ungroupingId before execution. All profile. | `expectedStateVersion`, `groupTrackId`, `expectedSetFingerprint` |

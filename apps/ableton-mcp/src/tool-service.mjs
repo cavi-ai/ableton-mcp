@@ -2,7 +2,7 @@ import {saveNativeDevicePreset,MacDevicePresetHost} from './device-preset.mjs';
 import {collectProjectMedia,projectMediaInventory,MacProjectMediaHost} from './project-media.mjs';
 import { enrichArrangementSection, assertArrangementRange } from "./arrangement-section.mjs";
 import { assertExpectedState } from "./bridge-protocol.mjs";
-import {groupTracks,getTrackGroupingStatus,MacTrackGroupingHost} from './track-grouping.mjs';
+import {groupTracks,getTrackGroupingStatus,ungroupTracks,getTrackUngroupingStatus,MacTrackGroupingHost} from './track-grouping.mjs';
 import {getSceneLaunchContext} from "./scene-context.mjs";
 import {setTrackVolumeDb} from "./track-volume.mjs";
 import {setTrackSendDb} from "./track-send.mjs";
@@ -480,6 +480,8 @@ export class ToolService {
     if(name === "export_audio_mix")return exportAudioMix(this.bridge,this.confirmations,this.audioExportHost,args);
     if(name === "group_tracks")return groupTracks(this.bridge,this.confirmations,this.trackGroupingHost,args);
     if(name === "get_track_grouping_status")return getTrackGroupingStatus(this.bridge,args);
+    if(name === "ungroup_tracks")return ungroupTracks(this.bridge,this.confirmations,this.trackGroupingHost,args);
+    if(name === "get_track_ungrouping_status")return getTrackUngroupingStatus(this.bridge,args);
     if (name === "list_local_splice_roots") return listConfiguredSpliceRoots(this.spliceRoots);
     if (name === "browse_local_splice_directory") {
       if (args.includeMetadata !== undefined && typeof args.includeMetadata !== "boolean") throw new Error("includeMetadata must be boolean");

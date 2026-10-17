@@ -3,8 +3,10 @@ function run(argv) {
   ObjC.import("AppKit");ObjC.import("ApplicationServices");ObjC.import("CoreGraphics");
   var input=JSON.parse(argv[0]),running=$.NSRunningApplication.runningApplicationWithProcessIdentifier(input.pid),retained=[];
   if(!running||ObjC.unwrap(running.bundleIdentifier)!=="com.ableton.live"||ObjC.unwrap(running.bundleURL.path)!==input.appPath)throw Error("Expected the exact running Live app");
+  var appRoot=$.AXUIElementCreateApplication(input.pid);
   function visible(){
-    return running.active&&ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1,0))).some(function(w){return w.kCGWindowOwnerPID===input.pid&&(!input.windowId||w.kCGWindowNumber===input.windowId);});
+    // AppKit activation properties may remain cached until its run loop advances.
+    return ObjC.unwrap(read(appRoot,"AXFrontmost"))===true&&ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1,0))).some(function(w){return w.kCGWindowOwnerPID===input.pid&&(!input.windowId||w.kCGWindowNumber===input.windowId);});
   }
   function wait(){for(var i=0;i<40;i++){if(visible())return true;delay(0.05);}return false;}
   running.activateWithOptions(3);

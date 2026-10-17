@@ -2,6 +2,8 @@
   "get_bridge_protocol",
   "get_track_grouping_source",
   "get_track_grouping_status",
+  "get_track_ungrouping_source",
+  "get_track_ungrouping_status",
   "get_device_preset_source",
   "select_device_preset_source",
   "get_selection_context", "get_session_orientation", "get_midi_clip_variation_context", "duplicate_midi_clip_variations",

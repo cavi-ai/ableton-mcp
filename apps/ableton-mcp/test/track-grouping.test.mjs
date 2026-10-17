@@ -7,6 +7,16 @@ import {getPrompt} from '../src/prompts.mjs';
 import {readFile} from 'node:fs/promises';
 import {runInNewContext} from 'node:vm';
 
+test('native window inventory includes omitted document and focused modal windows',async()=>{
+ const context={};runInNewContext(await readFile(new URL('../src/live-track-grouping.js',import.meta.url),'utf8'),context);
+ const main={id:1},modal={id:2},other={id:3},equal=(a,b)=>a.id===b.id;
+ const ids=(listed,primary,focused)=>Array.from(context.groupingApplicationWindows(listed,primary,focused,equal),w=>w.id);
+ assert.deepEqual(ids([],main,main),[1]);
+ assert.deepEqual(ids([other],main,modal),[3,1,2]);
+ assert.deepEqual(ids([main,modal],{id:1},{id:2}),[1,2]);
+ assert.deepEqual(ids([],null,null),[]);
+});
+
 test('multi-selected headers may focus their exact selection owner',async()=>{
  const context={};runInNewContext(await readFile(new URL('../src/live-track-grouping.js',import.meta.url),'utf8'),context);
  const expected=['SessionView.Track[2].TitleBar','SessionView.Track[3].TitleBar'];
