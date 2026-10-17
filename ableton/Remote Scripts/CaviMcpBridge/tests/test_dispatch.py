@@ -1183,31 +1183,19 @@ class DispatchTest(unittest.TestCase):
                 "trackId": "track-0", "expectedStateVersion": 3,
                 "before": observed["midiRouting"], "changes": {"inNote": 36}}}, 3)
 
-    def test_track_freeze_state_reads_and_guarded_toggles(self):
+    def test_track_freeze_state_reads_and_native_write_refuses(self):
         song = Song()
         observed = dispatch_request(song, {"method": "get_track_freeze_state", "params": {"trackId": "track-0"}}, 3)
         self.assertEqual(observed["freeze"], {"supported": True, "frozen": False})
-        params = {"trackId": "track-0", "expectedStateVersion": 3, "before": observed["freeze"], "frozen": True}
-        changed = dispatch_request(song, {"method": "set_track_freeze_state", "params": params}, 3)
-        self.assertEqual(changed["stateVersion"], 4)
-        self.assertTrue(changed["freeze"]["frozen"])
-        self.assertTrue(song.tracks[0].is_frozen)
-        self.assertEqual(song.undo_boundaries, ["begin", "end"])
-        with self.assertRaisesRegex(ValueError, "changed"):
-            dispatch_request(song, {"method": "set_track_freeze_state", "params": params}, 3)
-        with self.assertRaisesRegex(ValueError, "already in the requested freeze state"):
-            dispatch_request(song, {"method": "set_track_freeze_state", "params": {
-                **params, "expectedStateVersion": 4, "before": changed["freeze"]}}, 4)
+        with self.assertRaisesRegex(ValueError, "native UI"):
+            dispatch_request(song, {"method": "set_track_freeze_state", "params": {"trackId": "track-0"}}, 3)
+        self.assertFalse(song.tracks[0].is_frozen)
 
     def test_track_freeze_state_reports_unsupported_tracks(self):
         song = Song()
         del song.tracks[0].is_frozen
         observed = dispatch_request(song, {"method": "get_track_freeze_state", "params": {"trackId": "track-0"}}, 3)
         self.assertEqual(observed["freeze"], {"supported": False, "frozen": None})
-        with self.assertRaisesRegex(ValueError, "not exposed"):
-            dispatch_request(song, {"method": "set_track_freeze_state", "params": {
-                "trackId": "track-0", "expectedStateVersion": 3,
-                "before": observed["freeze"], "frozen": True}}, 3)
 
     def test_arrangement_midi_clips_support_reads_and_note_writes(self):
         song = Song()

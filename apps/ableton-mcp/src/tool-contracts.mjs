@@ -388,6 +388,7 @@ const mixerEnvelopePoint={oneOf:creationEnvelopePoint.oneOf.map(schema=>({...sch
     {targetDisplay:string('Volume/send only: finite native dB target, such as -24 dB or -6 dB. Pan requires value. Decimal point only; -inf is not accepted.')})}}))};
 
 const contracts = {
+  bounce_track_in_place: {description:"Destructively commit one whole ordinary track to audio, removing its devices in Session and Arrangement. Duplicate first to keep an editable source. Requires saved Set, stopped transport, unarmed visible target and macOS English Live. Rechecks native identity/selection and verifies audio layout, controls and file coverage; no audible-equivalence claim.",inputSchema:guarded({trackId:ids.trackId},["trackId"])},
   record_arrangement_take:{description:"Record one armed unfrozen ordinary track into an empty Arrangement beat range. Requires stopped playback/recording, no other arms, Session playback/overrides or pending launches. Uses native punch-in/out, disables loop/overdub/Automation Arm, changes loop bounds/playhead, and stops owned record/playback at the end without a client. Leaves target armed and setup controls in place. Partial material retained; all profile.",inputSchema:guarded({trackId:ids.trackId,startBeats:number("Inclusive quarter-note song beat.",{minimum:0}),endBeats:number("Exclusive song beat; at most 512 beats and 300 seconds from start.",{exclusiveMinimum:0})},["trackId","startBeats","endBeats"])},
   get_arrangement_take:{description:"Read one Arrangement recording handle, new clip spans, range coverage and control ownership, or list handles after a lost reply. Start acceptance and range coverage do not prove recorded performance, audio-file finalization or sound. Handles last until release or bridge restart; all profile.",inputSchema:object({takeId:string("Runtime take ID; omit to list retained handles.")})},
   finish_arrangement_take:{description:"Release a stopped Arrangement take handle and retain its material. Cancel true stops only owned global record/playback early; partial material retained. Ownership loss leaves transport untouched and retains the handle until stopped. Does not disarm, restore setup, save or delete; all profile.",inputSchema:guarded({takeId:string("Runtime take ID from record/read."),cancel:boolean("Explicit early-stop request; defaults to false.")},["takeId"])},
@@ -714,8 +715,8 @@ const contracts = {
     inScale: boolean("Transpose incoming notes according to Live's scale."),
     outScale: boolean("Transpose outgoing notes according to Live's scale.")
   }, ["trackId"]) },
-  get_track_freeze_state: { description: "Read one track's native freeze state. On the tested Live 12.4.5, is_frozen is readable but has no setter, so freeze/unfreeze remain UI-only; Live's native error surfaces if a future version exposes the setter.", inputSchema: track },
-  set_track_freeze_state: { description: "Plan or toggle guarded track freeze. On the tested Live 12.4.5 the native is_frozen property has no setter, so execution fails closed with Live's own error; the plan still binds the observed state so newer Live versions can adopt the write without contract changes. Freezing renders the track's live material to audio and mutates audible content until unfrozen.", inputSchema: guarded({ trackId: ids.trackId, frozen: boolean("Requested freeze state.") }, ["trackId", "frozen"]) },
+  get_track_freeze_state: { description: "Read one track native freeze state. A frozen flag does not prove saved state or audio equivalence.", inputSchema: track },
+  set_track_freeze_state: { description: "Plan/apply native track freeze or unfreeze. Requires a saved Set, stopped playback/recording, an unarmed visible ordinary track and macOS English Live. Changes focus and selection; verify freezeVerified and inspect uncertain outcomes before continuing.", inputSchema: guarded({ trackId: ids.trackId, frozen: boolean("Requested freeze state.") }, ["trackId", "frozen"]) },
   set_bulk_track_mixer: { description: "Plan or apply guarded volume, pan, mute, and solo changes to multiple existing ordinary tracks in one confirmed step. Per-track values clamp to each observed native range; sends are unchanged.", inputSchema: guarded({
     trackIds: { ...array(ids.trackId, "Unique ordinary track IDs to change."), minItems: 1, maxItems: 64 },
     volume: number("Volume applied to every listed track."),
@@ -809,7 +810,7 @@ const destructiveTools = new Set([
   "delete_arrangement_cue_point", "remove_audio_warp_marker",
   "delete_device", "crop_audio_clip", "set_looper_state", "set_device_parameters", "set_clip_parameter_envelope",
   "fail_nks_generation_job", "complete_nks_generation_job",
-  "set_track_freeze_state", "adjust_rack_macro_count", "delete_rack_macro_variation"
+  "bounce_track_in_place", "set_track_freeze_state", "adjust_rack_macro_count", "delete_rack_macro_variation"
 ]);
 
 // These tools answer from bundled reference data; all other tools can observe or

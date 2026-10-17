@@ -1,3 +1,5 @@
+import {trackBounce,MacTrackBounceHost} from "./track-bounce.mjs";
+import {trackFreeze,MacTrackFreezeHost} from "./track-freeze.mjs";
 import {recordingSetup,MacRecordingSetupHost} from "./recording-setup.mjs";
 import {arrangementRecording} from "./arrangement-recording.mjs";
 import {importMidiFile,MacMidiImportHost} from './midi-import.mjs';
@@ -455,7 +457,7 @@ function normalizeBrowserSearch(args) {
 
 export class ToolService {
   constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, deviceChainLibrary, groupSystemLibrary, midiFeelLibrary, browserMetadata, spliceRoots = [], generationQueuePath,
-    liveSetHost = new MacLiveSetHost(), audioExportHost, projectMediaHost, devicePresetHost, recordingSetupHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000, midiImportHost, takeLaneAuditionHost, grooveRemovalHost }) {
+    liveSetHost = new MacLiveSetHost(), audioExportHost, projectMediaHost, devicePresetHost, trackFreezeHost, trackBounceHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000, recordingSetupHost, midiImportHost, takeLaneAuditionHost, grooveRemovalHost }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
@@ -467,6 +469,8 @@ export class ToolService {
     this.spliceRoots = spliceRoots;
     this.generationQueuePath = generationQueuePath;
     this.liveSetHost = liveSetHost;
+    this.trackBounceHost=trackBounceHost??new MacTrackBounceHost({liveSetHost});
+    this.trackFreezeHost=trackFreezeHost??new MacTrackFreezeHost({liveSetHost});
     this.recordingSetupHost=recordingSetupHost??new MacRecordingSetupHost({liveSetHost});
     this.midiImportHost=midiImportHost??new MacMidiImportHost({liveSetHost});
     this.devicePresetHost=devicePresetHost??new MacDevicePresetHost({liveSetHost});
@@ -486,6 +490,7 @@ export class ToolService {
 
   async call(name, args = {}) {
     requestSignal()?.throwIfAborted();
+    if(name === "bounce_track_in_place")return trackBounce(this.bridge,this.confirmations,this.trackBounceHost,args);
     if(name==='import_midi_file')return importMidiFile(this.bridge,this.confirmations,this.midiImportHost,args);
     if(name==='save_native_device_preset')return saveNativeDevicePreset(this.bridge,this.confirmations,this.devicePresetHost,args);
     if(name==='get_project_media')return projectMediaInventory(this.bridge,this.projectMediaHost);
@@ -4695,14 +4700,7 @@ export class ToolService {
   async #setTrackFreezeState(args) {
     requireExpectedState(args);
     if (typeof args.frozen !== "boolean") throw new Error("frozen must be boolean");
-    const observed = await this.bridge.request("get_track_freeze_state", { trackId: args.trackId });
-    assertExpectedState(args, observed);
-    if (!observed.freeze?.supported) throw new Error("track freeze state is not exposed by this Live version");
-    if (observed.freeze.frozen === args.frozen) throw new Error("track is already in the requested freeze state");
-    return this.#confirmedMutation({ method: "set_track_freeze_state", trackId: args.trackId,
-      expectedStateVersion: args.expectedStateVersion, before: observed.freeze, frozen: args.frozen,
-      contentMutationRisk: { kind: "rendered_track_audio", freezes: args.frozen,
-        parameterRollbackRestoresContent: false } }, args);
+    return trackFreeze(this.bridge,this.confirmations,this.trackFreezeHost,args);
   }
 
   async #setGroupFoldState(args) {
