@@ -616,6 +616,8 @@ const contracts = {
   list_factory_device_profiles: { description: "List producer-oriented knowledge profiles for foundational Ableton factory devices.", inputSchema: empty },
   get_factory_device_context: { description: "Read native parameters, matched factory knowledge and group coverage. Auto Shift includes song key, Scale Aware, manual Root/Scale and selected scale source; no proof of audible correction. Includes configured plug-in controls or exposed/enabled Max for Live parameter IDs and duplicate-name warnings. Excludes hidden plug-in state, Max patch internals and modulation targets.", inputSchema: device },
   get_plugin_integration_context: { description: "Inspect loaded Serum 2/Omnisphere/VPS Avenger: installed variants, controls, NKS counts, browser limits and Live UI save/User Library load. Loading in Live does not verify hidden plug-in state.", inputSchema: device },
+  get_looper_export_context: {description: "Read native Looper export capability, buffer length, state and an exact destination slot without changing focus or playback. Buffer audio bytes are unavailable.", inputSchema: object({trackId:ids.deviceOwnerId,deviceId:ids.deviceId,destinationTrackId:ids.trackId,destinationClipId:ids.clipId},["trackId","deviceId","destinationTrackId","destinationClipId"])},
+  export_looper_clip: {description: "Export a fixed nonempty native Looper buffer into an empty unarmed audio Session slot. Binds exposed context and native identities; never launches, clears Looper or overwrites a clip. Partial material is retained. Buffer audio equivalence is not verified.", inputSchema: guarded({trackId:ids.deviceOwnerId,deviceId:ids.deviceId,destinationTrackId:ids.trackId,destinationClipId:ids.clipId,name:string("Optional new clip name.",{minLength:1,maxLength:128})},["trackId","deviceId","destinationTrackId","destinationClipId"])},
   get_looper_performance_context: { description: "Read one native snapshot of a loaded Looper's State, Quantization, Monitor, Song Control, Tempo Control, all exposed parameters, global clip-launch quantization, track input/output routing, monitoring, and transport. Read-only; source readiness and audible outcome are not inferred.", inputSchema: device },
   get_beat_repeat_performance_context: { description: "Read one native snapshot of a loaded Beat Repeat's Repeat, Grid, Interval, Block Triplets, Mix Type, all exposed parameters and their display values, track routing, monitoring, and transport. Grid and Interval expose labels at their native integer positions; duplicate labels are not assumed equivalent, and quantized behavior is not inferred from this mapping. Read-only; no audible outcome is inferred.", inputSchema: device },
   get_factory_browser_items: { description: "Browse one exact level of a Live factory browser root; optional offset and limit return a bounded child page. Optionally join private MCP tags and favorites for exact child identities, not native Live collections.", inputSchema: object({ root: string("Factory browser root."), path: array(string("Exact browser path segment."), "Path below the root."), offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 200 }, includeMetadata: boolean("Join private MCP tags and favorites for children with exact URIs.") }, ["root"]) },
@@ -732,6 +734,7 @@ const readOnlyTools = new Set([
   "inspect_producer_chain", "inspect_producer_bus", "inspect_producer_return_bus",
   "list_arrangement_clips", "list_factory_device_profiles", "get_factory_coverage",
   "get_factory_device_context", "get_plugin_integration_context",
+  "get_looper_export_context",
   "get_looper_performance_context", "get_beat_repeat_performance_context",
   "get_factory_browser_items", "list_browser_roots", "get_browser_items", "search_browser_items", "search_browser_roots",
   "list_local_splice_roots", "browse_local_splice_directory", "search_local_splice_samples", "get_device_hierarchy",
@@ -743,6 +746,7 @@ const readOnlyTools = new Set([
 ]);
 
 const destructiveTools = new Set([
+  "export_looper_clip",
   "load_simpler_sample",
   "set_simpler_sample_region",
   "set_simpler_manual_slices",

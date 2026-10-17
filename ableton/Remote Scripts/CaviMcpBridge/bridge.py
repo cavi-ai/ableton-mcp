@@ -3107,6 +3107,12 @@ def dispatch_request(song, request, state_version, application=None):
                 "before": before, "after": _transport_recording_context(song, state_version + 1),
                 "sceneCountBefore": scene_count_before, "sceneCountAfter": len(song.scenes),
                 "changedSlots": changed}
+    if method in ("get_looper_export_context", "export_looper_clip"):
+        try:
+            from . import looper_export
+        except ImportError:
+            import looper_export
+        return (looper_export.context if method == "get_looper_export_context" else looper_export.export)(song, params, state_version)
     if method == "get_looper_performance_context":
         return _looper_performance_context(song, params["trackId"], params["deviceId"], state_version)
     if method == "get_beat_repeat_performance_context":

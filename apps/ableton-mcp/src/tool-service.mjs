@@ -659,6 +659,8 @@ export class ToolService {
     if (name === "open_live_set") return this.#openLiveSet(args);
     if (name === "save_live_set") return this.#saveLiveSet(args);
     if (name === "get_transport_context") return this.bridge.request("get_transport_context", {});
+    if (name === "get_looper_export_context") return this.#readLooperExport(args);
+    if (name === "export_looper_clip") return this.#exportLooperClip(args);
     if (name === "get_looper_performance_context") return this.bridge.request("get_looper_performance_context", args);
     if (name === "get_beat_repeat_performance_context") return this.bridge.request("get_beat_repeat_performance_context", args);
     if (name === "get_history_state") return this.bridge.request("get_history_state", {});
@@ -2037,6 +2039,48 @@ export class ToolService {
         ? "No automatic rollback for recorded loop content; changing the State parameter back does not restore captured audio."
         : "Re-read before restoring only the requested values; preserve intervening edits. Restoring a value does not restore automation playback, envelope contents or hidden plug-in state."
     };
+  }
+
+  async #readLooperExport(args) {
+    const owner = /^(?:(?:track|return)-(?:0|[1-9][0-9]*)|master)$/;
+    if (!owner.test(args.trackId ?? '') || typeof args.deviceId !== 'string' || !args.deviceId.startsWith(args.trackId + ':device-') ||
+      !/^:device-(?:0|[1-9][0-9]*)(?:\/(?:chain|return-chain)-(?:0|[1-9][0-9]*)\/device-(?:0|[1-9][0-9]*))*$/.test(args.deviceId.slice(args.trackId.length)) ||
+      !/^track-(?:0|[1-9][0-9]*)$/.test(args.destinationTrackId ?? '') || typeof args.destinationClipId !== 'string' ||
+      !args.destinationClipId.startsWith(args.destinationTrackId + ':clip-') ||
+      !/^:clip-(?:0|[1-9][0-9]*)$/.test(args.destinationClipId.slice(args.destinationTrackId.length))) {
+      throw Error('canonical Looper device and ordinary destination audio slot required');
+    }
+    const target = Object.fromEntries(['trackId','deviceId','destinationTrackId','destinationClipId'].map(key=>[key,args[key]]));
+    const before = await this.bridge.request('get_looper_export_context', target);
+    if (!Number.isInteger(before.stateVersion) || Object.entries(target).some(([key,value])=>before[key]!==value) ||
+      typeof before.identityToken !== 'string' || !before.identityToken || !Array.isArray(before.parameters) ||
+      before.parameters.length > 512 || !before.destination || !before.recording || before.bufferContentAvailable !== false) {
+      throw Error('updated bridge Looper export context required');
+    }
+    return before;
+  }
+
+  async #exportLooperClip(args) {
+    requireExpectedState(args);
+    if (args.name !== undefined && (typeof args.name !== 'string' || !args.name.trim() || args.name.length > 128)) throw Error('name must contain 1 to 128 characters');
+    const before = await this.#readLooperExport(args); assertExpectedState(args,before);
+    const target = before.destination;
+    if (before.canExport !== true || !Number.isFinite(before.loopLength) || before.loopLength <= 0 || !['Stop','Play'].includes(before.state) ||
+      before.sourceFrozen !== false || before.recording.arrangement !== false || before.recording.session !== false ||
+      target.hasClip !== false || target.audioTrack !== true || target.frozen !== false || target.armed !== false ||
+      !Number.isInteger(target.firedSlotIndex) || target.firedSlotIndex >= 0 || target.isTriggered !== false) {
+      throw Error('Looper export requires a fixed nonempty buffer, Stop/Play state, no recording and an empty inactive unarmed audio destination');
+    }
+    const result = await this.#confirmedMutation({method:'export_looper_clip',
+      ...Object.fromEntries(['trackId','deviceId','destinationTrackId','destinationClipId','expectedStateVersion'].map(key=>[key,args[key]])),
+      ...(args.name !== undefined ? {name:args.name} : {}), before,
+      warning:'Creates a Session audio clip without launching it or clearing Looper. Buffer bytes and edits that preserve exposed controls/length cannot be compared. The audio engine must be enabled. A partial export is retained for inspection; never retry blindly.'},args);
+    if (!result.dryRun && (result.observed.stateVersion !== args.expectedStateVersion + 1 ||
+      ['trackId','deviceId','destinationTrackId','destinationClipId'].some(key=>result.observed[key]!==args[key]) ||
+      result.observed.exportRequested !== true || typeof result.observed.clipCreatedVerified !== 'boolean' || result.observed.bufferContentVerified !== false)) {
+      throw Error('Looper export receipt mismatch; inspect the destination before retrying');
+    }
+    return result;
   }
 
   async #setLooperState(args) {
