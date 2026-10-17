@@ -1,5 +1,8 @@
 [
   "get_bridge_protocol",
+  "get_device_ab_context",
+  "copy_device_ab_slot",
+  "select_device_ab_slot",
   "get_browser_load_context",
   "get_midi_import_target",
   "select_midi_import_target",

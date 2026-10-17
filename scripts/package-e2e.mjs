@@ -107,7 +107,7 @@ assert.match(producerFixture[0].result.structuredContent.text, /Preserve the ori
 const remoteScripts = path.join(work, "Remote Scripts");
 execFileSync(bin, ["install", "--destination", remoteScripts, "--json"], { encoding: "utf8" });
 const bridgeFiles = readdirSync(path.join(remoteScripts, "CaviMcpBridge")).sort();
-assert.deepEqual(bridgeFiles, ["__init__.py", "arrangement_audition.py", "arrangement_section.py", "audio_capture.py", "audio_export.py", "audio_midi_sketch.py", "beat_repeat_fill.py", "bridge.py", "browser_load.py", "capabilities.json", "clip_duplication.py", "clip_envelope.py", "device_preset.py", "instrument_comparison.py", "midi_capture.py", "midi_import.py", "parameter_display.py", "protocol.py", "rack_performance.py", "session_recording.py", "signal_activity.py", "simpler_sample.py", "take_lanes.py", "track_send.py", "track_volume.py"]);
+assert.deepEqual(bridgeFiles, ["__init__.py", "arrangement_audition.py", "arrangement_section.py", "audio_capture.py", "audio_export.py", "audio_midi_sketch.py", "beat_repeat_fill.py", "bridge.py", "browser_load.py", "capabilities.json", "clip_duplication.py", "clip_envelope.py", "device_ab.py", "device_preset.py", "instrument_comparison.py", "midi_capture.py", "midi_import.py", "parameter_display.py", "protocol.py", "rack_performance.py", "session_recording.py", "signal_activity.py", "simpler_sample.py", "take_lanes.py", "track_send.py", "track_volume.py"]);
 
 const doctor = JSON.parse(execFileSync(bin, ["doctor", "--json"], {
   encoding: "utf8",

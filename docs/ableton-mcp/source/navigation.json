@@ -34,6 +34,7 @@
         { "title": "Import MIDI files", "path": "guides/midi-import.md" },
         { "title": "Export a native audio mix", "path": "guides/audio-export.md" },
         { "title": "Compare instruments", "path": "guides/instrument-comparison.md" },
+        { "title": "Compare device A/B states", "path": "guides/device-ab.md" },
         { "title": "Refine instrument sound", "path": "guides/instrument-refinement.md" },
         { "title": "Shape rack performance controls", "path": "guides/rack-performance.md" },
         { "title": "Build instrument layers", "path": "guides/instrument-layers.md" },

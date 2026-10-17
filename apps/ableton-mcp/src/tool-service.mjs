@@ -1566,6 +1566,19 @@ export class ToolService {
       return this.bridge.request("list_device_parameters", args);
     }
     if (name === "set_device_parameters") return this.#setDeviceParameters(args);
+    if (name === "get_device_ab_context") return this.bridge.request(name,{trackId:args.trackId,deviceId:args.deviceId});
+    if (name === "copy_device_ab_slot" || name === "select_device_ab_slot") {
+      requireExpectedState(args);
+      if(name==="copy_device_ab_slot"&&args.overwriteOtherSlot!==true)throw Error("overwriteOtherSlot: true is required to discard the other native A/B slot");
+      if(name==="select_device_ab_slot"&&!["A","B"].includes(args.targetSlot))throw Error("targetSlot must be A or B");
+      const before=await this.bridge.request("get_device_ab_context",{trackId:args.trackId,deviceId:args.deviceId});
+      assertExpectedState(args,before);
+      if(!before.supported||!["A","B"].includes(before.activeSlot)||typeof before.identityToken!=="string"||typeof before.parametersDigest!=="string")throw Error("updated bridge and a device with native A/B support required");
+      if(name==="copy_device_ab_slot"&&!before.canCopy)throw Error("native other-slot copy is unavailable");
+      return this.#confirmedMutation({method:name,trackId:args.trackId,deviceId:args.deviceId,expectedStateVersion:args.expectedStateVersion,before,
+        ...(name==="copy_device_ab_slot"?{overwriteOtherSlot:true}:{targetSlot:args.targetSlot}),
+        warning:name==="copy_device_ab_slot"?"Overwrites the other native device A/B slot with the current state. Other-slot contents and automation are unavailable and are not backed up or independently verified. No automatic retry or rollback.":"Loads the chosen native A/B slot and may change exposed controls and hidden device state. Native switching can disable automation without re-enabling it on return. Slot readback is not preset equivalence, automation preservation or audible proof; playback continues."},args);
+    }
     if (name === "set_device_parameter_display") return setDeviceParameterDisplay(this.bridge,this.confirmations,args);
     if (name === "set_looper_state") return this.#setLooperState(args);
     if (name === "set_beat_repeat_enabled") return this.#setBeatRepeatEnabled(args);

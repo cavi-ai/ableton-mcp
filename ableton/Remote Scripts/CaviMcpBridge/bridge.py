@@ -6291,6 +6291,13 @@ def dispatch_request(song, request, state_version, application=None):
                 "device": _device_tree(device, params["deviceId"]),
                 "parameters": [_parameter_record(parameter, i, include_native_choice_labels=True)
                                for i, parameter in enumerate(device.parameters)]}
+    if method in ("get_device_ab_context", "copy_device_ab_slot", "select_device_ab_slot"):
+        try:
+            from . import device_ab
+        except ImportError:
+            import device_ab
+        return (device_ab.context(song, params, state_version) if method == "get_device_ab_context" else
+                device_ab.apply(song, params, state_version, copy_other=method == "copy_device_ab_slot"))
     if method in ("get_device_parameter_display_context", "set_device_parameter_display"):
         try:
             from . import parameter_display

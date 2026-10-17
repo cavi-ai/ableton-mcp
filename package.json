@@ -38,6 +38,7 @@
     "ableton/Remote Scripts/CaviMcpBridge/protocol.py",
     "ableton/Remote Scripts/CaviMcpBridge/rack_performance.py",
     "ableton/Remote Scripts/CaviMcpBridge/parameter_display.py",
+    "ableton/Remote Scripts/CaviMcpBridge/device_ab.py",
     "ableton/Remote Scripts/CaviMcpBridge/take_lanes.py",
     "ableton/Remote Scripts/CaviMcpBridge/device_preset.py",
     "ableton/Remote Scripts/CaviMcpBridge/instrument_comparison.py",
