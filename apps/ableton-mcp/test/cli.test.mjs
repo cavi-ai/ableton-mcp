@@ -139,6 +139,17 @@ test("doctor rejects a stale bridge handshake", async () => {
   assert.equal(result.bridge.reason, "outdated bridge: expected 0.2.1");
 });
 
+test('doctor cannot report health when a failed probe provides no error message',async()=>{
+ for(const error of [new Error(''),null]){
+  const result=await runCli(['doctor','--json'],{platform:'win32',home:'/not-installed',env:{},
+   bridgeProbe:async()=>{throw error;},stdout:()=>{}});
+  assert.equal(result.ok,false);assert.equal(result.bridge.liveStateAvailable,false);
+  assert.equal(result.bridge.connected,null);assert.equal(result.bridge.protocol,'unconfirmed');
+  assert.equal(result.bridge.capabilities,null);assert.equal(result.bridge.missingCapabilities,null);
+  assert.ok(result.bridge.reason.length>0);
+ }
+});
+
 test("doctor exposes a stale bundled Remote Script beside a current User Library copy", async () => {
   const root = await mkdtemp(join(tmpdir(), "ableton-mcp-copies-"));
   const sourceRoot = join(root, "source");

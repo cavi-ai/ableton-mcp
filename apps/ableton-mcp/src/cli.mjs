@@ -7,7 +7,8 @@ import { homedir, platform as currentPlatform } from "node:os";
 import { PACKAGE_VERSION, defaultRemoteScriptRoots, isMainModule, resolveRuntimeConfig } from "./paths.mjs";
 import { createConfiguredService } from "./runtime.mjs";
 import { runStdio } from "./server.mjs";
-import { UnixBridgeClient } from "./bridge-client.mjs";
+import { UnixBridgeClient, bridgeFailureDetails } from "./bridge-client.mjs";
+import { performance } from 'node:perf_hooks';
 import { validateToolArguments } from "./tool-validation.mjs";
 import { getPrompt, listPrompts } from "./prompts.mjs";
 
@@ -80,10 +81,12 @@ export async function runCli(argv, dependencies = {}) {
   }
   if (parsed.command === "doctor") {
     const config = resolveRuntimeConfig(env, { platform, home });
-    const bridgeProbe = dependencies.bridgeProbe || (() => new UnixBridgeClient(config.socketPath, { timeoutMs: 1000 }).request("get_live_state", {}));
+    const bridgeProbe = dependencies.bridgeProbe || (() => new UnixBridgeClient(config.socketPath).request("get_live_state", {}));
     let bridgeState;
     let reason;
-    let missingCapabilities = [...requiredCapabilities];
+    let probeFailure;
+    let missingCapabilities = null;
+    const probeStarted = performance.now();
     try {
       bridgeState = await bridgeProbe();
       const advertised = Array.isArray(bridgeState.capabilities) ? bridgeState.capabilities : [];
@@ -91,17 +94,25 @@ export async function runCli(argv, dependencies = {}) {
       if (bridgeState.bridgeVersion !== PACKAGE_VERSION) reason = `outdated bridge: expected ${PACKAGE_VERSION}`;
       else if (missingCapabilities.length) reason = `bridge is missing required capabilities: ${missingCapabilities.join(", ")}`;
     } catch (error) {
-      reason = error.message;
+      reason = typeof error?.message === 'string' && error.message ? error.message : 'Live-state probe failed without an error message';
+      probeFailure = error;
     }
+    const probeElapsedMs = performance.now() - probeStarted;
+    const protocol = bridgeState || probeFailure?.bridgeProgress?.protocolValidated ? 'compatible' :
+      probeFailure?.code === 'BRIDGE_UPGRADE_REQUIRED' ? 'incompatible' : 'unconfirmed';
     const result = {
-      ok: !reason,
+      ok: Boolean(bridgeState) && !reason,
       bridge: {
         socket: config.socketPath,
-        connected: Boolean(bridgeState),
+        connected: bridgeState ? true : probeFailure?.bridgeProgress?.socketConnected ?? null,
+        protocol,
+        liveStateAvailable: Boolean(bridgeState),
+        probeElapsedMs,
         version: bridgeState?.bridgeVersion,
         scriptDirectory: bridgeState?.scriptDirectory || null,
-        capabilities: bridgeState?.capabilities || [],
+        capabilities: bridgeState ? bridgeState.capabilities || [] : null,
         missingCapabilities,
+        ...(bridgeFailureDetails(probeFailure) ? { failure: bridgeFailureDetails(probeFailure) } : {}),
         ...(reason ? { reason } : {})
       },
       catalog: { configured: Boolean(config.catalogPath), path: config.catalogPath || null },
