@@ -6,6 +6,26 @@ Give `session-overview` an optional absolute `setPath` to request opening a Set 
 
 The displayed clip can belong to a different track from the selected track. `selection.detailClip` identifies the material being discussed; `focus.trackId` identifies its owner. An empty highlighted slot is not evidence that the displayed clip is empty. With no displayed clip, the response still reports Set context and the selected owner's devices, but has no clip evidence.
 
+## Show the part being discussed
+
+In the `all` profile, `show_live_object` explicitly changes Live's selection and views. Use it when the user asks to see a part or device; context reads keep their existing focus. Resolve current IDs through the track, clip and device lists first. Plan with `trackId`, `view`, fresh `expectedStateVersion` and `expectedSetFingerprint`. Add exactly one of `clipId` or `deviceId`, or omit both to show the track. Session slots require `view: "Session"`; Arrangement clips require `view: "Arranger"`. Devices can belong to ordinary, Group, Return or Main tracks, including nested Rack paths.
+
+```json
+{
+  "trackId": "track-2",
+  "clipId": "track-2:clip-0",
+  "view": "Session",
+  "expectedStateVersion": 12,
+  "expectedSetFingerprint": "use-the-current-observed-fingerprint"
+}
+```
+
+The plan is inert and binds native target identity, current selection, view visibility and exposed controls. Confirm only the unchanged plan. Changes to the bound selection, views, native targets or controls require a fresh plan. An occupied clip opens the clip Detail View; an empty Session slot is highlighted without creating a clip. A device opens the device Detail View, expands the target device and its enclosing Racks, and selects/reveals the exact ancestor chains. The plan binds these disclosure states and native chain identities. Ancestor Groups may be unfolded, and selection changes control-surface focus. Active recording must be resolved first; playback can remain running.
+
+Inspect `observed.showVerified`, `targetIdentityRetained`, `selectionVerified`, `viewsVerified`, `deviceViewsVerified`, `controlsUnchanged` and the actual returned selection. Controls compare playback/record modes, active Session recordings, mute, solo, arm, volume, pan and monitoring where those controls exist. Main mute/solo/arm and Group/Return/Main monitoring are null. They do not compare every parameter, routing value or musical content. A failed or lost reply requires fresh selection/view inspection before another request; partial UI changes remain in place. A fresh dry-run plan can inspect current views and disclosure states without changing them. Never restore old selection over intervening manual navigation.
+
+This changes native Live views; it does not activate the desktop app, open a plug-in's editor, scroll the Arrangement to an exact clip, or establish pixel visibility. It does not request playback, recording, note or parameter edits. Native view names and selection access are documented in [Application.View](https://docs.cycling74.com/apiref/lom/application_view/) and [Song.View](https://docs.cycling74.com/apiref/lom/song_view/).
+
 ## Configuration and evidence
 
 `musicalContext.key` is Live's configured key and scale. It may be a default or an intentional setting; it is not a detected song key.

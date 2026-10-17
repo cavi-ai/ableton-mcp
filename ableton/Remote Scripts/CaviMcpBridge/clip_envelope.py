@@ -27,13 +27,13 @@ def _selector(params, mixer=False):
     if not mixer:
         return {key: params[key] for key in ("deviceId", "parameterId")}
     control = params.get("mixerControl")
-    if control == "volume":
+    if control in ("volume", "pan"):
         if "sendId" in params or "returnTrackId" in params:
-            raise ValueError("volume envelopes do not accept send or Return IDs")
+            raise ValueError(f"{control} envelopes do not accept send or Return IDs")
         return {"mixerControl": control}
     if control == "send":
         return {"mixerControl": control, "sendId": params.get("sendId"), "returnTrackId": params.get("returnTrackId")}
-    raise ValueError("mixerControl must be volume or send")
+    raise ValueError("mixerControl must be volume, pan or send")
 
 
 def _objects(song, params, mixer=False):
@@ -48,6 +48,10 @@ def _objects(song, params, mixer=False):
         if len(parameters) > 258 or len(related) > 256:
             raise ValueError("mixer envelope context exceeds 256 sends or Returns")
         index = 0
+        if params["mixerControl"] == "pan":
+            if getattr(device, "panning_mode", None) != 0:
+                raise ValueError("pan envelopes require known Stereo panning mode; Split Stereo is unsupported")
+            index = 1
         if params["mixerControl"] == "send":
             _, send_index, _, _, _ = _resolve_send(song, params)
             index = send_index + 2
@@ -154,6 +158,9 @@ def source(song, params, version, replacement=False, mixer=False):
     end = max(float(clip.loop_end), float(getattr(clip, "end_marker", clip.length)))
     if not math.isfinite(end) or end <= 0:
         raise ValueError("clip beat range is unavailable")
+    if mixer and params["mixerControl"] == "pan" and isinstance(params.get("points"), list) and any(
+            isinstance(point, dict) and "targetDisplay" in point for point in params["points"]):
+        raise ValueError("pan steps require exact raw native values, not display targets")
     points = (_replacement_points if replacement else _points)(parameter, params.get("points"), end)
     if _song != song:
         _song = song
@@ -173,6 +180,7 @@ def source(song, params, version, replacement=False, mixer=False):
             "contentDigest": _digest(content), "parametersDigest": _digest([_parameter_record(p, i) for i, p in enumerate(parameters)]),
             "parameter": _parameter_record(parameter, index), "envelopeExists": envelope is not None,
             "endBeats": end, "points": points,
+            **({"panningMode": int(device.panning_mode)} if mixer and params["mixerControl"] == "pan" else {}),
             **({"returnName": song.return_tracks[index - 2].name} if mixer and params["mixerControl"] == "send" else {}),
             **({"replaceExisting": params.get("replaceExisting", False), "fullCurveCaptured": False,
                 "envelopeSamples": _envelope_samples(envelope, parameter, points, end)} if replacement else {})}
@@ -276,7 +284,7 @@ def replace(song, params, version):
 
 
 def read_mixer(song, params, version):
-    _, _, clip, _, index, parameter, _, _ = _objects(song, params, mixer=True)
+    _, _, clip, device, index, parameter, _, _ = _objects(song, params, mixer=True)
     if bool(getattr(clip, "is_audio_clip", False)) and not bool(clip.warping):
         raise ValueError("unwarped audio envelope timing is unsupported; beat-based clips required")
     times = params.get("sampleTimes", [])
@@ -292,4 +300,5 @@ def read_mixer(song, params, version):
             samples.append({"time": time, "value": value, "displayValue": parameter.str_for_value(value)})
     return {"stateVersion": version, "trackId": params["trackId"], "clipId": params["clipId"],
             **_selector(params, mixer=True), "clipLengthBeats": float(clip.length), "parameter": _parameter_record(parameter, index),
+            **({"panningMode": int(device.panning_mode)} if params["mixerControl"] == "pan" else {}),
             "exists": envelope is not None, "samples": samples}

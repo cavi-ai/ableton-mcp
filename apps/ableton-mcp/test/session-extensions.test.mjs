@@ -127,35 +127,18 @@ test("track MIDI routing refuses to plan when Live does not expose the map", asy
   await assert.rejects(() => service.call("set_track_midi_routing", { trackId: "track-0", inNote: 36, expectedStateVersion: 4 }), /not exposed/);
 });
 
-test("track freeze plans with content risk and guards the observed state", async () => {
-  const freeze = { supported: true, frozen: false };
-  const calls = [];
-  const service = new ToolService({ bridge: { async request(method, params) {
-    calls.push({ method, params });
-    if (method === "get_track_freeze_state") return { stateVersion: 4, trackId: params.trackId, freeze };
-    if (method === "set_track_freeze_state") return { stateVersion: 5, trackId: params.trackId,
-      freeze: { ...freeze, frozen: params.frozen } };
-    throw new Error(method);
-  } } });
-  const args = { trackId: "track-0", frozen: true, expectedStateVersion: 4 };
-  const dry = await service.call("set_track_freeze_state", args);
-  assert.deepEqual(dry.plan.before, freeze);
+test("track freeze plans bind native source and rendered-content risk", async () => {
+  const source = {stateVersion: 4, trackId: "track-0", freeze: {supported: true, frozen: false}, filePath: "/sets/Test.als", setName: "Test", identityToken: "native", readiness: {playing:false}, clipCount:1};
+  const service = new ToolService({bridge:{request:async method=>{assert.equal(method, "get_track_freeze_source");return source;}}});
+  const dry = await service.call("set_track_freeze_state", {trackId:"track-0",frozen:true,expectedStateVersion:4});
+  assert.deepEqual(dry.plan.before, source);
   assert.equal(dry.plan.contentMutationRisk.kind, "rendered_track_audio");
-  assert.match(dry.plan.contentMutationRisk.kind, /rendered_track_audio/);
-  await assert.rejects(() => service.call("set_track_freeze_state", { trackId: "track-0", frozen: false, expectedStateVersion: 4 }), /already in the requested freeze state/);
-  const result = await service.call("set_track_freeze_state", { ...args, dryRun: false,
-    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
-  assert.equal(result.observed.freeze.frozen, true);
-  assert.equal(calls.at(-1).method, "set_track_freeze_state");
+  await assert.rejects(service.call("set_track_freeze_state", {trackId:"track-0",frozen:false,expectedStateVersion:4}), /already in the requested freeze state/);
 });
 
-test("track freeze refuses to plan when Live does not expose the state", async () => {
-  const service = new ToolService({ bridge: { async request(method) {
-    if (method === "get_track_freeze_state") return { stateVersion: 4, trackId: "track-0",
-      freeze: { supported: false, frozen: null } };
-    throw new Error(method);
-  } } });
-  await assert.rejects(() => service.call("set_track_freeze_state", { trackId: "track-0", frozen: true, expectedStateVersion: 4 }), /not exposed/);
+test("track freeze refuses when Live does not expose native state", async () => {
+  const service = new ToolService({bridge:{request:async()=>({stateVersion:4,filePath:"/sets/Test.als",setName:"Test",identityToken:"native",freeze:{supported:false,frozen:null}})}});
+  await assert.rejects(service.call("set_track_freeze_state", {trackId:"track-0",frozen:true,expectedStateVersion:4}), /unavailable/);
 });
 
 test("arrangement MIDI clip reads and note edits resolve timeline identity", async () => {

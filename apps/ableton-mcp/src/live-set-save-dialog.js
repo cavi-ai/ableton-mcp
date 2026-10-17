@@ -9,7 +9,9 @@ function run(argv) {
   if (processes.length !== 1 || processes[0].bundleIdentifier() !== "com.ableton.live")
     throw Error("Expected the exact Live process");
   var process = processes[0];
-  var audio = input.action === "adoptAudioExport" || input.purpose === "Save Audio File As:", retained = [];
+  var expectedPurpose = input.action === "adoptMidiExport" || input.purpose === "Save MIDI Clip As:" ? "Save MIDI Clip As:"
+    : input.action === "adoptAudioExport" || input.purpose === "Save Audio File As:" ? "Save Audio File As:" : "Save Live Set As:";
+  var exporting = expectedPurpose !== "Save Live Set As:", retained = [];
   function nativeRead(element, key) {
     var ref = Ref(), error = $.AXUIElementCopyAttributeValue(element, $(key), ref);
     if (error === -25212 || error === -25205) return null;
@@ -57,9 +59,9 @@ function run(argv) {
   }
   function panel(background) {
     if (!background) foreground();
-    if (audio) {
+    if (exporting) {
       var nativeMatches = nativeWindows().filter(function (window) { return ObjC.unwrap(nativeRead(window, "AXIdentifier")) === "save-panel"; });
-      if (nativeMatches.length !== 1 || ObjC.unwrap(nativeRead(nativeMatches[0], "AXModal")) !== true) throw Error("Expected one native audio Save panel");
+      if (nativeMatches.length !== 1 || ObjC.unwrap(nativeRead(nativeMatches[0], "AXModal")) !== true) throw Error("Expected one native export Save panel");
       return nativeElement(nativeMatches[0]);
     }
     var matches = process.windows().filter(function (window) { return attribute(window, "AXIdentifier") === "save-panel"; });
@@ -70,13 +72,13 @@ function run(argv) {
   function windowIdentity(window, background) {
     if (window.native) {
       var title = window.name(), named = nativeWindows().filter(function (item) { return ObjC.unwrap(nativeRead(item, "AXTitle")) === title; });
-      if (named.length !== 1 || !$.CFEqual(named[0], window.native)) throw Error("Native audio Save window changed");
+      if (named.length !== 1 || !$.CFEqual(named[0], window.native)) throw Error("Native export Save window changed");
       var nativeList = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(background ? 0 : 1, 0))).filter(function (item) {
         return item.kCGWindowOwnerPID === input.pid && item.kCGWindowName === title;
       });
       var visibleMatches=nativeList.filter(function (item) { return item.kCGWindowIsOnscreen===true; });
       if (visibleMatches.length) nativeList=visibleMatches;
-      if (nativeList.length !== 1) throw Error("Native audio Save window identity is unavailable or ambiguous");
+      if (nativeList.length !== 1) throw Error("Native export Save window identity is unavailable or ambiguous");
       return nativeList[0].kCGWindowNumber;
     }
     var position = window.position(), size = window.size();
@@ -94,7 +96,7 @@ function run(argv) {
   }
   function purpose(window) {
     var text = find(window, "_messageTextField", "AXStaticText").value();
-    var expected = input.action === "adoptAudioExport" || input.purpose === "Save Audio File As:" ? "Save Audio File As:" : "Save Live Set As:";
+    var expected = expectedPurpose;
     if (text !== expected) throw Error("Unexpected native Save dialog purpose");
     return text;
   }
@@ -202,29 +204,29 @@ function run(argv) {
     return { cancelled: true, savePressed: false, windowId: input.windowId };
   }
   if (input.action === "cancel") return JSON.stringify(cancelPrepared(input.panelState));
-  if (input.action === "adoptAudioExport" || input.purpose === "Save Audio File As:") {
+  if (exporting) {
     $.NSRunningApplication.runningApplicationWithProcessIdentifier(input.pid).activateWithOptions(3);
     waitFor(function () {
       try { return windowIdentity(panel()) === input.windowId; } catch (error) { return false; }
-    }, "Prepared audio Save window did not become visible", true);
+    }, "Prepared export Save window did not become visible", true);
   }
-  if (input.action === "adoptAudioExport") {
-    var audioSave = panel();noSheet(audioSave);
-    if (windowIdentity(audioSave) !== input.windowId) throw Error("Native audio Save window changed");
-    purpose(audioSave);
-    if (typeof input.parent !== "string" || input.parent.charAt(0) !== "/") throw Error("Audio export directory is required");
-    focusPanel(audioSave);
+  if (input.action === "adoptAudioExport" || input.action === "adoptMidiExport") {
+    var exportSave = panel();noSheet(exportSave);
+    if (windowIdentity(exportSave) !== input.windowId) throw Error("Native export Save window changed");
+    purpose(exportSave);
+    if (typeof input.parent !== "string" || input.parent.charAt(0) !== "/") throw Error("Export directory is required");
+    focusPanel(exportSave);
     events.keystroke("g", { using: ["command down", "shift down"] });
-    var audioSheet = waitFor(function () { return audioSave.sheets().length === 1 && audioSave.sheets()[0]; }, "Export folder sheet did not appear");
-    if (attribute(audioSheet, "AXIdentifier") !== "GoToWindow") throw Error("Unexpected export folder sheet");
-    var audioPath = find(audioSheet, "PathTextField", "AXTextField");
-    audioPath.value = input.parent;audioPath.attributes.byName("AXFocused").value = true;
-    if (audioPath.value() !== input.parent || attribute(audioPath, "AXFocused") !== true) throw Error("Export folder field readback mismatch");
+    var exportSheet = waitFor(function () { return exportSave.sheets().length === 1 && exportSave.sheets()[0]; }, "Export folder sheet did not appear");
+    if (attribute(exportSheet, "AXIdentifier") !== "GoToWindow") throw Error("Unexpected export folder sheet");
+    var exportPath = find(exportSheet, "PathTextField", "AXTextField");
+    exportPath.value = input.parent;exportPath.attributes.byName("AXFocused").value = true;
+    if (exportPath.value() !== input.parent || attribute(exportPath, "AXFocused") !== true) throw Error("Export folder field readback mismatch");
     foreground();events.keyCode(36);
-    waitFor(function () { return audioSave.sheets().length === 0; }, "Export folder navigation is unverified");
+    waitFor(function () { return exportSave.sheets().length === 0; }, "Export folder navigation is unverified");
     if (directoryPath() !== input.parent) throw Error("Export directory readback mismatch");
-    if (windowIdentity(audioSave) !== input.windowId) throw Error("Native audio Save window changed");
-    return JSON.stringify({ prepared: true, windowId: input.windowId, purpose: purpose(audioSave), panelState: panelState(audioSave) });
+    if (windowIdentity(exportSave) !== input.windowId) throw Error("Native export Save window changed");
+    return JSON.stringify({ prepared: true, windowId: input.windowId, purpose: purpose(exportSave), panelState: panelState(exportSave) });
   }
   if (input.action === "prepare") {
     foreground();
@@ -275,20 +277,20 @@ function run(argv) {
     if (!button.enabled()) throw Error("Save is disabled");
     if (windowIdentity(save) !== input.windowId || purpose(save) !== input.purpose)
       throw Error("Prepared Save As window changed; no Save was pressed");
-    if (input.purpose === "Save Audio File As:") {
+    if (exporting) {
       var directoryInfo = $.NSFileManager.defaultManager.attributesOfItemAtPathError($(input.parent), null);
       if (!input.parentIdentity || ObjC.unwrap(directoryInfo.objectForKey($("NSFileSystemNumber")).stringValue) !== input.parentIdentity.dev ||
           ObjC.unwrap(directoryInfo.objectForKey($("NSFileSystemFileNumber")).stringValue) !== input.parentIdentity.ino)
-        throw Error("Audio export directory identity changed; no Save was pressed");
-      var audioDestination = $(input.parent + "/" + input.name);
-      var linkDestination = ObjC.unwrap($.NSFileManager.defaultManager.destinationOfSymbolicLinkAtPathError(audioDestination, null));
-      if ($.NSFileManager.defaultManager.fileExistsAtPath(audioDestination) || typeof linkDestination === "string")
-        throw Error("Audio export destination appeared; no Save was pressed");
+        throw Error("Export directory identity changed; no Save was pressed");
+      var exportDestination = $(input.parent + "/" + input.name);
+      var linkDestination = ObjC.unwrap($.NSFileManager.defaultManager.destinationOfSymbolicLinkAtPathError(exportDestination, null));
+      if ($.NSFileManager.defaultManager.fileExistsAtPath(exportDestination) || typeof linkDestination === "string")
+        throw Error("Export destination appeared; no Save was pressed");
     }
     focusPanel(save);
-    if (audio) {
+    if (exporting) {
       button.attributes.byName("AXFocused").value = true;
-      if (attribute(button, "AXFocused") !== true) throw Error("Native audio Save button is not focused");
+      if (attribute(button, "AXFocused") !== true) throw Error("Native export Save button is not focused");
       foreground();saveAttempted = true;events.keyCode(36);
     } else { saveAttempted = true;button.actions.byName("AXPress").perform(); }
     return JSON.stringify({ savePressed: true });

@@ -926,14 +926,14 @@ class DispatchTest(unittest.TestCase):
 
     def test_capture_midi_session_rechecks_readiness_and_reports_actual_clip_change(self):
         song = Song()
-        before = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
+        before = dispatch_request(song, {"method": "get_midi_capture_context"}, 3)
         with self.assertRaisesRegex(ValueError, "changed"):
             dispatch_request(song, {"method": "capture_midi_session", "params": {
                 "expectedStateVersion": 3, "before": {"available": False}
             }}, 3)
         self.assertEqual(song.capture_midi_destinations, [])
         result = dispatch_request(song, {"method": "capture_midi_session", "params": {
-            "expectedStateVersion": 3, "before": before["midiCapture"]
+            "expectedStateVersion": 3, "before": before
         }}, 3)
         self.assertEqual(song.capture_midi_destinations, [1])
         self.assertEqual(result["changedSlots"][0]["clipId"], "track-0:clip-1")
@@ -952,9 +952,9 @@ class DispatchTest(unittest.TestCase):
             clip.extended_notes.append(MidiNote(2))
             song.can_capture_midi = False
         song.capture_midi = overdub
-        before = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
+        before = dispatch_request(song, {"method": "get_midi_capture_context"}, 3)
         result = dispatch_request(song, {"method": "capture_midi_session", "params": {
-            "expectedStateVersion": 3, "before": before["midiCapture"]
+            "expectedStateVersion": 3, "before": before, "allowExistingClipChanges": True
         }}, 3)
         self.assertEqual(len(result["changedSlots"]), 1)
         self.assertEqual(result["changedSlots"][0]["clipId"], "track-0:clip-0")
@@ -1183,31 +1183,19 @@ class DispatchTest(unittest.TestCase):
                 "trackId": "track-0", "expectedStateVersion": 3,
                 "before": observed["midiRouting"], "changes": {"inNote": 36}}}, 3)
 
-    def test_track_freeze_state_reads_and_guarded_toggles(self):
+    def test_track_freeze_state_reads_and_native_write_refuses(self):
         song = Song()
         observed = dispatch_request(song, {"method": "get_track_freeze_state", "params": {"trackId": "track-0"}}, 3)
         self.assertEqual(observed["freeze"], {"supported": True, "frozen": False})
-        params = {"trackId": "track-0", "expectedStateVersion": 3, "before": observed["freeze"], "frozen": True}
-        changed = dispatch_request(song, {"method": "set_track_freeze_state", "params": params}, 3)
-        self.assertEqual(changed["stateVersion"], 4)
-        self.assertTrue(changed["freeze"]["frozen"])
-        self.assertTrue(song.tracks[0].is_frozen)
-        self.assertEqual(song.undo_boundaries, ["begin", "end"])
-        with self.assertRaisesRegex(ValueError, "changed"):
-            dispatch_request(song, {"method": "set_track_freeze_state", "params": params}, 3)
-        with self.assertRaisesRegex(ValueError, "already in the requested freeze state"):
-            dispatch_request(song, {"method": "set_track_freeze_state", "params": {
-                **params, "expectedStateVersion": 4, "before": changed["freeze"]}}, 4)
+        with self.assertRaisesRegex(ValueError, "native UI"):
+            dispatch_request(song, {"method": "set_track_freeze_state", "params": {"trackId": "track-0"}}, 3)
+        self.assertFalse(song.tracks[0].is_frozen)
 
     def test_track_freeze_state_reports_unsupported_tracks(self):
         song = Song()
         del song.tracks[0].is_frozen
         observed = dispatch_request(song, {"method": "get_track_freeze_state", "params": {"trackId": "track-0"}}, 3)
         self.assertEqual(observed["freeze"], {"supported": False, "frozen": None})
-        with self.assertRaisesRegex(ValueError, "not exposed"):
-            dispatch_request(song, {"method": "set_track_freeze_state", "params": {
-                "trackId": "track-0", "expectedStateVersion": 3,
-                "before": observed["freeze"], "frozen": True}}, 3)
 
     def test_arrangement_midi_clips_support_reads_and_note_writes(self):
         song = Song()
@@ -2523,17 +2511,17 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(changed["markers"], {"unit": "seconds", "startSeconds": 1.0, "endSeconds": 7.0})
         self.assertEqual((clip.loop_start, clip.loop_end), (1.0, 7.0))
 
-    def test_transport_context_reads_and_writes_metronome_and_count_in(self):
+    def test_transport_context_reads_count_in_and_writes_metronome(self):
         song = Song()
         observed = dispatch_request(song, {"method": "get_transport_context"}, 3)
         self.assertFalse(observed["metronome"])
         self.assertEqual(observed["countInDuration"]["name"], "one_bar")
         changed = dispatch_request(song, {"method": "set_transport_context", "params": {"changes": {
-            "metronome": {"value": True}, "countInDuration": {"value": 2}
+            "metronome": {"value": True}
         }}}, 3)
         self.assertEqual(changed["stateVersion"], 4)
         self.assertTrue(song.metronome)
-        self.assertEqual(changed["countInDuration"]["name"], "two_bars")
+        self.assertEqual(changed["countInDuration"]["name"], "one_bar")
 
     def test_clip_duplication_and_deletion_return_observed_slots(self):
         song = Song()
@@ -2735,6 +2723,60 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(clip.view.grid_quantization, 7)
         self.assertTrue(clip.view.grid_is_triplet)
         self.assertIs(clip.groove, song.groove_pool.grooves[0])
+
+    def test_groove_removal_prepares_only_exact_unique_clip_and_keeps_content(self):
+        song = Song()
+        class GroupWithoutArrangementClips:
+            clip_slots = []
+            is_foldable = True
+            @property
+            def arrangement_clips(self):
+                raise RuntimeError("Group Tracks have no arrangement clips")
+        song.tracks.append(GroupWithoutArrangementClips())
+        clip = song.tracks[0].clip_slots[0].clip
+        clip.name = "Unique groove target"
+        clip.groove = song.groove_pool.grooves[0]
+        shown = []
+        application = SimpleNamespace(view=SimpleNamespace(show_view=shown.append))
+        params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_clip_groove_removal_context", "params": params}, 3, application)
+        self.assertIsNone(getattr(song.view, "detail_clip", None))
+        result = dispatch_request(song, {"method": "prepare_clip_groove_removal", "params": {
+            **params, "expectedStateVersion": 3, "before": before
+        }}, 3, application)
+        self.assertTrue(result["prepared"])
+        self.assertEqual(result["stateVersion"], 4)
+        self.assertIs(song.view.detail_clip, clip)
+        self.assertEqual(shown, ["Detail/Clip"])
+        self.assertIs(clip.groove, song.groove_pool.grooves[0])
+        self.assertEqual(dispatch_request(song, {"method": "get_clip_groove_context", "params": params}, 3), before["clip"])
+        replacement = Clip()
+        replacement.__dict__.update(clip.__dict__)
+        song.tracks[0].clip_slots[0].clip = replacement
+        with self.assertRaisesRegex(ValueError, "context changed"):
+            dispatch_request(song, {"method": "prepare_clip_groove_removal", "params": {
+                **params, "expectedStateVersion": 3, "before": before
+            }}, 3, application)
+        song.tracks[0].clip_slots[0].clip = clip
+        clip.name = "Changed target"
+        with self.assertRaisesRegex(ValueError, "context changed"):
+            dispatch_request(song, {"method": "prepare_clip_groove_removal", "params": {
+                **params, "expectedStateVersion": 3, "before": before
+            }}, 3, application)
+
+    def test_groove_removal_refuses_ambiguous_names_and_recording(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        clip.groove = song.groove_pool.grooves[0]
+        song.tracks[0].clip_slots[2].clip.name = clip.name
+        app = SimpleNamespace(view=SimpleNamespace(show_view=lambda _: None))
+        params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        with self.assertRaisesRegex(ValueError, "unique clip name"):
+            dispatch_request(song, {"method": "get_clip_groove_removal_context", "params": params}, 3, app)
+        clip.name = "Unique groove target"
+        song.record_mode = True
+        with self.assertRaisesRegex(ValueError, "recording"):
+            dispatch_request(song, {"method": "get_clip_groove_removal_context", "params": params}, 3, app)
 
     def test_clip_timing_rejects_changed_observation_before_mutation(self):
         song = Song()
