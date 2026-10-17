@@ -1,6 +1,6 @@
 # Native saving and recall
 
-`save_live_set` saves Live Sets on macOS through Live's native UI. Device-preset saving still requires direct native UI interaction.
+`save_live_set` saves Live Sets on macOS through Live's native UI. Use [native device preset saving](native-device-presets.md) to keep an exact device or rack in the User Library through MCP.
 
 ## Save a Live Set
 
@@ -55,5 +55,5 @@ Verify membership by opening the collection and finding the exact item. If its s
 ## Boundaries
 
 - A device preset is not a complete track or shared-bus system.
-- Device-preset saving still requires direct native UI interaction.
+- Device-preset saving uses guarded native UI; file verification and recall acceptance are separate.
 - Track-template, rack/FX-chain, third-party hidden-state, and full-Project recall each require their own workflow and acceptance evidence.
