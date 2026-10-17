@@ -27,8 +27,9 @@ test('mixer envelope confirmation binds the exact send, Return and native contex
 test('mixer selectors refuse ambiguous targets before native access',async()=>{
   let reads=0;
   const service=new ToolService({bridge:{request:async()=>{reads++;throw Error('unexpected native access');}}});
-  for(const input of [{...args,mixerControl:'pan'},{...args,mixerControl:'volume'},
-    {...args,sendId:undefined},{...args,returnTrackId:undefined}])await assert.rejects(service.call('create_clip_mixer_envelope',input),/mixerControl|sendId|returnTrackId|volume/);
+  for(const input of [{...args,mixerControl:'width'},{...args,mixerControl:'pan'},{...args,mixerControl:'volume'},
+    {...args,sendId:undefined},{...args,returnTrackId:undefined},
+    {trackId:args.trackId,clipId:args.clipId,mixerControl:'pan',expectedStateVersion:4,points:[{time:0,duration:4,targetDisplay:'50 %'}]}])await assert.rejects(service.call('create_clip_mixer_envelope',input),/mixerControl|sendId|returnTrackId|volume|pan/);
   assert.equal(reads,0);
 });
 
@@ -43,4 +44,32 @@ test('mixer envelope reads and creation are exposed only in the all profile',asy
   validateToolArguments('create_clip_mixer_envelope',args);
   assert.throws(()=>validateToolArguments('get_clip_mixer_envelope',{...read,sampleTimes:[-1]}));
   assert.throws(()=>validateToolArguments('create_clip_mixer_envelope',{...args,points:Array(129).fill({time:0,duration:1,value:1})}));
+});
+
+test('pan creation passes exact raw steps and signs the native pan context',async()=>{
+  const input={trackId:args.trackId,clipId:args.clipId,mixerControl:'pan',expectedStateVersion:4,
+    points:[{time:0,duration:2,value:-1},{time:2,duration:2,value:1}]};
+  validateToolArguments('create_clip_mixer_envelope',input);
+  validateToolArguments('get_clip_mixer_envelope',{trackId:args.trackId,clipId:args.clipId,mixerControl:'pan'});
+  let digest='original',writes=0;
+  const service=new ToolService({bridge:{request:async(method,params)=>{
+    assert.equal(params.mixerControl,'pan');
+    if(method==='get_clip_mixer_envelope_creation_context')return {stateVersion:4,...input,panningMode:0,
+      identityToken:'pan-native',contentDigest:'notes',parametersDigest:digest,envelopeExists:false};
+    writes++;assert.equal(method,'create_clip_mixer_envelope');assert.deepEqual(params.points,input.points);
+    return {stateVersion:5,trackId:input.trackId,clipId:input.clipId,mixerControl:'pan',created:true,verified:true,verificationScope:'sampled_steps'};
+  }}});
+  const plan=await service.call('create_clip_mixer_envelope',input);
+  const confirmed={...input,dryRun:false,confirmationToken:plan.confirmation.token,planHash:plan.confirmation.planHash};
+  digest='edited';await assert.rejects(()=>service.call('create_clip_mixer_envelope',confirmed),/hash mismatch/);
+  assert.equal(writes,0);digest='original';
+  assert.equal((await service.call('create_clip_mixer_envelope',confirmed)).observed.verified,true);
+  assert.equal(writes,1);
+});
+
+test('automation discovery exposes pan with its Stereo mode and raw-value limits',async()=>{
+  const service=new ToolService({bridge:{request:async()=>{throw Error('discovery must not access Live');}}});
+  const {sessionClipMixerEnvelopes:mixer}=await service.call('get_automation_capabilities',{});
+  assert.deepEqual(mixer.controls,['volume','pan','send']);
+  assert.deepEqual(mixer.pan,{panningMode:0,splitStereo:false,targets:'raw_native_values'});
 });
