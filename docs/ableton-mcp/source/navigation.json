@@ -29,6 +29,7 @@
         { "title": "Inspect recorded takes", "path": "guides/recorded-takes.md" },
         { "title": "Record a Session take", "path": "guides/session-take.md" },
         { "title": "Capture Live audio", "path": "guides/live-audio-capture.md" },
+        { "title": "Keep a Looper performance", "path": "guides/looper-performance.md" },
         { "title": "Compare a mix with a reference", "path": "guides/reference-comparison.md" },
         { "title": "Resample into an instrument", "path": "guides/resample-instrument.md" },
         { "title": "Import MIDI files", "path": "guides/midi-import.md" },

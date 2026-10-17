@@ -3161,6 +3161,12 @@ def dispatch_request(song, request, state_version, application=None):
         except ImportError:
             from rack_performance import context
         return context(song, params, state_version)
+    if method in ("get_looper_export_context", "export_looper_clip"):
+        try:
+            from . import looper_export
+        except ImportError:
+            import looper_export
+        return (looper_export.context if method == "get_looper_export_context" else looper_export.export)(song, params, state_version)
     if method == "get_looper_performance_context":
         return _looper_performance_context(song, params["trackId"], params["deviceId"], state_version)
     if method == "get_beat_repeat_performance_context":

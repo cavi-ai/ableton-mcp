@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 273 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 275 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (119)
+## Read-only (120)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -43,6 +43,7 @@ The server publishes 273 tools. Mutations of the Live Set require `expectedState
 | `get_live_audio_capture` | Read a capture's status, current native track/clip IDs, cleanup errors and stable completed file provenance. Omit captureId to list handles after reconnect or a timed-out start. No edits; runtime handles are not saved in the Set. | none |
 | `get_live_scale_reference` | Resolve one exact Ableton Live 12 scale and root to semitone intervals, pitch classes, note names, degrees, and scale family. Read-only. | `scaleName`, `rootNote` |
 | `get_live_state` | Read Ableton bridge identity, capabilities, set file path, tempo, playback, and state version. | none |
+| `get_looper_export_context` | Read native Looper export capability, buffer length, state and an exact destination slot without changing focus or playback. Buffer audio bytes are unavailable. | `trackId`, `deviceId`, `destinationTrackId`, `destinationClipId` |
 | `get_looper_performance_context` | Read one native snapshot of a loaded Looper's State, Quantization, Monitor, Song Control, Tempo Control, all exposed parameters, global clip-launch quantization, track input/output routing, monitoring, and transport. Read-only; source readiness and audible outcome are not inferred. | `trackId`, `deviceId` |
 | `get_midi_capture_context` | Read global Capture MIDI readiness, armed/monitored candidates, playing-clip risks, input routing, full-note digests and clip timing with native identity. Does not expose buffer contents or reserve a moving playhead. | none |
 | `get_midi_clip_notes` | Read standard MIDI notes from one exact Session or Arrangement MIDI clip; Arrangement responses include timeline identity. | `trackId`, `clipId` |
@@ -262,7 +263,7 @@ The server publishes 273 tools. Mutations of the Live Set require `expectedState
 | `transport_stop` | Plan or stop Ableton transport playback. | `expectedStateVersion` |
 | `undo` | Plan or apply one guarded Ableton undo operation. | `expectedStateVersion` |
 
-## Destructive mutations (25)
+## Destructive mutations (26)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -278,6 +279,7 @@ The server publishes 273 tools. Mutations of the Live Set require `expectedState
 | `delete_device` | Plan or delete one exact loaded device from an ordinary, Return, Main, or rack chain. | `expectedStateVersion`, `trackId`, `deviceId` |
 | `delete_rack_macro_variation` | Plan or delete one exact zero-based rack macro variation. Destructive: Live does not expose saved variation contents for preview or reconstruction. Requires confirmation and reports observed count. | `expectedStateVersion`, `trackId`, `deviceId`, `variationIndex` |
 | `delete_session_object` | Plan or delete an exact track, Return Track, scene, or Session clip with explicit content authority. Return deletion discloses its devices and affected track-send lanes. | `expectedStateVersion`, `targetType`, `targetId` |
+| `export_looper_clip` | Export a fixed nonempty native Looper buffer into an empty unarmed audio Session slot. Binds exposed context and native identities; never launches, clears Looper or overwrites a clip. Partial material is retained. Buffer audio equivalence is not verified. | `expectedStateVersion`, `trackId`, `deviceId`, `destinationTrackId`, `destinationClipId` |
 | `fail_nks_generation_job` | Record a worker failure and return the leased NKS job to pending, or quarantine it after the retry limit. Does not change preset lifecycle. | `presetId`, `workerId`, `reason` |
 | `import_midi_file` | Import a local MIDI file through macOS English Live into an entirely empty final Session MIDI staging track. Requires muted, unarmed, monitoring off, No Output and stopped recording/playback. Verifies exact file selection and observed clip/object structure; multitrack files may add tracks. No complete event or audible equivalence claim. All profile. | `expectedStateVersion`, `trackId`, `clipId`, `sourcePath`, `expectedSetFingerprint` |
 | `load_simpler_sample` | Load a local audio file into an existing single-sample Simpler. Requires stopped transport and an inactive unarmed target; loaded samples require allowReplace. Binds native context/file metadata and verifies exposed readback. Failure may leave partial state; no full sample rollback. All profile. | `expectedStateVersion`, `trackId`, `deviceId`, `sourcePath` |
