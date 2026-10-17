@@ -1,5 +1,7 @@
 import {trackBounce,MacTrackBounceHost} from "./track-bounce.mjs";
 import {trackFreeze,MacTrackFreezeHost} from "./track-freeze.mjs";
+import {saveNativeDevicePreset,MacDevicePresetHost} from './device-preset.mjs';
+import {collectProjectMedia,projectMediaInventory,MacProjectMediaHost} from './project-media.mjs';
 import { enrichArrangementSection, assertArrangementRange } from "./arrangement-section.mjs";
 import { assertExpectedState } from "./bridge-protocol.mjs";
 import {getSceneLaunchContext} from "./scene-context.mjs";
@@ -445,7 +447,7 @@ function normalizeBrowserSearch(args) {
 
 export class ToolService {
   constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, deviceChainLibrary, groupSystemLibrary, midiFeelLibrary, browserMetadata, spliceRoots = [], generationQueuePath,
-    liveSetHost = new MacLiveSetHost(), audioExportHost, trackFreezeHost, trackBounceHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000 }) {
+    liveSetHost = new MacLiveSetHost(), audioExportHost, projectMediaHost, devicePresetHost, trackFreezeHost, trackBounceHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000 }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
@@ -459,6 +461,8 @@ export class ToolService {
     this.liveSetHost = liveSetHost;
     this.trackBounceHost=trackBounceHost??new MacTrackBounceHost({liveSetHost});
     this.trackFreezeHost=trackFreezeHost??new MacTrackFreezeHost({liveSetHost});
+    this.devicePresetHost=devicePresetHost??new MacDevicePresetHost({liveSetHost});
+    this.projectMediaHost=projectMediaHost??new MacProjectMediaHost({liveSetHost});
     this.audioExportHost = audioExportHost ?? new MacAudioExportHost({liveSetHost});
     this.liveSetOpenTimeoutMs = liveSetOpenTimeoutMs;
     this.liveSetSaveTimeoutMs = liveSetSaveTimeoutMs;
@@ -473,6 +477,9 @@ export class ToolService {
   async call(name, args = {}) {
     requestSignal()?.throwIfAborted();
     if(name === "bounce_track_in_place")return trackBounce(this.bridge,this.confirmations,this.trackBounceHost,args);
+    if(name==='save_native_device_preset')return saveNativeDevicePreset(this.bridge,this.confirmations,this.devicePresetHost,args);
+    if(name==='get_project_media')return projectMediaInventory(this.bridge,this.projectMediaHost);
+    if(name==='collect_project_media')return collectProjectMedia(this.bridge,this.confirmations,this.projectMediaHost,args);
     if(name === "export_audio_mix")return exportAudioMix(this.bridge,this.confirmations,this.audioExportHost,args);
     if (name === "list_local_splice_roots") return listConfiguredSpliceRoots(this.spliceRoots);
     if (name === "browse_local_splice_directory") {
@@ -1029,7 +1036,7 @@ export class ToolService {
           presetCount: catalogProduct?.count || 0, stateCounts,
           validatedRecordCount: stateCounts ? stateCounts.validated || 0 : null },
         livePresetWorkflow: {
-          save: { surface: "Live UI", action: "Save Preset", mcpAvailable: false },
+          save: { surface: "Live UI", action: "Save Preset", mcpAvailable: true, tool: "save_native_device_preset", platform: "macOS English Live 12" },
           discover: { tool: "search_browser_items", root: "user_library" },
           load: { tool: "load_browser_item", useReturnedPath: true, stagingTrackRecommended: true },
           verify: { tool: "list_devices", scope: "loaded device identity and exposed parameters only",
