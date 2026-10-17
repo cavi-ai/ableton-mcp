@@ -388,6 +388,7 @@ const mixerEnvelopePoint={oneOf:creationEnvelopePoint.oneOf.map(schema=>({...sch
     {targetDisplay:string('Volume/send only: finite native dB target, such as -24 dB or -6 dB. Pan requires value. Decimal point only; -inf is not accepted.')})}}))};
 
 const contracts = {
+  compare_audio_reference: {description:'Compare equal 3–60-second local mono/stereo mix and reference windows for LUFS, true peak and loudness range. Binds both files with identity and SHA-256 before/after measurement; maximum 512 MiB each. Returns mix-minus-reference differences and attenuation-only level-match proposals. Read-only: no playback, normalization, mix edits, tonal or quality judgment. All profile; ffmpeg/ffprobe required.',inputSchema:object({mixPath:string('Absolute local rendered mix or verified capture file.'),referencePath:string('Absolute local reference audio file.'),mixStartSeconds:number('Mix window start in source-file seconds; default zero.',{minimum:0}),referenceStartSeconds:number('Reference window start in source-file seconds; default zero.',{minimum:0}),durationSeconds:number('Shared window duration, 3–60 seconds; defaults to 10. Both sources must contain the full window.',{minimum:3,maximum:60})},['mixPath','referencePath'])},
   import_midi_file:{description:'Import a local MIDI file through macOS English Live into an entirely empty final Session MIDI staging track. Requires muted, unarmed, monitoring off, No Output and stopped recording/playback. Verifies exact file selection and observed clip/object structure; multitrack files may add tracks. No complete event or audible equivalence claim. All profile.',inputSchema:guarded({trackId:ids.trackId,clipId:ids.clipId,sourcePath:string('Existing absolute regular .mid/.smf file, at most 8 MiB and 256 declared MIDI tracks.'),expectedSetFingerprint:string('Current Set fingerprint from get_live_state.')},['trackId','clipId','sourcePath','expectedSetFingerprint'])},
   save_native_device_preset: {description:'Save an exact device or rack as a new native User Library preset through macOS English Live. Sets intended preset naming and changes focus; may rename the source. Requires saved Set and stopped transport. Refuses existing names; verifies Live XML/VST3 artifacts and exposed source state. Audio Unit artifact verification is unavailable. No recall, audible-equivalence or sample-portability claim.',inputSchema:guarded({trackId:ids.deviceOwnerId,deviceId:ids.deviceId,name:string('New visible filename stem, without extension; at most 80 characters. Existing native User Library preset names refuse.')},['trackId','deviceId','name'])},
   get_project_media: {description:'Inspect saved Live 12 sample references and file contents in the current Project. Reports missing, ambiguous and external samples; distinguishes the saved snapshot from unsaved Live edits. Does not certify plug-in libraries, licenses, Max dependencies or other Sets. Requires macOS English Live for native clean-state observation.',inputSchema:object()},
@@ -759,8 +760,15 @@ const readOnlyTools = new Set([
   "plan_midi_scale_chord_remapping", "plan_midi_diatonic_chord_quality",
   "get_clip_timing", "get_audio_clip_state", "get_audio_source_beat_times",
   "propose_audio_transient_warp", "get_device_sidechain_routing",
-  "analyze_audio_file", "analyze_audio_clip", "get_automation_capabilities",
-  "get_track_mixer", "get_track_signal_activity", "get_track_routing", "get_return_routing", "get_set_mixer",
+  "compare_audio_reference",
+  "analyze_audio_file",
+  "analyze_audio_clip",
+  "get_automation_capabilities",
+  "get_track_mixer",
+  "get_track_routing",
+  "get_set_mixer",
+  "get_track_signal_activity",
+  "get_return_routing",
   "list_producer_chain_blueprints", "get_producer_chain_blueprint",
   "inspect_producer_chain", "inspect_producer_bus", "inspect_producer_return_bus",
   "list_arrangement_clips", "list_factory_device_profiles", "get_factory_coverage",
