@@ -3013,6 +3013,14 @@ def _audio_capture_module():
 
 
 def dispatch_request(song, request, state_version, application=None):
+    if request.get('method') in ('get_device_preset_source', 'select_device_preset_source'):
+        try:
+            from .device_preset import source, select
+        except ImportError:
+            from device_preset import source, select
+        if request['method'] == 'get_device_preset_source':
+            return source(song, request.get('params', {}), state_version)
+        return select(song, request.get('params', {}), state_version, application)
     method = request["method"]
     params = request.get("params", {})
     fingerprint = _set_fingerprint(song)
