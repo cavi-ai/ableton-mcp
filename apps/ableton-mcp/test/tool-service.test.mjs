@@ -178,6 +178,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         stateVersion: 4, root: params.root, path: params.path, query: params.query,
         results: [{ path: ["Splice", "Drums", "Snare.wav"], name: "Snare.wav", uri: "query:snare", loadable: true, folder: false }]
       };
+      if (method === "get_browser_load_context") return {stateVersion:4,trackId:params.trackId,identityToken:"browser-context",tracks:[{id:"track-0",name:"Synth"}],scenes:[],item:{name:params.path.at(-1),uri:"query:Drift",loadable:true,folder:false}};
       if (method === "load_browser_item" || method === "load_factory_browser_item") return {
         stateVersion: 5, trackId: params.trackId,
         loadedItem: params.item
@@ -574,8 +575,8 @@ test("factory browser listing is read-only and exact-path device loading is guar
     ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash
   });
   assert.equal(live.observed.loadedItem.name, "Drift");
-  assert.deepEqual(calls.slice(-4).map(({ method }) => method), [
-    "list_devices", "list_clips", "get_factory_browser_items", "load_factory_browser_item"
+  assert.deepEqual(calls.slice(-5).map(({ method }) => method), [
+    "list_devices", "list_clips", "get_factory_browser_items", "get_browser_load_context", "load_factory_browser_item"
   ]);
 });
 
@@ -590,7 +591,7 @@ test("Live browser exposes plug-ins and user content through canonical guarded t
   });
   assert.equal(live.observed.loadedItem.name, "Drift");
   assert.deepEqual(calls.slice(-5).map(({ method }) => method), [
-    "get_browser_items", "list_devices", "list_clips", "get_browser_items", "load_browser_item"
+    "list_devices", "list_clips", "get_browser_items", "get_browser_load_context", "load_browser_item"
   ]);
 });
 
@@ -605,6 +606,8 @@ test("browser load plan signs clip occupancy when targeting an ordinary track", 
     { id: "track-0:clip-1", hasClip: false, name: null }
   ]);
   assert.match(dry.plan.loadBehavior.warning, /Session clip/);
+  assert.equal(dry.plan.loadBehavior.mayCreateTracks,true);
+  assert.equal(dry.plan.beforeLoadContext.identityToken,"browser-context");
 });
 
 test("browser root inventory forwards one read-only native request", async () => {
