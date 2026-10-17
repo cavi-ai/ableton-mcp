@@ -5,7 +5,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from bridge import dispatch_request
-from test_dispatch import Song, Clip, MidiNote, AudioClip
+from test_dispatch import Song, Clip, MidiNote, AudioClip, Track
 
 
 class TakeLane:
@@ -44,6 +44,17 @@ class TakeLaneTests(unittest.TestCase):
         self.assertEqual(result['arrangement'][0]['name'], 'Current comp')
         self.assertIs(self.song.view.selected_track, selected_track)
         self.assertTrue(self.song.is_playing)
+
+    def test_ui_path_binds_group_sibling_positions_and_folded_ancestors(self):
+        group = self.song.tracks[1]
+        group.is_foldable, group.fold_state, group.name = True, 1, 'Vocals'
+        self.song.tracks = [Track(), group, self.track]
+        self.track.is_grouped, self.track.group_track = True, group
+        self.args = {'trackId': 'track-2', 'takeClipId': 'track-2:take-lane-0:clip-0'}
+        context = self.read()
+        self.assertEqual(context['uiTrackPath'], 'ArrangementView.GroupTrack[1].Track[0]')
+        self.assertEqual(context['uiAncestors'][0]['id'], 'track-1')
+        self.assertTrue(context['uiAncestors'][0]['folded'])
 
     def test_selected_take_reports_complete_stored_notes_and_local_timing(self):
         selected = self.read()['selected']

@@ -2,6 +2,7 @@ import { enrichArrangementSection, assertArrangementRange } from "./arrangement-
 import { assertExpectedState } from "./bridge-protocol.mjs";
 import {getSceneLaunchContext} from "./scene-context.mjs";
 import {readTakeLaneContext} from "./take-lanes.mjs";
+import {MacTakeLaneAuditionHost,takeLaneAudition} from "./take-lane-audition.mjs";
 import {setTrackVolumeDb} from "./track-volume.mjs";
 import {setTrackSendDb} from "./track-send.mjs";
 import {setDeviceParameterDisplay} from "./parameter-display.mjs";
@@ -444,7 +445,7 @@ function normalizeBrowserSearch(args) {
 
 export class ToolService {
   constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, deviceChainLibrary, groupSystemLibrary, midiFeelLibrary, browserMetadata, spliceRoots = [], generationQueuePath,
-    liveSetHost = new MacLiveSetHost(), audioExportHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000 }) {
+    liveSetHost = new MacLiveSetHost(), audioExportHost, takeLaneAuditionHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000 }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
@@ -457,6 +458,7 @@ export class ToolService {
     this.generationQueuePath = generationQueuePath;
     this.liveSetHost = liveSetHost;
     this.audioExportHost = audioExportHost ?? new MacAudioExportHost({liveSetHost});
+    this.takeLaneAuditionHost=takeLaneAuditionHost??new MacTakeLaneAuditionHost({liveSetHost});
     this.liveSetOpenTimeoutMs = liveSetOpenTimeoutMs;
     this.liveSetSaveTimeoutMs = liveSetSaveTimeoutMs;
     this.liveSetLaunchTimeoutMs = liveSetLaunchTimeoutMs;
@@ -706,6 +708,7 @@ export class ToolService {
     if (name === "list_arrangement_cue_points") return this.bridge.request("list_arrangement_cue_points", {});
     if (name === "list_tracks") return this.bridge.request("list_tracks", {});
     if (name === "list_scenes") return this.bridge.request("list_scenes", {});
+    if (['get_take_lane_audition_context','show_take_lanes','select_take_lane_audition'].includes(name)) return takeLaneAudition(name,this.bridge,this.confirmations,this.takeLaneAuditionHost,args);
     if (name === "get_take_lane_context") return readTakeLaneContext(this.bridge,args);
     if (name === "get_scene_launch_context") return getSceneLaunchContext(this.bridge,args);
     if (name === "get_simpler_sample_state") return this.#readSimplerSampleState(args);

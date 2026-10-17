@@ -18,10 +18,18 @@ Audio takes can share a source file containing multiple passes. File analysis me
 
 Stored takes do not reveal current comp selections, source highlights or lane audition state. Notes and exposed source settings are evidence of stored material, not a musical ranking or audible outcome. Audio-file bytes, envelopes, expression, effective routing and rendered sound are outside the snapshot. Ask what the user hears and wants to keep.
 
+## Compare lanes with the user
+
+Retrieve `audition-recorded-takes` to compare whole take lanes and return to the comp. On macOS, `get_take_lane_audition_context` combines the native inventory with visible audition checkboxes. Hidden lanes have unknown audition state. A saved Set with an identifiable native document, accessibility access and one running Live instance are required.
+
+Confirm `show_take_lanes` separately to open Arrangement and reveal the target's lanes. Unfold necessary ancestor groups separately. Then confirm `select_take_lane_audition` with a returned `laneId`; pass explicit `null` to return that track to the comp. Selection applies to the entire lane, not a chosen clip or interval. It does not start playback. Use an authorized [Arrangement audition](arrangement-audition.md) to hear the intended passage and ask the user what they prefer. Check track mutes, Session overrides and routing first; other tracks may sound.
+
+These actions verify visible selection, not rendered audio or preservation of every source byte and envelope. Return to the comp after comparison unless the user chooses to leave a lane active. If selection cannot be verified, inspect current state before continuing; no automatic retry or rollback occurs.
+
 ## Respect the action boundary
 
-`takePromotionSupported` is false. The native Arrangement duplication operation can copy the main comp over the take's interval instead of copying that take's content. This tool provides no copy, promotion, audition, recording, deletion or comp-editing action. Never substitute a similar main-lane clip or claim a take was promoted from an inspection result.
+`takePromotionSupported` is false. The native Arrangement duplication operation can copy the main comp over the take's interval instead of copying that take's content. Inspection and audition provide no copy, promotion, recording, deletion or comp-editing action. Never substitute a similar main-lane clip or claim a take was promoted from an inspection or audition result.
 
-Existing [Arrangement analysis](arrangement-section.md) and [audition](arrangement-audition.md) operate on the main Arrangement, not hidden takes. Separately authorized work on normal clips can continue through those workflows while keeping the distinction explicit.
+Existing [Arrangement analysis](arrangement-section.md) reads the main Arrangement. Arrangement playback follows Live's current audition state; confirm a lane's selection before claiming to hear that take. Separately authorized work on normal clips can continue through those workflows while keeping the distinction explicit.
 
 Take-lane structure is documented in the [Live Object Model reference](https://docs.cycling74.com/apiref/lom/takelane/); [Live's comping manual](https://www.ableton.com/en/live-manual/12/comping/) describes the native UI operations.
