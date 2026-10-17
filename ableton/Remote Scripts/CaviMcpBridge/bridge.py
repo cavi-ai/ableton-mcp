@@ -2991,6 +2991,14 @@ def _session_orientation(song, state_version, application=None):
             "scope": "Set metadata and displayed clip sampled in one Live callback; tonal evidence is limited to that clip."}
 
 
+def _arrangement_recording_module():
+    try:
+        from . import arrangement_recording
+    except ImportError:
+        import arrangement_recording
+    return arrangement_recording
+
+
 def _audio_capture_module():
     try:
         from . import audio_capture
@@ -3023,6 +3031,10 @@ def dispatch_request(song, request, state_version, application=None):
         return arrangement_section.read(song, params, state_version)
     if method == "analyze_midi_parts":
         return _musical_parts_context(song, params, state_version)
+    if method in ("get_arrangement_recording_source", "record_arrangement_take", "get_arrangement_take", "finish_arrangement_take"):
+        recording = _arrangement_recording_module()
+        return {"get_arrangement_recording_source": recording.source, "record_arrangement_take": recording.start,
+                "get_arrangement_take": recording.read, "finish_arrangement_take": recording.finish}[method](song, params, state_version)
     if method in ("get_audio_capture_source", "capture_live_audio", "get_live_audio_capture", "finish_live_audio_capture"):
         capture = _audio_capture_module()
         return {"get_audio_capture_source": capture.source, "capture_live_audio": capture.start,
@@ -6488,6 +6500,7 @@ class SocketBridge:
     def stop(self):
         self.stopped.set()
         try:
+            _arrangement_recording_module().shutdown(self.control_surface.song())
             capture = _audio_capture_module()
             if capture.has_active():
                 capture.shutdown(self.control_surface.song())
@@ -6573,6 +6586,9 @@ class SocketBridge:
                 record.finish()
 
     def drain(self):
+        recording = _arrangement_recording_module()
+        if recording.has_active():
+            self.state_version += recording.advance(self.control_surface.song())
         capture = _audio_capture_module()
         if capture.has_active():
             self.state_version += capture.advance(self.control_surface.song())

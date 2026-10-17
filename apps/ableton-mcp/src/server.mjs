@@ -68,6 +68,7 @@ const toolNames = [
   "get_session_orientation",
   "analyze_midi_parts",
   "analyze_arrangement_section",
+  "record_arrangement_take", "get_arrangement_take", "finish_arrangement_take",
   "capture_live_audio", "get_live_audio_capture", "finish_live_audio_capture",
   "get_instrument_comparison", "prepare_instrument_comparison", "adopt_instrument_comparison", "select_instrument_comparison",
   "duplicate_midi_clip_variations",

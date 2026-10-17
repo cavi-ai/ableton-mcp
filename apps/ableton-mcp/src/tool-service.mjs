@@ -1,3 +1,4 @@
+import {arrangementRecording} from "./arrangement-recording.mjs";
 import { enrichArrangementSection, assertArrangementRange } from "./arrangement-section.mjs";
 import { assertExpectedState } from "./bridge-protocol.mjs";
 import {getSceneLaunchContext} from "./scene-context.mjs";
@@ -650,6 +651,7 @@ export class ToolService {
       return enrichArrangementSection(await this.bridge.request(name, args), {includeHarmony: args.includeHarmony ?? false});
     }
     if (name === "analyze_midi_parts") return enrichMidiPartsContext(await this.bridge.request(name, args));
+    if (["record_arrangement_take", "get_arrangement_take", "finish_arrangement_take"].includes(name)) return arrangementRecording(this.bridge,this.confirmations,name,args);
     if (["capture_live_audio", "get_live_audio_capture", "finish_live_audio_capture"].includes(name))
       return liveAudioCapture(this.bridge, this.confirmations, name, args);
     if (["get_instrument_comparison", "prepare_instrument_comparison", "adopt_instrument_comparison", "select_instrument_comparison"].includes(name))
