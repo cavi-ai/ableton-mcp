@@ -1,4 +1,5 @@
 [
+  "get_recording_setup_source",
   "get_bridge_protocol",
   "get_selection_context", "get_session_orientation", "get_midi_clip_variation_context", "duplicate_midi_clip_variations",
   "analyze_midi_parts",

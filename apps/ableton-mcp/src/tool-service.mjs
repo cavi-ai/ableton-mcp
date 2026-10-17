@@ -1,3 +1,4 @@
+import {recordingSetup,MacRecordingSetupHost} from "./recording-setup.mjs";
 import { enrichArrangementSection, assertArrangementRange } from "./arrangement-section.mjs";
 import { assertExpectedState } from "./bridge-protocol.mjs";
 import {getSceneLaunchContext} from "./scene-context.mjs";
@@ -443,7 +444,7 @@ function normalizeBrowserSearch(args) {
 
 export class ToolService {
   constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, deviceChainLibrary, groupSystemLibrary, midiFeelLibrary, browserMetadata, spliceRoots = [], generationQueuePath,
-    liveSetHost = new MacLiveSetHost(), audioExportHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000 }) {
+    liveSetHost = new MacLiveSetHost(), audioExportHost, recordingSetupHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000 }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
@@ -455,6 +456,7 @@ export class ToolService {
     this.spliceRoots = spliceRoots;
     this.generationQueuePath = generationQueuePath;
     this.liveSetHost = liveSetHost;
+    this.recordingSetupHost=recordingSetupHost??new MacRecordingSetupHost({liveSetHost});
     this.audioExportHost = audioExportHost ?? new MacAudioExportHost({liveSetHost});
     this.liveSetOpenTimeoutMs = liveSetOpenTimeoutMs;
     this.liveSetSaveTimeoutMs = liveSetSaveTimeoutMs;
@@ -2327,6 +2329,7 @@ export class ToolService {
       value: normalizeChoice(args.countInDuration, "countInDuration", observed.countInDuration.choices)
     };
     if (!Object.keys(changes).length) throw new Error("at least one transport context change is required");
+    if (args.countInDuration!==undefined) return recordingSetup(this.bridge,this.confirmations,this.recordingSetupHost,args,{observed,changes});
     return this.#confirmedMutation({
       method: "set_transport_context", expectedStateVersion: args.expectedStateVersion,
       before: observed, changes
