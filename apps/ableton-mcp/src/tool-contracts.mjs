@@ -388,6 +388,8 @@ const mixerEnvelopePoint={oneOf:creationEnvelopePoint.oneOf.map(schema=>({...sch
     {targetDisplay:string('Volume/send only: finite native dB target, such as -24 dB or -6 dB. Pan requires value. Decimal point only; -inf is not accepted.')})}}))};
 
 const contracts = {
+  get_parameter_automation_context: {description:'Read discoverable device parameters or mixer controls and native automation handoff support on an exact track, Group, Return or Main. Omit parameterId to list, supply one observed ID for a target read. Unsupported controls remain explicit. Read-only; all profile.',inputSchema:object({trackId:ids.deviceOwnerId,deviceId:ids.deviceId,parameterId:string('Observed parameter-N for a device, or a mixer control ID from this read. Omit deviceId for mixer controls.')},['trackId'])},
+  re_enable_parameter_automation: {description:'Hand one exact overridden device or mixer control back to native automation. Binds native owner/device/control identities and current manual value. Requires supported enabled control, unfrozen target and recording/count-in off; preserves playback. Values may jump. Reports active automation separately from requested handoff. Partial work remains; no rollback or replay. All profile.',inputSchema:guarded({trackId:ids.deviceOwnerId,deviceId:ids.deviceId,parameterId:string('Exact control ID returned by get_parameter_automation_context; omit deviceId for mixer controls.')},['trackId','parameterId'])},
   get_mixer_panning_context: {description:'Read exact track, Group, Return or Main panning mode and Stereo/left/right native values, displays, bounds, enablement and automation. Binds native owner/mixer/parameter identities. Read-only; unsupported fields explicit. All profile.',inputSchema:object({trackId:ids.deviceOwnerId},['trackId'])},
   set_mixer_panning: {description:'Change one mixer panning mode or its active Stereo balance / Split Stereo channel positions in separate confirmations. Recording/count-in off, unfrozen target, known inactive affected automation and native identities required. Immediate edits; partial work retained without rollback/replay. No timed sweep or audible image claim. Updated bridge; all profile.',inputSchema:{...guarded({trackId:ids.deviceOwnerId,mode:{type:'string',enum:['stereo','splitStereo']},pan:number('Native Stereo balance; -1 left, 0 center, +1 right. No clamping.',{minimum:-1,maximum:1}),left:number('Split Stereo left input channel position.',{minimum:-1,maximum:1}),right:number('Split Stereo right input channel position.',{minimum:-1,maximum:1})},['trackId']),oneOf:[{required:['mode'],properties:{mode:{},pan:false,left:false,right:false}},{required:['pan'],properties:{pan:{},mode:false,left:false,right:false}},{properties:{mode:false,pan:false},anyOf:[{required:['left'],properties:{left:{}}},{required:['right'],properties:{right:{}}}]}]}},
   get_crossfader_context: {description:'Read Main crossfader value, native bounds, availability and automation plus every ordinary/Group/Return A/B assignment and Group relationship. Unsupported fields remain explicit. No playback, selection or mixer changes; all profile.',inputSchema:empty},
@@ -750,6 +752,7 @@ const contracts = {
 };
 
 const readOnlyTools = new Set([
+  "get_parameter_automation_context",
   "get_mixer_panning_context",
   "get_crossfader_context",
   "get_session_clip_hold",

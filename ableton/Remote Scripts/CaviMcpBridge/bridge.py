@@ -3210,6 +3210,12 @@ def dispatch_request(song, request, state_version, application=None):
         except ImportError:
             import arrangement_section
         return arrangement_section.read(song, params, state_version)
+    if method in ('get_parameter_automation_context', 're_enable_parameter_automation'):
+        try:
+            from . import parameter_automation
+        except ImportError:
+            import parameter_automation
+        return (parameter_automation.context if method == 'get_parameter_automation_context' else parameter_automation.apply)(song, params, state_version)
     if method == "analyze_midi_parts":
         return _musical_parts_context(song, params, state_version)
     if method in ("get_arrangement_recording_source", "record_arrangement_take", "get_arrangement_take", "finish_arrangement_take"):
@@ -6981,7 +6987,7 @@ class SocketBridge:
                 if request.get("method") == "prepare_instrument_comparison":
                     self._defer_instrument_comparison(client, request, song, record)
                     return
-                if request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state", "set_mixer_panning"):
+                if request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state", "re_enable_parameter_automation", "set_mixer_panning"):
                     self._defer_observed_mutation(client, request, song, record)
                     return
                 result = dispatch_request(
@@ -7044,13 +7050,14 @@ class SocketBridge:
     def _defer_observed_mutation(self, client, request, song, record=None):
         try:
             try:
-                from . import arrangement_audition, arrangement_return, crossfader, panning
+                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, panning
             except ImportError:
-                import arrangement_audition, arrangement_return, crossfader, panning
+                import arrangement_audition, arrangement_return, crossfader, parameter_automation, panning
             module, success_key = {
                 'return_tracks_to_arrangement': (arrangement_return, 'returned'),
                 'audition_arrangement_passage': (arrangement_audition, 'started'),
                 'set_crossfader_state': (crossfader, 'verified'),
+                're_enable_parameter_automation': (parameter_automation, 'verified'),
                 'set_mixer_panning': (panning, 'verified'),
             }[request['method']]
             operation = module.begin(song, request.get("params", {}), self.state_version)

@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 295 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 297 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (127)
+## Read-only (128)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -54,6 +54,7 @@ The server publishes 295 tools. Mutations of the Live Set require `expectedState
 | `get_mixer_panning_context` | Read exact track, Group, Return or Main panning mode and Stereo/left/right native values, displays, bounds, enablement and automation. Binds native owner/mixer/parameter identities. Read-only; unsupported fields explicit. All profile. | `trackId` |
 | `get_nks_generation_job` | Read one durable NKS generation job and its ordered event history without creating or changing the queue. | `presetId` |
 | `get_nks_generation_status` | Read discovered preset and durable job counts for one product. Serum 2 and Omnisphere also report pilot size, validated count, gate state, queueable factory count (including already queued presets), remaining discovered pilot IDs, and unqueued discovered pilot IDs without a durable job. Does not create a queue or contact Live. | `productSlug` |
+| `get_parameter_automation_context` | Read discoverable device parameters or mixer controls and native automation handoff support on an exact track, Group, Return or Main. Omit parameterId to list, supply one observed ID for a target read. Unsupported controls remain explicit. Read-only; all profile. | `trackId` |
 | `get_plugin_integration_context` | Inspect loaded Serum 2/Omnisphere/VPS Avenger: installed variants, controls, NKS counts, browser limits and Live UI save/User Library load. Loading in Live does not verify hidden plug-in state. | `trackId`, `deviceId` |
 | `get_preset` | Read one exact NKS preset catalog record. | `presetId` |
 | `get_preset_metadata` | Read user tags, favorite state, and revision for one preset. | `presetId` |
@@ -136,7 +137,7 @@ The server publishes 295 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (139)
+## Mutations (140)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -212,6 +213,7 @@ The server publishes 295 tools. Mutations of the Live Set require `expectedState
 | `prepare_instrument_comparison` | Plan or natively duplicate a MIDI instrument track for comparison. Binds exposed devices, routing, clips and notes; verifies source/copy and cleans up a failed copy. Requires stopped transport. Temporarily mutes source, restores it, leaves copy muted/unarmed with input monitoring off. IDs shift. Opaque state/audio unverified. | `expectedStateVersion`, `trackId`, `clipId`, `name` |
 | `quantize_audio_clip` | Plan or request Live native quantization for one warped audio clip at a selected grid, amount, and observed global swing. Dry runs warn that Live may insert many warp markers and shift existing source start/end anchors; duplicate the clip first if the original edit must be preserved. Returns native anchors and a measured before/after marker-change summary; an existing marker is not guaranteed to snap to the grid. Use move_audio_warp_marker for an exact anchor move. Requires unchanged audio state and swing. Does not quantize MIDI note ends. | `expectedStateVersion`, `trackId`, `clipId`, `grid`, `amount` |
 | `randomize_rack_macros` | Plan or invoke Live's native randomization of eligible mapped rack macros. Binds exact rack and parameter state, then reports observed values. No seed or predictable outcome is available. | `expectedStateVersion`, `trackId`, `deviceId` |
+| `re_enable_parameter_automation` | Hand one exact overridden device or mixer control back to native automation. Binds native owner/device/control identities and current manual value. Requires supported enabled control, unfrozen target and recording/count-in off; preserves playback. Values may jump. Reports active automation separately from requested handoff. Partial work remains; no rollback or replay. All profile. | `expectedStateVersion`, `trackId`, `parameterId` |
 | `recall_device_chain_snapshot` | Plan or recall Return or master mixer, available master output channel, exposed device parameters, rack-chain mixer, Drum Rack note routing and populated pad mute/solo onto exactly compatible topology in one guarded Live undo step. Legacy v1-v5 captures remain supported. Does not create, delete, or load devices or restore hidden plugin state. | `expectedStateVersion`, `trackId`, `snapshot` |
 | `recall_device_parameter_snapshot` | Guarded recall of parameter JSON onto a matching native device class and exact ordered parameter layout. Supports ordinary, Return, and Main tracks; rejects incompatible bounds/choices and disabled changed controls. Does not restore hidden state. | `expectedStateVersion`, `trackId`, `deviceId`, `snapshot` |
 | `recall_group_system_snapshot` | Plan or apply a saved group-system capture onto one-to-one mapped compatible existing Group Track and descendants. One guarded native callback and Live undo step restore exposed track mixer, routing, device and rack state; on failure the bridge attempts rollback across every changed track. Does not recreate tracks/devices/clips or hidden plugin state. | `expectedStateVersion`, `name`, `busTrackId`, `mapping` |
