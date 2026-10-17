@@ -38,6 +38,7 @@
     "ableton/Remote Scripts/CaviMcpBridge/instrument_comparison.py",
     "ableton/Remote Scripts/CaviMcpBridge/audio_capture.py",
     "ableton/Remote Scripts/CaviMcpBridge/audio_export.py",
+    "ableton/Remote Scripts/CaviMcpBridge/beat_repeat_fill.py",
     "ableton/Remote Scripts/CaviMcpBridge/arrangement_section.py",
     "ableton/Remote Scripts/CaviMcpBridge/arrangement_audition.py",
     "ableton/Remote Scripts/CaviMcpBridge/track_volume.py",

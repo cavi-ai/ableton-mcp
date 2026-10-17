@@ -21,7 +21,7 @@
   "get_audio_export_source",
   "get_instrument_comparison_source", "prepare_instrument_comparison", "get_instrument_comparison", "select_instrument_comparison",
   "get_instrument_comparison_adoption_source", "adopt_instrument_comparison",
-  "get_live_state", "get_track_state_snapshot", "set_track_state_snapshot", "set_group_system_snapshot", "get_device_chain_snapshot", "set_device_chain_snapshot", "get_history_state", "undo", "redo", "get_transport_context", "set_transport_context", "get_looper_performance_context", "set_looper_state", "get_beat_repeat_performance_context", "set_beat_repeat_enabled", "set_beat_repeat_grid", "set_beat_repeat_interval",
+  "get_live_state", "get_track_state_snapshot", "set_track_state_snapshot", "set_group_system_snapshot", "get_device_chain_snapshot", "set_device_chain_snapshot", "get_history_state", "undo", "redo", "get_transport_context", "set_transport_context", "get_looper_performance_context", "set_looper_state", "get_beat_repeat_performance_context", "get_beat_repeat_fill_source", "perform_beat_repeat_fill", "get_beat_repeat_fill", "finish_beat_repeat_fill", "set_beat_repeat_enabled", "set_beat_repeat_grid", "set_beat_repeat_interval",
   "get_device_sidechain_routing",
   "get_clip_groove_context",
   "set_device_sidechain_routing",
