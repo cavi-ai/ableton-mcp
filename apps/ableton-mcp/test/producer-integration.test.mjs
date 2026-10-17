@@ -12,8 +12,9 @@ test("producer profile exposes only compact workflows and immediate stop control
   const listed = await route({ id: 1, method: "tools/list" });
   assert.deepEqual(listed.result.tools.map(tool => tool.name).sort(), [
     "get_production_context", "run_production_task", "read_production_artifact", "record_production_note",
-    "apply_production_operation", "get_live_state", "transport_stop", "panic"
+    "apply_production_operation", "get_producer_workflow", "get_live_state", "transport_stop", "panic"
   ].sort());
+  assert.ok(Buffer.byteLength(JSON.stringify(listed.result.tools)) <= 12000);
   const denied = await route({ id: 2, method: "tools/call", params: { name: "set_tempo", arguments: { expectedStateVersion: 1, tempo: 100 } } });
   assert.equal(denied.error.code, -32601);
   assert.equal(Object.keys(toolContracts).every(name => listed.result.tools.some(tool => tool.name === name)), false);
@@ -26,6 +27,10 @@ test("configured service exposes producer notes without connecting to Live or a 
   const directory = await mkdtemp(join(tmpdir(), "producer-integration-"));
   const runtime = createConfiguredService({ ABLETON_MCP_PRODUCER_DIR: directory, ABLETON_MCP_SPLICE_ROOTS: "[]" });
   try {
+    const route=createRouter(runtime.service,{toolProfile:'producer'});
+    const workflow=await route({id:1,method:'tools/call',params:{name:'get_producer_workflow',arguments:{
+      workflow:'balance-mix',arguments:{request:'Lower the named bass only'}}}});
+    assert.equal(workflow.result.structuredContent.workflow,'balance-mix');
     const result = await runtime.service.call("record_production_note", { projectId: "song", kind: "intent", text: "Keep the original bass." });
     assert.match(result.noteRef, /^[a-f0-9]{64}$/);
     const lines = [];

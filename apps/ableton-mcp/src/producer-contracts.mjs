@@ -14,7 +14,10 @@ export const producerToolContracts = {
   run_production_task: contract("Run configured creative and/or functional specialists with bounded private context. Returns an immutable proposal reference, never executes Live changes. Provider use follows explicit server configuration.", {
     goal: string("Requested musical or operational outcome.", 6000), roles: { type: "string", enum: ["creative", "functional", "both"] },
     scope: object({ trackId: string("Exact track ID.", 120), clipId: string("Exact clip ID.", 120), deviceId: string("Exact device ID.", 120) }, []),
-    constraints: strings, contextRefs: refs
+    constraints: strings, contextRefs: refs,
+    workflow: object({ name: string("Exact name from get_producer_workflow.", 100),
+      arguments: { type: "object", maxProperties: 8, propertyNames: { minLength: 1, maxLength: 64 },
+        additionalProperties: { type: "string", maxLength: 8192 } } }, ["name"])
   }, ["goal"], false),
   read_production_artifact: contract("Read a bounded page of one private project artifact. Follow nextOffset for more detail; truncated pages are not complete evidence.", {
     artifactId: artifact, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 8000 }

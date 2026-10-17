@@ -38,13 +38,14 @@ Each runtime accepts `timeoutMs` from 1,000 to 180,000; the default is 60,000. A
 
 ## Keep the main tool catalog small
 
-Set `ABLETON_MCP_TOOL_PROFILE=producer` in the MCP server environment. This profile advertises five workflow tools plus `get_live_state`, `transport_stop` and `panic`. Existing `core` and `all` profiles remain available. The CLI's `call` command is independent of discovery profiles.
+Set `ABLETON_MCP_TOOL_PROFILE=producer` in the MCP server environment. This profile advertises six workflow tools plus `get_live_state`, `transport_stop` and `panic`. Existing `core` and `all` profiles remain available. The CLI's `call` command is independent of discovery profiles.
 
 1. `get_production_context` captures consistent Live selection and musical context, returning a bounded preview and `contextRef`. It does not call a model.
 2. `record_production_note` stores explicit intent or feedback. Pass its `noteRef` in a later task's `contextRefs` to reuse it.
 3. `run_production_task` accepts `projectId`, `goal`, optional exact `scope` IDs, `constraints`, `contextRefs`, and `roles` (`creative`, `functional`, or `both`; default `functional`). It returns a `taskId`, short summary, result references and operation count.
 4. `read_production_artifact` pages through detailed context, proposals and evidence. Its default page is 4,000 characters, with an 8,000-character maximum. Follow `nextOffset`; a truncated preview is not complete evidence.
 5. `apply_production_operation` plans or executes one exact operation from a task.
+6. `get_producer_workflow` lists the shared workflow names/arguments or renders one selected reference. It does not observe Live, invoke a model or execute the workflow.
 
 For example:
 
@@ -54,6 +55,27 @@ ableton-mcp call run_production_task --args '{"projectId":"my-song","goal":"Prop
 ```
 
 Use IDs observed in your own Set. Read the task artifact to review proposed operations. Each specialist can make at most three model requests; a task permits at most eight additional observation, discovery or artifact reads. Specialists start with common tool schemas and can request `discover_production_tools` internally to retrieve up to four additional schemas by name or description. Creative discovery exposes reads only; functional operations must retain the original state-version and dry-run guard contract. This keeps the full catalog out of every model request while allowing new guarded tools to be discovered as the server grows.
+
+## Select workflow guidance for a task
+
+An optional `workflow` on `run_production_task` supplies one bundled reference before either specialist's first model request. Use an exact `name` from `get_producer_workflow` and its named string `arguments`. For example, a bounded phase of `balance-mix` can use:
+
+```json
+{
+  "projectId": "my-song",
+  "goal": "Propose only the next level adjustment for the explicitly named bass track.",
+  "roles": "functional",
+  "scope": { "trackId": "track-2" },
+  "workflow": {
+    "name": "balance-mix",
+    "arguments": { "request": "Lower the named bass to -12 dB while preserving other tracks", "mode": "autonomous" }
+  }
+}
+```
+
+Use the actual target ID. Required workflow arguments remain required; invalid names or arguments fail before Live observation or a model request. The task returns `workflowRef`, identifying the immutable selected arguments and rendered guidance in the private artifact store. The task artifact retains that reference. It records which guidance was supplied; it is not evidence that a complete workflow ran.
+
+The reference guides only the requested bounded phase. It grants no tool access, changes no scope, and bypasses no confirmation, question, state or native identity guard. Specialists still need schema discovery for tools outside their initial set. Existing model-turn, read and input-size budgets include the selected guidance. A task with no workflow retains its usual context and behavior; the full workflow catalogue is never inserted automatically. An older workflow artifact supplied as context is data, not an instruction to run it again.
 
 Task inputs are limited to 48,000 bytes and returned model JSON to 16,000 bytes. Detailed artifacts are capped at 2 MB each. Exhausted, stale or unanswered-question tasks have no executable operations. Main-session summaries and questions are bounded; full responses remain in the task artifacts.
 
