@@ -6406,7 +6406,7 @@ class SocketBridge:
             pass
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         server.bind(self.socket_path)
-        server.listen(1)
+        server.listen(self.requests.maxsize)
         server.settimeout(0.5)
         while not self.stopped.is_set():
             try:
