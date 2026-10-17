@@ -4,6 +4,7 @@ import {getSceneLaunchContext} from "./scene-context.mjs";
 import {setTrackVolumeDb} from "./track-volume.mjs";
 import {setTrackSendDb} from "./track-send.mjs";
 import {setDeviceParameterDisplay} from "./parameter-display.mjs";
+import {createClipParameterEnvelope,replaceClipParameterEnvelope} from "./clip-envelope.mjs";
 import { enrichSessionOrientation, enrichMidiPartsContext } from "./session-orientation.mjs";
 import { instrumentComparison } from "./instrument-comparison.mjs";
 import { liveAudioCapture } from "./live-audio-capture.mjs";
@@ -295,25 +296,6 @@ function normalizeMidiNote(note, index, lengthBeats) {
   if (start + duration > lengthBeats) throw new Error(`notes[${index}] extends beyond lengthBeats`);
   if (!Number.isInteger(velocity) || velocity < 1 || velocity > 127) throw new Error(`notes[${index}].velocity must be an integer from 1 to 127`);
   return { pitch, start, duration, velocity, mute: note.mute === true };
-}
-
-function normalizeEnvelopePoint(point, index, clipLengthBeats, parameter) {
-  const time = Number(point.time);
-  const duration = Number(point.duration);
-  const requestedValue = Number(point.value);
-  if (!Number.isFinite(time) || time < 0 || time > clipLengthBeats) {
-    throw new Error(`points[${index}].time must be within the clip`);
-  }
-  if (!Number.isFinite(duration) || duration <= 0 || time + duration > clipLengthBeats) {
-    throw new Error(`points[${index}].duration must be greater than zero and remain within the clip`);
-  }
-  if (!Number.isFinite(requestedValue)) throw new Error(`points[${index}].value must be finite`);
-  return {
-    time,
-    duration,
-    requestedValue,
-    value: Math.max(parameter.min, Math.min(parameter.max, requestedValue))
-  };
 }
 
 const midiNotePropertyRanges = {
@@ -1604,7 +1586,8 @@ export class ToolService {
     if (name === "apply_midi_scale_chord_remapping") return this.#applyMidiScaleChordRemapping(args);
     if (name === "apply_midi_diatonic_chord_quality") return this.#applyMidiDiatonicChordQuality(args);
     if (name === "create_audio_clip") return this.#createAudioClip(args);
-    if (name === "set_clip_parameter_envelope") return this.#setClipParameterEnvelope(args);
+    if (name === "set_clip_parameter_envelope") return replaceClipParameterEnvelope(this.bridge,this.confirmations,args);
+    if (name === "create_clip_parameter_envelope") return createClipParameterEnvelope(this.bridge,this.confirmations,args);
     if (name === "set_midi_note_properties") return this.#setMidiNoteProperties(args);
     if (name === "correct_midi_clip_to_scale") return this.#correctMidiClipToScale(args);
     if (name === "transform_midi_notes") return this.#transformMidiNotes(args);
@@ -3693,38 +3676,6 @@ export class ToolService {
       expectedStateVersion: args.expectedStateVersion, sourcePath, sourceFile };
     if (args.name !== undefined) plan.name = args.name;
     return this.#confirmedMutation(plan, args);
-  }
-
-  async #setClipParameterEnvelope(args) {
-    requireExpectedState(args);
-    if (!Array.isArray(args.points) || args.points.length === 0) {
-      throw new Error("points must be a non-empty array");
-    }
-    const sampleTimes = args.points.map(({ time }) => Number(time));
-    const observed = await this.bridge.request("get_clip_parameter_envelope", {
-      trackId: args.trackId,
-      clipId: args.clipId,
-      deviceId: args.deviceId,
-      parameterId: args.parameterId,
-      sampleTimes
-    });
-    assertExpectedState(args, observed);
-    if (!observed.parameter?.enabled) throw new Error(`parameter ${args.parameterId} is disabled`);
-    const plan = {
-      method: "set_clip_parameter_envelope",
-      trackId: args.trackId,
-      clipId: args.clipId,
-      deviceId: args.deviceId,
-      parameterId: args.parameterId,
-      expectedStateVersion: args.expectedStateVersion,
-      points: args.points.map((point, index) => normalizeEnvelopePoint(
-        point, index, observed.clipLengthBeats, observed.parameter
-      ))
-    };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
-    const result = await this.bridge.request("set_clip_parameter_envelope", plan);
-    return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
   }
 
   async #setMidiNoteProperties(args) {

@@ -9,6 +9,8 @@
   "set_clip_slot_stop_button",
   "get_device_parameter_edit_context",
   "get_device_parameter_display_context", "set_device_parameter_display",
+  "get_clip_envelope_creation_context", "create_clip_parameter_envelope",
+  "get_clip_envelope_replacement_context",
   "get_track_volume_edit_context", "set_track_volume_db",
   "get_track_send_edit_context", "set_track_send_db",
   "get_session_recording_source",
