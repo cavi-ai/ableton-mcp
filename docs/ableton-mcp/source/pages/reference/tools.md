@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 248 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 249 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (107)
 
@@ -243,7 +243,7 @@ The server publishes 248 tools. Mutations of the Live Set require `expectedState
 | `transport_stop` | Plan or stop Ableton transport playback. | `expectedStateVersion` |
 | `undo` | Plan or apply one guarded Ableton undo operation. | `expectedStateVersion` |
 
-## Destructive mutations (19)
+## Destructive mutations (20)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -265,4 +265,5 @@ The server publishes 248 tools. Mutations of the Live Set require `expectedState
 | `save_live_set` | Save macOS Set; verify write or clean state. Path: Save As without overwrite. | `expectedStateVersion`, `expectedSetFingerprint` |
 | `set_device_parameters` | Plan/set bounded device parameters on ordinary/Return/Main tracks. Strings select exact unambiguous quantized labels; numbers retain native clamping. Looper State Record/Overdub writes mutate recorded content: restoring a parameter does not restore captured audio. | `expectedStateVersion`, `trackId`, `deviceId`, `changes` |
 | `set_looper_state` | Plan or request one exact native Looper State choice: Stop, Record, Play, or Overdub. Native execution rechecks the complete Looper, routing, and transport snapshot before writing State; result reports the immediately observed State parameter and whether it matches the target, not an audible or quantized-boundary outcome. Record/Overdub can mutate captured audio and cannot be rolled back by restoring a parameter value. This does not promise beat-scheduled execution; verify native quantization behavior separately. | `expectedStateVersion`, `trackId`, `deviceId`, `targetState` |
+| `set_simpler_sample_region` | Set a loaded Simpler playback region in native sample frames, including nested racks. At least one marker; omitted bound stays unchanged. Requires stopped transport and an inactive unarmed single-sample target. Binds native context and verifies exact markers; does not crop the source file. Partial failure requires inspection; no automatic rollback. All profile. | `expectedStateVersion`, `trackId`, `deviceId` |
 | `set_track_freeze_state` | Plan or toggle guarded track freeze. On the tested Live 12.4.5 the native is_frozen property has no setter, so execution fails closed with Live's own error; the plan still binds the observed state so newer Live versions can adopt the write without contract changes. Freezing renders the track's live material to audio and mutates audible content until unfrozen. | `expectedStateVersion`, `trackId`, `frozen` |

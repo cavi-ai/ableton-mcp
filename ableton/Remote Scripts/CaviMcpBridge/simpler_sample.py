@@ -96,6 +96,62 @@ def _file(path):
             "device": str(info.st_dev), "inode": str(info.st_ino)}
 
 
+def _assert_inactive(before):
+    row, recording = before["track"], before["recording"]
+    if (before["multiSampleMode"] or row["frozen"] or row["armed"] or row["monitoring"] not in (1, 2) or
+            row["firedSlotIndex"] >= 0 or recording["isPlaying"] or recording["arrangement"]["record"] or
+            recording["session"]["record"] or before["playingPositionEnabled"]):
+        raise ValueError("Simpler editing requires a single sample, stopped transport, no recording, and an inactive unarmed target without input monitoring or pending launches")
+
+
+def set_region(song, params, version):
+    if type(params.get("expectedStateVersion")) is not int or params["expectedStateVersion"] != version:
+        raise ValueError("Simpler sample state version changed")
+    target = {"trackId": params["trackId"], "deviceId": params["deviceId"]}
+    before = source(song, target, version)
+    if before != params.get("before"):
+        raise ValueError("Simpler sample context changed; review a fresh plan")
+    _assert_inactive(before)
+    region, original = params.get("region"), before["sample"]
+    keys = ("startMarkerFrames", "endMarkerFrames")
+    if (original is None or not isinstance(region, dict) or set(region) != set(keys) or
+            any(type(region[key]) is not int for key in keys) or
+            not 0 <= region[keys[0]] < region[keys[1]] < original["lengthFrames"] or
+            all(region[key] == original[key] for key in keys)):
+        raise ValueError("a changed sample region requires integer frames: 0 <= start < end < lengthFrames")
+    _, _, _, device = _objects(song, target)
+    sample = device.sample
+    # Move the expanding edge first so a disjoint destination never crosses an existing marker.
+    changes = [("start_marker", region[keys[0]]), ("end_marker", region[keys[1]])]
+    if region[keys[0]] >= original["endMarkerFrames"]:
+        changes.reverse()
+    with _undo_step(song):
+        try:
+            for name, value in changes:
+                if getattr(sample, name) != value:
+                    setattr(sample, name, value)
+                    if source(song, target, version)["identityToken"] != before["identityToken"]:
+                        raise RuntimeError("Simpler sample ownership changed during marker assignment")
+            after = source(song, target, version + 1)
+            if after["identityToken"] != before["identityToken"] or any(after["sample"][key] != region[key] for key in keys):
+                raise RuntimeError("Simpler sample identity or marker readback mismatch")
+            # Live can derive slices and normalized sample/loop controls from the new bounds.
+            for key in ("path", "lengthFrames", "sampleRate", "gain", "warping", "warpMode", "nativeControls", "warpMarkers"):
+                if after["sample"][key] != original[key]:
+                    raise RuntimeError("Simpler sample properties changed during region edit")
+            for key in ("setFingerprint", "device", "track", "playbackMode", "nativeControls"):
+                if after[key] != before[key]:
+                    raise RuntimeError("Simpler context changed during region edit")
+            if {key: value for key, value in after["recording"].items() if key != "stateVersion"} != {
+                    key: value for key, value in before["recording"].items() if key != "stateVersion"}:
+                raise RuntimeError("Simpler recording context changed during region edit")
+        except Exception as error:
+            raise RuntimeError(f"Simpler sample region may be partial: {error}; inspect the device before retrying. No automatic rollback was attempted.") from error
+    return {"stateVersion": version + 1, **target, "verified": True, "identityToken": after["identityToken"],
+            "region": region, "sample": after["sample"], "context": after,
+            "limitation": "Verified native marker frames and sample identity; Live may derive slices and normalized sample/loop controls from these bounds. Source file is not cropped. Audition separately; no complete sample-state backup or automatic rollback."}
+
+
 def load(song, params, version):
     if type(params.get("expectedStateVersion")) is not int or params["expectedStateVersion"] != version:
         raise ValueError("Simpler sample state version changed")
@@ -108,13 +164,9 @@ def load(song, params, version):
         raise ValueError("Simpler sample context changed; review a fresh plan")
     if before["sample"] is not None and not allow_replace:
         raise ValueError("allowReplace is required for an existing sample")
-    row, recording = before["track"], before["recording"]
     if before["multiSampleMode"] or not before["canReplaceSample"]:
         raise ValueError("single-sample Simpler replacement is unavailable")
-    if (row["frozen"] or row["armed"] or row["monitoring"] == 0 or row["firedSlotIndex"] >= 0 or
-            recording["isPlaying"] or recording["arrangement"]["record"] or recording["session"]["record"] or
-            before["playingPositionEnabled"]):
-        raise ValueError("Simpler sample loading requires stopped transport, no recording, and an inactive unarmed target without input monitoring or pending launches")
+    _assert_inactive(before)
     path = params["sourcePath"]
     if _file(path) != params.get("sourceFile"):
         raise ValueError("source file changed after planning")
