@@ -58,7 +58,7 @@ For separate creative and functional model contexts, configure optional [product
 - **Audio analysis**: loudness, true peak, spectrum, pitch, transients and tuning of local audio files.
 - **Optional NKS preset catalog**: search, tags and favorites for presets discovered from your plug-in libraries.
 
-It publishes 279 tools, 9 concrete resources, 13 resource templates and 45 prompt templates. When Live's Remote Script API doesn't expose something, such as Arrangement automation or Group Track creation, the tool reports that boundary and fails closed.
+It publishes 279 tools, 9 concrete resources, 13 resource templates and 46 prompt templates. When Live's Remote Script API doesn't expose something, such as Arrangement automation or Group Track creation, the tool reports that boundary and fails closed.
 
 ## Documentation
 
@@ -79,7 +79,7 @@ It publishes 279 tools, 9 concrete resources, 13 resource templates and 45 promp
 - [Shape Session clip automation](docs/ableton-mcp/source/pages/guides/clip-automation.md)
 - [Arrange Session ideas into sections](docs/ableton-mcp/source/pages/guides/session-arrangement.md)
 - [Preset catalog](docs/ableton-mcp/source/pages/guides/preset-catalog.md) and [NKS artwork](docs/ableton-mcp/source/pages/guides/artwork.md)
-- [Import MIDI files](docs/ableton-mcp/source/pages/guides/midi-import.md)
+- [Print MIDI processing as editable notes](docs/ableton-mcp/source/pages/guides/processed-midi.md)
 - [Shared instrument buses](docs/ableton-mcp/source/pages/guides/shared-instrument-buses.md) and [Native saving and recall](docs/ableton-mcp/source/pages/guides/native-saving-and-recall.md)
 - [Collect Project samples for handoff](docs/ableton-mcp/source/pages/guides/project-handoff.md)
 - [Keep a device sound as a native preset](docs/ableton-mcp/source/pages/guides/native-device-presets.md)
