@@ -1202,7 +1202,7 @@ test("clip timing mutation rejects invalid loops and signs groove assignment", a
     ...base, loop: { startBeats: 4, endBeats: 2 }
   }), /endBeats must be greater/);
   await assert.rejects(() => service.call("set_clip_timing", {
-    ...base, grooveId: null
+    ...base, grooveId: 0
   }), /grooveId must identify/);
   const dry = await service.call("set_clip_timing", {
     ...base, loop: { enabled: true, startBeats: 1, endBeats: 5 },
