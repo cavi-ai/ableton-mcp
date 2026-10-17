@@ -802,6 +802,19 @@ def _track_routing(song, track_id, state_version):
     }
 
 
+def _return_routing(song, return_id, state_version):
+    if not isinstance(return_id, str) or not return_id.startswith("return-"):
+        raise ValueError("an exact Return Track ID is required")
+    return_id, track = _device_owner(song, return_id)
+    output_types = list(track.available_output_routing_types)
+    output_channels = list(track.available_output_routing_channels)
+    return {"stateVersion": state_version, "returnTrackId": return_id, "name": track.name,
+            "output": {"type": _current_routing_option(track.current_output_routing, output_types),
+                       "channel": _current_routing_option(track.current_output_sub_routing, output_channels),
+                       "availableTypes": [_routing_option(option) for option in output_types],
+                       "availableChannels": [_routing_option(option) for option in output_channels]}}
+
+
 def _track_midi_routing(song, track_id, state_version):
     _, track = _track(song, track_id)
     midi_map = getattr(track, "midi_map", None)
@@ -2813,6 +2826,57 @@ def _selection_context(song, state_version):
     return result
 
 
+_groove_removal_song = None
+_groove_removal_identities = {}
+
+
+def _clip_groove_removal_context(song, params, state_version, application):
+    global _groove_removal_song
+    _, track = _track(song, params["trackId"])
+    clip, _ = _clip_reference(song, params["trackId"], params["clipId"])
+    if bool(song.record_mode) or bool(song.session_record) or bool(getattr(clip, "is_recording", False)):
+        raise ValueError("groove removal is unavailable during recording")
+    if bool(getattr(track, "is_frozen", True)) or bool(getattr(clip, "is_triggered", False)):
+        raise ValueError("groove removal requires an unfrozen clip without a pending launch")
+    if not callable(getattr(getattr(application, "view", None), "show_view", None)):
+        raise ValueError("native Clip View is unavailable")
+    if not getattr(song, "file_path", None):
+        raise ValueError("groove removal requires a saved Set")
+    if not clip.name:
+        raise ValueError("groove removal requires a unique clip name")
+    same_name = 0
+    visited = 0
+    for owner in song.tracks:
+        clips = [slot.clip for slot in owner.clip_slots if slot.has_clip]
+        if not bool(getattr(owner, "is_foldable", False)):
+            clips.extend(getattr(owner, "arrangement_clips", ()))
+        for current in clips:
+            visited += 1
+            if visited > 16384:
+                raise ValueError("groove removal clip identity scan exceeds its bound")
+            if current.name == clip.name:
+                same_name += 1
+    if same_name != 1:
+        raise ValueError("groove removal requires a unique clip name across the Set")
+    context = dispatch_request(song, {"method": "get_clip_groove_context", "params": params}, state_version, application)
+    if context["timing"]["grooveId"] is None:
+        raise ValueError("clip has no assigned native groove")
+    if _groove_removal_song != song:
+        _groove_removal_song = song
+        _groove_removal_identities.clear()
+    key = (params["trackId"], params["clipId"])
+    identity = (track, clip, clip.groove, tuple(_grooves(song)))
+    cached = _groove_removal_identities.get(key)
+    if cached is None or cached[0] != identity:
+        if key not in _groove_removal_identities and len(_groove_removal_identities) >= 64:
+            del _groove_removal_identities[next(iter(_groove_removal_identities))]
+        cached = (identity, str(uuid.uuid4()))
+        _groove_removal_identities[key] = cached
+    return {"stateVersion": state_version, "identityToken": cached[1], "setFingerprint": _set_fingerprint(song),
+            "filePath": song.file_path, "scriptDirectory": os.path.realpath(os.path.dirname(__file__)),
+            "clip": context}
+
+
 def _midi_variation_source(song, track_id, clip_id, state_version):
     clip, timeline = _midi_clip(song, track_id, clip_id)
     if timeline is not None:
@@ -2999,6 +3063,14 @@ def _audio_capture_module():
     return audio_capture
 
 
+def _beat_repeat_fill_module():
+    try:
+        from . import beat_repeat_fill
+    except ImportError:
+        import beat_repeat_fill
+    return beat_repeat_fill
+
+
 def dispatch_request(song, request, state_version, application=None):
     if request.get('method') in ('get_device_preset_source', 'select_device_preset_source'):
         try:
@@ -3035,6 +3107,10 @@ def dispatch_request(song, request, state_version, application=None):
         capture = _audio_capture_module()
         return {"get_audio_capture_source": capture.source, "capture_live_audio": capture.start,
                 "get_live_audio_capture": capture.read, "finish_live_audio_capture": capture.finish}[method](song, params, state_version)
+    if method in ("get_beat_repeat_fill_source", "perform_beat_repeat_fill", "get_beat_repeat_fill", "finish_beat_repeat_fill"):
+        fill = _beat_repeat_fill_module()
+        return {"get_beat_repeat_fill_source": fill.source, "perform_beat_repeat_fill": fill.start,
+                "get_beat_repeat_fill": fill.read, "finish_beat_repeat_fill": fill.finish}[method](song, params, state_version)
     if method in ("get_instrument_comparison_adoption_source", "adopt_instrument_comparison",
                   "get_instrument_comparison_source", "prepare_instrument_comparison",
                   "get_instrument_comparison", "select_instrument_comparison"):
@@ -3073,48 +3149,18 @@ def dispatch_request(song, request, state_version, application=None):
         return source(song, state_version)
     if method == "get_transport_context":
         return _transport_context(song, state_version)
-    if method == "capture_midi_session":
-        if params.get("expectedStateVersion") != state_version:
-            raise ValueError("MIDI capture state version changed")
-        before = _transport_recording_context(song, state_version)
-        if params.get("before") != before["midiCapture"]:
-            raise ValueError("MIDI capture readiness or track topology changed")
-        if not before["midiCapture"]["available"]:
-            raise ValueError("no MIDI material is available to capture")
-        track_ids = before["midiCapture"]["midiTrackIds"]
-        previous = {record["id"]: record for track_id in track_ids
-                    for record in _clip_list(song, track_id, state_version)["clips"]}
-        def note_state(slot):
-            if not slot.has_clip:
-                return None
-            notes = sorted((_midi_note_record(note) for note in slot.clip.get_all_notes_extended()),
-                           key=lambda note: note["noteId"])
-            digest = hashlib.sha256(json.dumps(notes, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-            return {"count": len(notes), "digest": digest}
-        watched = {f"track-{track_index}:clip-{slot_index}": (track_index, slot_index)
-                   for track_index, track in enumerate(song.tracks)
-                   if f"track-{track_index}" in track_ids and track.arm
-                   for slot_index, slot in enumerate(track.clip_slots)
-                   if slot.has_clip and slot.clip.is_playing}
-        notes_before = {clip_id: note_state(song.tracks[track_index].clip_slots[slot_index])
-                        for clip_id, (track_index, slot_index) in watched.items()}
-        scene_count_before = len(song.scenes)
-        song.capture_midi(1)
-        current = {record["id"]: record for track_id in track_ids
-                   for record in _clip_list(song, track_id, state_version + 1)["clips"]}
-        notes_after = {clip_id: note_state(song.tracks[track_index].clip_slots[slot_index])
-                       for clip_id, (track_index, slot_index) in watched.items()}
-        changed = [{"clipId": clip_id, "before": previous.get(clip_id), "after": record,
-                    **({"noteCountBefore": notes_before[clip_id]["count"] if notes_before[clip_id] else None,
-                        "noteCountAfter": notes_after[clip_id]["count"] if notes_after[clip_id] else None,
-                        "noteStateChanged": notes_before[clip_id] != notes_after[clip_id]}
-                       if clip_id in watched else {})}
-                   for clip_id, record in current.items()
-                   if previous.get(clip_id) != record or (clip_id in watched and notes_before[clip_id] != notes_after[clip_id])]
-        return {"stateVersion": state_version + 1, "destination": "session",
-                "before": before, "after": _transport_recording_context(song, state_version + 1),
-                "sceneCountBefore": scene_count_before, "sceneCountAfter": len(song.scenes),
-                "changedSlots": changed}
+    if method in ("get_midi_capture_context", "capture_midi_session"):
+        try:
+            from .midi_capture import context, capture
+        except ImportError:
+            from midi_capture import context, capture
+        return context(song, state_version) if method == "get_midi_capture_context" else capture(song, params, state_version)
+    if method == "get_rack_performance_context":
+        try:
+            from .rack_performance import context
+        except ImportError:
+            from rack_performance import context
+        return context(song, params, state_version)
     if method == "get_looper_performance_context":
         return _looper_performance_context(song, params["trackId"], params["deviceId"], state_version)
     if method == "get_beat_repeat_performance_context":
@@ -3240,10 +3286,7 @@ def dispatch_request(song, request, state_version, application=None):
         return _song_musical_context(song, state_version)
     if method == "get_clip_groove_context":
         _, track = _track(song, params["trackId"])
-        _, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
-        if not slot.has_clip:
-            raise ValueError("clip slot is empty")
-        clip = slot.clip
+        clip, _ = _clip_reference(song, params["trackId"], params["clipId"])
         audio = bool(getattr(clip, "is_audio_clip", False))
         source_method = "get_audio_clip_state" if audio else "get_midi_clip_notes_extended"
         return {"stateVersion": state_version, "trackId": params["trackId"], "clipId": params["clipId"],
@@ -3251,6 +3294,21 @@ def dispatch_request(song, request, state_version, application=None):
             "source": {"type": "audio" if audio else "midi", "content": dispatch_request(song, {"method": source_method, "params": params}, state_version)},
             "timing": _clip_timing(song, params["trackId"], params["clipId"], state_version),
             "musicalContext": _song_musical_context(song, state_version)}
+    if method in ("get_clip_groove_removal_context", "prepare_clip_groove_removal"):
+        before = _clip_groove_removal_context(song, params, state_version, application)
+        if method == "get_clip_groove_removal_context":
+            return before
+        if params.get("expectedStateVersion") != state_version or params.get("before") != before:
+            raise ValueError("groove removal context changed; review a fresh plan")
+        _, track = _track(song, params["trackId"])
+        clip, _ = _clip_reference(song, params["trackId"], params["clipId"])
+        song.view.selected_track = track
+        song.view.detail_clip = clip
+        application.view.show_view("Detail/Clip")
+        if song.view.detail_clip != clip:
+            raise RuntimeError("exact Clip View selection was not observed")
+        return {"stateVersion": state_version + 1, "prepared": True,
+                "clipName": clip.name, "trackId": params["trackId"], "clipId": params["clipId"]}
     if method == "set_groove":
         if _song_musical_context(song, state_version) != params["before"]:
             raise ValueError("groove pool or musical context changed")
@@ -3645,7 +3703,28 @@ def dispatch_request(song, request, state_version, application=None):
                 params["maxDepth"], params["limit"],
             ),
         }
+    if method in ("get_midi_import_target", "select_midi_import_target", "inspect_midi_import"):
+        try:
+            from . import midi_import
+        except ImportError:
+            import midi_import
+        if method == "get_midi_import_target":
+            return midi_import.source(song, params, state_version)
+        if method == "select_midi_import_target":
+            return midi_import.select(song, params, state_version, application)
+        return midi_import.inspect(song, params["identityToken"], state_version)
+    if method == "get_browser_load_context":
+        try:
+            from .browser_load import context
+        except ImportError:
+            from browser_load import context
+        return context(song, application, params, state_version)
     if method in ("load_browser_item", "load_factory_browser_item"):
+        try:
+            from . import browser_load
+        except ImportError:
+            import browser_load
+        browser_load.validate(song, application, params, state_version)
         item = _browser_item(application, params["root"], params["path"])
         if not item.is_loadable:
             raise ValueError("Live browser item is not loadable")
@@ -3662,57 +3741,85 @@ def dispatch_request(song, request, state_version, application=None):
                 raise ValueError("target Session clips changed")
         before_objects = tuple(getattr(track, "devices", ()))
         before_clips = tuple(slot.clip if slot.has_clip else None for slot in track.clip_slots) if hasattr(track, "clip_slots") else None
+        before_topology = browser_load.capture(song)
         previous_track = song.view.selected_track
+        load_error, selection_restored = None, False
         try:
             song.view.selected_track = track
             application.browser.load_item(item)
+        except Exception as error:
+            load_error = str(error)
         finally:
-            song.view.selected_track = previous_track
-        after_objects = tuple(getattr(track, "devices", ()))
-        added = [index for index, device in enumerate(after_objects)
-                 if not any(device == old for old in before_objects)]
-        removed = [index for index, device in enumerate(before_objects)
-                   if not any(device == new for new in after_objects)]
-        survivors_before = [device for device in before_objects if any(device == new for new in after_objects)]
-        survivors_after = [device for device in after_objects if any(device == old for old in before_objects)]
-        old_order_preserved = len(survivors_before) == len(survivors_after) and all(
-            old == new for old, new in zip(survivors_before, survivors_after))
-        kind = "unconfirmed"
-        if len(added) == 1 and not removed and old_order_preserved:
-            kind = "inserted"
-        elif len(added) == 1 and len(removed) == 1 and added[0] == removed[0] and old_order_preserved:
-            kind = "replaced"
-        elif added or removed or not old_order_preserved:
-            kind = "complex_change"
-        effect = {"kind": kind, "insertedIndex": added[0] if len(added) == 1 else None,
-                  "deviceId": f"{params['trackId']}:device-{added[0]}" if len(added) == 1 else None,
-                  "removedIndices": removed, "oldOrderPreserved": old_order_preserved}
-        clip_effect = None
-        if before_clips is not None:
-            after_clips = tuple(slot.clip if slot.has_clip else None for slot in track.clip_slots)
-            clip_added = [index for index, clip in enumerate(after_clips)
-                          if clip is not None and (index >= len(before_clips) or before_clips[index] is None
-                              or clip != before_clips[index])]
-            clip_removed = [index for index, clip in enumerate(before_clips)
-                            if clip is not None and (index >= len(after_clips) or after_clips[index] is None
-                                or clip != after_clips[index])]
-            clip_kind = "unconfirmed"
-            if len(clip_added) == 1 and not clip_removed:
-                clip_kind = "inserted"
-            elif len(clip_added) == 1 and clip_removed == clip_added:
-                clip_kind = "replaced"
-            elif clip_added or clip_removed or len(before_clips) != len(after_clips):
-                clip_kind = "complex_change"
-            clip_effect = {"kind": clip_kind,
-                           "clipId": f"{params['trackId']}:clip-{clip_added[0]}" if len(clip_added) == 1 else None,
-                           "insertedIndex": clip_added[0] if len(clip_added) == 1 else None,
-                           "removedIndices": clip_removed}
-        return {"stateVersion": state_version + 1, "trackId": params["trackId"],
+            try:
+                song.view.selected_track = previous_track
+                selection_restored = song.view.selected_track == previous_track
+            except Exception:
+                pass
+        try:
+            track_effect = browser_load.effects(song, before_topology)
+        except Exception as error:
+            track_effect = {"kind": "unavailable", "inspectionError": str(error)}
+        result_track_id = browser_load.owner_id(song, track)
+        target_inspection_error = None
+        try:
+            if result_track_id is None:
+                raise ValueError("browser load target was removed; re-read track identities")
+            after_objects = tuple(getattr(track, "devices", ()))
+            added = [index for index, device in enumerate(after_objects)
+                     if not any(device == old for old in before_objects)]
+            removed = [index for index, device in enumerate(before_objects)
+                       if not any(device == new for new in after_objects)]
+            survivors_before = [device for device in before_objects if any(device == new for new in after_objects)]
+            survivors_after = [device for device in after_objects if any(device == old for old in before_objects)]
+            old_order_preserved = len(survivors_before) == len(survivors_after) and all(
+                old == new for old, new in zip(survivors_before, survivors_after))
+            kind = "unconfirmed"
+            if len(added) == 1 and not removed and old_order_preserved:
+                kind = "inserted"
+            elif len(added) == 1 and len(removed) == 1 and added[0] == removed[0] and old_order_preserved:
+                kind = "replaced"
+            elif added or removed or not old_order_preserved:
+                kind = "complex_change"
+            effect = {"kind": kind, "insertedIndex": added[0] if len(added) == 1 else None,
+                      "deviceId": f"{result_track_id}:device-{added[0]}" if len(added) == 1 else None,
+                      "removedIndices": removed, "oldOrderPreserved": old_order_preserved}
+            clip_effect = None
+            if before_clips is not None:
+                after_clips = tuple(slot.clip if slot.has_clip else None for slot in track.clip_slots)
+                clip_added = [index for index, clip in enumerate(after_clips)
+                              if clip is not None and (index >= len(before_clips) or before_clips[index] is None
+                                  or clip != before_clips[index])]
+                clip_removed = [index for index, clip in enumerate(before_clips)
+                                if clip is not None and (index >= len(after_clips) or after_clips[index] is None
+                                    or clip != after_clips[index])]
+                clip_kind = "unconfirmed"
+                if len(clip_added) == 1 and not clip_removed:
+                    clip_kind = "inserted"
+                elif len(clip_added) == 1 and clip_removed == clip_added:
+                    clip_kind = "replaced"
+                elif clip_added or clip_removed or len(before_clips) != len(after_clips):
+                    clip_kind = "complex_change"
+                clip_effect = {"kind": clip_kind,
+                               "clipId": f"{result_track_id}:clip-{clip_added[0]}" if len(clip_added) == 1 else None,
+                               "insertedIndex": clip_added[0] if len(clip_added) == 1 else None,
+                               "removedIndices": clip_removed}
+            device_chain = dispatch_request(song, {"method": "list_devices", "params": {"trackId": result_track_id}}, state_version + 1)
+        except Exception as error:
+            target_inspection_error = str(error)
+            effect = {"kind": "unavailable", "deviceId": None}
+            clip_effect = {"kind": "unavailable", "clipId": None}
+            device_chain = None
+        return {"stateVersion": state_version + 1, "trackId": result_track_id,
+                "requestedTrackId": params["trackId"], "trackEffect": track_effect,
+                "nativeLoadReturned": load_error is None, "loadError": load_error,
+                "selectedTrackRestored": selection_restored,
                 "loadedItem": _browser_item_record(item), "deviceChainEffect": effect,
                 "clipEffect": clip_effect,
-                "deviceChain": dispatch_request(song, {"method": "list_devices", "params": {"trackId": params["trackId"]}}, state_version + 1)}
+                "targetInspectionError": target_inspection_error, "deviceChain": device_chain}
     if method == "get_set_mixer":
         return _set_mixer(song, state_version)
+    if method == "get_return_routing":
+        return _return_routing(song, params["returnTrackId"], state_version)
     if method == "create_return_track":
         before = _set_mixer(song, state_version)["returns"]
         if before != params["beforeReturns"]:
@@ -3872,6 +3979,12 @@ def dispatch_request(song, request, state_version, application=None):
         with _undo_step(song):
             setattr(device, "input_routing_type" if is_type else "input_routing_channel", matches[0])
         return _device_sidechain_routing(song, track_id, device_id, state_version + 1)
+    if method == "get_audio_midi_sketch_source":
+        try:
+            from .audio_midi_sketch import source
+        except ImportError:
+            from audio_midi_sketch import source
+        return source(song, params, state_version)
     if method == "get_audio_clip_state":
         return _audio_clip_state(song, params["trackId"], params["clipId"], state_version)
     if method == "get_audio_source_beat_times":
@@ -4521,8 +4634,20 @@ def dispatch_request(song, request, state_version, application=None):
             "sends": [{**row, **send_record(track.mixer_device.sends[index])}
                       for index, row in enumerate(_send_records(song, track))],
         }
+    if method == "get_track_signal_activity":
+        try:
+            from .signal_activity import snapshot
+        except ImportError:
+            from signal_activity import snapshot
+        return snapshot(song, params, state_version)
     if method == "list_scenes":
         return {"stateVersion": state_version, "scenes": [_scene_record(scene, index) for index, scene in enumerate(song.scenes)]}
+    if method == "get_take_lane_context":
+        try:
+            from . import take_lanes
+        except ImportError:
+            import take_lanes
+        return take_lanes.context(song, params, state_version)
     if method == "get_scene_launch_context":
         return _scene_launch_context(song, params, state_version)
     if method in ("get_simpler_sample_state", "load_simpler_sample", "set_simpler_sample_region", "set_simpler_manual_slices"):
@@ -6496,6 +6621,8 @@ class SocketBridge:
     def stop(self):
         self.stopped.set()
         try:
+            fill = _beat_repeat_fill_module()
+            fill.shutdown(self.control_surface.song())
             capture = _audio_capture_module()
             if capture.has_active():
                 capture.shutdown(self.control_surface.song())
@@ -6581,6 +6708,9 @@ class SocketBridge:
                 record.finish()
 
     def drain(self):
+        fill = _beat_repeat_fill_module()
+        if fill.has_active():
+            self.state_version += fill.advance(self.control_surface.song())
         capture = _audio_capture_module()
         if capture.has_active():
             self.state_version += capture.advance(self.control_surface.song())
