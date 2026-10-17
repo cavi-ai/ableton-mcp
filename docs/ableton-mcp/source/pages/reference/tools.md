@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 300 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 302 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (129)
+## Read-only (130)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -52,6 +52,7 @@ The server publishes 300 tools. Mutations of the Live Set require `expectedState
 | `get_midi_capture_context` | Read global Capture MIDI readiness, armed/monitored candidates, playing-clip risks, input routing, full-note digests and clip timing with native identity. Does not expose buffer contents or reserve a moving playhead. | none |
 | `get_midi_clip_notes` | Read standard MIDI notes from one exact Session or Arrangement MIDI clip; Arrangement responses include timeline identity. | `trackId`, `clipId` |
 | `get_midi_clip_notes_extended` | Read MIDI note IDs, probability, release velocity, deviation and other fields from one Session/Arrangement clip; includes Arrangement timeline identity. | `trackId`, `clipId` |
+| `get_midi_note_removal_context` | Read complete notes, timing, native target identity and safety for explicit note deletion from a Session/Arrangement MIDI clip. Read-only, up to 4096 notes without sampling; all profile. | `trackId`, `clipId` |
 | `get_mixer_panning_context` | Read exact track, Group, Return or Main panning mode and Stereo/left/right native values, displays, bounds, enablement and automation. Binds native owner/mixer/parameter identities. Read-only; unsupported fields explicit. All profile. | `trackId` |
 | `get_nks_generation_job` | Read one durable NKS generation job and its ordered event history without creating or changing the queue. | `presetId` |
 | `get_nks_generation_status` | Read discovered preset and durable job counts for one product. Serum 2 and Omnisphere also report pilot size, validated count, gate state, queueable factory count (including already queued presets), remaining discovered pilot IDs, and unqueued discovered pilot IDs without a durable job. Does not create a queue or contact Live. | `productSlug` |
@@ -285,7 +286,7 @@ The server publishes 300 tools. Mutations of the Live Set require `expectedState
 | `transport_stop` | Plan or stop Ableton transport playback. | `expectedStateVersion` |
 | `undo` | Plan or apply one guarded Ableton undo operation. | `expectedStateVersion` |
 
-## Destructive mutations (29)
+## Destructive mutations (30)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -309,6 +310,7 @@ The server publishes 300 tools. Mutations of the Live Set require `expectedState
 | `load_simpler_sample` | Load a local audio file into an existing single-sample Simpler. Requires stopped transport and an inactive unarmed target; loaded samples require allowReplace. Binds native context/file metadata and verifies exposed readback. Failure may leave partial state; no full sample rollback. All profile. | `expectedStateVersion`, `trackId`, `deviceId`, `sourcePath` |
 | `open_live_set` | Plan/open a macOS Set; launch requires closed Live and configured app. | `path` |
 | `remove_audio_warp_marker` | Plan or apply deletion of an exact visible audio warp marker. Rejects the hidden terminal marker and stale clip state. | `expectedStateVersion`, `trackId`, `clipId`, `beatTime` |
+| `remove_midi_notes` | Delete exact note IDs and their expression from one Session/Arrangement MIDI clip. Keeps other notes and timing; playback can continue. Rejects stale or unsafe sources. Reports actual partial work without rollback or reconstruction. Explicit deletion intent required; all profile. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds` |
 | `save_live_set` | Save macOS Set; verify write or clean state. Path: Save As without overwrite. | `expectedStateVersion`, `expectedSetFingerprint` |
 | `save_native_device_preset` | Save an exact device or rack as a new native User Library preset through macOS English Live. Sets intended preset naming and changes focus; may rename the source. Requires saved Set and stopped transport. Refuses existing names; verifies Live XML/VST3 artifacts and exposed source state. Audio Unit artifact verification is unavailable. No recall, audible-equivalence or sample-portability claim. | `expectedStateVersion`, `trackId`, `deviceId`, `name` |
 | `set_clip_parameter_envelope` | Plan/set 1–512 ordered Session envelope steps with native context checks and explicit clamping. Existing lanes require replaceExisting:true, which discards the whole curve, including unsampled edits. No full-curve backup or restoration. Playback must be stopped; recording off. Verifies sampled interiors. | `expectedStateVersion`, `trackId`, `clipId`, `deviceId`, `parameterId`, `points` |

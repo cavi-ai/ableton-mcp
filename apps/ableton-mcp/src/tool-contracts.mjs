@@ -388,6 +388,8 @@ const mixerEnvelopePoint={oneOf:creationEnvelopePoint.oneOf.map(schema=>({...sch
     {targetDisplay:string('Volume/send only: finite native dB target, such as -24 dB or -6 dB. Pan requires value. Decimal point only; -inf is not accepted.')})}}))};
 
 const contracts = {
+  get_midi_note_removal_context: {description:'Read complete notes, timing, native target identity and safety for explicit note deletion from a Session/Arrangement MIDI clip. Read-only, up to 4096 notes without sampling; all profile.',inputSchema:clip},
+  remove_midi_notes: {description:'Delete exact note IDs and their expression from one Session/Arrangement MIDI clip. Keeps other notes and timing; playback can continue. Rejects stale or unsafe sources. Reports actual partial work without rollback or reconstruction. Explicit deletion intent required; all profile.',inputSchema:guarded({trackId:ids.trackId,clipId:ids.clipId,noteIds:{...array({type:'integer',minimum:0},'Exact observed note IDs to delete; empty never means all.'),minItems:1,maxItems:4096,uniqueItems:true}},['trackId','clipId','noteIds'])},
   get_browser_preview_context: {description:'Read native browser preview/stop availability and optional exact item with document/selection guards. Does not observe active preview, route, duration or audible output. No input or loading; all profile.',inputSchema:{...object({root:string('Observed Live browser root.'),path:{type:'array',minItems:1,maxItems:32,items:{type:'string',minLength:1,maxLength:256}}}),dependencies:{root:['path'],path:['root']}}},
   set_browser_preview: {description:'Request start for an exact native browser item, or global stop. Can replace or stop a user preview. Guarded single native call; no loading, transport edits, ownership, active-state or audible verification. Start requires recording/count-in off. No automatic cleanup or replay. Updated bridge; all profile.',inputSchema:{...guarded({action:{type:'string',enum:['start','stop']},root:string('Exact browser root for start only.'),path:{type:'array',minItems:1,maxItems:32,items:{type:'string',minLength:1,maxLength:256}}},['action']),oneOf:[{properties:{action:{const:'start'},root:{},path:{}},required:['root','path']},{properties:{action:{const:'stop'},root:false,path:false}}]}},
   override_parameter_automation: {description:'Explicitly take one exact active or overridden device/mixer automation control into manual control at one absolute native value or finite unit display. Keeps the envelope and playback. Active automation may advance before confirmation; manual values and native ancestry remain bound. Recording/count-in and unsafe targets refuse. One write with bounded readback; partial work remains without rollback/replay. All profile.',inputSchema:{...guarded({trackId:ids.deviceOwnerId,deviceId:ids.deviceId,parameterId:string('Exact ID from get_parameter_automation_context; omit deviceId for mixer controls.'),value:number('Absolute raw native target within observed bounds; quantized controls require an integer. No clamping.'),targetDisplay:string('Continuous controls only: finite native display in Hz/kHz, ms/s, dB or %. Choose value for other native display formats.')},['trackId','parameterId']),oneOf:[{required:['value'],properties:{value:{}}},{required:['targetDisplay'],properties:{targetDisplay:{}}}]}},
@@ -758,6 +760,7 @@ const contracts = {
 };
 
 const readOnlyTools = new Set([
+  'get_midi_note_removal_context',
   'get_browser_preview_context',
   "get_parameter_automation_context",
   "get_mixer_panning_context",
@@ -831,6 +834,7 @@ const readOnlyTools = new Set([
 ]);
 
 const destructiveTools = new Set([
+  'remove_midi_notes',
   "export_looper_clip",
   "load_simpler_sample",
   "set_simpler_sample_region",
