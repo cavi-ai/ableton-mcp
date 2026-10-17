@@ -3136,6 +3136,12 @@ def dispatch_request(song, request, state_version, application=None):
         return (object_colors.source if method == "get_live_object_colors" else object_colors.write)(song, params, state_version)
     if method == "get_session_orientation":
         return _session_orientation(song, state_version, application)
+    if method in ("get_arrangement_return_source", "return_tracks_to_arrangement"):
+        try:
+            from . import arrangement_return
+        except ImportError:
+            import arrangement_return
+        return (arrangement_return.source if method == "get_arrangement_return_source" else arrangement_return.start)(song, params, state_version)
     if method in ("get_arrangement_audition_source", "audition_arrangement_passage"):
         try:
             from . import arrangement_audition
@@ -6876,8 +6882,8 @@ class SocketBridge:
                 if request.get("method") == "prepare_instrument_comparison":
                     self._defer_instrument_comparison(client, request, song, record)
                     return
-                if request.get("method") == "audition_arrangement_passage":
-                    self._defer_arrangement_audition(client, request, song, record)
+                if request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement"):
+                    self._defer_arrangement_operation(client, request, song, record)
                     return
                 result = dispatch_request(
                     song, request, self.state_version, self.control_surface.application()
@@ -6936,13 +6942,16 @@ class SocketBridge:
                 self._last_topology_signature = _track_topology_signature(song)
                 self._reply(client, {"id": request.get("id"), "error": {"message": str(failure) or failure.__class__.__name__}}, record)
 
-    def _defer_arrangement_audition(self, client, request, song, record=None):
+    def _defer_arrangement_operation(self, client, request, song, record=None):
         try:
             try:
-                from . import arrangement_audition
+                from . import arrangement_audition, arrangement_return
             except ImportError:
-                import arrangement_audition
-            operation = arrangement_audition.begin(song, request.get("params", {}), self.state_version)
+                import arrangement_audition, arrangement_return
+            returning = request['method'] == 'return_tracks_to_arrangement'
+            module = arrangement_return if returning else arrangement_audition
+            success_key = 'returned' if returning else 'started'
+            operation = module.begin(song, request.get("params", {}), self.state_version)
             self.state_version += 1
         except Exception as error:
             self._reply(client, {"id": request.get("id"), "error": {"message": str(error) or error.__class__.__name__}}, record)
@@ -6950,9 +6959,9 @@ class SocketBridge:
         self.deferred_request = True
 
         def reply_unverified(error):
-            operation["error"] = f"audition readback failed: {error}"[:600]
+            operation["error"] = f"Arrangement readback failed: {error}"[:600]
             try:
-                result = arrangement_audition.complete(self.control_surface.song(), operation, self.state_version)
+                result = module.complete(self.control_surface.song(), operation, self.state_version)
                 response = {"id": request.get("id"), "result": result}
             except Exception as failure:
                 response = {"id": request.get("id"), "error": {"message": str(failure) or failure.__class__.__name__}}
@@ -6966,9 +6975,9 @@ class SocketBridge:
                 if topology != self._last_topology_signature:
                     self.state_version += 1
                 self._last_topology_signature = topology
-                result = arrangement_audition.complete(current, operation, self.state_version)
+                result = module.complete(current, operation, self.state_version)
                 checks = result.get("verification", {})
-                if attempt < 2 and not result["started"] and operation["error"] is None and \
+                if attempt < 2 and not result[success_key] and operation["error"] is None and \
                         result.get("observed") is not None and checks.get("topologyStable") and checks.get("recordingOff"):
                     self.control_surface.schedule_message(1, lambda: observe(attempt + 1))
                     return

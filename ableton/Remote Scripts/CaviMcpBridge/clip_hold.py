@@ -65,7 +65,7 @@ def source(song, params, version):
     if not callable(getattr(clip, 'set_fire_button_state', None)) or any(not hasattr(clip, key) for key in
             ('is_playing', 'is_triggered', 'is_recording', 'is_overdubbing')):
         raise ValueError('native Session clip held-button support is unavailable')
-    if any(r['track'] == track and r['status'] in ('active', 'cleanup_failed') for r in _holds.values()):
+    if has_unresolved(track):
         raise ValueError('this track already has an active hold or unresolved release')
     if not song.is_playing or bool(getattr(song, 'is_counting_in', False)):
         raise ValueError('start authorized global playback before holding a Session clip')
@@ -116,6 +116,10 @@ def _release(record, status, reason, now=None):
         record.update(releaseCallReturned=True, status=status)
     except Exception as error:
         record.update(status='cleanup_failed', cleanupErrors=[str(error) or error.__class__.__name__])
+
+
+def has_unresolved(track):
+    return any(record['track'] == track and record['status'] in ('active', 'cleanup_failed') for record in _holds.values())
 
 
 def has_active():

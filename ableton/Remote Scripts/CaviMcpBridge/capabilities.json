@@ -30,7 +30,7 @@
   "inspect_midi_import",
   "analyze_midi_parts",
   "analyze_arrangement_section",
-  "get_arrangement_audition_source", "audition_arrangement_passage",
+  "get_arrangement_return_source", "return_tracks_to_arrangement", "get_arrangement_audition_source", "audition_arrangement_passage",
   "get_take_lane_context", "get_scene_launch_context",
   "get_simpler_sample_state", "load_simpler_sample", "set_simpler_sample_region", "set_simpler_manual_slices",
   "set_clip_slot_stop_button",
