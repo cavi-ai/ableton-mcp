@@ -17,6 +17,7 @@ import { planClipPitchAdjustment } from "./audio-tuning.mjs";
 import { buildSongGridReference, planGridEnvelopePattern } from "./song-grid-reference.mjs";
 import { browseLocalSpliceDirectory, listConfiguredSpliceRoots, observeLocalSpliceSample, searchLocalSpliceSamples } from "./splice-local-search.mjs";
 import { inspectGroovePostconditions } from "./groove-workflow.mjs";
+import {removeClipGroove, MacClipGrooveHost} from "./clip-groove-removal.mjs";
 import { analyzeMidiFeel, planMidiFeelTransfer } from "./midi-feel-analysis.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { MacLiveSetHost } from "./live-set-host.mjs";
@@ -443,7 +444,7 @@ function normalizeBrowserSearch(args) {
 
 export class ToolService {
   constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, deviceChainLibrary, groupSystemLibrary, midiFeelLibrary, browserMetadata, spliceRoots = [], generationQueuePath,
-    liveSetHost = new MacLiveSetHost(), audioExportHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000 }) {
+    liveSetHost = new MacLiveSetHost(), audioExportHost, grooveRemovalHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000 }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
@@ -456,6 +457,7 @@ export class ToolService {
     this.generationQueuePath = generationQueuePath;
     this.liveSetHost = liveSetHost;
     this.audioExportHost = audioExportHost ?? new MacAudioExportHost({liveSetHost});
+    this.grooveRemovalHost = grooveRemovalHost ?? new MacClipGrooveHost({liveSetHost});
     this.liveSetOpenTimeoutMs = liveSetOpenTimeoutMs;
     this.liveSetSaveTimeoutMs = liveSetSaveTimeoutMs;
     this.liveSetLaunchTimeoutMs = liveSetLaunchTimeoutMs;
@@ -2356,6 +2358,7 @@ export class ToolService {
   }
 
   async #setClipTiming(args) {
+    if (args.grooveId === null) return removeClipGroove(this.bridge, this.confirmations, this.grooveRemovalHost, args);
     requireExpectedState(args);
     const observed = await this.bridge.request("get_clip_timing", { trackId: args.trackId, clipId: args.clipId });
     assertExpectedState(args, observed);
@@ -2409,8 +2412,8 @@ export class ToolService {
       changes.editorGrid = editorGrid;
     }
     if (args.grooveId !== undefined) {
-      if (typeof args.grooveId !== "string") throw new Error("grooveId must identify an available groove");
-      if (!observed.availableGrooves.some(({ id }) => id === args.grooveId)) throw new Error(`unknown groove ${args.grooveId}`);
+      if (args.grooveId !== null && typeof args.grooveId !== "string") throw new Error("grooveId must identify an available groove or be null");
+      if (args.grooveId !== null && !observed.availableGrooves.some(({ id }) => id === args.grooveId)) throw new Error(`unknown groove ${args.grooveId}`);
       changes.grooveId = args.grooveId;
     }
     if (!Object.keys(changes).length) throw new Error("at least one clip timing change is required");

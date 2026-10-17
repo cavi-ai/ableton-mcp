@@ -2736,6 +2736,60 @@ class DispatchTest(unittest.TestCase):
         self.assertTrue(clip.view.grid_is_triplet)
         self.assertIs(clip.groove, song.groove_pool.grooves[0])
 
+    def test_groove_removal_prepares_only_exact_unique_clip_and_keeps_content(self):
+        song = Song()
+        class GroupWithoutArrangementClips:
+            clip_slots = []
+            is_foldable = True
+            @property
+            def arrangement_clips(self):
+                raise RuntimeError("Group Tracks have no arrangement clips")
+        song.tracks.append(GroupWithoutArrangementClips())
+        clip = song.tracks[0].clip_slots[0].clip
+        clip.name = "Unique groove target"
+        clip.groove = song.groove_pool.grooves[0]
+        shown = []
+        application = SimpleNamespace(view=SimpleNamespace(show_view=shown.append))
+        params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_clip_groove_removal_context", "params": params}, 3, application)
+        self.assertIsNone(getattr(song.view, "detail_clip", None))
+        result = dispatch_request(song, {"method": "prepare_clip_groove_removal", "params": {
+            **params, "expectedStateVersion": 3, "before": before
+        }}, 3, application)
+        self.assertTrue(result["prepared"])
+        self.assertEqual(result["stateVersion"], 4)
+        self.assertIs(song.view.detail_clip, clip)
+        self.assertEqual(shown, ["Detail/Clip"])
+        self.assertIs(clip.groove, song.groove_pool.grooves[0])
+        self.assertEqual(dispatch_request(song, {"method": "get_clip_groove_context", "params": params}, 3), before["clip"])
+        replacement = Clip()
+        replacement.__dict__.update(clip.__dict__)
+        song.tracks[0].clip_slots[0].clip = replacement
+        with self.assertRaisesRegex(ValueError, "context changed"):
+            dispatch_request(song, {"method": "prepare_clip_groove_removal", "params": {
+                **params, "expectedStateVersion": 3, "before": before
+            }}, 3, application)
+        song.tracks[0].clip_slots[0].clip = clip
+        clip.name = "Changed target"
+        with self.assertRaisesRegex(ValueError, "context changed"):
+            dispatch_request(song, {"method": "prepare_clip_groove_removal", "params": {
+                **params, "expectedStateVersion": 3, "before": before
+            }}, 3, application)
+
+    def test_groove_removal_refuses_ambiguous_names_and_recording(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        clip.groove = song.groove_pool.grooves[0]
+        song.tracks[0].clip_slots[2].clip.name = clip.name
+        app = SimpleNamespace(view=SimpleNamespace(show_view=lambda _: None))
+        params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        with self.assertRaisesRegex(ValueError, "unique clip name"):
+            dispatch_request(song, {"method": "get_clip_groove_removal_context", "params": params}, 3, app)
+        clip.name = "Unique groove target"
+        song.record_mode = True
+        with self.assertRaisesRegex(ValueError, "recording"):
+            dispatch_request(song, {"method": "get_clip_groove_removal_context", "params": params}, 3, app)
+
     def test_clip_timing_rejects_changed_observation_before_mutation(self):
         song = Song()
         params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
