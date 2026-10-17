@@ -1644,14 +1644,18 @@ class DispatchTest(unittest.TestCase):
                 on = QuantizedParameter()
                 on.name = on.original_name = "Device On"
                 on.max = 1.0
+                on.automation_state = 0
                 on.value_items = ("Off", "On")
                 self.parameters = [on]
         song.tracks[0].devices = [LiveDevice()]
+        song.is_counting_in = False
         listed = dispatch_request(song, {"method": "list_devices", "params": {"trackId": "track-0"}}, 3)
         device = listed["devices"][0]
         self.assertTrue(device["active"])
         changed = dispatch_request(song, {"method": "set_device_active", "params": {
             "trackId": "track-0", "deviceId": device["id"], "beforeDevice": device, "active": False,
+            "expectedStateVersion": 3, "before": dispatch_request(song, {"method": "get_device_activation_context", "params": {
+                "trackId": "track-0", "deviceId": device["id"]}}, 3),
         }}, 3)
         self.assertFalse(changed["device"]["active"])
         deleted = dispatch_request(song, {"method": "delete_device", "params": {

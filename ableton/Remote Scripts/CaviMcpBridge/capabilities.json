@@ -26,6 +26,8 @@
   "get_midi_export_source",
   "select_midi_export_source",
   "get_device_ab_context",
+  "get_device_activation_context",
+  "get_device_activation_edit_context",
   "copy_device_ab_slot",
   "select_device_ab_slot",
   "get_browser_load_context",
