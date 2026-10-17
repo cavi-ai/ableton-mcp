@@ -1767,6 +1767,7 @@ test("set mixer exposes master and return buses and guards bounded changes", asy
   assert.equal(masterLive.observed.stateVersion, 5);
   const returnArgs = { expectedStateVersion: 5, returnTrackId: "return-0", pan: 0.5, mute: true };
   const refreshed = { ...observed, stateVersion: 5 };
+  refreshed.returns[0].pan.panningMode = {supported:true,value:0,name:'stereo'};
   calls.push({ method: "fixture_state_override", params: refreshed });
   const originalRequest = service.bridge.request.bind(service.bridge);
   service.bridge.request = async (method, params) => method === "get_set_mixer" ? refreshed : originalRequest(method, params);

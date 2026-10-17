@@ -4,9 +4,11 @@ import uuid
 try:
     from .bridge import dispatch_request, _track_record, _set_mixer, _send_records, _track_routing, _track_midi_routing
     from .crossfader import context as crossfader_context
+    from .panning import context as panning_context
 except ImportError:
     from bridge import dispatch_request, _track_record, _set_mixer, _send_records, _track_routing, _track_midi_routing
     from crossfader import context as crossfader_context
+    from panning import context as panning_context
 
 _identity = None
 _token = None
@@ -44,4 +46,7 @@ def source(song, version):
             "tempo": float(song.tempo), "numerator": int(song.signature_numerator),
             "denominator": int(song.signature_denominator), "tracks": tracks,
             "setMixer": _set_mixer(song, version), "crossfader": crossfader_context(song, {}, version),
+            "panning": [panning_context(song, {"trackId": key}, version) for key in
+                        [*[f'track-{i}' for i in range(len(song.tracks))],
+                         *[f'return-{i}' for i in range(len(song.return_tracks))], 'master']],
             "arrangementOverride": bool(song.back_to_arranger)}

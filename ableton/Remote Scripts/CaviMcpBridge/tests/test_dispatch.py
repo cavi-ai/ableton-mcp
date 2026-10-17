@@ -122,6 +122,7 @@ class Track:
         self.current_output_sub_routing = self.available_output_routing_channels[0]
         self.current_monitoring_state = 1
         self.mixer_device = type("Mixer", (), {
+            "panning_mode": 0,
             "volume": type("Value", (), {"value": 0.75, "min": 0.0, "max": 1.0})(),
             "panning": type("Value", (), {"value": 0.0, "min": -1.0, "max": 1.0})(),
             "sends": [type("Value", (), {"value": 0.2, "min": 0.0, "max": 1.0})()]
@@ -339,6 +340,7 @@ class Song:
         self.tracks = [Track(), Track()]
         self.view = type("View", (), {"selected_track": self.tracks[0]})()
         mixer = lambda volume=0.6: type("Mixer", (), {
+            "panning_mode": 0,
             "volume": type("Value", (), {"value": volume, "min": 0.0, "max": 1.0})(),
             "panning": type("Value", (), {"value": 0.0, "min": -1.0, "max": 1.0})(),
         })()
