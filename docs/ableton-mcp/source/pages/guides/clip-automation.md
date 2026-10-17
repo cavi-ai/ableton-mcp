@@ -26,3 +26,13 @@ On failure, cleanup attempts to remove only the newly created lane and restore i
 ## Audition and keep the result
 
 A clip copy shares its track devices and, for audio, its source file. Launching it can replace the track's playback, start transport and override Arrangement playback. Audition only when authorized and preserve unrelated controls. Stopping it does not guarantee restoration of the parameter's earlier value or automation ownership; inspect actual state before planning any restoration. Keep the original and selected alternative. Further envelope edits, deletion and saving require their own scope.
+
+## Explicit whole-lane replacement
+
+Use `set_clip_parameter_envelope` only when the intended operation is to set raw native steps or explicitly replace an entire existing lane. An existing envelope requires `replaceExisting: true`; omission or false preserves it. The flag authorizes discarding the whole curve, including points that were not sampled. It does not authorize edits to another lane or clip. The default copy workflow does not grant that authority.
+
+The updated bridge binds native clip/device/parameter/envelope objects, exposed clip content, device parameter records and samples across the clip and requested steps. Replaced objects and changes in these observations invalidate the plan, including at the same state version. Sampling cannot detect every manual edit between probes. Read the warning and resolve concurrent editing before approving a whole-lane discard; never describe the samples as a complete curve backup.
+
+This tool accepts 1–512 ordered, nonoverlapping steps, retaining the capacity of `plan_grid_envelope_pattern`. Numeric targets retain the tool's native clamping; the plan reports both `requestedValue` and the applied `value`. Quantized controls require integer choices after clamping. Stopped playback, recording off, an unfrozen owner and an enabled target with known inactive automation are required. Unwarped audio remains outside its beat-based timing scope.
+
+Execution rechecks the context before clearing, uses one undo step and verifies new step interiors. Exact-boundary observations are reported separately. For an absent lane it uses guarded creation and attempts scoped cleanup on failure. For an existing lane, failure after clearing preserves the actual partial state and reports that the old curve was not backed up; it cannot reconstruct or restore that curve from samples. Inspect the exact lane before any retry and never replay a replacement after a lost reply. Saving, playback and any later restoration need their own scope.

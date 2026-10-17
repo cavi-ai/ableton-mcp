@@ -137,6 +137,21 @@ class ClipEnvelopeCreationTests(unittest.TestCase):
         self.assertIs(self.clip.automation_envelope(self.song.tracks[0].devices[0].parameters[1]), unrelated)
         self.assertEqual(unrelated.value_at_time(0), .7)
 
+    def test_parameter_replaced_during_creation_is_not_verified_or_written(self):
+        device = self.song.tracks[0].devices[0]
+
+        def create(parameter):
+            envelope = AutomationEnvelope()
+            self.clip.envelopes[id(parameter)] = envelope
+            device.parameters[0] = Frequency()
+            return envelope
+
+        self.clip.create_automation_envelope = create
+        with self.assertRaisesRegex(RuntimeError, "ownership is unconfirmed"):
+            self.apply()
+        self.assertIsNone(self.clip.automation_envelope(device.parameters[0]))
+        self.assertEqual(self.clip.automation_envelope(self.parameter).steps, [])
+
     def test_cleanup_does_not_restore_a_replaced_native_parameter(self):
         device = self.song.tracks[0].devices[0]
 
