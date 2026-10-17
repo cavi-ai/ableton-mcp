@@ -14,6 +14,8 @@ import {getSceneLaunchContext} from "./scene-context.mjs";
 import {readTakeLaneContext} from "./take-lanes.mjs";
 import {MacTakeLaneAuditionHost,takeLaneAudition} from "./take-lane-audition.mjs";
 import {setTrackVolumeDb} from "./track-volume.mjs";
+import {parameterAutomation} from './parameter-automation.mjs';
+import {overrideParameterAutomation} from './parameter-override.mjs';
 import {setTrackSendDb} from "./track-send.mjs";
 import {setDeviceParameterDisplay} from "./parameter-display.mjs";
 import {showLiveObject} from "./live-navigation.mjs";
@@ -75,6 +77,7 @@ import { duplicateMidiClipVariations } from "./midi-clip-variations.mjs";
 import { requestSignal } from "./request-context.mjs";
 import { getProducerWorkflow } from "./prompts.mjs";
 import {crossfaderState} from './crossfader.mjs';
+import {mixerPanning,assertStereoPan} from './panning.mjs';
 import {returnTracksToArrangement} from './arrangement-return.mjs';
 import { auditionArrangementPassage } from "./arrangement-audition.mjs";
 
@@ -840,6 +843,7 @@ export class ToolService {
     if (name === "get_set_mixer") return this.bridge.request("get_set_mixer", {});
     if (name === "get_return_routing") return this.bridge.request("get_return_routing", {returnTrackId:args.returnTrackId});
     if (name === "get_producer_workflow") return getProducerWorkflow(args);
+    if (['get_mixer_panning_context','set_mixer_panning'].includes(name)) return mixerPanning(this.bridge,this.confirmations,name,args);
     if (['get_crossfader_context','set_crossfader_state'].includes(name)) return crossfaderState(this.bridge,this.confirmations,name,args);
     if (name === 'return_tracks_to_arrangement') return returnTracksToArrangement(this.bridge,this.confirmations,args);
     if (name === "audition_arrangement_passage") return auditionArrangementPassage(this.bridge,this.confirmations,args);
@@ -1678,6 +1682,8 @@ export class ToolService {
     if (name === "correct_midi_clip_to_scale") return this.#correctMidiClipToScale(args);
     if (name === "transform_midi_notes") return this.#transformMidiNotes(args);
     if (name === "set_track_mixer") return this.#setTrackMixer(args);
+    if (['get_parameter_automation_context','re_enable_parameter_automation'].includes(name)) return parameterAutomation(this.bridge,this.confirmations,name,args);
+    if (name==='override_parameter_automation') return overrideParameterAutomation(this.bridge,this.confirmations,args);
     if (name === "set_track_volume_db") return setTrackVolumeDb(this.bridge,this.confirmations,args);
     if (name === "set_track_send_db") return setTrackSendDb(this.bridge,this.confirmations,args);
     if (name === "set_bulk_track_mixer") return this.#setBulkTrackMixer(args);
@@ -2404,9 +2410,12 @@ export class ToolService {
       if (Object.keys(values).length) changes[group] = values;
     }
     if (!Object.keys(changes).length) throw new Error("at least one transport recording context change is required");
+    const before = { ...observed };
+    // Playback advances between planning, confirmation and native execution.
+    if (observed.isPlaying === true && changes.currentSongTime === undefined) delete before.currentSongTime;
     const result = await this.#confirmedMutation({
       method: "set_transport_recording_context", expectedStateVersion: args.expectedStateVersion,
-      before: observed, changes
+      before, changes
     }, args);
     if (result.dryRun) return result;
     try {
@@ -4561,6 +4570,7 @@ export class ToolService {
     }
     const observed = await this.bridge.request("get_track_mixer", { trackId: args.trackId });
     assertExpectedState(args, observed);
+    if (args.pan !== undefined) assertStereoPan(observed.pan);
     const changes = {};
     for (const key of ["volume", "pan"]) {
       if (args[key] === undefined) continue;
@@ -4617,6 +4627,7 @@ export class ToolService {
     for (const trackId of trackIds) {
       const observed = await this.bridge.request("get_track_mixer", { trackId });
       assertExpectedState(args, observed);
+      if (args.pan !== undefined) assertStereoPan(observed.pan);
       observedList.push(observed);
       if (args.solo === true && observed.solo) soloTracks.push(trackId);
       if (args.volume !== undefined && !Number.isFinite(Number(args.volume))) throw new Error("volume must be finite");
@@ -4840,6 +4851,7 @@ export class ToolService {
       ? observed.master
       : observed.returns.find(({ id }) => id === args.returnTrackId);
     if (!target) throw new Error(`unknown return track ${args.returnTrackId}`);
+    if (args.pan !== undefined) assertStereoPan(target.pan);
     const numericKeys = method === "set_master_mixer"
       ? ["volume", "pan", "cueVolume", "crossfader"]
       : ["volume", "pan"];

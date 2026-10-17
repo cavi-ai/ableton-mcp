@@ -20,6 +20,8 @@ Review the warning and execute the unchanged confirmed plan. The bridge binds na
 
 The mix context includes A/B crossfader membership for ordinary tracks, Groups and Returns, their native mixer identities, and Main's crossfader parameter identity, position, availability and automation status. Changing an observed value or replacing a native mixer or Main crossfader parameter invalidates the plan even if the bridge state version is unchanged. Unavailable crossfader fields are reported explicitly. Crossfader curves and automation envelope contents remain outside this check; observed controls do not establish audible balance or complete Set equivalence.
 
+It also binds [Stereo and Split Stereo panning](stereo-panning.md): native mode, all three pan parameter identities, values, bounds, availability and automation status for ordinary tracks, Groups, Returns and Main. It does not bind automation envelopes or device stereo processing.
+
 Known failures before Save attempt cleanup only of unchanged owned dialogs. User edits or unavailable ownership evidence preserve the dialog and report uncertainty. A Save attempt with an unknown outcome is never replayed or cancelled automatically.
 
 ## Verify the deliverable

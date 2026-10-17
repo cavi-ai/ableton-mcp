@@ -7,13 +7,14 @@ import { homedir, platform as currentPlatform } from "node:os";
 import { PACKAGE_VERSION, defaultRemoteScriptRoots, isMainModule, resolveRuntimeConfig } from "./paths.mjs";
 import { createConfiguredService } from "./runtime.mjs";
 import { runStdio } from "./server.mjs";
-import { UnixBridgeClient } from "./bridge-client.mjs";
+import { UnixBridgeClient, bridgeFailureDetails } from "./bridge-client.mjs";
+import { performance } from 'node:perf_hooks';
 import { validateToolArguments } from "./tool-validation.mjs";
 import { getPrompt, listPrompts } from "./prompts.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const requiredCapabilities = JSON.parse(readFileSync(new URL("../../../ableton/Remote Scripts/CaviMcpBridge/capabilities.json", import.meta.url), "utf8"));
-const remoteScriptFiles = ["__init__.py", "arrangement_audition.py", "arrangement_recording.py", "arrangement_return.py", "arrangement_section.py", "audio_capture.py", "audio_export.py", "audio_midi_sketch.py", "beat_repeat_fill.py", "bridge.py", "browser_load.py", "capabilities.json", "clip_duplication.py", "clip_envelope.py", "clip_hold.py", "clip_launch.py", "crossfader.py", "device_ab.py", "device_preset.py", "instrument_comparison.py", "live_navigation.py", "looper_export.py", "midi_capture.py", "midi_export.py", "midi_import.py", "object_colors.py", "parameter_display.py", "protocol.py", "rack_performance.py", "recording_setup.py", "session_recording.py", "signal_activity.py", "simpler_sample.py", "take_lanes.py", "track_bounce.py", "track_freeze.py", "track_grouping.py", "track_send.py", "track_volume.py"];
+const remoteScriptFiles = ["__init__.py", "arrangement_audition.py", "arrangement_recording.py", "arrangement_return.py", "arrangement_section.py", "audio_capture.py", "audio_export.py", "audio_midi_sketch.py", "beat_repeat_fill.py", "bridge.py", "browser_load.py", "capabilities.json", "clip_duplication.py", "clip_envelope.py", "clip_hold.py", "clip_launch.py", "crossfader.py", "device_ab.py", "device_preset.py", "instrument_comparison.py", "live_navigation.py", "looper_export.py", "manual_override.py", "midi_capture.py", "midi_export.py", "midi_import.py", "object_colors.py", "panning.py", "parameter_automation.py", "parameter_display.py", "protocol.py", "rack_performance.py", "recording_setup.py", "session_recording.py", "signal_activity.py", "simpler_sample.py", "take_lanes.py", "track_bounce.py", "track_freeze.py", "track_grouping.py", "track_send.py", "track_volume.py"];
 
 async function remoteScriptCopies({ sourceRoot, platform, home, applicationsRoot }) {
   const roots = defaultRemoteScriptRoots({ platform, home });
@@ -80,10 +81,12 @@ export async function runCli(argv, dependencies = {}) {
   }
   if (parsed.command === "doctor") {
     const config = resolveRuntimeConfig(env, { platform, home });
-    const bridgeProbe = dependencies.bridgeProbe || (() => new UnixBridgeClient(config.socketPath, { timeoutMs: 1000 }).request("get_live_state", {}));
+    const bridgeProbe = dependencies.bridgeProbe || (() => new UnixBridgeClient(config.socketPath).request("get_live_state", {}));
     let bridgeState;
     let reason;
-    let missingCapabilities = [...requiredCapabilities];
+    let probeFailure;
+    let missingCapabilities = null;
+    const probeStarted = performance.now();
     try {
       bridgeState = await bridgeProbe();
       const advertised = Array.isArray(bridgeState.capabilities) ? bridgeState.capabilities : [];
@@ -91,17 +94,25 @@ export async function runCli(argv, dependencies = {}) {
       if (bridgeState.bridgeVersion !== PACKAGE_VERSION) reason = `outdated bridge: expected ${PACKAGE_VERSION}`;
       else if (missingCapabilities.length) reason = `bridge is missing required capabilities: ${missingCapabilities.join(", ")}`;
     } catch (error) {
-      reason = error.message;
+      reason = typeof error?.message === 'string' && error.message ? error.message : 'Live-state probe failed without an error message';
+      probeFailure = error;
     }
+    const probeElapsedMs = performance.now() - probeStarted;
+    const protocol = bridgeState || probeFailure?.bridgeProgress?.protocolValidated ? 'compatible' :
+      probeFailure?.code === 'BRIDGE_UPGRADE_REQUIRED' ? 'incompatible' : 'unconfirmed';
     const result = {
-      ok: !reason,
+      ok: Boolean(bridgeState) && !reason,
       bridge: {
         socket: config.socketPath,
-        connected: Boolean(bridgeState),
+        connected: bridgeState ? true : probeFailure?.bridgeProgress?.socketConnected ?? null,
+        protocol,
+        liveStateAvailable: Boolean(bridgeState),
+        probeElapsedMs,
         version: bridgeState?.bridgeVersion,
         scriptDirectory: bridgeState?.scriptDirectory || null,
-        capabilities: bridgeState?.capabilities || [],
+        capabilities: bridgeState ? bridgeState.capabilities || [] : null,
         missingCapabilities,
+        ...(bridgeFailureDetails(probeFailure) ? { failure: bridgeFailureDetails(probeFailure) } : {}),
         ...(reason ? { reason } : {})
       },
       catalog: { configured: Boolean(config.catalogPath), path: config.catalogPath || null },

@@ -122,6 +122,7 @@ class Track:
         self.current_output_sub_routing = self.available_output_routing_channels[0]
         self.current_monitoring_state = 1
         self.mixer_device = type("Mixer", (), {
+            "panning_mode": 0,
             "volume": type("Value", (), {"value": 0.75, "min": 0.0, "max": 1.0})(),
             "panning": type("Value", (), {"value": 0.0, "min": -1.0, "max": 1.0})(),
             "sends": [type("Value", (), {"value": 0.2, "min": 0.0, "max": 1.0})()]
@@ -339,6 +340,7 @@ class Song:
         self.tracks = [Track(), Track()]
         self.view = type("View", (), {"selected_track": self.tracks[0]})()
         mixer = lambda volume=0.6: type("Mixer", (), {
+            "panning_mode": 0,
             "volume": type("Value", (), {"value": volume, "min": 0.0, "max": 1.0})(),
             "panning": type("Value", (), {"value": 0.0, "min": -1.0, "max": 1.0})(),
         })()
@@ -888,6 +890,47 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(song.current_song_time, 4.0)
         self.assertFalse(song.record_mode)
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
+    def test_transport_flag_write_accepts_advancing_playhead_at_native_boundary(self):
+        song = Song()
+        song.is_playing = True
+        song.record_mode = True
+        before = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
+        del before["currentSongTime"]
+        song.current_song_time = 12.0
+        result = dispatch_request(song, {"method": "set_transport_recording_context", "params": {
+            "before": before, "changes": {"arrangement": {"record": False}},
+        }}, 3)
+        self.assertFalse(song.record_mode)
+        self.assertTrue(song.is_playing)
+        self.assertEqual(song.current_song_time, 12.0)
+        self.assertEqual(result["currentSongTime"], 12.0)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
+    def test_transport_binding_keeps_seek_stopped_position_and_mode_guards(self):
+        for change in ("seek", "stopped", "playback", "record", "automation", "version"):
+            with self.subTest(change=change):
+                song = Song()
+                song.is_playing = change != "stopped"
+                before = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
+                changes = {"arrangement": {"overdub": True}}
+                if change == "seek":
+                    changes["currentSongTime"] = 32.0
+                elif song.is_playing:
+                    del before["currentSongTime"]
+                if change in ("seek", "stopped"):
+                    song.current_song_time += 1
+                if change == "playback":
+                    song.is_playing = False
+                if change == "record":
+                    song.session_record = not song.session_record
+                if change == "automation":
+                    song.session_automation_record = not song.session_automation_record
+                with self.assertRaisesRegex(ValueError, "changed after planning"):
+                    dispatch_request(song, {"method": "set_transport_recording_context", "params": {
+                        "before": before, "changes": changes,
+                    }}, 4 if change == "version" else 3)
+                self.assertEqual(song.undo_boundaries, [])
 
     def test_transport_recording_context_rejects_external_change_at_native_boundary(self):
         song = Song()

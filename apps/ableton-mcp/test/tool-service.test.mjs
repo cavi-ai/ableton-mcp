@@ -1089,6 +1089,56 @@ test("transport mutation verifies a separate settled native control readback", a
   assert.deepEqual(result.verification.mismatches, []);
 });
 
+test("recording flag confirmation tolerates a playing clock and retains mode guards", async () => {
+  const observed = { stateVersion: 4, currentSongTime: 4, isPlaying: true,
+    automationArm: false, arrangement: { record: true }, session: { record: false } };
+  let writes = 0;
+  const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_transport_recording_context") return structuredClone(observed);
+    if (method === "set_transport_recording_context") {
+      writes++;
+      assert.equal("currentSongTime" in params.before, false);
+      observed.arrangement.record = false;
+      observed.stateVersion++;
+      return structuredClone(observed);
+    }
+    throw new Error(method);
+  } } });
+  const args = { expectedStateVersion: 4, arrangement: { record: false } };
+  const plan = await service.call("set_transport_recording_context", args);
+  observed.currentSongTime = 16;
+  const result = await service.call("set_transport_recording_context", { ...args, dryRun: false,
+    confirmationToken: plan.confirmation.token, planHash: plan.confirmation.planHash });
+  assert.equal(writes, 1);
+  assert.equal(result.verification.controlsConfirmed, true);
+  assert.equal(result.observed.isPlaying, true);
+  assert.equal(result.observed.currentSongTime, 16);
+});
+
+for (const change of ["seek", "stopped clock", "playback", "recording", "automation", "version"]) {
+  test(`recording confirmation rejects a changed ${change} before writing`, async () => {
+    const observed = { stateVersion: 4, currentSongTime: 4, isPlaying: change !== "stopped clock",
+      automationArm: false, arrangement: { record: false }, session: { record: false } };
+    let writes = 0;
+    const service = new ToolService({ bridge: { async request(method) {
+      if (method === "get_transport_recording_context") return structuredClone(observed);
+      writes++;
+      throw new Error("must not write");
+    } } });
+    const args = { expectedStateVersion: 4, arrangement: { overdub: true },
+      ...(change === "seek" ? { currentSongTime: 32 } : {}) };
+    const plan = await service.call("set_transport_recording_context", args);
+    if (["seek", "stopped clock"].includes(change)) observed.currentSongTime++;
+    if (change === "playback") observed.isPlaying = false;
+    if (change === "recording") observed.session.record = true;
+    if (change === "automation") observed.automationArm = true;
+    if (change === "version") observed.stateVersion++;
+    await assert.rejects(service.call("set_transport_recording_context", { ...args, dryRun: false,
+      confirmationToken: plan.confirmation.token, planHash: plan.confirmation.planHash }));
+    assert.equal(writes, 0);
+  });
+}
+
 test("transport mutation reports an unconfirmed control instead of claiming success", async () => {
   const before = { stateVersion: 4, currentSongTime: 0, arrangement: { punchIn: false } };
   let reads = 0;
@@ -1767,6 +1817,7 @@ test("set mixer exposes master and return buses and guards bounded changes", asy
   assert.equal(masterLive.observed.stateVersion, 5);
   const returnArgs = { expectedStateVersion: 5, returnTrackId: "return-0", pan: 0.5, mute: true };
   const refreshed = { ...observed, stateVersion: 5 };
+  refreshed.returns[0].pan.panningMode = {supported:true,value:0,name:'stereo'};
   calls.push({ method: "fixture_state_override", params: refreshed });
   const originalRequest = service.bridge.request.bind(service.bridge);
   service.bridge.request = async (method, params) => method === "get_set_mixer" ? refreshed : originalRequest(method, params);
