@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 298 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 300 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (128)
+## Read-only (129)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -29,6 +29,7 @@ The server publishes 298 tools. Mutations of the Live Set require `expectedState
 | `get_beat_repeat_performance_context` | Read one native snapshot of a loaded Beat Repeat's Repeat, Grid, Interval, Block Triplets, Mix Type, all exposed parameters and their display values, track routing, monitoring, and transport. Grid and Interval expose labels at their native integer positions; duplicate labels are not assumed equivalent, and quantized behavior is not inferred from this mapping. Read-only; no audible outcome is inferred. | `trackId`, `deviceId` |
 | `get_browser_item_metadata` | Read private MCP-managed tags, favorite state, and revision for one exact observed Live browser item or local audio sample. A Live user-folder sample shares the local Splice record only when its URI unambiguously matches a configured local Splice file; reserved URI delimiters and existing separate Live metadata preserve exact Live identity. For a local sample, use root local_splice and path [absolute directory, relative audio path]. Does not read native collections. | `root`, `path` |
 | `get_browser_items` | Browse one level of Live factory/plug-in/Pack/Max/project/user content. Page with offset and limit together. Optional private MCP tags/favorites use exact child identities; not native collections. | `root` |
+| `get_browser_preview_context` | Read native browser preview/stop availability and optional exact item with document/selection guards. Does not observe active preview, route, duration or audible output. No input or loading; all profile. | none |
 | `get_clip_groove_context` | Read one native callback snapshot of exact clip/track names, MIDI note IDs and expression metadata or audio state, clip timing, complete Groove Pool and global musical context. Supports before/after validation of UI-only extraction and baking; does not execute them. | `trackId`, `clipId` |
 | `get_clip_mixer_envelope` | Read an ordinary Session clip volume, Stereo pan or exact Return-send envelope without changing focus or playback. MIDI/warped audio beats. Pan requires known Stereo mode. Samples do not recover the complete curve. | `trackId`, `clipId`, `mixerControl` |
 | `get_clip_parameter_envelope` | Sample one Session clip parameter envelope at exact beat positions. | `trackId`, `clipId`, `deviceId`, `parameterId` |
@@ -137,7 +138,7 @@ The server publishes 298 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (141)
+## Mutations (142)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -243,6 +244,7 @@ The server publishes 298 tools. Mutations of the Live Set require `expectedState
 | `set_beat_repeat_grid` | Plan or request one exact native Beat Repeat Grid display division from get_beat_repeat_performance_context.gridChoices. Ambiguous or unavailable display labels fail closed. Native execution rechecks the complete device, routing, and transport snapshot before writing; observed parameter equality is reported, not an audible or beat-scheduled result. | `expectedStateVersion`, `trackId`, `deviceId`, `gridDisplayValue` |
 | `set_beat_repeat_interval` | Plan or request one exact native Beat Repeat Interval display from get_beat_repeat_performance_context.intervalChoices. Native integer-position labels are mapped without assuming a quantized parameter or scheduled trigger. Ambiguous or unavailable labels fail closed; execution rechecks the complete device, routing, and transport snapshot and reports immediately observed parameter equality, not an audible result. | `expectedStateVersion`, `trackId`, `deviceId`, `intervalDisplayValue` |
 | `set_browser_item_metadata` | Plan or edit private MCP-managed tags and favorite state with observed Live browser identity or local audio-file version, exact revision, and single-use confirmation. A Live user-folder sample shares the local Splice record only when its URI unambiguously matches a configured local Splice file; reserved URI delimiters and existing separate Live metadata preserve exact Live identity. For a local sample, use root local_splice and path [absolute directory, relative audio path]. Does not modify native collections. | `expectedMetadataRevision`, `root`, `path` |
+| `set_browser_preview` | Request start for an exact native browser item, or global stop. Can replace or stop a user preview. Guarded single native call; no loading, transport edits, ownership, active-state or audible verification. Start requires recording/count-in off. No automatic cleanup or replay. Updated bridge; all profile. | `expectedStateVersion`, `action` |
 | `set_bulk_track_mixer` | Plan or apply guarded volume, pan, mute, and solo changes to multiple existing ordinary tracks in one confirmed step. Per-track values clamp to each observed native range; sends are unchanged. | `expectedStateVersion`, `trackIds` |
 | `set_clip_slot_stop_button` | Plan or change the stop button of one empty ordinary Session slot. Binds native full-row context, verifies readback and attempts owned rollback. Does not launch, stop playback or guarantee armed-empty recording behavior. Requires updated bridge; all profile. | `expectedStateVersion`, `trackId`, `clipId`, `hasStopButton` |
 | `set_clip_timing` | Guarded loop, meter, launch, Session Legato, mute, groove and grid edits. | `expectedStateVersion`, `trackId`, `clipId` |

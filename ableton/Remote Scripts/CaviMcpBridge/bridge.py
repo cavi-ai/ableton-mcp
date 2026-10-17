@@ -3819,6 +3819,14 @@ def dispatch_request(song, request, state_version, application=None):
         return {"stateVersion": state_version, "query": query, "searchedRoots": searched,
                 "unavailableRoots": unavailable, "results": results[:limit],
                 "visitedItems": visited, "truncated": reason is not None, "truncationReason": reason}
+    if method in ("get_browser_preview_context", "set_browser_preview"):
+        try:
+            from . import browser_preview
+        except ImportError:
+            import browser_preview
+        if method == "get_browser_preview_context":
+            return browser_preview.context(song, application, params, state_version)
+        return browser_preview.apply(song, application, params, state_version)
     if method in ("get_browser_items", "get_factory_browser_items"):
         item = _browser_item(application, params["root"], params.get("path", []))
         children = item.children
