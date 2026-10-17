@@ -1,6 +1,7 @@
 import { enrichArrangementSection, assertArrangementRange } from "./arrangement-section.mjs";
 import { assertExpectedState } from "./bridge-protocol.mjs";
 import {getSceneLaunchContext} from "./scene-context.mjs";
+import {readTakeLaneContext} from "./take-lanes.mjs";
 import {setTrackVolumeDb} from "./track-volume.mjs";
 import {setTrackSendDb} from "./track-send.mjs";
 import {setDeviceParameterDisplay} from "./parameter-display.mjs";
@@ -705,6 +706,7 @@ export class ToolService {
     if (name === "list_arrangement_cue_points") return this.bridge.request("list_arrangement_cue_points", {});
     if (name === "list_tracks") return this.bridge.request("list_tracks", {});
     if (name === "list_scenes") return this.bridge.request("list_scenes", {});
+    if (name === "get_take_lane_context") return readTakeLaneContext(this.bridge,args);
     if (name === "get_scene_launch_context") return getSceneLaunchContext(this.bridge,args);
     if (name === "get_simpler_sample_state") return this.#readSimplerSampleState(args);
     if (name === "load_simpler_sample") return this.#loadSimplerSample(args);

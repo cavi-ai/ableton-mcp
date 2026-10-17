@@ -107,6 +107,7 @@ const toolNames = [
   "list_tracks",
   "list_scenes",
   "get_scene_launch_context",
+  "get_take_lane_context",
   "get_simpler_sample_state",
   "load_simpler_sample",
   "set_simpler_sample_region",

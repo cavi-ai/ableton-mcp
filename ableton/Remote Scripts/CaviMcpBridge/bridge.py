@@ -4515,6 +4515,12 @@ def dispatch_request(song, request, state_version, application=None):
         }
     if method == "list_scenes":
         return {"stateVersion": state_version, "scenes": [_scene_record(scene, index) for index, scene in enumerate(song.scenes)]}
+    if method == "get_take_lane_context":
+        try:
+            from . import take_lanes
+        except ImportError:
+            import take_lanes
+        return take_lanes.context(song, params, state_version)
     if method == "get_scene_launch_context":
         return _scene_launch_context(song, params, state_version)
     if method in ("get_simpler_sample_state", "load_simpler_sample", "set_simpler_sample_region", "set_simpler_manual_slices"):

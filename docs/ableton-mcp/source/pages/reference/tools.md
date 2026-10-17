@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 253 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 254 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (108)
+## Read-only (109)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -58,6 +58,7 @@ The server publishes 253 tools. Mutations of the Live Set require `expectedState
 | `get_simpler_sample_state` | Read one existing Simpler, including nested racks: path, length/start-end markers/slices in sample frames, rate in Hz, native warp/slicing controls, playback mode, parameters and edit context. No edits. All profile; requires updated bridge. | `trackId`, `deviceId` |
 | `get_song_grid_reference` | Read a meter/tempo-aware bar of straight 16ths and eighth/sixteenth triplets, downbeats/offbeats and advisory 4/4 genre placements. Read-only. | none |
 | `get_song_musical_context` | Read key, scale, time signature, quantization, groove, swing, and Arrangement loop context. | none |
+| `get_take_lane_context` | Inspect one track take-lane inventory and optionally one complete stored take clip. Read-only; preserves focus. Selected MIDI reports up to 4096 notes; audio reports exposed source/timing controls. Does not expose comp selections, envelopes or rendered sound. All profile. | `trackId` |
 | `get_track_freeze_state` | Read one track's native freeze state. On the tested Live 12.4.5, is_frozen is readable but has no setter, so freeze/unfreeze remain UI-only; Live's native error surfaces if a future version exposes the setter. | `trackId` |
 | `get_track_midi_routing` | Read one track's native MIDI note routing (input/output notes and scale transposition) from its MIDIMap. Reports unsupported explicitly when Live does not expose it. | `trackId` |
 | `get_track_mixer` | Read bounded track volume, pan, mute, solo, and named return sends. | `trackId` |
