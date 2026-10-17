@@ -802,6 +802,19 @@ def _track_routing(song, track_id, state_version):
     }
 
 
+def _return_routing(song, return_id, state_version):
+    if not isinstance(return_id, str) or not return_id.startswith("return-"):
+        raise ValueError("an exact Return Track ID is required")
+    return_id, track = _device_owner(song, return_id)
+    output_types = list(track.available_output_routing_types)
+    output_channels = list(track.available_output_routing_channels)
+    return {"stateVersion": state_version, "returnTrackId": return_id, "name": track.name,
+            "output": {"type": _current_routing_option(track.current_output_routing, output_types),
+                       "channel": _current_routing_option(track.current_output_sub_routing, output_channels),
+                       "availableTypes": [_routing_option(option) for option in output_types],
+                       "availableChannels": [_routing_option(option) for option in output_channels]}}
+
+
 def _track_midi_routing(song, track_id, state_version):
     _, track = _track(song, track_id)
     midi_map = getattr(track, "midi_map", None)
@@ -2813,6 +2826,57 @@ def _selection_context(song, state_version):
     return result
 
 
+_groove_removal_song = None
+_groove_removal_identities = {}
+
+
+def _clip_groove_removal_context(song, params, state_version, application):
+    global _groove_removal_song
+    _, track = _track(song, params["trackId"])
+    clip, _ = _clip_reference(song, params["trackId"], params["clipId"])
+    if bool(song.record_mode) or bool(song.session_record) or bool(getattr(clip, "is_recording", False)):
+        raise ValueError("groove removal is unavailable during recording")
+    if bool(getattr(track, "is_frozen", True)) or bool(getattr(clip, "is_triggered", False)):
+        raise ValueError("groove removal requires an unfrozen clip without a pending launch")
+    if not callable(getattr(getattr(application, "view", None), "show_view", None)):
+        raise ValueError("native Clip View is unavailable")
+    if not getattr(song, "file_path", None):
+        raise ValueError("groove removal requires a saved Set")
+    if not clip.name:
+        raise ValueError("groove removal requires a unique clip name")
+    same_name = 0
+    visited = 0
+    for owner in song.tracks:
+        clips = [slot.clip for slot in owner.clip_slots if slot.has_clip]
+        if not bool(getattr(owner, "is_foldable", False)):
+            clips.extend(getattr(owner, "arrangement_clips", ()))
+        for current in clips:
+            visited += 1
+            if visited > 16384:
+                raise ValueError("groove removal clip identity scan exceeds its bound")
+            if current.name == clip.name:
+                same_name += 1
+    if same_name != 1:
+        raise ValueError("groove removal requires a unique clip name across the Set")
+    context = dispatch_request(song, {"method": "get_clip_groove_context", "params": params}, state_version, application)
+    if context["timing"]["grooveId"] is None:
+        raise ValueError("clip has no assigned native groove")
+    if _groove_removal_song != song:
+        _groove_removal_song = song
+        _groove_removal_identities.clear()
+    key = (params["trackId"], params["clipId"])
+    identity = (track, clip, clip.groove, tuple(_grooves(song)))
+    cached = _groove_removal_identities.get(key)
+    if cached is None or cached[0] != identity:
+        if key not in _groove_removal_identities and len(_groove_removal_identities) >= 64:
+            del _groove_removal_identities[next(iter(_groove_removal_identities))]
+        cached = (identity, str(uuid.uuid4()))
+        _groove_removal_identities[key] = cached
+    return {"stateVersion": state_version, "identityToken": cached[1], "setFingerprint": _set_fingerprint(song),
+            "filePath": song.file_path, "scriptDirectory": os.path.realpath(os.path.dirname(__file__)),
+            "clip": context}
+
+
 def _midi_variation_source(song, track_id, clip_id, state_version):
     clip, timeline = _midi_clip(song, track_id, clip_id)
     if timeline is not None:
@@ -3240,10 +3304,7 @@ def dispatch_request(song, request, state_version, application=None):
         return _song_musical_context(song, state_version)
     if method == "get_clip_groove_context":
         _, track = _track(song, params["trackId"])
-        _, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
-        if not slot.has_clip:
-            raise ValueError("clip slot is empty")
-        clip = slot.clip
+        clip, _ = _clip_reference(song, params["trackId"], params["clipId"])
         audio = bool(getattr(clip, "is_audio_clip", False))
         source_method = "get_audio_clip_state" if audio else "get_midi_clip_notes_extended"
         return {"stateVersion": state_version, "trackId": params["trackId"], "clipId": params["clipId"],
@@ -3251,6 +3312,21 @@ def dispatch_request(song, request, state_version, application=None):
             "source": {"type": "audio" if audio else "midi", "content": dispatch_request(song, {"method": source_method, "params": params}, state_version)},
             "timing": _clip_timing(song, params["trackId"], params["clipId"], state_version),
             "musicalContext": _song_musical_context(song, state_version)}
+    if method in ("get_clip_groove_removal_context", "prepare_clip_groove_removal"):
+        before = _clip_groove_removal_context(song, params, state_version, application)
+        if method == "get_clip_groove_removal_context":
+            return before
+        if params.get("expectedStateVersion") != state_version or params.get("before") != before:
+            raise ValueError("groove removal context changed; review a fresh plan")
+        _, track = _track(song, params["trackId"])
+        clip, _ = _clip_reference(song, params["trackId"], params["clipId"])
+        song.view.selected_track = track
+        song.view.detail_clip = clip
+        application.view.show_view("Detail/Clip")
+        if song.view.detail_clip != clip:
+            raise RuntimeError("exact Clip View selection was not observed")
+        return {"stateVersion": state_version + 1, "prepared": True,
+                "clipName": clip.name, "trackId": params["trackId"], "clipId": params["clipId"]}
     if method == "set_groove":
         if _song_musical_context(song, state_version) != params["before"]:
             raise ValueError("groove pool or musical context changed")
@@ -3760,6 +3836,8 @@ def dispatch_request(song, request, state_version, application=None):
                 "targetInspectionError": target_inspection_error, "deviceChain": device_chain}
     if method == "get_set_mixer":
         return _set_mixer(song, state_version)
+    if method == "get_return_routing":
+        return _return_routing(song, params["returnTrackId"], state_version)
     if method == "create_return_track":
         before = _set_mixer(song, state_version)["returns"]
         if before != params["beforeReturns"]:
@@ -4568,8 +4646,20 @@ def dispatch_request(song, request, state_version, application=None):
             "sends": [{**row, **send_record(track.mixer_device.sends[index])}
                       for index, row in enumerate(_send_records(song, track))],
         }
+    if method == "get_track_signal_activity":
+        try:
+            from .signal_activity import snapshot
+        except ImportError:
+            from signal_activity import snapshot
+        return snapshot(song, params, state_version)
     if method == "list_scenes":
         return {"stateVersion": state_version, "scenes": [_scene_record(scene, index) for index, scene in enumerate(song.scenes)]}
+    if method == "get_take_lane_context":
+        try:
+            from . import take_lanes
+        except ImportError:
+            import take_lanes
+        return take_lanes.context(song, params, state_version)
     if method == "get_scene_launch_context":
         return _scene_launch_context(song, params, state_version)
     if method in ("get_simpler_sample_state", "load_simpler_sample", "set_simpler_sample_region", "set_simpler_manual_slices"):

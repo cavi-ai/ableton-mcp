@@ -128,6 +128,37 @@ test("Ollama generation permits only operation names supplied for the current fu
   assert.equal(validate({ ...reply, reads: [{ tool: "get_track_mixer", args: { trackId: "track-0" } }] }), true);
 });
 
+test("Ollama read and check requests use only the current schemas and retain bounded discovery", async () => {
+  let format;
+  const runtime = createProducerRuntime({type: "ollama", model: "local-model"}, {fetch: async (url, options) => {
+    if (String(url).endsWith("/api/show")) return new Response(JSON.stringify({details: {format: "gguf"}, modelfile: "FROM local-file"}));
+    format = JSON.parse(options.body).format;
+    return new Response(JSON.stringify({message: {content: JSON.stringify(reply)}}));
+  }});
+  const mixer = {name: "get_track_mixer", inputSchema: toolContracts.get_track_mixer.inputSchema};
+  const signal = {name: "get_track_signal_activity", inputSchema: toolContracts.get_track_signal_activity.inputSchema};
+  const discovery = kind => ({tool: "discover_production_tools", args: {query: "get_track_signal_activity", kind}});
+  for (const role of ["creative", "functional"]) {
+    await runtime.generate({...packet, role, tools: {reads: [mixer], operations: []}});
+    const validate = new Ajv({strict: true}).compile(format);
+    assert.equal(validate({...reply, reads: [{tool: mixer.name, args: {trackId: "track-0"}}]}), true);
+    assert.equal(validate({...reply, reads: [{tool: mixer.name, args: {}}]}), false);
+    assert.equal(validate({...reply, reads: [{tool: mixer.name, args: {trackId: "track-0", dryRun: false}}]}), false);
+    assert.equal(validate({...reply, reads: [{tool: signal.name, args: {trackId: "track-0"}}]}), false);
+    assert.equal(validate({...reply, checks: [{tool: signal.name, args: {trackId: "track-0"}, path: [], expected: null}]}), false);
+    assert.equal(validate({...reply, reads: [discovery("read")]}), true);
+    assert.equal(validate({...reply, reads: [discovery("operation")]}), role === "functional");
+    assert.equal(validate({...reply, reads: [{...discovery("read"), args: {...discovery("read").args, offset: 10001}}]}), false);
+    assert.equal(validate({...reply, reads: [{tool: "read_production_artifact", args: {artifactId: "a".repeat(64), limit: 8000}}]}), true);
+    assert.equal(validate({...reply, reads: [{tool: "read_production_artifact", args: {artifactId: "a".repeat(64), limit: 8001}}]}), false);
+  }
+  await runtime.generate({...packet, role: "functional", tools: {reads: [mixer, signal], operations: []}});
+  const validate = new Ajv({strict: true}).compile(format);
+  assert.equal(validate({...reply, reads: [{tool: signal.name, args: {trackId: "track-0"}}],
+    checks: [{tool: signal.name, args: {trackId: "track-0"}, path: ["meters", "output", "status"], expected: "available"}]}), true);
+  assert.equal(validate({...reply, checks: [{...discovery("read"), path: [], expected: null}]}), false);
+});
+
 test("Ollama continuation carries the actual prior reply once as assistant history", async () => {
   let body;
   const runtime = createProducerRuntime({ type: "ollama", model: "local-model" }, { fetch: async (url, options) => {
