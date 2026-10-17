@@ -386,6 +386,9 @@ const gainEnvelopePoint={oneOf:creationEnvelopePoint.oneOf.map(schema=>({...sche
     {targetDisplay:string('Finite native dB target, such as -24 dB or -6 dB. Decimal point only; -inf is not accepted.')})}}))};
 
 const contracts = {
+  save_native_device_preset: {description:'Save an exact device or rack as a new native User Library preset through macOS English Live. Sets intended preset naming and changes focus; may rename the source. Requires saved Set and stopped transport. Refuses existing names; verifies Live XML/VST3 artifacts and exposed source state. Audio Unit artifact verification is unavailable. No recall, audible-equivalence or sample-portability claim.',inputSchema:guarded({trackId:ids.deviceOwnerId,deviceId:ids.deviceId,name:string('New visible filename stem, without extension; at most 80 characters. Existing native User Library preset names refuse.')},['trackId','deviceId','name'])},
+  get_project_media: {description:'Inspect saved Live 12 sample references and file contents in the current Project. Reports missing, ambiguous and external samples; distinguishes the saved snapshot from unsaved Live edits. Does not certify plug-in libraries, licenses, Max dependencies or other Sets. Requires macOS English Live for native clean-state observation.',inputSchema:object()},
+  collect_project_media: {description:'Collect all four native media categories into the current Project and save its clean named Live 12 Set. Requires stopped transport and macOS English Live. Binds saved references and source bytes; verifies Project-relative sample copies. Can copy large libraries. No automatic replay or complete-portability claim.',inputSchema:guarded({expectedSetFingerprint:string('Current Set fingerprint from get_live_state.')},['expectedSetFingerprint'])},
   export_audio_mix: {description:"Export Main as stereo WAV through the macOS English Live dialog. Requires stopped transport, recording off, unarmed tracks and an absent destination. Rechecks document/mix controls and verifies native settings and file format. Full-range render completion remains unconfirmed. Current Session overrides are included. Updates export preferences; no overwrite or musical-quality claim.",inputSchema:guarded({path:string("Absolute new .wav path; parent directory must exist."),start:string("Native render start as bars.beats.sixteenths, e.g. 1.1.1."),length:string("Native render length, e.g. 4.0.0 for four bars; include intended tails."),sampleRate:{type:"integer",enum:[44100,48000,88200,96000],description:"Defaults to 48000 Hz."},bitDepth:{type:"integer",enum:[16,24,32],description:"Defaults to 24; 32 uses floating point."},expectedSetFingerprint:string("Current Set fingerprint from get_live_state.")},["path","start","length","expectedSetFingerprint"])},
   audition_arrangement_passage: { description: "Plan/start a looping Arrangement passage from stopped transport with recording off and no pending launches. Return only explicit ordinary tracks from Session override; reject Groups. Changes global loop/playhead and starts global playback until stopped. Other tracks may sound. Partial failure reports observed controls; earlier Session phase is not restored. Requires all profile.", inputSchema: guarded({
     trackIds: { ...array(ids.trackId,"Ordinary tracks to return to Arrangement; other overrides stay in place."),minItems:1,maxItems:64,uniqueItems:true },
@@ -707,6 +710,7 @@ const contracts = {
 
 const readOnlyTools = new Set([
   "get_take_lane_context",
+  "get_project_media",
   "get_producer_workflow",
   "search_presets", "get_nks_generation_status", "get_nks_generation_job", "get_preset", "get_preset_metadata",
   "get_browser_item_metadata", "search_browser_item_metadata",
@@ -749,7 +753,7 @@ const destructiveTools = new Set([
   "set_simpler_sample_region",
   "set_simpler_manual_slices",
   "audition_arrangement_passage",
-  "open_live_set", "save_live_set",
+  "open_live_set", "save_live_set", "collect_project_media", "save_native_device_preset",
   "delete_session_object", "delete_clip", "delete_arrangement_clip",
   "delete_arrangement_cue_point", "remove_audio_warp_marker",
   "delete_device", "crop_audio_clip", "set_looper_state", "set_device_parameters", "set_clip_parameter_envelope",
