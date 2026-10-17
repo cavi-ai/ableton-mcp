@@ -386,6 +386,7 @@ const gainEnvelopePoint={oneOf:creationEnvelopePoint.oneOf.map(schema=>({...sche
     {targetDisplay:string('Finite native dB target, such as -24 dB or -6 dB. Decimal point only; -inf is not accepted.')})}}))};
 
 const contracts = {
+  export_midi_clip: {description:'Export one exact Session or Arrangement MIDI clip through native macOS English Live to a new .mid file. Changes selection/focus; requires stopped recording/playback. Refuses overwrites. Verifies SMF0, source preservation and unmuted note pitch/timing/velocity within file resolution. Includes stored notes outside loop markers; no Live playback, MPE/controller or audible equivalence claim.',inputSchema:guarded({trackId:ids.trackId,clipId:ids.clipId,path:string('Absolute new .mid destination in an existing directory. Native export may include notes outside playback/loop markers and omit muted notes.')},['trackId','clipId','path'])},
   export_audio_mix: {description:"Export Main as stereo WAV through the macOS English Live dialog. Requires stopped transport, recording off, unarmed tracks and an absent destination. Rechecks document/mix controls and verifies native settings and file format. Full-range render completion remains unconfirmed. Current Session overrides are included. Updates export preferences; no overwrite or musical-quality claim.",inputSchema:guarded({path:string("Absolute new .wav path; parent directory must exist."),start:string("Native render start as bars.beats.sixteenths, e.g. 1.1.1."),length:string("Native render length, e.g. 4.0.0 for four bars; include intended tails."),sampleRate:{type:"integer",enum:[44100,48000,88200,96000],description:"Defaults to 48000 Hz."},bitDepth:{type:"integer",enum:[16,24,32],description:"Defaults to 24; 32 uses floating point."},expectedSetFingerprint:string("Current Set fingerprint from get_live_state.")},["path","start","length","expectedSetFingerprint"])},
   audition_arrangement_passage: { description: "Plan/start a looping Arrangement passage from stopped transport with recording off and no pending launches. Return only explicit ordinary tracks from Session override; reject Groups. Changes global loop/playhead and starts global playback until stopped. Other tracks may sound. Partial failure reports observed controls; earlier Session phase is not restored. Requires all profile.", inputSchema: guarded({
     trackIds: { ...array(ids.trackId,"Ordinary tracks to return to Arrangement; other overrides stay in place."),minItems:1,maxItems:64,uniqueItems:true },
@@ -747,7 +748,7 @@ const destructiveTools = new Set([
   "set_simpler_sample_region",
   "set_simpler_manual_slices",
   "audition_arrangement_passage",
-  "open_live_set", "save_live_set",
+  "open_live_set", "save_live_set", "export_midi_clip",
   "delete_session_object", "delete_clip", "delete_arrangement_clip",
   "delete_arrangement_cue_point", "remove_audio_warp_marker",
   "delete_device", "crop_audio_clip", "set_looper_state", "set_device_parameters", "set_clip_parameter_envelope",

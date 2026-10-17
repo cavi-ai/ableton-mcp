@@ -74,6 +74,7 @@ const toolNames = [
   "open_live_set",
   "save_live_set",
   "export_audio_mix",
+  "export_midi_clip",
   "get_transport_context",
   "set_transport_context",
   "get_history_state",
