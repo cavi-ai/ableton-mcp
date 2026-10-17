@@ -3502,9 +3502,12 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "get_transport_recording_context":
         return _transport_recording_context(song, state_version)
     if method == "set_transport_recording_context":
-        if _transport_recording_context(song, state_version) != params["before"]:
-            raise ValueError("transport recording context changed after planning")
         changes = params["changes"]
+        before = _transport_recording_context(song, state_version)
+        if before["isPlaying"] and "currentSongTime" not in changes:
+            del before["currentSongTime"]
+        if before != params["before"]:
+            raise ValueError("transport recording context changed after planning")
         writes = []
         recording_command_applied = False
         def write(attribute, value):

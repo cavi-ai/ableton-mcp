@@ -2410,9 +2410,12 @@ export class ToolService {
       if (Object.keys(values).length) changes[group] = values;
     }
     if (!Object.keys(changes).length) throw new Error("at least one transport recording context change is required");
+    const before = { ...observed };
+    // Playback advances between planning, confirmation and native execution.
+    if (observed.isPlaying === true && changes.currentSongTime === undefined) delete before.currentSongTime;
     const result = await this.#confirmedMutation({
       method: "set_transport_recording_context", expectedStateVersion: args.expectedStateVersion,
-      before: observed, changes
+      before, changes
     }, args);
     if (result.dryRun) return result;
     try {

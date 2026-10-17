@@ -17,3 +17,9 @@ Plan `set_transport_context` with the requested fields and fresh `expectedStateV
 An existing dialog or context menu is refused. Document identity, visible transport controls, popup window IDs and menu settings are checked before input. If the user edits the menu, starts playback or changes the Set, the operation refuses further input. Only an unchanged owned popup is dismissed automatically. Failed or uncertain requests report observed native values and cleanup status; a count-in change can remain applied even if a later metronome change or verification fails. Inspect current values and any remaining UI before continuing. Never retry blindly or use global undo.
 
 Restore preparation values only when intended and after comparing current observations with the workflow's last applied values, preserving manual edits. Continue with [a Session take](session-take.md) when recording is authorized.
+
+## Change recording modes during playback
+
+Use `set_transport_recording_context` for confirmed Arrangement or Session recording-mode changes and automation arm. A request without `currentSongTime` allows the clock to advance while playback continues. Confirmation still binds the observed playback state, recording modes, automation arm, capture context and state version. A manual mode change requires a fresh plan.
+
+Explicit `currentSongTime` requests and changes while stopped also bind the observed position. Avoid combining a seek with a mode change during playback; the advancing clock can invalidate that plan. Read the receipt's `verification.controlsConfirmed` and actual `observed` values. Control readback does not verify captured content, and native recording commands can affect playback.
