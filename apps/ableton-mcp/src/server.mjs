@@ -54,6 +54,7 @@ const toolNames = [
   "set_live_object_colors",
   ...Object.keys(producerToolContracts),
   "audition_arrangement_passage",
+  "return_tracks_to_arrangement",
   "get_producer_workflow",
   "search_presets",
   "get_nks_generation_status",
