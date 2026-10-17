@@ -2,6 +2,7 @@ import { listLiveScaleReferences } from "./live-scale-reference.mjs";
 import { extensibleToolResult, toolOutputContracts } from "./tool-output-contracts.mjs";
 import { LIVE_BROWSER_ROOTS } from "./browser-roots.mjs";
 import { listPrompts } from "./prompts.mjs";
+import { producerToolContracts } from "./producer-contracts.mjs";
 
 const string = (description) => ({ type: "string", description });
 const number = (description, extra = {}) => ({ type: "number", description, ...extra });
@@ -782,3 +783,4 @@ export const toolContracts = Object.fromEntries(Object.entries(contracts).map(([
     openWorldHint: !closedWorldTools.has(name)
   } }
 ]));
+Object.assign(toolContracts, producerToolContracts);

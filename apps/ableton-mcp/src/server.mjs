@@ -1,12 +1,13 @@
 import { createInterface } from "node:readline";
 import { ToolService } from "./tool-service.mjs";
 import { PACKAGE_VERSION, isMainModule } from "./paths.mjs";
-import { createConfiguredService } from "./runtime.mjs";
+import { createConfiguredProducerService, createConfiguredService } from "./runtime.mjs";
 import { toolContracts } from "./tool-contracts.mjs";
 import { validateToolArguments, validateToolResult } from "./tool-validation.mjs";
 import { getPrompt, listPrompts } from "./prompts.mjs";
 import { withDiscoveryExamples } from "./discovery-examples.mjs";
 import { withRequestSignal } from "./request-context.mjs";
+import { producerToolContracts } from "./producer-contracts.mjs";
 
 function requestFailure(error) {
   if (!error?.outcome) return undefined;
@@ -45,6 +46,7 @@ const resourceTemplates = resourceUris.filter((uri) => uri.includes("{"))
   .map((uriTemplate) => ({ uriTemplate, name: uriTemplate, mimeType: "application/json" }));
 
 const toolNames = [
+  ...Object.keys(producerToolContracts),
   "audition_arrangement_passage",
   "get_producer_workflow",
   "search_presets",
@@ -306,15 +308,16 @@ const coreToolNames = new Set([
 ]);
 
 function listedTools(profile) {
-  if (profile !== "all" && profile !== "core") throw new Error(`unknown tool profile: ${profile}`);
-  return toolNames.filter((name) => profile === "all" || coreToolNames.has(name))
+  if (!["all", "core", "producer"].includes(profile)) throw new Error(`unknown tool profile: ${profile}`);
+  const producerNames = new Set([...Object.keys(producerToolContracts), "get_live_state", "transport_stop", "panic"]);
+  return toolNames.filter((name) => profile === "all" || (profile === "producer" ? producerNames : coreToolNames).has(name))
     .map((name) => ({ name, ...toolContracts[name] }));
 }
 
 function fixtureService() {
   const catalog = { search: ({ query }) => [{ id: "serum-2:fixture", name: query || "Deep" }] };
   const bridge = { request: async (method) => ({ method, stateVersion: 1, setFingerprint: "fixture" }) };
-  return new ToolService({ bridge, catalog });
+  return createConfiguredProducerService(new ToolService({ bridge, catalog }));
 }
 
 export function createRouter(service, { toolProfile = "all" } = {}) {
@@ -340,7 +343,7 @@ export function createRouter(service, { toolProfile = "all" } = {}) {
         const value = await service.readResource(params.uri);
         result = { contents: [{ uri: params.uri, text: JSON.stringify(value), mimeType: "application/json" }] };
       }
-      else if (method === "tools/list") result = { tools: typeof service.discoveryExamples === "function"
+      else if (method === "tools/list") result = { tools: toolProfile !== "producer" && typeof service.discoveryExamples === "function"
         ? withDiscoveryExamples(tools, await service.discoveryExamples()) : tools };
       else if (method === "tools/call") {
         if (typeof params.name !== "string" || !params.name) {
@@ -378,6 +381,7 @@ export async function runStdio({ service, toolProfile = "all", input = process.s
   const route = createRouter(service, { toolProfile });
   const lines = createInterface({ input, crlfDelay: Infinity });
   const pending = new Map();
+  const specialistTasks = new Set();
   let queue = Promise.resolve();
   let disconnected = false;
   const disconnect = () => {
@@ -432,7 +436,7 @@ export async function runStdio({ service, toolProfile = "all", input = process.s
     }
     const active = { controller: new AbortController(), method: request.method };
     pending.set(request.id, active);
-    enqueue(async () => {
+    const dispatch = async () => {
       try {
         if (disconnected || active.controller.signal.aborted) return;
         const reply = await withRequestSignal(active.controller.signal, () => route(request));
@@ -440,10 +444,17 @@ export async function runStdio({ service, toolProfile = "all", input = process.s
       } finally {
         pending.delete(request.id);
       }
-    });
+    };
+    if (request.method === "tools/call" && request.params?.name === "run_production_task") {
+      // Proposal work cannot mutate Live and must not hold the control queue.
+      const task = dispatch();
+      specialistTasks.add(task);
+      task.then(() => specialistTasks.delete(task), () => specialistTasks.delete(task));
+    } else enqueue(dispatch);
   }
   // CLI callers may half-close stdin after sending their requests.
   await queue;
+  await Promise.all(specialistTasks);
   output.off("close", disconnect);
   output.off("error", disconnect);
 }

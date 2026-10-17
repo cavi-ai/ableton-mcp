@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 239 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 244 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (103)
+## Read-only (105)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -49,6 +49,7 @@ The server publishes 239 tools. Mutations of the Live Set require `expectedState
 | `get_preset_metadata` | Read user tags, favorite state, and revision for one preset. | `presetId` |
 | `get_producer_chain_blueprint` | Return one ordered factory-device chain or shared-bus topology with exact browser paths, stage roles, execution tools, and explicit limitations. | `target` |
 | `get_producer_workflow` | List producer workflows, or retrieve one with named string arguments. Returns shared MCP prompt instructions without calling Live or executing work. Omit workflow to list names and required arguments. Requires all profile. | none |
+| `get_production_context` | Read a consistent Live selection and musical context into a private artifact; return a bounded overview and contextRef. No model call. | `projectId` |
 | `get_selection_context` | Read selected track/scene/device, displayed clip and highlighted slot together without changing focus. Null is unresolved; clip and slot can differ. | none |
 | `get_session_orientation` | Read Set, recording, selection, clip and instruments together; configured scale and ambiguous MIDI evidence. No edits, playback or focus changes. | none |
 | `get_set_mixer` | Read master and return-bus mixer levels, sends, and routing from the current Live Set. | none |
@@ -106,13 +107,14 @@ The server publishes 239 tools. Mutations of the Live Set require `expectedState
 | `plan_scale_chord_progression` | Plan exact MIDI notes for a scale-degree chord progression in the current Live key and scale. Supports functional harmony, block chords, grid-locked pulses, ascending or descending arpeggios, bounded register, and deterministic voice leading. | `degrees`, `notesPerChord`, `startBeats`, `chordBeats`, `velocity`, `minPitch`, `maxPitch`, `voiceLeading` |
 | `plan_scale_melody` | Plan an explicit scale-degree melody in the current Live key and meter on a straight or triplet grid. Omitted steps are rests; motifs can repeat deterministically. | `grid`, `motifBars`, `repeats`, `events`, `gate`, `velocity`, `basePitch`, `minPitch`, `maxPitch` |
 | `propose_audio_transient_warp` | Analyze bounded source-audio onset candidates and propose review-only marker actions toward a beat grid using native Live source-to-beat conversion. Reports signed offsets and one-hop detector resolution in beats for every candidate; suppresses actions within that resolution or competing with a closer onset at the same slot. Optional musical roles label bars, downbeats, quarter pulses and half-beat upbeats from the clip meter. Optional feelBars aggregates one to eight bars of selected onset timing and strength by grid slot; this is not native Groove Pool extraction or baking. Heuristic, source-only, no edit or audible validation; individually dry-run actions against current state before applying. | `trackId`, `clipId`, `gridBeats` |
+| `read_production_artifact` | Read a bounded page of one private project artifact. Follow nextOffset for more detail; truncated pages are not complete evidence. | `projectId`, `artifactId` |
 | `search_browser_item_metadata` | Search saved private tags and favorites for Live browser items or local_splice samples. Results are not reverified against Live or the local filesystem and do not represent native collections. | none |
 | `search_browser_items` | Search a bounded subtree of Live's browser and return exact paths usable by load_browser_item. Optionally join private MCP tags and favorites by exact root, path, and URI; not native Live collections. | `root`, `query` |
 | `search_browser_roots` | Search selected/all available Live roots in order. Returns exact root/path, unavailable roots and result/scan truncation. Optional private MCP tags/favorites match root/path/URI; not native collections or Splice cloud. | `query` |
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (119)
+## Mutations (121)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -184,6 +186,7 @@ The server publishes 239 tools. Mutations of the Live Set require `expectedState
 | `recall_group_system_snapshot` | Plan or apply a saved group-system capture onto one-to-one mapped compatible existing Group Track and descendants. One guarded native callback and Live undo step restore exposed track mixer, routing, device and rack state; on failure the bridge attempts rollback across every changed track. Does not recreate tracks/devices/clips or hidden plugin state. | `expectedStateVersion`, `name`, `busTrackId`, `mapping` |
 | `recall_rack_macro_variation` | Plan or recall one existing rack macro variation by zero-based index. Binds exact rack and current parameter state; Live exposes observed values after recall, not the saved variation contents beforehand. | `expectedStateVersion`, `trackId`, `deviceId`, `variationIndex` |
 | `recall_track_state_snapshot` | Plan or recall captured track-state JSON onto exactly compatible topology and group membership (when captured). Restores track and rack-chain mixer, sends, routing, Drum Rack note routing, populated pad mute/solo and exposed nested parameters in one guarded native undo step; older snapshots without group context remain supported. Does not load devices, clips, samples, hidden state, automation or mappings. | `expectedStateVersion`, `trackId`, `snapshot` |
+| `record_production_note` | Store explicit user intent or feedback as a private immutable artifact. Supply its noteRef in later task contextRefs to reuse it. | `projectId`, `kind`, `text` |
 | `redo` | Plan or apply one guarded Ableton redo operation. | `expectedStateVersion` |
 | `rename_arrangement_cue_point` | Plan or rename one exact Arrangement cue point. | `expectedStateVersion`, `cuePointId`, `name` |
 | `rename_rack_chain` | Plan or rename an exact rack chain with a guarded hierarchy snapshot. For return chains, name is a raw label; Live adds the return letter prefix. Use observed name for display, not verbatim restoration. | `expectedStateVersion`, `trackId`, `deviceId`, `chainId`, `name` |
@@ -191,6 +194,7 @@ The server publishes 239 tools. Mutations of the Live Set require `expectedState
 | `rename_session_object` | Plan or rename an exact track, Return Track, scene, or Session clip. Return names are raw labels; Live prefixes the displayed bus letter. | `expectedStateVersion`, `targetType`, `targetId`, `name` |
 | `route_tracks_to_bus` | Plan or route existing tracks to one exact existing group bus using Live's available routing choices. | `expectedStateVersion`, `trackIds`, `busTrackId` |
 | `route_tracks_to_return_bus` | Plan or route existing tracks to one exact Return bus using matching sends and Sends Only outputs. Prevalidates all sources; Live applies one undo step but runtime failures can interrupt it. | `expectedStateVersion`, `trackIds`, `returnTrackId`, `sendValue` |
+| `run_production_task` | Run configured creative and/or functional specialists with bounded private context. Returns an immutable proposal reference, never executes Live changes. Provider use follows explicit server configuration. | `projectId`, `goal` |
 | `save_device_chain_snapshot` | Capture a device chain including Return or master mixer, available master output channel, exposed rack-chain controls and populated Drum Rack pad mute/solo into the private named local chain library. Never overwrites. Does not save hidden plugin state, samples, automation, or mappings. | `trackId`, `name` |
 | `save_group_system_snapshot` | Capture an existing Group Track and descendants into a private named local JSON file. Never overwrites; preserves exposed mixer, routing, device and rack state but not clips, samples, hidden plug-in state, automation or mappings. | `busTrackId`, `name` |
 | `save_midi_feel_template` | Analyze one exact MIDI clip and save its stored-note timing and velocity template in the private named local library. Never overwrites. Rejects clips assigned a native groove; does not capture Groove Pool playback effects. | `name`, `trackId`, `clipId`, `grid` |
@@ -236,11 +240,12 @@ The server publishes 239 tools. Mutations of the Live Set require `expectedState
 | `transport_stop` | Plan or stop Ableton transport playback. | `expectedStateVersion` |
 | `undo` | Plan or apply one guarded Ableton undo operation. | `expectedStateVersion` |
 
-## Destructive mutations (17)
+## Destructive mutations (18)
 
 | Tool | Description | Required arguments |
 |---|---|---|
 | `adjust_rack_macro_count` | Plan or invoke one native add/remove macro action on an exact rack, then report the observed count. Removal is refused while any macro mapping exists because Live does not expose the affected mapping target. | `expectedStateVersion`, `trackId`, `deviceId`, `action` |
+| `apply_production_operation` | Plan one proposed operation through its original tool, or execute using that exact plan's confirmation. Requires unchanged task state; later operations require the preceding applied receipt. Returns bounded result references and observed postconditions, not an audible judgment. | `projectId`, `taskId`, `operationIndex`, `expectedStateVersion` |
 | `audition_arrangement_passage` | Plan/start a looping Arrangement passage from stopped transport with recording off and no pending launches. Return only explicit ordinary tracks from Session override; reject Groups. Changes global loop/playhead and starts global playback until stopped. Other tracks may sound. Partial failure reports observed controls; earlier Session phase is not restored. Requires all profile. | `expectedStateVersion`, `trackIds`, `startBeats`, `endBeats` |
 | `complete_nks_generation_job` | Mark an owned NKS job done only after its catalog preset contains verified saved-artifact evidence. Does not generate or validate the artifact itself. | `presetId`, `workerId` |
 | `crop_audio_clip` | Plan or apply Live native cropping of one exact audio clip. Preview reports the selected loop interval when enabled, otherwise start/end markers, in current units. Live may retain pre-loop playback material and creates a processed source. Selected interval is not a guarantee of exclusive source-file bounds. Binds audio and loop state and reads back native results. | `expectedStateVersion`, `trackId`, `clipId` |

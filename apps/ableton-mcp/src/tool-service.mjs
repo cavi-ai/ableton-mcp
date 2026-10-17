@@ -2676,10 +2676,16 @@ export class ToolService {
   }
 
   #consumeConfirmation(plan, args) {
-    requestSignal()?.throwIfAborted();
-    const currentHash = hashPlan(plan);
-    if (args.planHash !== undefined && args.planHash !== currentHash) throw new Error("confirmation plan hash mismatch: observed plan changed");
-    return this.confirmations.consume(args.confirmationToken, currentHash);
+    try {
+      requestSignal()?.throwIfAborted();
+      const currentHash = hashPlan(plan);
+      if (args.planHash !== undefined && args.planHash !== currentHash) throw new Error("confirmation plan hash mismatch: observed plan changed");
+      return this.confirmations.consume(args.confirmationToken, currentHash);
+    } catch (error) {
+      error.outcome = "not_executed";
+      error.code ||= "CONFIRMATION_REJECTED";
+      throw error;
+    }
   }
 
   async #liveSetState(args) {

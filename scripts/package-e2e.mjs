@@ -82,6 +82,28 @@ const fixture = await exchange(process.execPath, [path.join(installed, "apps/abl
 ]);
 assert.equal(fixture[0].result.content[0].type, "text");
 
+const producerEnvironment = { ABLETON_MCP_TOOL_PROFILE: "producer", ABLETON_MCP_PRODUCER_CONFIG: "",
+  ABLETON_MCP_PRODUCER_DIR: path.join(work, "producer"), ABLETON_MCP_BRIDGE_SOCKET: path.join(work, "absent.sock") };
+const producer = await exchange(bin, ["serve"], producerEnvironment, [
+  { id: 1, method: "tools/list" },
+  { id: 2, method: "tools/call", params: { name: "record_production_note", arguments: {
+    projectId: "song", kind: "intent", text: "Preserve the original bass." } } }
+]);
+assert.equal(producer[0].result.tools.length, 8);
+const noteRef = producer[1].result.structuredContent.noteRef;
+assert.match(noteRef, /^[a-f0-9]{64}$/);
+const note = JSON.parse(execFileSync(bin, ["call", "read_production_artifact", "--args",
+  JSON.stringify({ projectId: "song", artifactId: noteRef }), "--json"], {
+  encoding: "utf8", env: { ...process.env, ...producerEnvironment }
+}));
+assert.match(note.text, /Preserve the original bass/);
+const producerFixture = await exchange(process.execPath, [path.join(installed, "apps/ableton-mcp/src/server.mjs")],
+  { ...producerEnvironment, ABLETON_MCP_FIXTURE: "1" }, [{ id: 1, method: "tools/call", params: {
+    name: "read_production_artifact", arguments: { projectId: "song", artifactId: noteRef }
+  } }]);
+assert.equal(producerFixture[0].result.isError, undefined);
+assert.match(producerFixture[0].result.structuredContent.text, /Preserve the original bass/);
+
 const remoteScripts = path.join(work, "Remote Scripts");
 execFileSync(bin, ["install", "--destination", remoteScripts, "--json"], { encoding: "utf8" });
 const bridgeFiles = readdirSync(path.join(remoteScripts, "CaviMcpBridge")).sort();
@@ -98,6 +120,7 @@ assert.ok(!existsSync(path.join(installed, "apps/ableton-mcp/test")));
 process.stdout.write(`${JSON.stringify({
   tarball: filename,
   tools: listing[1].result.tools.length,
+  producerTools: producer[0].result.tools.length,
   resources: listing[2].result.resources.length,
   resourceTemplates: listing[3].result.resourceTemplates.length,
   prompts: listing[4].result.prompts.length,
