@@ -81,7 +81,7 @@ class ClipDuplicationTests(unittest.TestCase):
         self.assertTrue(result["copyVerified"])
         self.assertEqual(self.track.clip_slots[1].clip.get_all_notes_extended()[0].velocity, 100)
 
-    def test_native_exception_after_creation_cleans_up_and_cleanup_failure_is_explicit(self):
+    def test_native_exception_after_creation_preserves_an_unconfirmed_copy(self):
         before = self.source()
         original = self.track.clip_slots[0].duplicate_clip_to
 
@@ -90,9 +90,19 @@ class ClipDuplicationTests(unittest.TestCase):
             raise RuntimeError("native copy failed")
 
         self.track.clip_slots[0].duplicate_clip_to = broken
-        with self.assertRaisesRegex(RuntimeError, "native copy failed"):
+        with self.assertRaisesRegex(RuntimeError, "native copy failed.*cleanup skipped.*ownership"):
             self.duplicate(before)
-        self.assertFalse(self.track.clip_slots[1].has_clip)
+        self.assertTrue(self.track.clip_slots[1].has_clip)
+
+    def test_failed_copy_verification_reports_cleanup_failure(self):
+        before = self.source()
+        original = self.track.clip_slots[0].duplicate_clip_to
+
+        def broken(target):
+            original(target)
+            target.clip.pitch_coarse = 12
+
+        self.track.clip_slots[0].duplicate_clip_to = broken
 
         def failed_cleanup():
             raise RuntimeError("cannot remove copy")
@@ -110,6 +120,102 @@ class ClipDuplicationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "changed"):
             self.duplicate(before)
         self.assertFalse(self.track.clip_slots[1].has_clip)
+
+
+class CrossTrackClipDuplicationTests(unittest.TestCase):
+    source = ClipDuplicationTests.source
+    duplicate = ClipDuplicationTests.duplicate
+
+    def setUp(self):
+        ClipDuplicationTests.setUp(self)
+        destination = copy.deepcopy(self.track)
+        destination.name = "Audio alternative"
+        destination.has_audio_input, destination.has_midi_input = True, False
+        self.song.tracks = [self.track, destination]
+        self.destination = destination
+        self.args.update(targetTrackId="track-1", targetClipId="track-1:clip-1")
+
+    def test_audio_copy_uses_the_requested_destination_and_preserves_source_slots(self):
+        result = self.duplicate(self.source())
+        self.assertTrue(result["copyVerified"])
+        self.assertEqual(result["trackId"], "track-1")
+        self.assertEqual(result["sourceTrackId"], "track-0")
+        self.assertEqual(result["copiedClipId"], "track-1:clip-1")
+        self.assertEqual(self.destination.clip_slots[1].clip.name, "Alternative")
+        self.assertFalse(self.track.clip_slots[1].has_clip)
+        self.assertEqual(self.track.clip_slots[0].clip.name, "Vocal")
+
+    def test_midi_copy_preserves_extended_notes_and_does_not_replace_target_devices(self):
+        self.track.clip_slots[0].clip = Song().tracks[0].clip_slots[0].clip
+        note = MidiNote()
+        note.velocity, note.probability = 43, .6
+        self.track.clip_slots[0].clip.extended_notes = [note]
+        self.destination.has_midi_input, self.destination.has_audio_input = True, False
+        devices = tuple(self.destination.devices)
+        result = self.duplicate(self.source())
+        copied = self.destination.clip_slots[1].clip.get_all_notes_extended()[0]
+        self.assertTrue(result["copyVerified"])
+        self.assertEqual((copied.velocity, copied.probability), (43, .6))
+        self.assertEqual(tuple(self.destination.devices), devices)
+
+    def test_destination_kind_occupancy_freeze_or_pending_launch_prevents_copy(self):
+        changes = [lambda: setattr(self.destination, "has_audio_input", False),
+                   lambda: setattr(self.destination, "is_frozen", True),
+                   lambda: setattr(self.track, "is_frozen", True),
+                   lambda: setattr(self.destination, "is_foldable", True),
+                   lambda: setattr(self.destination.clip_slots[1], "is_triggered", True),
+                   lambda: setattr(self.destination.clip_slots[1], "has_clip", True)]
+        for change in changes:
+            self.setUp()
+            change()
+            with self.assertRaises(ValueError):
+                self.source()
+            self.assertFalse(self.track.clip_slots[1].has_clip)
+
+    def test_replaced_destination_or_changed_source_invalidates_a_same_version_plan(self):
+        changes = [lambda: self.song.tracks.__setitem__(1, copy.deepcopy(self.destination)),
+                   lambda: self.destination.clip_slots.__setitem__(1, copy.deepcopy(self.destination.clip_slots[1])),
+                   lambda: setattr(self.destination, "name", "Renamed destination"),
+                   lambda: setattr(self.track.clip_slots[0].clip, "pitch_coarse", 3)]
+        for change in changes:
+            self.setUp()
+            before = self.source()
+            change()
+            with self.assertRaisesRegex(ValueError, "changed"):
+                self.duplicate(before)
+            self.assertFalse(self.song.tracks[1].clip_slots[1].has_clip)
+
+    def test_replaced_destination_during_copy_is_never_renamed_or_cleaned_up(self):
+        before = self.source()
+        original = self.track.clip_slots[0].duplicate_clip_to
+        replacement = copy.deepcopy(self.destination)
+        replacement.clip_slots[1].has_clip = True
+        replacement.clip_slots[1].clip = copy.deepcopy(self.track.clip_slots[0].clip)
+        replacement.clip_slots[1].clip.name = "Manual content"
+
+        def replacing(target):
+            original(target)
+            self.song.tracks[1] = replacement
+
+        self.track.clip_slots[0].duplicate_clip_to = replacing
+        with self.assertRaisesRegex(RuntimeError, "ownership.*unconfirmed|topology.*changed"):
+            self.duplicate(before)
+        self.assertEqual(replacement.clip_slots[1].clip.name, "Manual content")
+        self.assertTrue(replacement.clip_slots[1].has_clip)
+
+    def test_copy_readback_failure_removes_only_the_confirmed_destination_copy(self):
+        before = self.source()
+        original = self.track.clip_slots[0].duplicate_clip_to
+
+        def broken(target):
+            original(target)
+            target.clip.pitch_coarse = 12
+
+        self.track.clip_slots[0].duplicate_clip_to = broken
+        with self.assertRaisesRegex(RuntimeError, "readback mismatch"):
+            self.duplicate(before)
+        self.assertFalse(self.destination.clip_slots[1].has_clip)
+        self.assertEqual(self.track.clip_slots[0].clip.pitch_coarse, 0)
 
 
 if __name__ == "__main__":

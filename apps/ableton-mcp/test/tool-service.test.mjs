@@ -193,7 +193,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
       if (method === "get_clip_duplication_source") {
         if (params.sourceClipId === "track-0:clip-1") throw new Error("source clip is empty");
         if (params.targetClipId === "track-0:clip-0") throw new Error("target clip must be empty");
-        return {stateVersion:4,trackId:params.trackId,sourceClipId:params.sourceClipId,targetClipId:params.targetClipId,
+        return {stateVersion:4,trackId:params.trackId,sourceClipId:params.sourceClipId,targetClipId:params.targetClipId,targetTrackId:params.targetTrackId,
           identityToken:"native-copy-pair",source:{name:"Loop"},target:{hasClip:false}};
       }
       if (method === "list_clips") return {
@@ -293,7 +293,11 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         trackId: params.trackId,
         clip: { id: params.clipId, name: params.name, hasClip: true, lengthBeats: params.lengthBeats, noteCount: params.notes.length }
       };
-      if (method === "duplicate_clip" || method === "delete_clip") return {
+      if (method === "duplicate_clip") return {
+        stateVersion:5,trackId:params.targetTrackId,sourceTrackId:params.trackId,sourceClipId:params.sourceClipId,
+        copiedClipId:params.targetClipId,copyVerified:true,clips:[]
+      };
+      if (method === "delete_clip") return {
         stateVersion: 5, trackId: params.trackId, method, clips: []
       };
       if (method === "get_midi_clip_notes") return {
