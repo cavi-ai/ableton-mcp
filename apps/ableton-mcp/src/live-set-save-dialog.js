@@ -3,11 +3,43 @@ function run(argv) {
   ObjC.import("CoreGraphics");
   ObjC.import("ApplicationServices");
   ObjC.import("Foundation");
+  ObjC.import("AppKit");
   var input = JSON.parse(argv[0]), events = Application("System Events");
   var processes = events.applicationProcesses.whose({ unixId: input.pid })();
   if (processes.length !== 1 || processes[0].bundleIdentifier() !== "com.ableton.live")
     throw Error("Expected the exact Live process");
   var process = processes[0];
+  var audio = input.action === "adoptAudioExport" || input.purpose === "Save Audio File As:", retained = [];
+  function nativeRead(element, key) {
+    var ref = Ref(), error = $.AXUIElementCopyAttributeValue(element, $(key), ref);
+    if (error === -25212 || error === -25205) return null;
+    if (error) { var failure=Error("Native Save accessibility read failed: " + key + " (" + error + ")");failure.nativeAxCode=error;throw failure; }
+    var value = ObjC.castRefToObject(ref[0]);retained.push(value);return value;
+  }
+  function nativeItems(value) {
+    var result = [];
+    if (value) for (var i = 0; i < value.count; i++) result.push(value.objectAtIndex(i));
+    return result;
+  }
+  function nativeObservation(read) {
+    for (var attempt=0; ; attempt++) {
+      try { return read(); }
+      catch (error) { if (error.nativeAxCode!==-25202 || attempt>=19) throw error;delay(0.05); }
+    }
+  }
+  function nativeElement(element) {
+    function get(key) { return ObjC.unwrap(nativeRead(element, key)); }
+    function set(key, value) { if ($.AXUIElementSetAttributeValue(element, $(key), $(value)) !== 0) throw Error("Native Save input is not settable: " + key); }
+    var wrapped = { native: element, name: function () { return get("AXTitle"); }, role: function () { return get("AXRole"); },
+      uiElements: function () { return nativeItems(nativeRead(element, "AXChildren")).map(nativeElement); },
+      sheets: function () { return nativeObservation(function () { return nativeItems(nativeRead(element, "AXChildren")).filter(function (child) { return ObjC.unwrap(nativeRead(child, "AXRole")) === "AXSheet"; }).map(nativeElement); }); },
+      enabled: function () { return get("AXEnabled") === true; },
+      attributes: { byName: function (key) { var attr = {};Object.defineProperty(attr, "value", { get: function () { return function () { return get(key); }; }, set: function (value) { set(key, value); } });return attr; } },
+      actions: { byName: function (action) { return { perform: function () { if ($.AXUIElementPerformAction(element, $(action)) !== 0) throw Error("Native Save action outcome is unknown"); } }; } } };
+    Object.defineProperty(wrapped, "value", { get: function () { return function () { return get("AXValue"); }; }, set: function (value) { set("AXValue", value); } });
+    return wrapped;
+  }
+  function nativeWindows() { return nativeItems(nativeRead($.AXUIElementCreateApplication(input.pid), "AXWindows")); }
   function attribute(element, key) {
     try { return element.attributes.byName(key).value(); } catch (error) { return null; }
   }
@@ -25,12 +57,28 @@ function run(argv) {
   }
   function panel(background) {
     if (!background) foreground();
+    if (audio) {
+      var nativeMatches = nativeWindows().filter(function (window) { return ObjC.unwrap(nativeRead(window, "AXIdentifier")) === "save-panel"; });
+      if (nativeMatches.length !== 1 || ObjC.unwrap(nativeRead(nativeMatches[0], "AXModal")) !== true) throw Error("Expected one native audio Save panel");
+      return nativeElement(nativeMatches[0]);
+    }
     var matches = process.windows().filter(function (window) { return attribute(window, "AXIdentifier") === "save-panel"; });
     if (matches.length !== 1 || attribute(matches[0], "AXModal") !== true)
       throw Error("Expected one native Save panel");
     return matches[0];
   }
   function windowIdentity(window, background) {
+    if (window.native) {
+      var title = window.name(), named = nativeWindows().filter(function (item) { return ObjC.unwrap(nativeRead(item, "AXTitle")) === title; });
+      if (named.length !== 1 || !$.CFEqual(named[0], window.native)) throw Error("Native audio Save window changed");
+      var nativeList = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(background ? 0 : 1, 0))).filter(function (item) {
+        return item.kCGWindowOwnerPID === input.pid && item.kCGWindowName === title;
+      });
+      var visibleMatches=nativeList.filter(function (item) { return item.kCGWindowIsOnscreen===true; });
+      if (visibleMatches.length) nativeList=visibleMatches;
+      if (nativeList.length !== 1) throw Error("Native audio Save window identity is unavailable or ambiguous");
+      return nativeList[0].kCGWindowNumber;
+    }
     var position = window.position(), size = window.size();
     var windows = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(0, 0)));
     var matches = windows.filter(function (item) {
@@ -46,7 +94,8 @@ function run(argv) {
   }
   function purpose(window) {
     var text = find(window, "_messageTextField", "AXStaticText").value();
-    if (text !== "Save Live Set As:") throw Error("Expected Live Set Save As, not another Save dialog");
+    var expected = input.action === "adoptAudioExport" || input.purpose === "Save Audio File As:" ? "Save Audio File As:" : "Save Live Set As:";
+    if (text !== expected) throw Error("Unexpected native Save dialog purpose");
     return text;
   }
   function focusPanel(window) {
@@ -153,6 +202,30 @@ function run(argv) {
     return { cancelled: true, savePressed: false, windowId: input.windowId };
   }
   if (input.action === "cancel") return JSON.stringify(cancelPrepared(input.panelState));
+  if (input.action === "adoptAudioExport" || input.purpose === "Save Audio File As:") {
+    $.NSRunningApplication.runningApplicationWithProcessIdentifier(input.pid).activateWithOptions(3);
+    waitFor(function () {
+      try { return windowIdentity(panel()) === input.windowId; } catch (error) { return false; }
+    }, "Prepared audio Save window did not become visible", true);
+  }
+  if (input.action === "adoptAudioExport") {
+    var audioSave = panel();noSheet(audioSave);
+    if (windowIdentity(audioSave) !== input.windowId) throw Error("Native audio Save window changed");
+    purpose(audioSave);
+    if (typeof input.parent !== "string" || input.parent.charAt(0) !== "/") throw Error("Audio export directory is required");
+    focusPanel(audioSave);
+    events.keystroke("g", { using: ["command down", "shift down"] });
+    var audioSheet = waitFor(function () { return audioSave.sheets().length === 1 && audioSave.sheets()[0]; }, "Export folder sheet did not appear");
+    if (attribute(audioSheet, "AXIdentifier") !== "GoToWindow") throw Error("Unexpected export folder sheet");
+    var audioPath = find(audioSheet, "PathTextField", "AXTextField");
+    audioPath.value = input.parent;audioPath.attributes.byName("AXFocused").value = true;
+    if (audioPath.value() !== input.parent || attribute(audioPath, "AXFocused") !== true) throw Error("Export folder field readback mismatch");
+    foreground();events.keyCode(36);
+    waitFor(function () { return audioSave.sheets().length === 0; }, "Export folder navigation is unverified");
+    if (directoryPath() !== input.parent) throw Error("Export directory readback mismatch");
+    if (windowIdentity(audioSave) !== input.windowId) throw Error("Native audio Save window changed");
+    return JSON.stringify({ prepared: true, windowId: input.windowId, purpose: purpose(audioSave), panelState: panelState(audioSave) });
+  }
   if (input.action === "prepare") {
     foreground();
     if (process.windows().some(function (window) {
@@ -202,7 +275,22 @@ function run(argv) {
     if (!button.enabled()) throw Error("Save is disabled");
     if (windowIdentity(save) !== input.windowId || purpose(save) !== input.purpose)
       throw Error("Prepared Save As window changed; no Save was pressed");
-    focusPanel(save);saveAttempted = true;button.actions.byName("AXPress").perform();
+    if (input.purpose === "Save Audio File As:") {
+      var directoryInfo = $.NSFileManager.defaultManager.attributesOfItemAtPathError($(input.parent), null);
+      if (!input.parentIdentity || ObjC.unwrap(directoryInfo.objectForKey($("NSFileSystemNumber")).stringValue) !== input.parentIdentity.dev ||
+          ObjC.unwrap(directoryInfo.objectForKey($("NSFileSystemFileNumber")).stringValue) !== input.parentIdentity.ino)
+        throw Error("Audio export directory identity changed; no Save was pressed");
+      var audioDestination = $(input.parent + "/" + input.name);
+      var linkDestination = ObjC.unwrap($.NSFileManager.defaultManager.destinationOfSymbolicLinkAtPathError(audioDestination, null));
+      if ($.NSFileManager.defaultManager.fileExistsAtPath(audioDestination) || typeof linkDestination === "string")
+        throw Error("Audio export destination appeared; no Save was pressed");
+    }
+    focusPanel(save);
+    if (audio) {
+      button.attributes.byName("AXFocused").value = true;
+      if (attribute(button, "AXFocused") !== true) throw Error("Native audio Save button is not focused");
+      foreground();saveAttempted = true;events.keyCode(36);
+    } else { saveAttempted = true;button.actions.byName("AXPress").perform(); }
     return JSON.stringify({ savePressed: true });
   } catch (error) {
     var recovery = { status: "unavailable", reason: "Save button outcome is unknown; inspect Live and the destination" };

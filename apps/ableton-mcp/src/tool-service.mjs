@@ -16,6 +16,7 @@ import { inspectGroovePostconditions } from "./groove-workflow.mjs";
 import { analyzeMidiFeel, planMidiFeelTransfer } from "./midi-feel-analysis.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { MacLiveSetHost } from "./live-set-host.mjs";
+import {MacAudioExportHost,exportAudioMix} from "./audio-export.mjs";
 import { CatalogService } from "./catalog-service.mjs";
 import { discoverExamples } from "./discovery-examples.mjs";
 import { LIVE_BROWSER_ROOTS } from "./browser-roots.mjs";
@@ -448,7 +449,7 @@ function normalizeBrowserSearch(args) {
 
 export class ToolService {
   constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, deviceChainLibrary, groupSystemLibrary, midiFeelLibrary, browserMetadata, spliceRoots = [], generationQueuePath,
-    liveSetHost = new MacLiveSetHost(), liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000 }) {
+    liveSetHost = new MacLiveSetHost(), audioExportHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000 }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
@@ -460,6 +461,7 @@ export class ToolService {
     this.spliceRoots = spliceRoots;
     this.generationQueuePath = generationQueuePath;
     this.liveSetHost = liveSetHost;
+    this.audioExportHost = audioExportHost ?? new MacAudioExportHost({liveSetHost});
     this.liveSetOpenTimeoutMs = liveSetOpenTimeoutMs;
     this.liveSetSaveTimeoutMs = liveSetSaveTimeoutMs;
     this.liveSetLaunchTimeoutMs = liveSetLaunchTimeoutMs;
@@ -472,6 +474,7 @@ export class ToolService {
 
   async call(name, args = {}) {
     requestSignal()?.throwIfAborted();
+    if(name === "export_audio_mix")return exportAudioMix(this.bridge,this.confirmations,this.audioExportHost,args);
     if (name === "list_local_splice_roots") return listConfiguredSpliceRoots(this.spliceRoots);
     if (name === "browse_local_splice_directory") {
       if (args.includeMetadata !== undefined && typeof args.includeMetadata !== "boolean") throw new Error("includeMetadata must be boolean");
