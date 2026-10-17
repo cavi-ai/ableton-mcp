@@ -13,7 +13,7 @@ import { getPrompt, listPrompts } from "./prompts.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const requiredCapabilities = JSON.parse(readFileSync(new URL("../../../ableton/Remote Scripts/CaviMcpBridge/capabilities.json", import.meta.url), "utf8"));
-const remoteScriptFiles = ["__init__.py", "arrangement_audition.py", "arrangement_section.py", "audio_capture.py", "audio_export.py", "audio_midi_sketch.py", "beat_repeat_fill.py", "bridge.py", "browser_load.py", "capabilities.json", "clip_duplication.py", "clip_envelope.py", "device_ab.py", "device_preset.py", "instrument_comparison.py", "looper_export.py", "midi_capture.py", "midi_import.py", "parameter_display.py", "protocol.py", "rack_performance.py", "session_recording.py", "signal_activity.py", "simpler_sample.py", "take_lanes.py", "track_send.py", "track_volume.py"];
+const remoteScriptFiles = ["__init__.py", "arrangement_audition.py", "arrangement_recording.py", "arrangement_section.py", "audio_capture.py", "audio_export.py", "audio_midi_sketch.py", "beat_repeat_fill.py", "bridge.py", "browser_load.py", "capabilities.json", "clip_duplication.py", "clip_envelope.py", "device_ab.py", "device_preset.py", "instrument_comparison.py", "looper_export.py", "midi_capture.py", "midi_import.py", "parameter_display.py", "protocol.py", "rack_performance.py", "session_recording.py", "signal_activity.py", "simpler_sample.py", "take_lanes.py", "track_send.py", "track_volume.py"];
 
 async function remoteScriptCopies({ sourceRoot, platform, home, applicationsRoot }) {
   const roots = defaultRemoteScriptRoots({ platform, home });
