@@ -6,11 +6,12 @@ export async function createClipParameterEnvelope(bridge,confirmations,args){
 }
 
 function mixerSelector(args){
-  if(args.mixerControl==='volume'){
-    if(args.sendId!==undefined||args.returnTrackId!==undefined)throw Error('volume envelopes do not accept send or Return IDs');
-    return {mixerControl:'volume'};
+  if(args.mixerControl==='volume'||args.mixerControl==='pan'){
+    if(args.sendId!==undefined||args.returnTrackId!==undefined)throw Error(`${args.mixerControl} envelopes do not accept send or Return IDs`);
+    if(args.mixerControl==='pan'&&args.points?.some(point=>Object.hasOwn(point,'targetDisplay')))throw Error('pan steps require exact raw native values, not display targets');
+    return {mixerControl:args.mixerControl};
   }
-  if(args.mixerControl!=='send')throw Error('mixerControl must be volume or send');
+  if(args.mixerControl!=='send')throw Error('mixerControl must be volume, pan or send');
   if(typeof args.sendId!=='string'||!/^send-(0|[1-9][0-9]*)$/.test(args.sendId))throw Error('canonical sendId required');
   if(args.returnTrackId!==args.sendId.replace('send-','return-'))throw Error('sendId and returnTrackId must match');
   return {mixerControl:'send',sendId:args.sendId,returnTrackId:args.returnTrackId};
