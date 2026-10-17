@@ -6078,6 +6078,12 @@ def dispatch_request(song, request, state_version, application=None):
                 "device": _device_tree(device, params["deviceId"]),
                 "parameters": [_parameter_record(parameter, i, include_native_choice_labels=True)
                                for i, parameter in enumerate(device.parameters)]}
+    if method in ("get_device_parameter_display_context", "set_device_parameter_display"):
+        try:
+            from . import parameter_display
+        except ImportError:
+            import parameter_display
+        return (parameter_display.source if method == "get_device_parameter_display_context" else parameter_display.apply)(song, params, state_version)
     if method in ("list_device_parameters", "get_device_parameter_edit_context"):
         _, _, device = _device(song, params["trackId"], params["deviceId"])
         parameters = [_parameter_record(parameter, i, include_native_choice_labels=True)
