@@ -3092,6 +3092,14 @@ def _beat_repeat_fill_module():
     return beat_repeat_fill
 
 
+def _clip_hold_module():
+    try:
+        from . import clip_hold
+    except ImportError:
+        import clip_hold
+    return clip_hold
+
+
 def dispatch_request(song, request, state_version, application=None):
     if request.get('method') in ('get_device_preset_source', 'select_device_preset_source'):
         try:
@@ -3103,6 +3111,10 @@ def dispatch_request(song, request, state_version, application=None):
         return select(song, request.get('params', {}), state_version, application)
     method = request["method"]
     params = request.get("params", {})
+    if method in ("get_session_clip_hold_source", "hold_session_clip", "get_session_clip_hold", "finish_session_clip_hold"):
+        hold = _clip_hold_module()
+        return {"get_session_clip_hold_source": hold.source, "hold_session_clip": hold.start,
+                "get_session_clip_hold": hold.read, "finish_session_clip_hold": hold.finish}[method](song, params, state_version)
     fingerprint = _set_fingerprint(song)
     if method == "get_bridge_protocol":
         return dict(BRIDGE_PROTOCOL)
@@ -6737,6 +6749,7 @@ class SocketBridge:
     def stop(self):
         self.stopped.set()
         try:
+            _clip_hold_module().shutdown(self.control_surface.song())
             _arrangement_recording_module().shutdown(self.control_surface.song())
             fill = _beat_repeat_fill_module()
             fill.shutdown(self.control_surface.song())
@@ -6825,6 +6838,9 @@ class SocketBridge:
                 record.finish()
 
     def drain(self):
+        hold = _clip_hold_module()
+        if hold.has_active():
+            self.state_version += hold.advance(self.control_surface.song())
         recording = _arrangement_recording_module()
         if recording.has_active():
             self.state_version += recording.advance(self.control_surface.song())

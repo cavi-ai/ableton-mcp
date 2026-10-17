@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 287 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 290 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (124)
+## Read-only (125)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -63,6 +63,7 @@ The server publishes 287 tools. Mutations of the Live Set require `expectedState
 | `get_return_routing` | Read the exact output destination and available choices of one Return Track without changing routing, selection or playback. Reports unavailable native properties explicitly; send pre/post mode is not exposed. | `returnTrackId` |
 | `get_scene_launch_context` | Preview an exact Session scene in one native read: every track/slot, clip/stop/Group actions, arms, recording risks, current playback and global/scene musical context. Preserves selection and playback. Launch metadata only; no audible or follow-action prediction. All profile. | `sceneId` |
 | `get_selection_context` | Read selected track/scene/device, displayed clip and highlighted slot together without changing focus. Null is unresolved; clip and slot can differ. | none |
+| `get_session_clip_hold` | Read one retained Session clip hold, or list holds after a lost response. Reports press/release command receipts, current native clip IDs, playback snapshots and cleanup errors. No input or playback changes. Runtime state may disappear after reload; missing handles do not prove release. All profile. | none |
 | `get_session_orientation` | Read Set, recording, selection, clip and instruments together; configured scale and ambiguous MIDI evidence. No edits, playback or focus changes. | none |
 | `get_set_mixer` | Read master and return-bus mixer levels, sends, and routing from the current Live Set. | none |
 | `get_simpler_sample_state` | Read one existing Simpler, including nested racks: path, length/start-end markers/slices in sample frames, rate in Hz, native warp/slicing controls, playback mode, parameters and edit context. No edits. All profile; requires updated bridge. | `trackId`, `deviceId` |
@@ -133,7 +134,7 @@ The server publishes 287 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (134)
+## Mutations (136)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -188,8 +189,10 @@ The server publishes 287 tools. Mutations of the Live Set require `expectedState
 | `finish_arrangement_take` | Release a stopped Arrangement take handle and retain its material. Cancel true stops only owned global record/playback early; partial material retained. Ownership loss leaves transport untouched and retains the handle until stopped. Does not disarm, restore setup, save or delete; all profile. | `expectedStateVersion`, `takeId` |
 | `finish_beat_repeat_fill` | Release a terminal fill handle; cancel true attempts owned Repeat Off early. Preserves manual Repeat edits and other controls. Cleanup failure stays explicit; releasing a terminal handle does not repair its device. Updated bridge; all profile. | `expectedStateVersion`, `fillId` |
 | `finish_live_audio_capture` | Plan or release a completed capture handle, keeping its track/file. Cancel true stops and disarms an active capture early and retains partial audio. A pending native stop returns captureActive true with stopping status; read until confirmed, then finish. Cleanup failure is explicit and preserves the handle. Never stops source playback. | `expectedStateVersion`, `captureId` |
+| `finish_session_clip_hold` | Release a terminal Session hold handle, or cancel:true to request early release of its retained native clip. Does not globally stop playback or stop a continuing Repeat clip. A failed release retains its handle and track reservation until an explicit cancel retry succeeds. Updated bridge; all profile. | `expectedStateVersion`, `holdId` |
 | `group_tracks` | Create a native Group through macOS English Live UI from two to 64 consecutive ungrouped ordinary audio-producing tracks feeding Main. Saved Set, stopped playback/recording, unarmed/unfrozen sources and no pending launches required. Changes focus, hierarchy, routing and track IDs. Verifies retained objects and exposed material/controls. Partial results remain; no automatic undo. Retain groupingId for lost-response inspection. All profile. | `expectedStateVersion`, `trackIds`, `expectedSetFingerprint` |
 | `heartbeat_nks_generation_job` | Extend an unexpired NKS generation lease owned by this worker. | `presetId`, `workerId` |
+| `hold_session_clip` | Hold one existing Gate/Repeat Session clip for 0.25–8 wall-clock seconds, then request native release without this client. Requires global playback, recording off, an unarmed/unfrozen target and no pending launches or other playing Session clip on its track. Honors quantization; may override target Arrangement. Gate may stop on release; Repeat may continue. Concurrent controller input cannot be distinguished. Command receipts are not button-state or audible proof. All profile. | `expectedStateVersion`, `trackId`, `clipId`, `durationSeconds` |
 | `humanize_midi_notes` | Plan or apply guarded deterministic MIDI timing and velocity humanization with exact clip, grid, and complete native note readback. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `seed`, `gridBeats`, `maxTimingOffsetBeats`, `maxVelocityOffset` |
 | `jump_to_arrangement_cue_point` | Plan or move the playhead to one exact Arrangement cue point. | `expectedStateVersion`, `cuePointId` |
 | `launch_clip` | Launch a Session slot. recordLengthBeats records an empty armed slot; updated bridge rechecks input, native identity and recording readiness. launchQuantization overrides once. Receipt does not prove take completion. | `expectedStateVersion`, `trackId`, `clipId` |

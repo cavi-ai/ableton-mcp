@@ -52,6 +52,7 @@
         { "title": "Chop a sample into a groove", "path": "guides/sample-chopping.md" },
         { "title": "Balance track levels", "path": "guides/mix-balance.md" },
         { "title": "Build a shared Return effect", "path": "guides/shared-return-effects.md" },
+        { "title": "Hold a Session clip", "path": "guides/session-clip-holds.md" },
         { "title": "Record an Arrangement take", "path": "guides/arrangement-take.md" },
         { "title": "Sidechain ducking", "path": "guides/sidechain-ducking.md" },
         { "title": "Add a shared send effect", "path": "guides/send-effects.md" },
