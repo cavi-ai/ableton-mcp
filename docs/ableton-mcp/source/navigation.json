@@ -27,6 +27,7 @@
         { "title": "Keep parts playing across scenes", "path": "guides/session-stop-buttons.md" },
         { "title": "Record a Session take", "path": "guides/session-take.md" },
         { "title": "Capture Live audio", "path": "guides/live-audio-capture.md" },
+        { "title": "Resample into an instrument", "path": "guides/resample-instrument.md" },
         { "title": "Export a native audio mix", "path": "guides/audio-export.md" },
         { "title": "Compare instruments", "path": "guides/instrument-comparison.md" },
         { "title": "Refine instrument sound", "path": "guides/instrument-refinement.md" },
