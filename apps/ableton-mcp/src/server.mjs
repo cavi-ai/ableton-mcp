@@ -318,6 +318,7 @@ const toolNames = [
   "set_track_send_db",
   "set_device_parameter_display",
   "get_device_ab_context",
+  "reverse_audio_clip",
   "copy_device_ab_slot",
   "select_device_ab_slot",
   "create_clip_parameter_envelope",
