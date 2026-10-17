@@ -8,11 +8,7 @@ import { getPrompt, listPrompts } from "./prompts.mjs";
 import { withDiscoveryExamples } from "./discovery-examples.mjs";
 import { withRequestSignal } from "./request-context.mjs";
 import { producerToolContracts } from "./producer-contracts.mjs";
-
-function requestFailure(error) {
-  if (!error?.outcome) return undefined;
-  return { code: error.code, message: error.message, outcome: error.outcome, requestIds: error.requestIds ?? [] };
-}
+import { bridgeFailureDetails as requestFailure } from './bridge-client.mjs';
 
 const SUPPORTED_PROTOCOL_VERSION = "2025-03-26";
 

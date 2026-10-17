@@ -6,8 +6,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { UnixBridgeClient } from "../src/bridge-client.mjs";
 import { decodeBridgeLines, encodeBridgeMessage } from "../src/bridge-protocol.mjs";
+import { runCli } from '../src/cli.mjs';
+import { createRouter } from '../src/server.mjs';
 
-async function listener(t, receive) {
+async function listener(t, receive, { handshake = true } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "ab-batch-"));
   const path = join(directory, "bridge.sock");
   const clients = new Set();
@@ -22,7 +24,7 @@ async function listener(t, receive) {
       const decoded = decodeBridgeLines(Buffer.concat([buffer, chunk]));
       buffer = decoded.remainder;
       for (const request of decoded.messages) {
-        if (request.method === "get_bridge_protocol") socket.write(encodeBridgeMessage({ id: request.id,
+        if (request.method === "get_bridge_protocol" && handshake) socket.write(encodeBridgeMessage({ id: request.id,
           result: { version: 2, requestDeadlines: true, requestCancellation: true } }));
         else receive(socket, request);
       }
@@ -34,8 +36,89 @@ async function listener(t, receive) {
     await new Promise(resolve => server.close(resolve));
     await rm(directory, { recursive: true, force: true });
   });
-  return { client: new UnixBridgeClient(path, { timeoutMs: 1000 }), connections: () => connections };
+  return { client: new UnixBridgeClient(path, { timeoutMs: 1000 }), path, directory, connections: () => connections };
 }
+
+test('transport failures identify connection progress without claiming a request was transmitted', async t => {
+ const root=await mkdtemp(join(tmpdir(),'ab-connect-'));
+ t.after(()=>rm(root,{recursive:true,force:true}));
+ const client=new UnixBridgeClient(join(root,'missing.sock'));
+ await assert.rejects(client.request('get_live_state'),error=>{
+  assert.equal(error.outcome,'not_executed');
+  assert.equal(error.bridgeProgress.phase,'connect');
+  assert.equal(error.bridgeProgress.socketConnected,false);
+  assert.equal(error.bridgeProgress.protocolValidated,false);
+  assert.equal(error.bridgeProgress.requestTransmitted,false);
+  assert.equal(error.bridgeProgress.repliesReceived,0);
+  assert.ok(Number.isFinite(error.bridgeProgress.elapsedMs)&&error.bridgeProgress.elapsedMs>=0);
+  return true;
+ });
+});
+
+test('a stalled handshake is distinguished from a transmitted request with partial replies', async t => {
+ const waiting=await listener(t,()=>{},{handshake:false});waiting.client.timeoutMs=200;
+ await assert.rejects(waiting.client.request('get_live_state'),error=>{
+  assert.equal(error.code,'BRIDGE_TIMEOUT');assert.equal(error.outcome,'not_executed');
+  assert.equal(error.bridgeProgress.phase,'handshake');assert.equal(error.bridgeProgress.socketConnected,true);
+  assert.equal(error.bridgeProgress.protocolValidated,false);assert.equal(error.bridgeProgress.requestTransmitted,false);
+  return true;
+ });
+ const partial=await listener(t,(socket,r)=>{
+  if(r.method==='first')socket.write(encodeBridgeMessage({id:r.id,result:{}}));
+ });partial.client.timeoutMs=200;
+ await assert.rejects(partial.client.requestMany([{method:'first'},{method:'second'}]),error=>{
+  assert.equal(error.outcome,'unknown');assert.equal(error.bridgeProgress.phase,'response');
+  assert.equal(error.bridgeProgress.protocolValidated,true);assert.equal(error.bridgeProgress.requestTransmitted,true);
+  assert.equal(error.bridgeProgress.requestCount,2);assert.equal(error.bridgeProgress.repliesReceived,1);
+  return true;
+ });
+});
+
+test('doctor reports a connected compatible bridge separately from an unavailable Live state', async t => {
+ const f=await listener(t,(socket,r)=>{
+  if(r.id)socket.write(encodeBridgeMessage({id:r.id,error:{code:'BRIDGE_BUSY',message:'request queue full',outcome:'not_executed'}}));
+ });
+ const result=await runCli(['doctor','--json'],{env:{ABLETON_MCP_BRIDGE_SOCKET:f.path},home:f.directory,
+  applicationsRoot:f.directory,stdout:()=>{}});
+ assert.equal(result.ok,false);assert.equal(result.bridge.connected,true);
+ assert.equal(result.bridge.protocol,'compatible');assert.equal(result.bridge.liveStateAvailable,false);
+ assert.equal(result.bridge.capabilities,null);assert.equal(result.bridge.missingCapabilities,null);
+ assert.equal(result.bridge.failure.code,'BRIDGE_BUSY');assert.equal(result.bridge.failure.outcome,'not_executed');
+ assert.equal(result.bridge.failure.bridgeProgress.phase,'response');
+ assert.ok(Number.isFinite(result.bridge.probeElapsedMs));
+});
+
+test('doctor distinguishes incompatible protocol and retains the refusal before transmission', async t => {
+ const f=await listener(t,(socket,r)=>socket.write(encodeBridgeMessage({id:r.id,result:{version:1}})),{handshake:false});
+ const result=await runCli(['doctor','--json'],{env:{ABLETON_MCP_BRIDGE_SOCKET:f.path},home:f.directory,
+  applicationsRoot:f.directory,stdout:()=>{}});
+ assert.equal(result.ok,false);assert.equal(result.bridge.connected,true);assert.equal(result.bridge.protocol,'incompatible');
+ assert.equal(result.bridge.liveStateAvailable,false);assert.equal(result.bridge.failure.outcome,'not_executed');
+ assert.equal(result.bridge.failure.bridgeProgress.requestTransmitted,false);
+});
+
+test('MCP errors preserve progress and uncertain outcomes without claiming a retry is safe', async t => {
+ const f=await listener(t,(socket,r)=>socket.write(encodeBridgeMessage({id:r.id,error:{message:'native failure'}})));
+ const route=createRouter({call:()=>f.client.request('get_live_state')});
+ const response=await route({id:1,method:'tools/call',params:{name:'get_live_state',arguments:{}}});
+ assert.equal(response.result.isError,true);const error=response.result.structuredContent.error;
+ assert.equal(error.outcome,'unknown');assert.equal(error.bridgeProgress.protocolValidated,true);
+ assert.equal(error.bridgeProgress.requestTransmitted,true);assert.equal(error.bridgeProgress.repliesReceived,1);
+ assert.equal(error.requestIds.length,1);assert.match(error.message,/re-read/);
+});
+
+test('doctor allows a Live read longer than its former one-second deadline', async t => {
+ const f=await listener(t,(socket,r)=>{
+  if(r.method==='get_live_state')setTimeout(()=>socket.write(encodeBridgeMessage({id:r.id,
+    result:{bridgeVersion:'0.2.1',capabilities:[]}})),1200);
+ });
+ const result=await runCli(['doctor','--json'],{env:{ABLETON_MCP_BRIDGE_SOCKET:f.path},home:f.directory,
+  applicationsRoot:f.directory,stdout:()=>{}});
+ assert.equal(result.bridge.connected,true);assert.equal(result.bridge.protocol,'compatible');
+ assert.equal(result.bridge.liveStateAvailable,true);
+ assert.equal(result.ok,false); // An observed response still lacks required advertised capabilities.
+ assert.ok(Array.isArray(result.bridge.missingCapabilities));
+});
 
 test("batch reads share one connection and preserve order across fragmented reversed replies", async t => {
   const received = [];

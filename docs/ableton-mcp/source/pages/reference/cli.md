@@ -7,7 +7,7 @@ From a checkout, run `npm run cli -- <command>`, or `node apps/ableton-mcp/src/c
 | `help` | Lists the commands. |
 | `install [--destination <path>]` | Copies `CaviMcpBridge` into the Remote Scripts folder. The default is `~/Music/Ableton/User Library/Remote Scripts`. Tests and bytecode are skipped. |
 | `uninstall [--destination <path>]` | Removes only the installed `CaviMcpBridge` directory. |
-| `doctor` | Probes the bridge socket and reports the bridge version, missing capabilities, catalog configuration and Remote Scripts folders. |
+| `doctor` | Distinguishes socket/protocol connection from Live-state availability; reports structured failures, observed capabilities, catalog configuration and Remote Scripts copies. |
 | `serve` | Runs the MCP server over stdio. |
 | `status` | Calls `get_live_state`. |
 | `call <tool> [--args '<json>']` | Validates the arguments against the tool's schema, then calls it. Confirmation tokens persist between calls in `ABLETON_MCP_CONFIRMATION_DIR`. |
