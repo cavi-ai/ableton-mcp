@@ -1,5 +1,8 @@
 [
-  "get_bridge_protocol", "get_browser_load_context",
+  "get_bridge_protocol",
+  "get_browser_load_context",
+  "get_device_preset_source",
+  "select_device_preset_source",
   "get_selection_context", "get_session_orientation", "get_midi_clip_variation_context", "duplicate_midi_clip_variations",
   "analyze_midi_parts",
   "analyze_arrangement_section",
