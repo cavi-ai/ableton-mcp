@@ -22,6 +22,7 @@ import { planClipPitchAdjustment } from "./audio-tuning.mjs";
 import { buildSongGridReference, planGridEnvelopePattern } from "./song-grid-reference.mjs";
 import { browseLocalSpliceDirectory, listConfiguredSpliceRoots, observeLocalSpliceSample, searchLocalSpliceSamples } from "./splice-local-search.mjs";
 import { inspectGroovePostconditions } from "./groove-workflow.mjs";
+import {inspectProducerAudioBus} from "./producer-audio-bus.mjs";
 import { analyzeMidiFeel, planMidiFeelTransfer, midiFeelClipEndBeats } from "./midi-feel-analysis.mjs";
 import {removeClipGroove, MacClipGrooveHost} from "./clip-groove-removal.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
@@ -815,6 +816,7 @@ export class ToolService {
         verification: verifyProducerChain(args.target, observed.devices) };
     }
     if (name === "inspect_producer_bus") {
+      if (args.busKind === "audio") return inspectProducerAudioBus(this.bridge,args);
       const blueprint = getProducerChainBlueprint(args.target);
       if (!["shared-instrument-bus", "shared-audio-bus"].includes(blueprint.topology))
         throw new Error("target must be a shared-bus blueprint");
