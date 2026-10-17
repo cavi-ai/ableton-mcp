@@ -106,6 +106,7 @@ const toolNames = [
   "jump_to_arrangement_cue_point",
   "list_tracks",
   "list_scenes",
+  "get_scene_launch_context",
   "list_clips",
   "get_midi_clip_notes",
   "get_midi_clip_notes_extended",
