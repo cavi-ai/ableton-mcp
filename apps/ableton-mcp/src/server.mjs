@@ -109,6 +109,7 @@ const toolNames = [
   "get_scene_launch_context",
   "get_simpler_sample_state",
   "load_simpler_sample",
+  "set_simpler_sample_region",
   "set_clip_slot_stop_button",
   "list_clips",
   "get_midi_clip_notes",

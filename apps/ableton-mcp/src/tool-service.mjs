@@ -70,6 +70,15 @@ function requireExpectedState(args) {
   }
 }
 
+function assertInactiveSimpler(before) {
+  const row=before.track, recording=before.recording;
+  if (before.multiSampleMode !== false || row.frozen !== false || row.armed !== false || ![1,2].includes(row.monitoring) ||
+    !Number.isInteger(row.firedSlotIndex) || row.firedSlotIndex >= 0 || recording.isPlaying !== false ||
+    recording.arrangement?.record !== false || recording.session?.record !== false || before.playingPositionEnabled !== false) {
+    throw Error('Simpler editing requires a single sample, stopped transport, no recording, and an inactive unarmed target without input monitoring or pending launches');
+  }
+}
+
 function summarizeWarpMarkerChanges(before, after) {
   const previous = before.warpMarkers?.markers, current = after.warpMarkers?.markers;
   if (!Array.isArray(previous) || !Array.isArray(current)) throw new Error("audio quantization readback lacks warp markers");
@@ -717,6 +726,7 @@ export class ToolService {
     if (name === "get_scene_launch_context") return getSceneLaunchContext(this.bridge,args);
     if (name === "get_simpler_sample_state") return this.#readSimplerSampleState(args);
     if (name === "load_simpler_sample") return this.#loadSimplerSample(args);
+    if (name === "set_simpler_sample_region") return this.#setSimplerSampleRegion(args);
     if (name === "list_clips") return this.bridge.request("list_clips", args);
     if (name === "list_arrangement_clips") return this.bridge.request(name, args);
     if (name === "place_session_clip_in_arrangement") return this.#placeSessionClipInArrangement(args);
@@ -3591,11 +3601,7 @@ export class ToolService {
     const before=await this.#readSimplerSampleState(args);assertExpectedState(args,before);
     if (before.multiSampleMode !== false || before.canReplaceSample !== true) throw Error('single-sample Simpler replacement is unavailable');
     if (before.sample !== null && args.allowReplace !== true) throw Error('allowReplace is required for an existing sample');
-    const row=before.track,recording=before.recording;
-    if (row.frozen !== false || row.armed !== false || ![1,2].includes(row.monitoring) || !Number.isInteger(row.firedSlotIndex) || row.firedSlotIndex >= 0 ||
-      recording.isPlaying !== false || recording.arrangement?.record !== false || recording.session?.record !== false || before.playingPositionEnabled !== false) {
-      throw Error('Simpler sample loading requires stopped transport, no recording, and an inactive unarmed target without input monitoring or pending launches');
-    }
+    assertInactiveSimpler(before);
     const result=await this.#confirmedMutation({method:'load_simpler_sample',trackId:args.trackId,deviceId:args.deviceId,
       expectedStateVersion:args.expectedStateVersion,sourcePath,sourceFile,allowReplace:args.allowReplace??false,
       ...(args.playbackMode!==undefined?{playbackMode:modes.indexOf(args.playbackMode)}:{}),before,
@@ -3608,6 +3614,34 @@ export class ToolService {
         !Number.isSafeInteger(value.sample.startMarkerFrames) || !Number.isSafeInteger(value.sample.endMarkerFrames) ||
         value.sample.startMarkerFrames<0 || value.sample.startMarkerFrames>=value.sample.endMarkerFrames || value.sample.endMarkerFrames>value.sample.lengthFrames ||
         args.playbackMode!==undefined && value.playbackMode?.value!==modes.indexOf(args.playbackMode)) throw Error('Simpler sample readback mismatch; inspect the device and file before retrying');
+    }
+    return result;
+  }
+
+  async #setSimplerSampleRegion(args) {
+    requireExpectedState(args);
+    const keys=['startMarkerFrames','endMarkerFrames'];
+    if (!keys.some(key=>args[key]!==undefined) || keys.some(key=>args[key]!==undefined && !Number.isSafeInteger(args[key]))) {
+      throw Error('provide at least one integer sample-frame marker');
+    }
+    const before=await this.#readSimplerSampleState(args);assertExpectedState(args,before);assertInactiveSimpler(before);
+    const sample=before.sample;
+    if (!sample || !Number.isSafeInteger(sample.lengthFrames) || sample.lengthFrames<=1 ||
+      keys.some(key=>!Number.isSafeInteger(sample[key]))) throw Error('loaded Simpler sample with native frame bounds required');
+    const region=Object.fromEntries(keys.map(key=>[key,args[key]??sample[key]]));
+    if (region.startMarkerFrames<0 || region.startMarkerFrames>=region.endMarkerFrames || region.endMarkerFrames>=sample.lengthFrames ||
+      keys.every(key=>region[key]===sample[key])) throw Error('a changed sample region requires integer frames: 0 <= start < end < lengthFrames');
+    const result=await this.#confirmedMutation({method:'set_simpler_sample_region',trackId:args.trackId,deviceId:args.deviceId,
+      expectedStateVersion:args.expectedStateVersion,before,region,
+      warning:'Changes this Simpler playback region without cropping the source file. Live may derive slices and normalized sample/loop controls from the new bounds. Preserve an existing part through native comparison when needed. A failed edit can leave partial markers; inspect before retrying. No automatic rollback or complete sample-state backup.'},args);
+    if (!result.dryRun) {
+      const value=result.observed;
+      if (value.stateVersion!==args.expectedStateVersion+1 || value.verified!==true || value.identityToken!==before.identityToken ||
+        value.trackId!==args.trackId || value.deviceId!==args.deviceId || value.sample?.path!==sample.path ||
+        value.sample?.lengthFrames!==sample.lengthFrames || value.sample?.sampleRate!==sample.sampleRate ||
+        keys.some(key=>value.region?.[key]!==region[key] || value.sample?.[key]!==region[key])) {
+        throw Error('Simpler region readback mismatch; inspect the device before retrying');
+      }
     }
     return result;
   }
