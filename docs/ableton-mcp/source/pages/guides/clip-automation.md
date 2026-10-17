@@ -4,7 +4,7 @@ Retrieve `shape-clip-automation` through `get_producer_workflow` in the `all` pr
 
 ## Choose the lane and shape
 
-Resolve the exact Session clip, its timing, track device hierarchy and observed parameter. MIDI and warped audio use beats; unwarped audio is refused. Absolute clip beat positions need not begin at the loop's start. Convert bars from the observed meter. Arrangement automation, mixer envelopes and continuous curves are outside this operation.
+Resolve the exact Session clip, its timing and observed device or mixer control. MIDI and warped audio use beats; unwarped audio is refused. Absolute clip beat positions need not begin at the loop's start. Convert bars from the observed meter. Arrangement automation and continuous curves are outside this operation.
 
 Read `get_clip_parameter_envelope` before planning. Samples cannot recover a full envelope or reveal every intervening edit. An existing lane is preserved; choose another clip/control or a separately scoped editing approach. Do not use the replacing `set_clip_parameter_envelope` tool to bypass this boundary.
 
@@ -22,6 +22,16 @@ Playback must be stopped, recording off, the target clip idle and its track unfr
 The plan binds native owner/slot/clip/device/parameter objects, exposed clip notes or audio state and timing, and all exposed device parameter records. The bridge rechecks context and envelope absence inside the write callback. It creates one lane in one undo step, verifies interior samples and reports exact-boundary observations separately in `boundarySamples`, and compares exposed clip material. Require `observed.created`, `observed.verified` and `verificationScope: "sampled_steps"`, then independently sample the same lane. Live can return the preceding value exactly at a step boundary; interior samples verify the step to its right. This does not prove every curve point, hidden state, audible improvement or what the listener heard.
 
 On failure, cleanup attempts to remove only the newly created lane and restore its prior parameter value when native ownership remains valid. Replaced objects or uncertain ownership prevent unsafe cleanup; partial state and cleanup failures remain explicit. After an interrupted reply, inspect the exact lane before retrying. Never clear it merely to make creation retryable.
+
+## Create volume or Return-send steps
+
+For rhythmic level changes or stepped send movement, read `get_track_mixer` on the clip's own ordinary track. Choose `mixerControl: "volume"` for its fader, or `mixerControl: "send"` with the exact observed `sendId` and matching `returnTrackId`. Confirm the Return name; duplicate names alone do not identify a send. Volume requests omit send and Return IDs. Pan, rack-chain mixer controls and Return/Main clips are outside this operation.
+
+Read the lane through `get_clip_mixer_envelope`, with optional `sampleTimes` in absolute clip beats. This read preserves focus and playback. An existing lane must remain in place. Plan `create_clip_mixer_envelope` with the same selector, fresh `expectedStateVersion` and 1–128 ordered steps. Each step uses either an exact raw native `value` or a finite dB `targetDisplay`, such as `"-24 dB"` or `"-6 dB"`. Native formatters resolve dB targets without moving the fader or send; raw values are never clamped. `-inf` display targets are not accepted; an explicitly intended silent step can use the observed verified native minimum.
+
+The stopped-playback, recording, freeze and automation checks also apply to mixer creation. Plans bind the native clip, mixer, volume/pan/send parameter objects, Return topology, all exposed mixer parameter records and clip material. A changed Return invalidates the plan even when its name matches. Return processing, send pre/post settings and routing are outside this verification context. Confirm the unchanged plan and independently sample the new lane's interiors. Boundary samples, partial-failure cleanup and the limits of sampled verification follow the device-lane rules above.
+
+A copied clip shares its track fader, sends and Return processing. Launching its envelope can change those controls and automation ownership; stopping the clip does not guarantee their earlier static values return. Keep source material and unrelated lanes, and inspect actual mixer state before any separately scoped restoration. A stored level envelope does not establish audible ducking, wet/dry balance or musical improvement.
 
 ## Audition and keep the result
 

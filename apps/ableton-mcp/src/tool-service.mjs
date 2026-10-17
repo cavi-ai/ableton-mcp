@@ -4,7 +4,7 @@ import {getSceneLaunchContext} from "./scene-context.mjs";
 import {setTrackVolumeDb} from "./track-volume.mjs";
 import {setTrackSendDb} from "./track-send.mjs";
 import {setDeviceParameterDisplay} from "./parameter-display.mjs";
-import {createClipParameterEnvelope,replaceClipParameterEnvelope} from "./clip-envelope.mjs";
+import {createClipParameterEnvelope,createClipMixerEnvelope,replaceClipParameterEnvelope} from "./clip-envelope.mjs";
 import { enrichSessionOrientation, enrichMidiPartsContext } from "./session-orientation.mjs";
 import { instrumentComparison } from "./instrument-comparison.mjs";
 import { liveAudioCapture } from "./live-audio-capture.mjs";
@@ -1104,6 +1104,7 @@ export class ToolService {
     }
     if (name === "get_automation_capabilities") return {
       sessionClipParameterEnvelopes: { read: true, write: true, shape: "steps" },
+      sessionClipMixerEnvelopes: { read: true, create: true, replace: false, controls: ["volume", "send"], shape: "steps" },
       arrangementParameterAutomation: {
         read: false, write: false,
         reason: "Ableton Live's public Clip API returns no automation envelope for Arrangement clips"
@@ -1118,6 +1119,7 @@ export class ToolService {
       }
     };
     if (name === "get_clip_parameter_envelope") return this.bridge.request("get_clip_parameter_envelope", args);
+    if (name === "get_clip_mixer_envelope") return this.bridge.request("get_clip_mixer_envelope", args);
     if (name === "get_clip_timing") return this.bridge.request("get_clip_timing", args);
     if (name === "get_audio_clip_state") return this.bridge.request("get_audio_clip_state", args);
     if (name === "get_audio_source_beat_times") {
@@ -1588,6 +1590,7 @@ export class ToolService {
     if (name === "create_audio_clip") return this.#createAudioClip(args);
     if (name === "set_clip_parameter_envelope") return replaceClipParameterEnvelope(this.bridge,this.confirmations,args);
     if (name === "create_clip_parameter_envelope") return createClipParameterEnvelope(this.bridge,this.confirmations,args);
+    if (name === "create_clip_mixer_envelope") return createClipMixerEnvelope(this.bridge,this.confirmations,args);
     if (name === "set_midi_note_properties") return this.#setMidiNoteProperties(args);
     if (name === "correct_midi_clip_to_scale") return this.#correctMidiClipToScale(args);
     if (name === "transform_midi_notes") return this.#transformMidiNotes(args);

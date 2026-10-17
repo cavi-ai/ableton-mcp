@@ -217,6 +217,7 @@ const toolNames = [
   "set_rack_chain_note_routing",
   "move_device_to_chain",
   "get_clip_parameter_envelope",
+  "get_clip_mixer_envelope",
   "list_devices",
   "list_device_parameters",
   "capture_device_parameter_snapshot",
@@ -287,6 +288,7 @@ const toolNames = [
   "set_track_send_db",
   "set_device_parameter_display",
   "create_clip_parameter_envelope",
+  "create_clip_mixer_envelope",
   "stop_all_clips"
 ];
 // A smaller first-session surface for hosts with a tight tool-context budget.
