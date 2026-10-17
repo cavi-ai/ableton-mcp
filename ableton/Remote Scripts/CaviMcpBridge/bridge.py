@@ -5347,6 +5347,12 @@ def dispatch_request(song, request, state_version, application=None):
                 "velocity": int(note[3]), "mute": bool(note[4]),
             } for note in notes],
         }
+    if method == "get_midi_note_selection":
+        try:
+            from .midi_note_selection import context
+        except ImportError:
+            from midi_note_selection import context
+        return context(song, params, state_version)
     if method in ("get_midi_clip_notes_extended", "set_midi_note_properties", "transform_midi_notes"):
         clip, timeline = _midi_clip(song, params["trackId"], params["clipId"])
         location = "arrangement" if timeline is not None else "session"
@@ -5729,7 +5735,15 @@ def dispatch_request(song, request, state_version, application=None):
                                                (rollback_error, mutation_error))
                         raise mutation_error
             if guarded_properties:
+                if 'expectedNoteSelectionToken' in params:
+                    try:
+                        from .midi_note_selection import validate
+                    except ImportError:
+                        from midi_note_selection import validate
+                    validate(song, params, state_version)
                 with _undo_step(song):
+                    if 'expectedNoteSelectionToken' in params:
+                        validate(song, params, state_version)
                     try:
                         for change in params["changes"]:
                             note = by_id[int(change["noteId"])]

@@ -772,6 +772,7 @@ export class ToolService {
     if (["delete_arrangement_clip", "move_arrangement_clip", "duplicate_arrangement_clip"].includes(name)) return this.#mutateArrangementClip(name, args);
     if (name === "get_midi_clip_notes") return this.bridge.request("get_midi_clip_notes", args);
     if (name === "get_midi_clip_notes_extended") return this.bridge.request("get_midi_clip_notes_extended", args);
+    if (name === "get_midi_note_selection") return this.bridge.request("get_midi_note_selection", args);
     if (name === "analyze_midi_clip_scale") {
       const before = await this.bridge.request("get_song_musical_context", {});
       const clip = await this.bridge.request("get_midi_clip_notes_extended", args);
@@ -3850,8 +3851,23 @@ export class ToolService {
         observed.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
       throw new Error("MIDI clip changed during note-property planning; retry");
     const notes = new Map(observed.notes.map((note) => [note.noteId, note]));
+    let selectionToken;
+    if (args.expectedNoteSelectionToken !== undefined) {
+      const selection = await this.bridge.request("get_midi_note_selection", {trackId: args.trackId, clipId: args.clipId});
+      assertExpectedState(args, selection);
+      if (typeof args.expectedNoteSelectionToken !== "string" || !args.expectedNoteSelectionToken ||
+          selection.trackId !== args.trackId || selection.clipId !== args.clipId || selection.status !== "selected" ||
+          selection.selectionToken !== args.expectedNoteSelectionToken || !Array.isArray(selection.noteIds) ||
+          args.changes.some(change => !selection.noteIds.includes(change.noteId)))
+        throw new Error("MIDI note selection changed or changes include unselected notes");
+      if (["frozen", "clipRecording", "arrangementRecord", "sessionRecord", "countingIn"]
+          .some(key => selection.editContext?.[key] !== false))
+        throw new Error("resolve frozen state, recording and count-in before selected-note edits");
+      selectionToken = args.expectedNoteSelectionToken;
+    }
     const plan = {
       method: "set_midi_note_properties", trackId: args.trackId, clipId: args.clipId,
+      ...(selectionToken !== undefined ? {expectedNoteSelectionToken: selectionToken} : {}),
       expectedStateVersion: args.expectedStateVersion, before: observed, clipTiming,
       changes: args.changes.map((change, index) => {
         const current = notes.get(change.noteId);
