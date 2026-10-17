@@ -6,6 +6,17 @@ const confirmWorkflow = [
 const userMessage = (text) => ({ role: "user", content: { type: "text", text } });
 
 export const promptContracts = {
+  'prepare-project-handoff': {
+    name:'prepare-project-handoff',description:'Collect the current Set’s samples into its Project and identify remaining device requirements before moving or sharing it.',
+    arguments:[{name:'request',description:'Intended Set, recipient environment and handoff or backup purpose. No upload or sharing is implied.',required:true}],
+    build:({request})=>({description:'Prepare the native Project for handoff.',messages:[userMessage(`Prepare this Project: ${request}
+1. Read get_live_state, get_transport_recording_context and get_project_media. Resolve the exact Set and existing Project folder. Inventory is of the saved Live 12 Set; savedSnapshotMatchesLive:false means unsaved changes or native context are unverified. Stop playback or recording only when authorized. Preserve musical content, routing, device state and user changes.
+2. If needed, save through save_live_set with fresh identity guards and verify saved:true. An untitled Set needs a unique dedicated Project through Save As first. Re-read get_project_media after saving. Resolve missing or ambiguous sources through observation and the user’s actual files; never substitute another file or delete a reference to force a clean result.
+3. Explain that collect_project_media selects all four native categories, including Factory Packs, copies media into the existing Project and saves the Set. Large libraries can require substantial disk space. It does not package installed plug-ins, licenses, opaque plug-in libraries, Max dependencies or every other Set in the Project. Resolve a materially different destination or collection scope before proceeding.
+4. Plan collect_project_media with fresh expectedStateVersion and expectedSetFingerprint, review the exact Project and source inventory, then confirm only within the authorized handoff/backup scope. Planning sends no UI input. If source files, document, native dialog or recording state change, inspect and plan again. Never replay a lost or uncertain request, dismiss unrelated UI, delete files or use global undo as recovery.
+5. Require sampleCollectionVerified:true and saved:true, then read get_project_media again. Verify savedSnapshotMatchesLive:true and every nonempty sample reference is available, inside the Project and Project-relative. Copied content must match the planned sources. This does not prove audible equivalence or complete portability. Report plug-in and Max device requirements separately; ask for recipient compatibility details only when needed. Transfer the entire Project, including Ableton Project Info, when sharing is explicitly requested; never infer upload/publication authority. Preserve originals and keep the Project out of the source-code repository.
+${confirmWorkflow}`)]})
+  },
   "shape-clip-automation": {
     name:"shape-clip-automation",
     description:"Add stepped device, volume or Return-send automation to a preserved Session clip alternative using native values or units.",
