@@ -56,6 +56,16 @@ ableton-mcp call run_production_task --args '{"projectId":"my-song","goal":"Prop
 
 Use IDs observed in your own Set. Read the task artifact to review proposed operations. Each specialist can make at most three model requests; a task permits at most eight additional observation, discovery or artifact reads. Specialists start with common tool schemas and can request `discover_production_tools` internally to retrieve up to four additional schemas by name or description. Creative discovery exposes reads only; functional operations must retain the original state-version and dry-run guard contract. This keeps the full catalog out of every model request while allowing new guarded tools to be discovered as the server grows.
 
+Every specialist request identifies its current turn, maximum turns and remaining task reads in `progress`. Its completed-read ledger identifies observations, discovered schemas and artifact-page continuation offsets from earlier turns of that role. Specialists can use these results before requesting more data; a tool discovered in one turn becomes available in the next. Repeated Live reads still perform fresh observations and consume the read budget.
+
+Continuation requests include only the immediately preceding validated reply from the same role and task, counted within the input-size budget. Ollama receives that actual reply as an assistant message followed by the current task and observations. ACP receives it in the bounded task packet. Neither runtime receives transcripts from older tasks automatically.
+
+Ollama structured output restricts operations to the names and argument schemas supplied for that turn; creative requests permit no operations. The coordinator independently validates every proposal from either runtime, including argument schemas, scope and permissions.
+
+The initial functional toolkit includes native `set_track_volume_db` and `set_track_send_db` schemas alongside the raw mixer tool. Use these for dB targets after reading the exact fader or send in `get_track_mixer`; raw mixer values are not dB values. Less common operations still require discovery.
+
+The returned `turnRefs` link each validated intermediate or final reply to its exact input artifact, including replies from tasks that exhausted a budget. Specialists may page their own previous replies as well as supplied context artifacts. Final role proposals remain in `resultRefs`. An exhausted task reports `stopReason` as `input_limit`, `read_limit` or `model_turn_limit`, with no executable operations. These references explain what was observed and proposed; they do not prove musical quality or guarantee that a configured model completes a workflow.
+
 ## Select workflow guidance for a task
 
 An optional `workflow` on `run_production_task` supplies one bundled reference before either specialist's first model request. Use an exact `name` from `get_producer_workflow` and its named string `arguments`. For example, a bounded phase of `balance-mix` can use:

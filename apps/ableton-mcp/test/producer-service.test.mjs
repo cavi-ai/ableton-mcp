@@ -101,6 +101,7 @@ test("a selected workflow remains subject to the existing model-input byte budge
     constraints:Array.from({length:12},()=> 'x'.repeat(2000)),
     workflow:{name:'build-sample-instrument',arguments:{request:'y'.repeat(6000)}}});
   assert.equal(result.status,'budget_exhausted');assert.equal(result.operationCount,0);assert.equal(packets.length,0);
+  assert.equal(result.stopReason, 'input_limit');assert.deepEqual(result.turnRefs, []);
 });
 
 test("specialists can request bounded reads but cannot execute, escape scope or use arbitrary tools", async t => {
@@ -119,6 +120,95 @@ test("read loops are bounded and return an incomplete task rather than an execut
   const result = await service.call("run_production_task", { projectId: "song", goal: "inspect", roles: "functional" });
   assert.equal(result.status, "budget_exhausted"); assert.equal(result.operationCount, 0);
   await assert.rejects(service.call("apply_production_operation", { projectId: "song", taskId: result.taskId, operationIndex: 0, expectedStateVersion: 1 }), /incomplete|operation/);
+});
+
+test("continued turns identify completed reads and discovered schemas before a guarded proposal", async t => {
+  const { service, packets, artifacts } = await setup(t, packet => !packet.progress || packet.progress.turn === 1
+    ? response({ reads: [
+      { tool: "get_track_mixer", args: { trackId: "track-0" } },
+      { tool: "discover_production_tools", args: { query: "set_track_volume_db", kind: "operation" } }
+    ] }) : response({ operations: [{ tool: "set_track_volume_db", args: { trackId: "track-0", volumeDb: -12 } }] }));
+  const task = await service.call("run_production_task", { projectId: "song", goal: "Lower the named track to -12 dB", scope: { trackId: "track-0" } });
+  assert.equal(task.status, "proposed");
+  assert.equal(task.operationCount, 1);
+  assert.equal(task.readsUsed, 2);
+  assert.deepEqual(packets[0].progress, { turn: 1, maxTurns: 3, readsRemaining: 8, completedReads: [] });
+  const progress = packets[1].progress;
+  assert.equal(progress.turn, 2); assert.equal(progress.readsRemaining, 6);
+  assert.equal(progress.completedReads[0].tool, "get_track_mixer");
+  const observation = artifacts.get("song", progress.completedReads[0].artifactId);
+  assert.equal(observation.kind, "observation"); assert.equal(observation.value.args.trackId, "track-0");
+  assert.deepEqual(progress.completedReads[1].discovery.names, ["set_track_volume_db"]);
+  assert.ok(packets[1].tools.operations.some(tool => tool.name === "set_track_volume_db"));
+  assert.equal(task.turnRefs.length, 2);
+  assert.equal(progress.previousResultRef, task.turnRefs[0].resultRef);
+  assert.deepEqual(progress.previousResponse, artifacts.get("song", progress.previousResultRef).value.result);
+  for (const turn of task.turnRefs) {
+    const saved = artifacts.get("song", turn.resultRef);
+    assert.equal(saved.kind, "specialist-result"); assert.equal(saved.value.inputRef, turn.inputRef);
+    assert.equal(artifacts.get("song", turn.inputRef).value.progress.turn, turn.turn);
+  }
+});
+
+test("common gain proposals receive native dB schemas without an extra discovery turn", async t => {
+  const { service, packets } = await setup(t, packet => packet.tools.operations.some(tool => tool.name === "set_track_volume_db") &&
+    packet.tools.operations.some(tool => tool.name === "set_track_send_db")
+    ? response({ operations: [{ tool: "set_track_volume_db", args: { trackId: "track-0", volumeDb: -12 } }] })
+    : response({ reads: [{ tool: "discover_production_tools", args: { query: "set_track_volume_db", kind: "operation" } }] }));
+  const task = await service.call("run_production_task", { projectId: "song", goal: "Lower the named track to -12 dB", scope: { trackId: "track-0" } });
+  assert.equal(task.status, "proposed");assert.equal(task.operationCount, 1);
+  assert.equal(packets.length, 1);assert.equal(task.readsUsed, 0);
+  const schema = packets[0].tools.operations.find(tool => tool.name === "set_track_volume_db").inputSchema;
+  assert.equal(schema.properties.volumeDb.type, "number");assert.equal(schema.properties.expectedStateVersion, undefined);
+});
+
+test("exhausted tasks retain intermediate replies and an explicit stopping reason without executable operations", async t => {
+  const { service, packets, artifacts } = await setup(t, () => response({ reads: [{ tool: "get_live_state", args: {} }] }));
+  const task = await service.call("run_production_task", { projectId: "song", goal: "Inspect this Set" });
+  assert.equal(task.status, "budget_exhausted"); assert.equal(task.stopReason, "model_turn_limit");
+  assert.equal(task.operationCount, 0); assert.equal(task.readsUsed, 2);
+  assert.equal(task.turnRefs.length, 3);
+  assert.equal(packets[2].progress.turn, 3); assert.equal(packets[2].progress.readsRemaining, 6);
+  assert.equal(packets[2].progress.completedReads.length, 2);
+  const saved = artifacts.get("song", task.taskId).value;
+  assert.equal(saved.stopReason, "model_turn_limit"); assert.deepEqual(saved.turnRefs, task.turnRefs);
+  assert.equal(artifacts.get("song", task.turnRefs[2].resultRef).value.result.reads.length, 1);
+  await assert.rejects(service.call("apply_production_operation", { projectId: "song", taskId: task.taskId,
+    operationIndex: 0, expectedStateVersion: 1 }), /incomplete/);
+});
+
+test("turn budgets remain shared across roles while each role starts its own continuation", async t => {
+  const { service, packets } = await setup(t, packet => packet.role === "creative" && (!packet.progress || packet.progress.turn === 1)
+    ? response({ reads: [{ tool: "get_live_state", args: {} }] }) : response());
+  const task = await service.call("run_production_task", { projectId: "song", goal: "Plan this phase", roles: "both" });
+  assert.equal(task.status, "proposed"); assert.equal(task.readsUsed, 1);
+  assert.equal(packets.length, 3);
+  assert.equal(packets[2].role, "functional");
+  assert.deepEqual(packets[2].progress, { turn: 1, maxTurns: 3, readsRemaining: 7, completedReads: [] });
+});
+
+test("specialists can page their previous reply and receive the continuation offset", async t => {
+  const { service, packets } = await setup(t, packet => !packet.progress || packet.progress.turn === 1
+    ? response({ reads: [{ tool: "get_live_state", args: {} }] })
+    : packet.progress.turn === 2
+      ? response({ reads: [{ tool: "read_production_artifact", args: { artifactId: packet.progress.previousResultRef, offset: 0, limit: 100 } }] })
+      : response());
+  const task = await service.call("run_production_task", { projectId: "song", goal: "Review the previous reply" });
+  assert.equal(task.status, "proposed");assert.equal(task.readsUsed, 2);
+  const completed = packets[2].progress.completedReads[1];
+  assert.equal(completed.tool, "read_production_artifact");assert.equal(completed.nextOffset, 100);
+  assert.equal(completed.args.artifactId, task.turnRefs[0].resultRef);
+});
+
+test("a role cannot spend more reads than the remaining task budget", async t => {
+  const reads = Array.from({ length: 4 }, () => ({ tool: "get_live_state", args: {} }));
+  const { service, packets } = await setup(t, packet => packet.role === "creative" && packet.progress?.turn === 3
+    ? response() : response({ reads }));
+  const task = await service.call("run_production_task", { projectId: "song", goal: "Inspect", roles: "both" });
+  assert.equal(task.status, "budget_exhausted");assert.equal(task.stopReason, "read_limit");
+  assert.equal(task.readsUsed, 8);assert.equal(task.operationCount, 0);
+  assert.equal(packets.at(-1).role, "functional");assert.equal(packets.at(-1).progress.readsRemaining, 0);
+  assert.equal(task.turnRefs.length, 4);
 });
 
 test("execution forwards existing confirmations, rejects stale tasks, and records readback without asserting musical quality", async t => {
