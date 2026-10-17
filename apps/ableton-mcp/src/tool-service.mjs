@@ -4,6 +4,7 @@ import {getSceneLaunchContext} from "./scene-context.mjs";
 import {setTrackVolumeDb} from "./track-volume.mjs";
 import {setTrackSendDb} from "./track-send.mjs";
 import {setDeviceParameterDisplay} from "./parameter-display.mjs";
+import {showLiveObject} from "./live-navigation.mjs";
 import {createClipParameterEnvelope,createClipMixerEnvelope,replaceClipParameterEnvelope} from "./clip-envelope.mjs";
 import { enrichSessionOrientation, enrichMidiPartsContext } from "./session-orientation.mjs";
 import { instrumentComparison } from "./instrument-comparison.mjs";
@@ -468,6 +469,7 @@ export class ToolService {
 
   async call(name, args = {}) {
     requestSignal()?.throwIfAborted();
+    if (name === 'show_live_object') return showLiveObject(this.bridge, this.confirmations, args);
     if(name === "export_audio_mix")return exportAudioMix(this.bridge,this.confirmations,this.audioExportHost,args);
     if (name === "list_local_splice_roots") return listConfiguredSpliceRoots(this.spliceRoots);
     if (name === "browse_local_splice_directory") {

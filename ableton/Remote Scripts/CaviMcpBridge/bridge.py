@@ -6158,6 +6158,12 @@ def dispatch_request(song, request, state_version, application=None):
                 "device": _device_tree(device, params["deviceId"]),
                 "parameters": [_parameter_record(parameter, i, include_native_choice_labels=True)
                                for i, parameter in enumerate(device.parameters)]}
+    if method in ("get_live_navigation_context", "show_live_object"):
+        try:
+            from . import live_navigation
+        except ImportError:
+            import live_navigation
+        return (live_navigation.source if method == "get_live_navigation_context" else live_navigation.show)(song, params, state_version, application)
     if method in ("get_device_parameter_display_context", "set_device_parameter_display"):
         try:
             from . import parameter_display

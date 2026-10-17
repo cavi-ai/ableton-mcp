@@ -36,6 +36,7 @@
     "ableton/Remote Scripts/CaviMcpBridge/protocol.py",
     "ableton/Remote Scripts/CaviMcpBridge/parameter_display.py",
     "ableton/Remote Scripts/CaviMcpBridge/instrument_comparison.py",
+    "ableton/Remote Scripts/CaviMcpBridge/live_navigation.py",
     "ableton/Remote Scripts/CaviMcpBridge/audio_capture.py",
     "ableton/Remote Scripts/CaviMcpBridge/audio_export.py",
     "ableton/Remote Scripts/CaviMcpBridge/arrangement_section.py",

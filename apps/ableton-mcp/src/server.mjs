@@ -65,6 +65,7 @@ const toolNames = [
   "search_browser_item_metadata",
   "get_live_state",
   "get_selection_context",
+  "show_live_object",
   "get_session_orientation",
   "analyze_midi_parts",
   "analyze_arrangement_section",
