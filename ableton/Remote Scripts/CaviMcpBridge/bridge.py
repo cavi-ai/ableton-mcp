@@ -3095,6 +3095,12 @@ def dispatch_request(song, request, state_version, application=None):
         return dict(BRIDGE_PROTOCOL)
     if method == "get_selection_context":
         return _selection_context(song, state_version)
+    if method in ("get_live_object_colors", "set_live_object_colors"):
+        try:
+            from . import object_colors
+        except ImportError:
+            import object_colors
+        return (object_colors.source if method == "get_live_object_colors" else object_colors.write)(song, params, state_version)
     if method == "get_session_orientation":
         return _session_orientation(song, state_version, application)
     if method in ("get_arrangement_audition_source", "audition_arrangement_passage"):

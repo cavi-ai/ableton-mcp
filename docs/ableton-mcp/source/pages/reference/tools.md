@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 281 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 283 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (121)
+## Read-only (122)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -42,6 +42,7 @@ The server publishes 281 tools. Mutations of the Live Set require `expectedState
 | `get_history_state` | Read current Ableton undo and redo availability. | none |
 | `get_instrument_comparison` | Read a runtime instrument comparison and current track IDs, mute states and readiness. Omit comparisonId to list this bridge instance's active comparisons, including after a timed-out preparation. No edits. | none |
 | `get_live_audio_capture` | Read a capture's status, current native track/clip IDs, cleanup errors and stable completed file provenance. Omit captureId to list handles after reconnect or a timed-out start. No edits; runtime handles are not saved in the Set. | none |
+| `get_live_object_colors` | Read native RGB colors and palette indices for one to 64 explicit tracks, Returns, Main, scenes or existing Session/Arrangement clips. Preserves focus. All profile. | `objectIds` |
 | `get_live_scale_reference` | Resolve one exact Ableton Live 12 scale and root to semitone intervals, pitch classes, note names, degrees, and scale family. Read-only. | `scaleName`, `rootNote` |
 | `get_live_state` | Read Ableton bridge identity, capabilities, set file path, tempo, playback, and state version. | none |
 | `get_looper_export_context` | Read native Looper export capability, buffer length, state and an exact destination slot without changing focus or playback. Buffer audio bytes are unavailable. | `trackId`, `deviceId`, `destinationTrackId`, `destinationClipId` |
@@ -130,7 +131,7 @@ The server publishes 281 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (132)
+## Mutations (133)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -239,6 +240,7 @@ The server publishes 281 tools. Mutations of the Live Set require `expectedState
 | `set_drum_pad_state` | Plan or mute/solo an exact populated Drum Rack pad by MIDI note with a guarded rack snapshot. Does not assign sounds to pads. | `expectedStateVersion`, `trackId`, `deviceId`, `note` |
 | `set_groove` | Plan or apply guarded Groove Pool base-grid, name and percentage edits. Timing, random, pre-quantization use 0–100; velocity uses -100–100. Affects every clip using this shared groove; does not bake or extract a groove. | `expectedStateVersion`, `grooveId` |
 | `set_group_fold_state` | Plan or apply the folded state of one exact existing group track. | `expectedStateVersion`, `trackId`, `folded` |
+| `set_live_object_colors` | Set colors for one to 64 exact tracks, Returns, Main, scenes or existing Session/Arrangement clips in one undo step. Binds native identity and current color/name/selection. Live may choose a nearby palette color; reports actual RGB and exactMatch. Track color inheritance can affect Rack-chain appearance. No automatic clip recoloring or musical writes. Partial changes remain. All profile. | `expectedStateVersion`, `changes`, `expectedSetFingerprint` |
 | `set_master_mixer` | Plan or apply master mixer and available hardware output-channel changes. The native write rechecks the signed mixer state, validates bounded values, and groups all writes in one undo step with rollback on failure. | `expectedStateVersion` |
 | `set_midi_note_properties` | Plan or apply guarded per-note timing, velocity, probability, mute, and pitch changes by stable note ID on one exact Session or Arrangement MIDI clip. | `expectedStateVersion`, `trackId`, `clipId`, `changes` |
 | `set_preset_metadata` | Plan or update user tags and favorite state for one preset with an exact revision guard. | `expectedMetadataRevision`, `presetId` |
