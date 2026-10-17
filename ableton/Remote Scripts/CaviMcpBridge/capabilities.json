@@ -5,6 +5,8 @@
   "analyze_arrangement_section",
   "get_arrangement_audition_source", "audition_arrangement_passage",
   "get_scene_launch_context",
+  "get_simpler_sample_state", "load_simpler_sample", "set_simpler_sample_region", "set_simpler_manual_slices",
+  "set_clip_slot_stop_button",
   "get_device_parameter_edit_context",
   "get_device_parameter_display_context", "set_device_parameter_display",
   "get_clip_envelope_creation_context", "create_clip_parameter_envelope",

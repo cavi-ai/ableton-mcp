@@ -149,20 +149,22 @@ test("doctor exposes a stale bundled Remote Script beside a current User Library
   const bundledCopy = join(applicationsRoot, "Ableton Live 12 Suite.app", "Contents", "App-Resources", "MIDI Remote Scripts", "CaviMcpBridge");
   try {
     for (const directory of [source, userCopy, bundledCopy]) await mkdir(directory, { recursive: true });
-    for (const name of ["__init__.py", "arrangement_audition.py", "arrangement_section.py", "audio_capture.py", "audio_export.py", "bridge.py", "capabilities.json", "clip_duplication.py", "clip_envelope.py", "instrument_comparison.py", "parameter_display.py", "protocol.py", "session_recording.py", "track_send.py", "track_volume.py"]) {
-      await writeFile(join(source, name), `${name}: current`);
-      await writeFile(join(userCopy, name), `${name}: current`);
-      await writeFile(join(bundledCopy, name), name === "capabilities.json" ? `${name}: stale` : `${name}: current`);
+    for (const staleFile of ["capabilities.json", "simpler_sample.py"]) {
+      for (const name of ["__init__.py", "arrangement_audition.py", "arrangement_section.py", "audio_capture.py", "audio_export.py", "bridge.py", "capabilities.json", "clip_duplication.py", "clip_envelope.py", "instrument_comparison.py", "parameter_display.py", "protocol.py", "session_recording.py", "simpler_sample.py", "track_send.py", "track_volume.py"]) {
+        await writeFile(join(source, name), `${name}: current`);
+        await writeFile(join(userCopy, name), `${name}: current`);
+        await writeFile(join(bundledCopy, name), name === staleFile ? `${name}: stale` : `${name}: current`);
+      }
+      const result = await runCli(["doctor", "--json"], {
+        home, applicationsRoot, sourceRoot, platform: "darwin",
+        bridgeProbe: async () => ({ bridgeVersion: "0.2.1", capabilities: [], scriptDirectory: bundledCopy }), stdout: () => {}
+      });
+      assert.deepEqual(result.remoteScriptCopies, [
+        { path: userCopy, matchesPackagedFiles: true, differingFiles: [] },
+        { path: bundledCopy, matchesPackagedFiles: false, differingFiles: [staleFile] }
+      ]);
+      assert.equal(result.bridge.scriptDirectory, bundledCopy);
     }
-    const result = await runCli(["doctor", "--json"], {
-      home, applicationsRoot, sourceRoot, platform: "darwin",
-      bridgeProbe: async () => ({ bridgeVersion: "0.2.1", capabilities: [], scriptDirectory: bundledCopy }), stdout: () => {}
-    });
-    assert.deepEqual(result.remoteScriptCopies, [
-      { path: userCopy, matchesPackagedFiles: true, differingFiles: [] },
-      { path: bundledCopy, matchesPackagedFiles: false, differingFiles: ["capabilities.json"] }
-    ]);
-    assert.equal(result.bridge.scriptDirectory, bundledCopy);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
@@ -216,7 +218,7 @@ test("prompts commands render templates without opening a runtime", async () => 
   const runtimeFactory = () => { opened.push(true); return { close() {} }; };
   const output = [];
   const listed = await runCli(["prompts", "--json"], { runtimeFactory, stdout: (line) => output.push(line) });
-  assert.equal(listed.prompts.length, 20);
+  assert.equal(listed.prompts.length, 23);
   const rendered = await runCli(["prompt", "produce-drum-pattern", "--args", '{"trackId":"track-3"}', "--json"],
     { runtimeFactory, stdout: () => {} });
   assert.match(rendered.messages[0].content.text, /track-3/);

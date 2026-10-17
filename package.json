@@ -43,6 +43,7 @@
     "ableton/Remote Scripts/CaviMcpBridge/track_volume.py",
     "ableton/Remote Scripts/CaviMcpBridge/track_send.py",
     "ableton/Remote Scripts/CaviMcpBridge/session_recording.py",
+    "ableton/Remote Scripts/CaviMcpBridge/simpler_sample.py",
     "ableton/Remote Scripts/CaviMcpBridge/clip_duplication.py",
     "ableton/Remote Scripts/CaviMcpBridge/clip_envelope.py",
     "packages/nks-pipeline/src/catalog.mjs",
