@@ -388,6 +388,8 @@ const mixerEnvelopePoint={oneOf:creationEnvelopePoint.oneOf.map(schema=>({...sch
     {targetDisplay:string('Volume/send only: finite native dB target, such as -24 dB or -6 dB. Pan requires value. Decimal point only; -inf is not accepted.')})}}))};
 
 const contracts = {
+  get_browser_preview_context: {description:'Read native browser preview/stop availability and optional exact item with document/selection guards. Does not observe active preview, route, duration or audible output. No input or loading; all profile.',inputSchema:{...object({root:string('Observed Live browser root.'),path:{type:'array',minItems:1,maxItems:32,items:{type:'string',minLength:1,maxLength:256}}}),dependencies:{root:['path'],path:['root']}}},
+  set_browser_preview: {description:'Request start for an exact native browser item, or global stop. Can replace or stop a user preview. Guarded single native call; no loading, transport edits, ownership, active-state or audible verification. Start requires recording/count-in off. No automatic cleanup or replay. Updated bridge; all profile.',inputSchema:{...guarded({action:{type:'string',enum:['start','stop']},root:string('Exact browser root for start only.'),path:{type:'array',minItems:1,maxItems:32,items:{type:'string',minLength:1,maxLength:256}}},['action']),oneOf:[{properties:{action:{const:'start'},root:{},path:{}},required:['root','path']},{properties:{action:{const:'stop'},root:false,path:false}}]}},
   get_parameter_automation_context: {description:'Read discoverable device parameters or mixer controls and native automation handoff support on an exact track, Group, Return or Main. Omit parameterId to list, supply one observed ID for a target read. Unsupported controls remain explicit. Read-only; all profile.',inputSchema:object({trackId:ids.deviceOwnerId,deviceId:ids.deviceId,parameterId:string('Observed parameter-N for a device, or a mixer control ID from this read. Omit deviceId for mixer controls.')},['trackId'])},
   re_enable_parameter_automation: {description:'Hand one exact overridden device or mixer control back to native automation. Binds native owner/device/control identities and current manual value. Requires supported enabled control, unfrozen target and recording/count-in off; preserves playback. Values may jump. Reports active automation separately from requested handoff. Partial work remains; no rollback or replay. All profile.',inputSchema:guarded({trackId:ids.deviceOwnerId,deviceId:ids.deviceId,parameterId:string('Exact control ID returned by get_parameter_automation_context; omit deviceId for mixer controls.')},['trackId','parameterId'])},
   get_mixer_panning_context: {description:'Read exact track, Group, Return or Main panning mode and Stereo/left/right native values, displays, bounds, enablement and automation. Binds native owner/mixer/parameter identities. Read-only; unsupported fields explicit. All profile.',inputSchema:object({trackId:ids.deviceOwnerId},['trackId'])},
@@ -752,6 +754,7 @@ const contracts = {
 };
 
 const readOnlyTools = new Set([
+  'get_browser_preview_context',
   "get_parameter_automation_context",
   "get_mixer_panning_context",
   "get_crossfader_context",
