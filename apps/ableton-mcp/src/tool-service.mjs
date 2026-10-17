@@ -15,6 +15,7 @@ import {readTakeLaneContext} from "./take-lanes.mjs";
 import {MacTakeLaneAuditionHost,takeLaneAudition} from "./take-lane-audition.mjs";
 import {setTrackVolumeDb} from "./track-volume.mjs";
 import {parameterAutomation} from './parameter-automation.mjs';
+import {overrideParameterAutomation} from './parameter-override.mjs';
 import {setTrackSendDb} from "./track-send.mjs";
 import {setDeviceParameterDisplay} from "./parameter-display.mjs";
 import {showLiveObject} from "./live-navigation.mjs";
@@ -1682,6 +1683,7 @@ export class ToolService {
     if (name === "transform_midi_notes") return this.#transformMidiNotes(args);
     if (name === "set_track_mixer") return this.#setTrackMixer(args);
     if (['get_parameter_automation_context','re_enable_parameter_automation'].includes(name)) return parameterAutomation(this.bridge,this.confirmations,name,args);
+    if (name==='override_parameter_automation') return overrideParameterAutomation(this.bridge,this.confirmations,args);
     if (name === "set_track_volume_db") return setTrackVolumeDb(this.bridge,this.confirmations,args);
     if (name === "set_track_send_db") return setTrackSendDb(this.bridge,this.confirmations,args);
     if (name === "set_bulk_track_mixer") return this.#setBulkTrackMixer(args);
