@@ -32,6 +32,7 @@
         { "title": "Compare instruments", "path": "guides/instrument-comparison.md" },
         { "title": "Refine instrument sound", "path": "guides/instrument-refinement.md" },
         { "title": "Shape clip automation", "path": "guides/clip-automation.md" },
+        { "title": "Try native clip grooves", "path": "guides/native-grooves.md" },
         { "title": "Build a sample instrument", "path": "guides/sample-instrument.md" },
         { "title": "Chop a sample into a groove", "path": "guides/sample-chopping.md" },
         { "title": "Balance track levels", "path": "guides/mix-balance.md" },
