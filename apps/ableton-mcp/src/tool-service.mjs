@@ -715,6 +715,8 @@ export class ToolService {
     if (name === "list_tracks") return this.bridge.request("list_tracks", {});
     if (name === "list_scenes") return this.bridge.request("list_scenes", {});
     if (name === "get_scene_launch_context") return getSceneLaunchContext(this.bridge,args);
+    if (name === "get_simpler_sample_state") return this.#readSimplerSampleState(args);
+    if (name === "load_simpler_sample") return this.#loadSimplerSample(args);
     if (name === "list_clips") return this.bridge.request("list_clips", args);
     if (name === "list_arrangement_clips") return this.bridge.request(name, args);
     if (name === "place_session_clip_in_arrangement") return this.#placeSessionClipInArrangement(args);
@@ -3563,6 +3565,51 @@ export class ToolService {
       throw new Error("drum variation verification mismatch");
     return { dryRun: false, requested: plan, observed,
       verification: { matchesExpectedNotes: true, notes: observed }, timestamp: new Date().toISOString() };
+  }
+
+  async #readSimplerSampleState(args) {
+    if (typeof args.trackId !== 'string' || !/^track-(0|[1-9][0-9]*)$/.test(args.trackId) ||
+      typeof args.deviceId !== 'string' || !args.deviceId.startsWith(args.trackId) ||
+      !/^:device-(?:0|[1-9][0-9]*)(?:\/(?:chain|return-chain)-(?:0|[1-9][0-9]*)\/device-(?:0|[1-9][0-9]*))*$/.test(args.deviceId.slice(args.trackId.length))) throw Error('canonical ordinary MIDI track and owned device path required');
+    const before = await this.bridge.request('get_simpler_sample_state',{trackId:args.trackId,deviceId:args.deviceId});
+    if (!Number.isInteger(before.stateVersion) || before.trackId !== args.trackId || before.deviceId !== args.deviceId ||
+      typeof before.identityToken !== 'string' || !before.identityToken || before.device?.id !== args.deviceId || before.device?.className !== 'OriginalSimpler' ||
+      before.track?.id !== args.trackId || !before.recording || !Array.isArray(before.parameters) || before.parameters.length > 512 ||
+      before.sample !== null && (!before.sample || typeof before.sample.path !== 'string')) throw Error('updated bridge Simpler sample context required');
+    return before;
+  }
+
+  async #loadSimplerSample(args) {
+    requireExpectedState(args);
+    if (args.allowReplace !== undefined && typeof args.allowReplace !== 'boolean') throw Error('allowReplace must be boolean');
+    const modes=['classic','one-shot','slicing'];
+    if (args.playbackMode !== undefined && !modes.includes(args.playbackMode)) throw Error('playbackMode must be classic, one-shot or slicing');
+    if (typeof args.sourcePath !== 'string' || !isAbsolute(args.sourcePath)) throw Error('sourcePath must be an absolute local audio-file path');
+    const sourcePath=await realpath(args.sourcePath), info=await stat(sourcePath,{bigint:true});
+    if (!info.isFile()) throw Error('sourcePath must reference a regular file');
+    const sourceFile={size:String(info.size),mtimeNs:String(info.mtimeNs),device:String(info.dev),inode:String(info.ino)};
+    const before=await this.#readSimplerSampleState(args);assertExpectedState(args,before);
+    if (before.multiSampleMode !== false || before.canReplaceSample !== true) throw Error('single-sample Simpler replacement is unavailable');
+    if (before.sample !== null && args.allowReplace !== true) throw Error('allowReplace is required for an existing sample');
+    const row=before.track,recording=before.recording;
+    if (row.frozen !== false || row.armed !== false || ![1,2].includes(row.monitoring) || !Number.isInteger(row.firedSlotIndex) || row.firedSlotIndex >= 0 ||
+      recording.isPlaying !== false || recording.arrangement?.record !== false || recording.session?.record !== false || before.playingPositionEnabled !== false) {
+      throw Error('Simpler sample loading requires stopped transport, no recording, and an inactive unarmed target without input monitoring or pending launches');
+    }
+    const result=await this.#confirmedMutation({method:'load_simpler_sample',trackId:args.trackId,deviceId:args.deviceId,
+      expectedStateVersion:args.expectedStateVersion,sourcePath,sourceFile,allowReplace:args.allowReplace??false,
+      ...(args.playbackMode!==undefined?{playbackMode:modes.indexOf(args.playbackMode)}:{}),before,
+      warning:'Replaces this Simpler sample and may reset sample-derived controls, markers, slices or warp settings. Preserve an existing part through a separate native comparison when needed. File metadata is guarded, not decoded bytes or cache identity. Failure can leave a partial replacement; no complete sample-state backup or automatic rollback is available.'},args);
+    if (!result.dryRun) {
+      const value=result.observed;
+      let matchingPath=false;try {matchingPath=typeof value.sample?.path==='string' && await realpath(value.sample.path)===sourcePath;} catch {}
+      if (value.stateVersion!==args.expectedStateVersion+1 || value.verified!==true || value.trackId!==args.trackId || value.deviceId!==args.deviceId || !matchingPath ||
+        !Number.isSafeInteger(value.sample.lengthFrames) || value.sample.lengthFrames<=0 || !Number.isSafeInteger(value.sample.sampleRate) || value.sample.sampleRate<=0 ||
+        !Number.isSafeInteger(value.sample.startMarkerFrames) || !Number.isSafeInteger(value.sample.endMarkerFrames) ||
+        value.sample.startMarkerFrames<0 || value.sample.startMarkerFrames>=value.sample.endMarkerFrames || value.sample.endMarkerFrames>value.sample.lengthFrames ||
+        args.playbackMode!==undefined && value.playbackMode?.value!==modes.indexOf(args.playbackMode)) throw Error('Simpler sample readback mismatch; inspect the device and file before retrying');
+    }
+    return result;
   }
 
   async #createAudioClip(args) {
