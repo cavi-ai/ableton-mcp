@@ -794,6 +794,7 @@ export class ToolService {
     if (name === "get_track_mixer") return this.bridge.request("get_track_mixer", args);
     if (name === "get_track_signal_activity") return this.bridge.request("get_track_signal_activity", args);
     if (name === "get_track_routing") return this.bridge.request("get_track_routing", args);
+    if (name === "get_return_routing") return this.bridge.request("get_return_routing", args);
     if (name === "get_set_mixer") return this.bridge.request("get_set_mixer", {});
     if (name === "get_producer_workflow") return getProducerWorkflow(args);
     if (name === "audition_arrangement_passage") return auditionArrangementPassage(this.bridge,this.confirmations,args);
