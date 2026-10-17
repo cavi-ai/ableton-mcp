@@ -9,12 +9,14 @@ import {collectProjectMedia,projectMediaInventory,MacProjectMediaHost} from './p
 import { enrichArrangementSection, assertArrangementRange } from "./arrangement-section.mjs";
 import { assertExpectedState } from "./bridge-protocol.mjs";
 import {groupTracks,getTrackGroupingStatus,ungroupTracks,getTrackUngroupingStatus,MacTrackGroupingHost} from './track-grouping.mjs';
+import {getLiveObjectColors,setLiveObjectColors} from './object-colors.mjs';
 import {getSceneLaunchContext} from "./scene-context.mjs";
 import {readTakeLaneContext} from "./take-lanes.mjs";
 import {MacTakeLaneAuditionHost,takeLaneAudition} from "./take-lane-audition.mjs";
 import {setTrackVolumeDb} from "./track-volume.mjs";
 import {setTrackSendDb} from "./track-send.mjs";
 import {setDeviceParameterDisplay} from "./parameter-display.mjs";
+import {showLiveObject} from "./live-navigation.mjs";
 import {createClipParameterEnvelope,createClipMixerEnvelope,replaceClipParameterEnvelope} from "./clip-envelope.mjs";
 import { enrichSessionOrientation, enrichMidiPartsContext } from "./session-orientation.mjs";
 import { instrumentComparison } from "./instrument-comparison.mjs";
@@ -459,7 +461,7 @@ function normalizeBrowserSearch(args) {
 
 export class ToolService {
   constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, deviceChainLibrary, groupSystemLibrary, midiFeelLibrary, browserMetadata, spliceRoots = [], generationQueuePath,
-    liveSetHost = new MacLiveSetHost(), audioExportHost, projectMediaHost, devicePresetHost, trackGroupingHost, midiExportHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000, trackFreezeHost, trackBounceHost, recordingSetupHost, midiImportHost, takeLaneAuditionHost, grooveRemovalHost }) {
+    liveSetHost = new MacLiveSetHost(), audioExportHost, projectMediaHost, devicePresetHost, trackGroupingHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000, midiExportHost, trackFreezeHost, trackBounceHost, recordingSetupHost, midiImportHost, takeLaneAuditionHost, grooveRemovalHost }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
@@ -494,6 +496,7 @@ export class ToolService {
 
   async call(name, args = {}) {
     requestSignal()?.throwIfAborted();
+    if (name === 'show_live_object') return showLiveObject(this.bridge, this.confirmations, args);
     if(name === "export_midi_clip")return saveMidiClip(this.bridge,this.confirmations,this.midiExportHost,args);
     if(name === "bounce_track_in_place")return trackBounce(this.bridge,this.confirmations,this.trackBounceHost,args);
     if(name==='import_midi_file')return importMidiFile(this.bridge,this.confirmations,this.midiImportHost,args);
@@ -1623,6 +1626,8 @@ export class ToolService {
     if (name === "set_clip_slot_stop_button") return this.#setClipSlotStopButton(args);
     if (name === "set_scene_musical_context") return this.#setSceneMusicalContext(args);
     if (name === "rename_session_object") return this.#renameSessionObject(args);
+    if (name === "get_live_object_colors") return getLiveObjectColors(this.bridge,args);
+    if (name === "set_live_object_colors") return setLiveObjectColors(this.bridge,this.confirmations,args);
     if (name === "duplicate_session_object") return this.#duplicateSessionObject(args);
     if (name === "delete_session_object") return this.#deleteSessionObject(args);
     if (name === "set_audio_clip_state") return this.#setAudioClipState(args);

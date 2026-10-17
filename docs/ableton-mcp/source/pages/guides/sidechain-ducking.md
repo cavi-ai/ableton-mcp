@@ -1,12 +1,14 @@
 # Duck one part against another
 
-Use `duck-against-source` through the MCP prompt or `get_producer_workflow` for requests such as “make room for the kick on the bass.” Describe the trigger, the part to duck, the desired strength or movement, and whether to audition. Retrieving the workflow only returns guidance; it does not call Live or configure a processor automatically.
+Use `duck-against-source` or `set-up-sidechain-ducking` through the MCP prompt or `get_producer_workflow` for requests such as “make room for the kick on the bass.” Describe the trigger, the part to duck, the desired strength or movement, and whether to audition. Retrieving the workflow only returns guidance; it does not call Live or configure a processor automatically.
 
 `mode: "collaborative"` is the default. Materially different source, target, processor and character choices are resolved with the user. `mode: "autonomous"` lets the agent choose bounded initial settings within the brief. Both modes use the same guarded operations and preserve unrelated parts and manual edits.
 
 `set-up-sidechain-ducking` is an alias of `duck-against-source` and uses the same instructions. For a requested preserved MIDI comparison, use [instrument comparison](instrument-comparison.md), resolve the returned alternative IDs and process only that chosen alternative.
 
 ## Keep the two audio paths
+
+For a preserved MIDI alternative, [instrument comparison](instrument-comparison.md) copies the whole track and starts the alternative muted and unarmed. Track IDs shift: resolve the returned identities before another edit. Reuse an identified alternative rather than making repeated copies. Editing the existing target in place must be intended; exposed snapshots cannot reconstruct hidden plug-in state or complete automation.
 
 Resolve exact track IDs and the target device hierarchy first. A processor on a Group affects its routed children. Reuse an existing compressor only with authority to change that processor, or load a new exact factory Compressor and verify its insertion and the preserved device order. Loading a new effect does not authorize replacing an instrument or changing source processing, notes, faders, sends, monitoring or output routing. The workflow checks recording context and defers setup while recording is active.
 

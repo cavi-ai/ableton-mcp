@@ -3113,6 +3113,12 @@ def dispatch_request(song, request, state_version, application=None):
         handler = {"get_track_grouping_source": track_grouping.source, "get_track_grouping_status": track_grouping.status,
                    "get_track_ungrouping_source": track_grouping.ungroup_source, "get_track_ungrouping_status": track_grouping.ungroup_status}[method]
         return handler(song, params, state_version)
+    if method in ("get_live_object_colors", "set_live_object_colors"):
+        try:
+            from . import object_colors
+        except ImportError:
+            import object_colors
+        return (object_colors.source if method == "get_live_object_colors" else object_colors.write)(song, params, state_version)
     if method == "get_session_orientation":
         return _session_orientation(song, state_version, application)
     if method in ("get_arrangement_audition_source", "audition_arrangement_passage"):
@@ -6336,6 +6342,12 @@ def dispatch_request(song, request, state_version, application=None):
                 "device": _device_tree(device, params["deviceId"]),
                 "parameters": [_parameter_record(parameter, i, include_native_choice_labels=True)
                                for i, parameter in enumerate(device.parameters)]}
+    if method in ("get_live_navigation_context", "show_live_object"):
+        try:
+            from . import live_navigation
+        except ImportError:
+            import live_navigation
+        return (live_navigation.source if method == "get_live_navigation_context" else live_navigation.show)(song, params, state_version, application)
     if method in ("get_device_ab_context", "copy_device_ab_slot", "select_device_ab_slot"):
         try:
             from . import device_ab
