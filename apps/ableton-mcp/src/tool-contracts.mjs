@@ -512,6 +512,9 @@ const contracts = {
   jump_to_arrangement_cue_point: { description: "Plan or move the playhead to one exact Arrangement cue point.", inputSchema: guarded({ cuePointId: string("Stable cue-point ID.") }, ["cuePointId"]) },
   list_tracks: { description: "List stable Ableton track identities, mixer state, and existing group hierarchy.", inputSchema: empty },
   list_scenes: { description: "List stable Session scene identities, names, and per-scene launch quantization.", inputSchema: empty },
+  get_take_lane_audition_context: {description: "Read native take inventory and currently exposed macOS English Live audition checkboxes without changing view, focus or playback. Hidden lanes have unknown audition state. Requires a saved Set with native document identity, one Live instance and an updated bridge; all profile.",inputSchema:track},
+  show_take_lanes: {description: "Show Arrangement and one track take lanes through the macOS English Live UI. Requires an unarmed unfrozen track, recording off and unfolded ancestor groups. Requires a saved Set with native document identity and one Live instance. Changes visible UI/focus; no playback or comp edit.",inputSchema:guarded({trackId:ids.trackId},["trackId"])},
+  select_take_lane_audition: {description: "Select audition for one entire visible take lane, or return its track to the comp with laneId null. Rechecks native and UI identities/flags. Does not start playback, edit the comp or change mutes/solos/routing. Requires a saved Set with native document identity and one Live instance; macOS English Live, all profile.",inputSchema:guarded({trackId:ids.trackId,laneId:{oneOf:[{type:"string"},{type:"null"}],description:"Exact lane ID from inventory, or explicit null for the comp."}},["trackId","laneId"])},
   get_take_lane_context: {description: "Inspect one track take-lane inventory and optionally one complete stored take clip. Read-only; preserves focus. Selected MIDI reports up to 4096 notes; audio reports exposed source/timing controls. Does not expose comp selections, envelopes or rendered sound. All profile.", inputSchema: object({trackId:ids.trackId,takeClipId:string("Exact take clip ID from this inventory; omit for lane/clip summaries.")},["trackId"])},
   get_scene_launch_context: {description:'Preview an exact Session scene in one native read: every track/slot, clip/stop/Group actions, arms, recording risks, current playback and global/scene musical context. Preserves selection and playback. Launch metadata only; no audible or follow-action prediction. All profile.',inputSchema:object({sceneId:ids.sceneId},['sceneId'])},
   get_simpler_sample_state: {description:'Read one existing Simpler, including nested racks: path, length/start-end markers/slices in sample frames, rate in Hz, native warp/slicing controls, playback mode, parameters and edit context. No edits. All profile; requires updated bridge.',inputSchema:object({trackId:ids.trackId,deviceId:ids.deviceId},['trackId','deviceId'])},
@@ -711,6 +714,7 @@ const contracts = {
 };
 
 const readOnlyTools = new Set([
+  "get_take_lane_audition_context",
   "get_take_lane_context",
   "get_project_media",
   "get_producer_workflow",

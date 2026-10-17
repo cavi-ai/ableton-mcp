@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 259 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 262 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (112)
+## Read-only (113)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -60,6 +60,7 @@ The server publishes 259 tools. Mutations of the Live Set require `expectedState
 | `get_simpler_sample_state` | Read one existing Simpler, including nested racks: path, length/start-end markers/slices in sample frames, rate in Hz, native warp/slicing controls, playback mode, parameters and edit context. No edits. All profile; requires updated bridge. | `trackId`, `deviceId` |
 | `get_song_grid_reference` | Read a meter/tempo-aware bar of straight 16ths and eighth/sixteenth triplets, downbeats/offbeats and advisory 4/4 genre placements. Read-only. | none |
 | `get_song_musical_context` | Read key, scale, time signature, quantization, groove, swing, and Arrangement loop context. | none |
+| `get_take_lane_audition_context` | Read native take inventory and currently exposed macOS English Live audition checkboxes without changing view, focus or playback. Hidden lanes have unknown audition state. Requires a saved Set with native document identity, one Live instance and an updated bridge; all profile. | `trackId` |
 | `get_take_lane_context` | Inspect one track take-lane inventory and optionally one complete stored take clip. Read-only; preserves focus. Selected MIDI reports up to 4096 notes; audio reports exposed source/timing controls. Does not expose comp selections, envelopes or rendered sound. All profile. | `trackId` |
 | `get_track_freeze_state` | Read one track's native freeze state. On the tested Live 12.4.5, is_frozen is readable but has no setter, so freeze/unfreeze remain UI-only; Live's native error surfaces if a future version exposes the setter. | `trackId` |
 | `get_track_midi_routing` | Read one track's native MIDI note routing (input/output notes and scale transposition) from its MIDIMap. Reports unsupported explicitly when Live does not expose it. | `trackId` |
@@ -121,7 +122,7 @@ The server publishes 259 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (123)
+## Mutations (125)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -209,6 +210,7 @@ The server publishes 259 tools. Mutations of the Live Set require `expectedState
 | `save_midi_feel_template` | Analyze one exact MIDI clip and save its stored-note timing and velocity template in the private named local library. Never overwrites. Rejects clips assigned a native groove; does not capture Groove Pool playback effects. | `name`, `trackId`, `clipId`, `grid` |
 | `save_track_state_snapshot` | Capture one exact track state and save its JSON to the private named local snapshot library. Never overwrites; excludes clips, hidden plugin state, samples, automation and mappings. | `trackId`, `name` |
 | `select_instrument_comparison` | Plan or switch only the original/alternative pair's mutes in one native step. Restore uses the reported preparation/adoption mute baseline. Refuses recording, frozen, solo and live-input conflicts. No playback, routing or note edits. Optional finish ends the handle and preserves both tracks. | `expectedStateVersion`, `comparisonId`, `choice` |
+| `select_take_lane_audition` | Select audition for one entire visible take lane, or return its track to the comp with laneId null. Rechecks native and UI identities/flags. Does not start playback, edit the comp or change mutes/solos/routing. Requires a saved Set with native document identity and one Live instance; macOS English Live, all profile. | `expectedStateVersion`, `trackId`, `laneId` |
 | `set_audio_clip_state` | Plan or apply guarded audio-clip gain, pitch offsets, warp, and marker changes. Use beats for warped clips and seconds for unwarped clips; change warping separately from markers. | `expectedStateVersion`, `trackId`, `clipId` |
 | `set_beat_repeat_enabled` | Plan or request one exact native Beat Repeat Repeat choice, Off or On. Native execution rechecks the complete device, routing, and transport snapshot before writing Repeat and reports its immediately observed value. Does not promise beat-scheduled execution, a captured buffer, or an audible effect. | `expectedStateVersion`, `trackId`, `deviceId`, `enabled` |
 | `set_beat_repeat_grid` | Plan or request one exact native Beat Repeat Grid display division from get_beat_repeat_performance_context.gridChoices. Ambiguous or unavailable display labels fail closed. Native execution rechecks the complete device, routing, and transport snapshot before writing; observed parameter equality is reported, not an audible or beat-scheduled result. | `expectedStateVersion`, `trackId`, `deviceId`, `gridDisplayValue` |
@@ -241,6 +243,7 @@ The server publishes 259 tools. Mutations of the Live Set require `expectedState
 | `set_track_volume_db` | Set a track fader in dB using Live's native display, with identity, value and automation rechecks. Refuses recording, disabled or automated faders and unrepresentable levels. | `expectedStateVersion`, `trackId`, `volumeDb` |
 | `set_transport_context` | Plan or apply guarded metronome and count-in changes. | `expectedStateVersion` |
 | `set_transport_recording_context` | Plan or apply guarded playhead and recording-mode changes. | `expectedStateVersion` |
+| `show_take_lanes` | Show Arrangement and one track take lanes through the macOS English Live UI. Requires an unarmed unfrozen track, recording off and unfolded ancestor groups. Requires a saved Set with native document identity and one Live instance. Changes visible UI/focus; no playback or comp edit. | `expectedStateVersion`, `trackId` |
 | `stop_all_clips` | Plan or stop every playing Session clip in one guarded step using Live's native stop-all action. Playback-only; does not delete or mute clips. | `expectedStateVersion` |
 | `stop_clip` | Plan or stop one exact Session clip slot. | `expectedStateVersion`, `trackId`, `clipId` |
 | `store_rack_macro_variation` | Plan or store a new native variation of mapped rack macros. Binds exact rack and parameter state and reports Live's observed count; variation contents are not exposed by Live's API. | `expectedStateVersion`, `trackId`, `deviceId` |
