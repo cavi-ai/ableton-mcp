@@ -35,6 +35,36 @@ test("export planning has no UI effects and rechecks mix context immediately bef
   assert.equal(result.artifactVerified,true);assert.equal(result.exportVerified,false);assert.equal(result.renderCompletion,"unconfirmed");assert.equal(ready,1);
 });
 
+for(const phase of ["confirmation","beforeExport","beforeSave","afterRender"])test(`crossfader membership changes at the same version are detected at ${phase}`,async()=>{
+  let assignment="none",renders=0,exports=0,saves=0;
+  const bridge={request:async()=>({stateVersion:3,setFingerprint:"set",identityToken:"document",
+    crossfader:{identityToken:"native-mixers",tracks:[{trackId:"return-0",assignment:{supported:true,name:assignment}}]}})};
+  const host={appPathFor:()=>"/Live.app",destination:async path=>({path}),
+    render:async(app,settings,destination,{beforeExport,beforeSave})=>{
+      renders++;
+      if(phase==="beforeExport")assignment="B";
+      await beforeExport();exports++;
+      if(phase==="beforeSave")assignment="B";
+      await beforeSave();saves++;
+      if(phase==="afterRender")assignment="B";
+      return {exportRequested:true,uiComplete:true};
+    },verify:async()=>({verified:true,durationSeconds:8})};
+  const store=new ConfirmationStore(),args={path:"/Mix.wav",start:"1.1.1",length:"4.0.0",expectedStateVersion:3,expectedSetFingerprint:"set"};
+  const plan=await exportAudioMix(bridge,store,host,args);
+  if(phase==="confirmation")assignment="B";
+  const execute=()=>exportAudioMix(bridge,store,host,{...args,dryRun:false,confirmationToken:plan.confirmation.token,planHash:plan.confirmation.planHash});
+  if(phase==="confirmation"){
+    await assert.rejects(execute(),/hash mismatch/);assert.equal(renders,0);
+  }else{
+    const result=await execute();assert.equal(result.exportVerified,false);assert.equal(renders,1);
+    if(phase==="afterRender"){
+      assert.equal(result.contextUnchanged,false);assert.equal(result.artifactVerified,true);assert.equal(result.renderCompletion,"unconfirmed");
+    }else assert.match(result.limitation,/context changed before render/);
+  }
+  assert.equal(exports,phase==="confirmation"||phase==="beforeExport"?0:1);
+  assert.equal(saves,phase==="afterRender"?1:0);
+});
+
 test("a file alone cannot verify an unfinished or unknown native export",async()=>{
   const bridge={request:async()=>({stateVersion:3,setFingerprint:"set",identityToken:"document"})};
   const host={appPathFor:()=>"/Live.app",destination:async path=>({path}),render:async()=>({exportRequested:true,uiComplete:false}),verify:async()=>{throw Error("must not verify while native UI is unresolved");}};

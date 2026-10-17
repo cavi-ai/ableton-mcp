@@ -18,6 +18,8 @@ Plan `export_audio_mix` with the path, start, length, fresh `expectedStateVersio
 
 Review the warning and execute the unchanged confirmed plan. The bridge binds native document identity and observed track/Return/Main mix controls and playback references. Note, device, automation and hidden-state contents are outside that context. They can include intervening edits. The host rechecks the context before Export and Save and binds both native dialog windows, their input and the full destination directory.
 
+The mix context includes A/B crossfader membership for ordinary tracks, Groups and Returns, their native mixer identities, and Main's crossfader parameter identity, position, availability and automation status. Changing an observed value or replacing a native mixer or Main crossfader parameter invalidates the plan even if the bridge state version is unchanged. Unavailable crossfader fields are reported explicitly. Crossfader curves and automation envelope contents remain outside this check; observed controls do not establish audible balance or complete Set equivalence.
+
 Known failures before Save attempt cleanup only of unchanged owned dialogs. User edits or unavailable ownership evidence preserve the dialog and report uncertainty. A Save attempt with an unknown outcome is never replayed or cancelled automatically.
 
 ## Verify the deliverable
