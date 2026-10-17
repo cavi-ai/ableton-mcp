@@ -1,11 +1,6 @@
-import {execFile} from 'node:child_process';
-import {promisify} from 'node:util';
-import {realpath} from 'node:fs/promises';
-import {fileURLToPath} from 'node:url';
 import {hashPlan} from './confirmation-store.mjs';
 import {requestSignal} from './request-context.mjs';
-import {MacLiveSetHost} from './live-set-host.mjs';
-const execute=promisify(execFile),script=fileURLToPath(new URL('./live-track-freeze.js',import.meta.url)),focusScript=fileURLToPath(new URL('./live-app-focus.js',import.meta.url));
+import {MacTrackMenuHost} from './track-menu.mjs';
 
 export async function trackFreeze(bridge,confirmations,host,args){
   const read=()=>bridge.request('get_track_freeze_source',{trackId:args.trackId}),before=await read();
@@ -29,11 +24,11 @@ export async function trackFreeze(bridge,confirmations,host,args){
     ui=await host.commit(before,prepared,args.frozen,{beforeCommit:async()=>{await recheck();if((await bridge.request('get_selection_context',{})).selectedTrack?.id!==args.trackId)throw Object.assign(Error('native selected track changed before freeze'),{freezeRequested:false});},signal:requestSignal()});
   }catch(failure){
     error=failure;prepared=failure.prepared??prepared;
-    if(prepared&&failure.freezeRequested===false)try{cleanup=await host.cancel(before,prepared);}catch(cancelError){cleanup={cancelled:false,error:cancelError.message};}
+    if(prepared&&(failure.freezeRequested??failure.operationRequested)===false)try{cleanup=await host.cancel(before,prepared);}catch(cancelError){cleanup={cancelled:false,error:cancelError.message};}
   }
   let after;
   try{after=await read();}catch(failure){error??=failure;}
-  const freezeRequested=error?error.freezeRequested??ui?.freezeRequested??null:ui.freezeRequested;
+  const freezeRequested=error?error.freezeRequested??error.operationRequested??ui?.freezeRequested??ui?.operationRequested??null:ui.freezeRequested??ui.operationRequested;
   const freezeVerified=!error&&ui?.uiIdle===true&&ui.popupClosed===true&&after?.identityToken===before.identityToken&&after.filePath===before.filePath&&
     after.freeze?.frozen===args.frozen&&hashPlan(after.otherFreezeStates)===hashPlan(before.otherFreezeStates)&&Object.values(after.readiness).every(v=>v===false);
   return {dryRun:false,requested:plan,observed:after?{stateVersion:after.stateVersion,trackId:args.trackId,freeze:after.freeze}:null,
@@ -43,31 +38,6 @@ export async function trackFreeze(bridge,confirmations,host,args){
     ...(!freezeVerified?{verificationError:error?.message??'requested freeze state or idle native UI did not verify'}:{})};
 }
 
-export class MacTrackFreezeHost{
-  constructor({platform=process.platform,liveSetHost=new MacLiveSetHost(),run=execute}={}){this.platform=platform;this.liveSetHost=liveSetHost;this.run=run;this.busy=false;}
-  async owner(source){
-    if(this.platform!=='darwin')throw Object.assign(Error('track freeze requires macOS English Live'),{freezeRequested:false});
-    const appPath=await realpath(this.liveSetHost.appPathFor(source)),executable=await realpath(appPath+'/Contents/MacOS/Live'),processes=await this.liveSetHost.runningProcesses();
-    if(processes.length!==1||processes[0].path!==executable)throw Object.assign(Error('exactly one expected Live app is required'),{freezeRequested:false});
-    return {pid:processes[0].pid,appPath};
-  }
-  async call(owner,source,input,signal){
-    const result=JSON.parse((await this.run('/usr/bin/osascript',['-l','JavaScript',script,JSON.stringify({...owner,filePath:source.filePath,setName:source.setName,uiPath:source.uiPath,trackName:source.name,...input})],{timeout:30000,maxBuffer:131072,signal})).stdout);
-    if(result.error)throw Object.assign(Error(result.error),{freezeRequested:result.freezeRequested,prepared:result.prepared?{...owner,...result.prepared}:null,requiresInspection:result.requiresInspection});return result;
-  }
-  async prepare(source,{beforePrepare,signal}){
-    if(this.busy)throw Object.assign(Error('another freeze action is active'),{freezeRequested:false});this.busy=true;
-    let preparationDispatched=false;
-    try{
-      const owner=await this.owner(source),view=await this.call(owner,source,{action:'inspect'},signal);
-      const focused=JSON.parse((await this.run('/usr/bin/osascript',['-l','JavaScript',focusScript,JSON.stringify({...owner,windowId:view.mainWindowId})],{timeout:10000,maxBuffer:65536,signal})).stdout);
-      if(!focused.focused)throw Error('Live did not become visible');
-      await beforePrepare();preparationDispatched=true;return {...owner,...await this.call(owner,source,{action:'prepare',expectedMain:view,frozen:source.freeze.frozen},signal)};
-    }catch(error){this.busy=false;error.freezeRequested??=false;if(preparationDispatched)error.requiresInspection=true;throw error;}
-  }
-  async commit(source,prepared,frozen,{beforeCommit,signal}){
-    try{await beforeCommit();const owner=await this.owner(source);if(owner.pid!==prepared.pid)throw Object.assign(Error('Live process changed'),{freezeRequested:false});return await this.call(owner,source,{action:'commit',prepared,frozen},signal);}
-    finally{this.busy=false;}
-  }
-  async cancel(source,prepared){try{const owner=await this.owner(source);if(owner.pid!==prepared.pid)throw Error('Live process changed');return await this.call(owner,source,{action:'cancel',prepared});}finally{this.busy=false;}}
+export class MacTrackFreezeHost extends MacTrackMenuHost {
+  constructor(options={}){super({...options,operation:'freeze'});}
 }

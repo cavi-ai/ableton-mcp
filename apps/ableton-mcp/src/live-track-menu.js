@@ -1,8 +1,9 @@
 function trackFreezeMenuTitle(frozen){return frozen?'Freeze Track':'Unfreeze Track';}
 function trackFreezeSelection(ids,target){return Array.isArray(ids)&&ids.length===1&&ids[0]===target;}
+function trackMenuTitle(operation,frozen){if(operation==='bounce')return 'Bounce Track in Place';if(operation==='freeze'&&typeof frozen==='boolean')return trackFreezeMenuTitle(frozen);throw Error('Unknown track menu operation');}
 function run(argv){
  ObjC.import('AppKit');ObjC.import('ApplicationServices');ObjC.import('CoreGraphics');
- var input=JSON.parse(argv[0]),retained=[],prepared=input.prepared||null,freezeRequested=false,opened=false;
+ var input=JSON.parse(argv[0]),retained=[],prepared=input.prepared||null,operationRequested=false,opened=false;
  function read(e,k){var r=Ref(),error=$.AXUIElementCopyAttributeValue(e,$(k),r);if(error===-25212||error===-25205)return null;if(error)throw Error('Native accessibility unavailable: '+k);var v=ObjC.castRefToObject(r[0]);retained.push(v);return v;}
  function list(v){var a=[];if(v)for(var i=0;i<v.count;i++)a.push(v.objectAtIndex(i));return a;}
  function get(e,k){return ObjC.unwrap(read(e,k));}
@@ -17,7 +18,7 @@ function run(argv){
  function screenIds(){return cg(true).map(function(w){return Number(w.kCGWindowNumber);}).sort(function(a,b){return a-b;});}
  function foreground(){if(Number(app.active)!==1)throw Error('Live is not frontmost');}
  function main(){
-  var all=windows();if(all.some(function(w){return get(w,'AXModal')===true||get(w,'AXSubrole')==='AXDialog'||list(read(w,'AXSheets')).length;}))throw Error('Resolve native dialog before freezing');
+  var all=windows();if(all.some(function(w){return get(w,'AXModal')===true||get(w,'AXSubrole')==='AXDialog'||list(read(w,'AXSheets')).length;}))throw Error('Resolve native dialog before track rendering');
   var w=one(all.filter(function(w){return get(w,'AXTitle')===input.setName;}),'Exact Set window unavailable'),url=get(w,'AXDocument');
   if(typeof url!=='string'||!/^file:\/\//.test(url))throw Error('Saved Set document unavailable');
   var file=$.NSURL.URLWithString($(url));if(Number(file.isFileURL)!==1||ObjC.unwrap(file.path.stringByResolvingSymlinksInPath)!==ObjC.unwrap($(input.filePath).stringByResolvingSymlinksInPath))throw Error('Saved Set document changed');return w;
@@ -50,30 +51,30 @@ function run(argv){
   throw Error('Track navigation exceeds supported bounds');
  }
  function menuState(menu){return list(read(menu,'AXChildren')).map(function(e){return {role:get(e,'AXRole'),title:get(e,'AXTitle'),enabled:get(e,'AXEnabled')};});}
- function owned(){foreground();if(!same(mainState(),prepared.main)||!same(screenIds(),prepared.screenIds)||!same(selection(),prepared.selection))throw Error('Owned freeze UI or track selection changed');var menu=one(menus(),'Exact owned track menu unavailable');if(!same(menuState(menu),prepared.menu))throw Error('Track menu changed');return menu;}
+ function owned(){foreground();if(!same(mainState(),prepared.main)||!same(screenIds(),prepared.screenIds)||!same(selection(),prepared.selection))throw Error('Owned track UI or track selection changed');var menu=one(menus(),'Exact owned track menu unavailable');if(!same(menuState(menu),prepared.menu))throw Error('Track menu changed');return menu;}
  function closed(){return menus().length===0&&prepared.menuWindowIds.length>0&&prepared.menuWindowIds.every(function(id){return screenIds().indexOf(id)<0;});}
  function wait(check,attempts){for(var i=0;i<attempts;i++){try{if(check())return true;}catch(error){}delay(0.05);}return false;}
  try{
   if(input.action==='inspect'){if(menus().length)throw Error('Resolve existing native popup first');target();return JSON.stringify(mainState());}
   foreground();
   if(input.action==='prepare'){
-   if(menus().length||!same(mainState(),input.expectedMain))throw Error('Freeze UI changed before preparation');selectExclusive();var row=target();
+   if(menus().length||!same(mainState(),input.expectedMain))throw Error('Track UI changed before preparation');selectExclusive();var row=target();
    var ids=selection();if(!trackFreezeSelection(ids,get(row,'AXIdentifier')))throw Error('Exact single-track selection did not verify');
    var beforeIds=screenIds();if($.AXUIElementPerformAction(row,$('AXShowMenu')))throw Error('Track menu request outcome unknown');opened=true;
    var menu=one(menus(),'Track context menu unavailable'),newIds=[];wait(function(){newIds=screenIds().filter(function(id){return beforeIds.indexOf(id)<0;});return newIds.length>0;},40);
    if(!newIds.length||newIds.length>4)throw Error('Track popup identity unavailable');
-   prepared={main:mainState(),selection:ids,screenIds:screenIds(),menuWindowIds:newIds,menu:menuState(menu)};
-   var title=trackFreezeMenuTitle(!input.frozen);one(prepared.menu.filter(function(e){return e.role==='AXMenuItem'&&String(e.title).split(',')[0]===title&&e.enabled===true;}),'Explicit enabled freeze command unavailable');
+   prepared={operation:input.operation,main:mainState(),selection:ids,screenIds:screenIds(),menuWindowIds:newIds,menu:menuState(menu)};
+   var title=trackMenuTitle(input.operation,!input.frozen);one(prepared.menu.filter(function(e){return e.role==='AXMenuItem'&&String(e.title).split(',')[0]===title&&e.enabled===true;}),'Explicit enabled track command unavailable');
    return JSON.stringify(prepared);
   }
-  if(!prepared)throw Error('Owned freeze preparation required');
+  if(!prepared||prepared.operation!==input.operation)throw Error('Owned track preparation required');
   if(input.action==='cancel'){
    if(closed())return JSON.stringify({cancelled:true,alreadyClosed:true});owned();Application('System Events').keyCode(53);if(!wait(closed,40))throw Error('Owned track popup closure unverified');return JSON.stringify({cancelled:true});
   }
-  if(input.action!=='commit'||typeof input.frozen!=='boolean')throw Error('Invalid freeze action');
-  var menu=owned(),title=trackFreezeMenuTitle(input.frozen),item=one(list(read(menu,'AXChildren')).filter(function(e){return get(e,'AXRole')==='AXMenuItem'&&String(get(e,'AXTitle')).split(',')[0]===title&&get(e,'AXEnabled')===true;}),'Exact enabled freeze command unavailable');
-  freezeRequested=null;if($.AXUIElementPerformAction(item,$('AXPress')))throw Error('Native freeze request outcome unknown');freezeRequested=true;
+  if(input.action!=='commit'||input.operation==='freeze'&&typeof input.frozen!=='boolean')throw Error('Invalid track action');
+  var menu=owned(),title=trackMenuTitle(input.operation,input.frozen),item=one(list(read(menu,'AXChildren')).filter(function(e){return get(e,'AXRole')==='AXMenuItem'&&String(get(e,'AXTitle')).split(',')[0]===title&&get(e,'AXEnabled')===true;}),'Exact enabled track command unavailable');
+  operationRequested=null;if($.AXUIElementPerformAction(item,$('AXPress')))throw Error('Native track request outcome unknown');operationRequested=true;
   var idle=wait(function(){return closed()&&same(mainState(),prepared.main);},400);
-  return JSON.stringify({freezeRequested:true,popupClosed:closed(),uiIdle:idle});
- }catch(error){return JSON.stringify({error:String(error.message||error),freezeRequested:freezeRequested,prepared:prepared,requiresInspection:opened||!!prepared});}
+  return JSON.stringify({operationRequested:true,popupClosed:closed(),uiIdle:idle});
+ }catch(error){return JSON.stringify({error:String(error.message||error),operationRequested:operationRequested,prepared:prepared,requiresInspection:opened||!!prepared});}
 }
