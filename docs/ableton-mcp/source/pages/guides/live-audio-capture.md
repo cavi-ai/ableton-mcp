@@ -2,6 +2,8 @@
 
 Use `listen-to-live-output` to inspect a short recording from Live's Resampling input. Unlike analysis of an original audio clip's source file, this records the signal Live is producing during the capture window. It does not establish what reached the speakers or what a listener heard. These tools require the `all` profile and the updated Remote Script.
 
+To turn a verified print into a new playable part while retaining its sources, use [resampling into an instrument](resample-instrument.md).
+
 ## Record the current signal
 
 Playback must already be running. Starting or changing playback requires its own authorization. Existing Arrangement or Session recording and armed tracks must be resolved explicitly before capture; the tool never disarms another track silently. It does not isolate a stem, change source routing or capture a microphone. Mix changes and performance during the window are included.
