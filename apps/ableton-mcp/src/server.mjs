@@ -52,6 +52,7 @@ const toolNames = [
   "audition_arrangement_passage",
   "return_tracks_to_arrangement",
   "get_crossfader_context", "set_crossfader_state",
+  "get_mixer_panning_context", "set_mixer_panning",
   "get_producer_workflow",
   "search_presets",
   "get_nks_generation_status",
