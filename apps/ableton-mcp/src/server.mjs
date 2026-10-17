@@ -196,6 +196,7 @@ const toolNames = [
   "get_factory_coverage",
   "get_factory_device_context",
   "get_plugin_integration_context",
+  "get_rack_performance_context",
   "get_looper_performance_context",
   "get_beat_repeat_performance_context",
   "get_factory_browser_items",

@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 266 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 267 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (114)
+## Read-only (115)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -53,6 +53,7 @@ The server publishes 266 tools. Mutations of the Live Set require `expectedState
 | `get_producer_workflow` | List producer workflows, or retrieve one with named string arguments. Returns shared MCP prompt instructions without calling Live or executing work. Omit workflow to list names and required arguments. Available in all and producer profiles. | none |
 | `get_production_context` | Read a consistent Live selection and musical context into a private artifact; return a bounded overview and contextRef. No model call. | `projectId` |
 | `get_project_media` | Inspect saved Live 12 sample references and file contents in the current Project. Reports missing, ambiguous and external samples; distinguishes the saved snapshot from unsaved Live edits. Does not certify plug-in libraries, licenses, Max dependencies or other Sets. Requires macOS English Live for native clean-state observation. | none |
+| `get_rack_performance_context` | Read one native snapshot of visible rack macros, exact mapped descendant parameters, ranges, current values, automation and variation count/index. Unresolved mappings and unknown layouts are explicit. Saved variation contents and audible results are unavailable. | `trackId`, `deviceId` |
 | `get_return_routing` | Read one exact Return Track's current output destination/channel and available native choices. No routing changes, input/monitoring assumptions or audible-output claim. Requires all profile. | `returnTrackId` |
 | `get_scene_launch_context` | Preview an exact Session scene in one native read: every track/slot, clip/stop/Group actions, arms, recording risks, current playback and global/scene musical context. Preserves selection and playback. Launch metadata only; no audible or follow-action prediction. All profile. | `sceneId` |
 | `get_selection_context` | Read selected track/scene/device, displayed clip and highlighted slot together without changing focus. Null is unresolved; clip and slot can differ. | none |
@@ -249,7 +250,7 @@ The server publishes 266 tools. Mutations of the Live Set require `expectedState
 | `show_take_lanes` | Show Arrangement and one track take lanes through the macOS English Live UI. Requires an unarmed unfrozen track, recording off and unfolded ancestor groups. Requires a saved Set with native document identity and one Live instance. Changes visible UI/focus; no playback or comp edit. | `expectedStateVersion`, `trackId` |
 | `stop_all_clips` | Plan or stop every playing Session clip in one guarded step using Live's native stop-all action. Playback-only; does not delete or mute clips. | `expectedStateVersion` |
 | `stop_clip` | Plan or stop one exact Session clip slot. | `expectedStateVersion`, `trackId`, `clipId` |
-| `store_rack_macro_variation` | Plan or store a new native variation of mapped rack macros. Binds exact rack and parameter state and reports Live's observed count; variation contents are not exposed by Live's API. | `expectedStateVersion`, `trackId`, `deviceId` |
+| `store_rack_macro_variation` | Plan or store a new native variation of mapped rack macros. Binds exact rack and parameter state, reports the observed count and appended storedVariationIndex independently of selection; variation contents are not exposed by Live's API. | `expectedStateVersion`, `trackId`, `deviceId` |
 | `transform_midi_notes` | Plan or apply guarded quantize, legato, or duplicate transforms to exact MIDI note IDs on one exact Session or Arrangement MIDI clip. | `expectedStateVersion`, `trackId`, `clipId`, `operation`, `noteIds` |
 | `transport_play` | Plan or start Ableton transport playback. | `expectedStateVersion` |
 | `transport_stop` | Plan or stop Ableton transport playback. | `expectedStateVersion` |

@@ -678,6 +678,7 @@ export class ToolService {
     if (name === "open_live_set") return this.#openLiveSet(args);
     if (name === "save_live_set") return this.#saveLiveSet(args);
     if (name === "get_transport_context") return this.bridge.request("get_transport_context", {});
+    if (name === "get_rack_performance_context") return this.bridge.request(name, args);
     if (name === "get_looper_performance_context") return this.bridge.request("get_looper_performance_context", args);
     if (name === "get_beat_repeat_performance_context") return this.bridge.request("get_beat_repeat_performance_context", args);
     if (name === "get_history_state") return this.bridge.request("get_history_state", {});
@@ -1495,9 +1496,16 @@ export class ToolService {
       const parameters = await this.bridge.request("list_device_parameters", { trackId: args.trackId, deviceId: args.deviceId });
       assertExpectedState(args, parameters);
       if (parameters.deviceId !== args.deviceId || !Array.isArray(parameters.parameters)) throw new Error("rack parameter identity mismatch");
-      return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+      const result = await this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
         expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, beforeParameters: parameters.parameters,
         limitation: "Live does not expose the stored variation's target values or mapping destinations." }, args);
+      if (!result.dryRun) {
+        const previousCount = rack.rackMacros.variationCount;
+        result.observed.storedVariationIndex = result.observed.stored === true &&
+          Number.isSafeInteger(previousCount) && previousCount >= 0 &&
+          result.observed.device?.rackMacros?.variationCount === previousCount + 1 ? previousCount : null;
+      }
+      return result;
     }
     if (name === "recall_rack_macro_variation") {
       requireExpectedState(args);
