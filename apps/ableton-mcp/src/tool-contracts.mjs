@@ -512,6 +512,7 @@ const contracts = {
   jump_to_arrangement_cue_point: { description: "Plan or move the playhead to one exact Arrangement cue point.", inputSchema: guarded({ cuePointId: string("Stable cue-point ID.") }, ["cuePointId"]) },
   list_tracks: { description: "List stable Ableton track identities, mixer state, and existing group hierarchy.", inputSchema: empty },
   list_scenes: { description: "List stable Session scene identities, names, and per-scene launch quantization.", inputSchema: empty },
+  get_take_lane_context: {description: "Inspect one track take-lane inventory and optionally one complete stored take clip. Read-only; preserves focus. Selected MIDI reports up to 4096 notes; audio reports exposed source/timing controls. Does not expose comp selections, envelopes or rendered sound. All profile.", inputSchema: object({trackId:ids.trackId,takeClipId:string("Exact take clip ID from this inventory; omit for lane/clip summaries.")},["trackId"])},
   get_scene_launch_context: {description:'Preview an exact Session scene in one native read: every track/slot, clip/stop/Group actions, arms, recording risks, current playback and global/scene musical context. Preserves selection and playback. Launch metadata only; no audible or follow-action prediction. All profile.',inputSchema:object({sceneId:ids.sceneId},['sceneId'])},
   get_simpler_sample_state: {description:'Read one existing Simpler, including nested racks: path, length/start-end markers/slices in sample frames, rate in Hz, native warp/slicing controls, playback mode, parameters and edit context. No edits. All profile; requires updated bridge.',inputSchema:object({trackId:ids.trackId,deviceId:ids.deviceId},['trackId','deviceId'])},
   set_simpler_manual_slices: {description:'Set an exact manual slice layout on a loaded single-sample Simpler, including nested racks. Selects Slicing/Manual mode, disables Pad Slicing and clears prior manual cuts, including outside the active region. Requires stopped transport and an inactive unarmed target; verifies native slices and retained sample. No file crop/reload or automatic rollback. All profile.',inputSchema:guarded({trackId:ids.trackId,deviceId:ids.deviceId,slicesFrames:{type:'array',minItems:1,maxItems:64,items:{type:'integer',minimum:0},description:'Complete playable layout in increasing sample frames, beginning at observed startMarkerFrames and strictly below endMarkerFrames.'},slicingPlaybackMode:{type:'string',enum:['mono','poly','thru'],description:'Optional slice playback: one slice, overlapping slices, or play from a slice through the region. Omit to retain observed setting.'}},['trackId','deviceId','slicesFrames'])},
@@ -710,6 +711,7 @@ const contracts = {
 };
 
 const readOnlyTools = new Set([
+  "get_take_lane_context",
   "get_project_media",
   "get_producer_workflow",
   "search_presets", "get_nks_generation_status", "get_nks_generation_job", "get_preset", "get_preset_metadata",
