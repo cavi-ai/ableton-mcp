@@ -1106,20 +1106,20 @@ test("transport mutation reports an unconfirmed control instead of claiming succ
 });
 
 test("Capture MIDI signs session scope and refuses an empty native capture buffer", async () => {
-  const before = { stateVersion: 4, midiCapture: { available: true, midiTrackIds: ["track-0", "track-1"] } };
+  const before = { stateVersion: 4, available: true, possibleTrackIds: ["track-0", "track-1"], overdubClipIds: [] };
   const service = new ToolService({ bridge: { async request(method) {
-    if (method === "get_transport_recording_context") return before;
+    if (method === "get_midi_capture_context") return before;
     if (method === "capture_midi_session") return { stateVersion: 5, changedSlots: [{ clipId: "track-0:clip-1" }] };
     throw new Error(method);
   } } });
   const args = { expectedStateVersion: 4 };
   const dry = await service.call("capture_midi_session", args);
   assert.equal(dry.plan.destination, "session");
-  assert.deepEqual(dry.plan.before.midiTrackIds, ["track-0", "track-1"]);
+  assert.deepEqual(dry.plan.before.possibleTrackIds, ["track-0", "track-1"]);
   const applied = await service.call("capture_midi_session", { ...args, dryRun: false,
     confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
   assert.equal(applied.observed.changedSlots[0].clipId, "track-0:clip-1");
-  before.midiCapture.available = false;
+  before.available = false;
   await assert.rejects(() => service.call("capture_midi_session", args), /no MIDI material/);
 });
 

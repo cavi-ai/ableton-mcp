@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 253 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 254 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (108)
+## Read-only (109)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -41,6 +41,7 @@ The server publishes 253 tools. Mutations of the Live Set require `expectedState
 | `get_live_scale_reference` | Resolve one exact Ableton Live 12 scale and root to semitone intervals, pitch classes, note names, degrees, and scale family. Read-only. | `scaleName`, `rootNote` |
 | `get_live_state` | Read Ableton bridge identity, capabilities, set file path, tempo, playback, and state version. | none |
 | `get_looper_performance_context` | Read one native snapshot of a loaded Looper's State, Quantization, Monitor, Song Control, Tempo Control, all exposed parameters, global clip-launch quantization, track input/output routing, monitoring, and transport. Read-only; source readiness and audible outcome are not inferred. | `trackId`, `deviceId` |
+| `get_midi_capture_context` | Read global Capture MIDI readiness, armed/monitored candidates, playing-clip risks, input routing, full-note digests and clip timing with native identity. Does not expose buffer contents or reserve a moving playhead. | none |
 | `get_midi_clip_notes` | Read standard MIDI notes from one exact Session or Arrangement MIDI clip; Arrangement responses include timeline identity. | `trackId`, `clipId` |
 | `get_midi_clip_notes_extended` | Read MIDI note IDs, probability, release velocity, deviation and other fields from one Session/Arrangement clip; includes Arrangement timeline identity. | `trackId`, `clipId` |
 | `get_nks_generation_job` | Read one durable NKS generation job and its ordered event history without creating or changing the queue. | `presetId` |
@@ -143,7 +144,7 @@ The server publishes 253 tools. Mutations of the Live Set require `expectedState
 | `apply_monophonic_audio_tuning` | Plan or apply an exact Live clip coarse/fine pitch offset from full-source, stable monophonic analysis of a mono or stereo local source at most 60 seconds long. Every stereo channel must agree; confirmation binds a SHA-256 source hash and current clip state, then verifies native pitch readback. Whole-clip tuning only: not note-by-note vocal correction, rendered audio analysis, or audible validation. | `expectedStateVersion`, `trackId`, `clipId`, `targetMidiNote` |
 | `arm_track` | Plan or set the record-arm state of one exact track. | `expectedStateVersion`, `trackId`, `armed` |
 | `capture_live_audio` | Plan or start a bounded Live Resampling recording of current playback into a new muted, monitor-off audio track. Requires playback, recording off and no armed tracks. Only its capture is stopped/disarmed automatically, even after client disconnect. No isolated-stem, hardware or listener proof. | `expectedStateVersion`, `beats`, `name` |
-| `capture_midi_session` | Plan or invoke Live's native Capture MIDI into Session View for recently played MIDI on audible tracks. May create or change clips on multiple MIDI tracks or add a scene; the target is determined by Live, not guaranteed by the plan. Reports immediate slot changes plus note count/digest changes in armed playing MIDI clips; inspect notes separately for content. Requires native can_capture_midi readiness and confirmation. | `expectedStateVersion` |
+| `capture_midi_session` | Capture Live's hidden recent MIDI input into Session globally. Rechecks native identities, existing note/timing, routing, arms, monitoring and musical/recording state. May start playback/add scenes/change tempo. Known playing-clip changes require explicit allowExistingClipChanges. Read changedSlots and captureVerified; no exact buffer preview or automatic rollback. | `expectedStateVersion` |
 | `claim_nks_generation_job` | Atomically lease one pending NKS generation job for a worker. Returns its catalog preset without loading the plugin or saving a file. | `workerId`, `productSlug` |
 | `correct_midi_clip_to_scale` | Plan or apply guarded pitch correction of exact chromatic MIDI notes into the current Live scale. Direction is explicit; equal nearest choices require an explicit tie break. Existing in-scale notes are never changed. | `expectedStateVersion`, `trackId`, `clipId`, `direction` |
 | `create_arrangement_cue_point` | Plan or create an Arrangement cue point at an exact beat position. | `expectedStateVersion`, `name`, `timeBeats` |

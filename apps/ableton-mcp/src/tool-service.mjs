@@ -1539,6 +1539,7 @@ export class ToolService {
     if (name === "set_groove") return this.#setGroove(args);
     if (name === "create_groove") return this.#createGroove(args);
     if (name === "set_transport_recording_context") return this.#setTransportRecordingContext(args);
+    if (name === "get_midi_capture_context") return this.bridge.request(name, {});
     if (name === "capture_midi_session") return this.#captureMidiSession(args);
     if (["create_arrangement_cue_point", "rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point"].includes(name)) {
       return this.#arrangementCuePointMutation(name, args);
@@ -2306,11 +2307,14 @@ export class ToolService {
 
   async #captureMidiSession(args) {
     requireExpectedState(args);
-    const observed = await this.bridge.request("get_transport_recording_context", {});
-    assertExpectedState(args, observed);
-    if (observed.midiCapture?.available !== true) throw new Error("no MIDI material is available to capture");
-    return this.#confirmedMutation({ method: "capture_midi_session", destination: "session",
-      expectedStateVersion: args.expectedStateVersion, before: observed.midiCapture }, args);
+    const before = await this.bridge.request("get_midi_capture_context", {});
+    assertExpectedState(args, before);
+    if (before.available !== true) throw new Error("no MIDI material is available to capture");
+    if (before.overdubClipIds?.length && args.allowExistingClipChanges !== true)
+      throw new Error("Capture MIDI may change a playing Session clip; explicit existing-clip scope required");
+    return this.#confirmedMutation({method:"capture_midi_session",destination:"session",
+      expectedStateVersion:args.expectedStateVersion,before,allowExistingClipChanges:args.allowExistingClipChanges??false,
+      warning:"Global capture of Live's current hidden MIDI buffer across armed/monitored tracks; not selected-track capture. May start playback, add scenes, change tempo or rebuild playing clips, including note IDs, repeated content and loop markers. Existing edits may fall outside the resulting loop. Buffer contents and the moving playhead are not reserved by this plan."},args);
   }
 
   async #setTransportContext(args) {

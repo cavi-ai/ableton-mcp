@@ -926,14 +926,14 @@ class DispatchTest(unittest.TestCase):
 
     def test_capture_midi_session_rechecks_readiness_and_reports_actual_clip_change(self):
         song = Song()
-        before = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
+        before = dispatch_request(song, {"method": "get_midi_capture_context"}, 3)
         with self.assertRaisesRegex(ValueError, "changed"):
             dispatch_request(song, {"method": "capture_midi_session", "params": {
                 "expectedStateVersion": 3, "before": {"available": False}
             }}, 3)
         self.assertEqual(song.capture_midi_destinations, [])
         result = dispatch_request(song, {"method": "capture_midi_session", "params": {
-            "expectedStateVersion": 3, "before": before["midiCapture"]
+            "expectedStateVersion": 3, "before": before
         }}, 3)
         self.assertEqual(song.capture_midi_destinations, [1])
         self.assertEqual(result["changedSlots"][0]["clipId"], "track-0:clip-1")
@@ -952,9 +952,9 @@ class DispatchTest(unittest.TestCase):
             clip.extended_notes.append(MidiNote(2))
             song.can_capture_midi = False
         song.capture_midi = overdub
-        before = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
+        before = dispatch_request(song, {"method": "get_midi_capture_context"}, 3)
         result = dispatch_request(song, {"method": "capture_midi_session", "params": {
-            "expectedStateVersion": 3, "before": before["midiCapture"]
+            "expectedStateVersion": 3, "before": before, "allowExistingClipChanges": True
         }}, 3)
         self.assertEqual(len(result["changedSlots"]), 1)
         self.assertEqual(result["changedSlots"][0]["clipId"], "track-0:clip-0")

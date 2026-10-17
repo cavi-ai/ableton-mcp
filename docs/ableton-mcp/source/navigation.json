@@ -25,6 +25,7 @@
         { "title": "Play a Session scene", "path": "guides/scene-launch.md" },
         { "title": "Build a Session scene", "path": "guides/session-scene-building.md" },
         { "title": "Keep parts playing across scenes", "path": "guides/session-stop-buttons.md" },
+        { "title": "Keep played MIDI", "path": "guides/midi-capture.md" },
         { "title": "Record a Session take", "path": "guides/session-take.md" },
         { "title": "Capture Live audio", "path": "guides/live-audio-capture.md" },
         { "title": "Resample into an instrument", "path": "guides/resample-instrument.md" },
