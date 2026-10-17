@@ -6,6 +6,7 @@ import { producerToolContracts } from "./producer-contracts.mjs";
 import { validateToolArguments } from "./tool-validation.mjs";
 import { createProducerRuntime, parseProducerResponse } from "./producer-runtime.mjs";
 import { requestSignal, withRequestSignal } from "./request-context.mjs";
+import { getProducerWorkflow } from "./prompts.mjs";
 
 const readNames = ["get_live_state", "get_selection_context", "get_song_musical_context", "list_tracks", "list_clips",
   "list_devices", "list_device_parameters", "get_device_parameter_edit_context", "get_clip_timing",
@@ -156,6 +157,7 @@ export class ProducerService {
   }
 
   async #runTask(args) {
+    const workflow=args.workflow?getProducerWorkflow({workflow:args.workflow.name,arguments:args.workflow.arguments}):null;
     const selected = args.roles === "both" ? roles : [args.roles || "functional"];
     for (const role of selected) if (!this.config?.[role]) throw new Error(`${role} specialist is not configured`);
     const signal = requestSignal();
@@ -164,6 +166,7 @@ export class ProducerService {
     return withRequestSignal(taskSignal, async () => {
       const { projectId, goal, scope = {}, constraints = [] } = args;
       const observed = await this.#context(projectId);
+      const workflowRef=workflow?this.artifacts.put(projectId,"workflow",{selection:args.workflow,guidance:workflow}):null;
       const contextRefs = [...new Set([observed.contextRef, ...(args.contextRefs || [])])];
       for (const ref of contextRefs) this.artifacts.get(projectId, ref);
       const sessionRoot = join(this.artifacts.directory, ".sessions");
@@ -176,6 +179,7 @@ export class ProducerService {
         try {
           const runtime = this.runtimeFactory(this.config[role]);
           const packet = { role, goal, scope, constraints, context: contextRefs.map(ref => this.#preview(projectId, ref)),
+            ...(workflow?{workflow}:{}),
             tools: this.#schemas(role), ...(role === "functional" && results.length ? { creativeProposal: results[0].result } : {}) };
           for (let round = 0; round < 3; round++) {
             checkSignal();
@@ -221,8 +225,10 @@ export class ProducerService {
       const functional = results.find(value => value.role === "functional")?.result;
       const operations = status === "proposed" ? functional?.operations || [] : [];
       const taskId = this.artifacts.put(projectId, "task", { goal, scope, constraints, basis: identity(observed), observedAfter: identity(after), contextRefs,
+        ...(workflowRef?{workflowRef}:{}),
         results, status, operations, checks: functional?.checks || [], allowedReads, allowedOperations, createdAt: new Date().toISOString() });
       return { taskId, status, summary: (results.at(-1)?.result.summary || "Specialist read budget exhausted; no executable proposal.").slice(0, 1000),
+        ...(workflowRef?{workflowRef}:{}),
         ...identity(observed), operationCount: operations.length, questions: questions.slice(0, 4).map(question => question.slice(0, 300)),
         questionsTruncated: questions.length > 4 || questions.some(question => question.length > 300),
         resultRefs: results.map(value => ({ role: value.role, artifactId: value.resultRef })),

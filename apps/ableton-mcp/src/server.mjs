@@ -315,7 +315,7 @@ const coreToolNames = new Set([
 
 function listedTools(profile) {
   if (!["all", "core", "producer"].includes(profile)) throw new Error(`unknown tool profile: ${profile}`);
-  const producerNames = new Set([...Object.keys(producerToolContracts), "get_live_state", "transport_stop", "panic"]);
+  const producerNames = new Set([...Object.keys(producerToolContracts), "get_producer_workflow", "get_live_state", "transport_stop", "panic"]);
   return toolNames.filter((name) => profile === "all" || (profile === "producer" ? producerNames : coreToolNames).has(name))
     .map((name) => ({ name, ...toolContracts[name] }));
 }
