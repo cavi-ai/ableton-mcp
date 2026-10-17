@@ -3092,6 +3092,14 @@ def _beat_repeat_fill_module():
     return beat_repeat_fill
 
 
+def _clip_hold_module():
+    try:
+        from . import clip_hold
+    except ImportError:
+        import clip_hold
+    return clip_hold
+
+
 def dispatch_request(song, request, state_version, application=None):
     if request.get('method') in ('get_device_preset_source', 'select_device_preset_source'):
         try:
@@ -3103,6 +3111,10 @@ def dispatch_request(song, request, state_version, application=None):
         return select(song, request.get('params', {}), state_version, application)
     method = request["method"]
     params = request.get("params", {})
+    if method in ("get_session_clip_hold_source", "hold_session_clip", "get_session_clip_hold", "finish_session_clip_hold"):
+        hold = _clip_hold_module()
+        return {"get_session_clip_hold_source": hold.source, "hold_session_clip": hold.start,
+                "get_session_clip_hold": hold.read, "finish_session_clip_hold": hold.finish}[method](song, params, state_version)
     fingerprint = _set_fingerprint(song)
     if method == "get_bridge_protocol":
         return dict(BRIDGE_PROTOCOL)
@@ -3124,6 +3136,18 @@ def dispatch_request(song, request, state_version, application=None):
         return (object_colors.source if method == "get_live_object_colors" else object_colors.write)(song, params, state_version)
     if method == "get_session_orientation":
         return _session_orientation(song, state_version, application)
+    if method in ("get_crossfader_context", "set_crossfader_state"):
+        try:
+            from . import crossfader
+        except ImportError:
+            import crossfader
+        return (crossfader.context if method == "get_crossfader_context" else crossfader.apply)(song, params, state_version)
+    if method in ("get_arrangement_return_source", "return_tracks_to_arrangement"):
+        try:
+            from . import arrangement_return
+        except ImportError:
+            import arrangement_return
+        return (arrangement_return.source if method == "get_arrangement_return_source" else arrangement_return.start)(song, params, state_version)
     if method in ("get_arrangement_audition_source", "audition_arrangement_passage"):
         try:
             from . import arrangement_audition
@@ -6737,6 +6761,7 @@ class SocketBridge:
     def stop(self):
         self.stopped.set()
         try:
+            _clip_hold_module().shutdown(self.control_surface.song())
             _arrangement_recording_module().shutdown(self.control_surface.song())
             fill = _beat_repeat_fill_module()
             fill.shutdown(self.control_surface.song())
@@ -6825,6 +6850,9 @@ class SocketBridge:
                 record.finish()
 
     def drain(self):
+        hold = _clip_hold_module()
+        if hold.has_active():
+            self.state_version += hold.advance(self.control_surface.song())
         recording = _arrangement_recording_module()
         if recording.has_active():
             self.state_version += recording.advance(self.control_surface.song())
@@ -6860,8 +6888,8 @@ class SocketBridge:
                 if request.get("method") == "prepare_instrument_comparison":
                     self._defer_instrument_comparison(client, request, song, record)
                     return
-                if request.get("method") == "audition_arrangement_passage":
-                    self._defer_arrangement_audition(client, request, song, record)
+                if request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state"):
+                    self._defer_observed_mutation(client, request, song, record)
                     return
                 result = dispatch_request(
                     song, request, self.state_version, self.control_surface.application()
@@ -6920,13 +6948,18 @@ class SocketBridge:
                 self._last_topology_signature = _track_topology_signature(song)
                 self._reply(client, {"id": request.get("id"), "error": {"message": str(failure) or failure.__class__.__name__}}, record)
 
-    def _defer_arrangement_audition(self, client, request, song, record=None):
+    def _defer_observed_mutation(self, client, request, song, record=None):
         try:
             try:
-                from . import arrangement_audition
+                from . import arrangement_audition, arrangement_return, crossfader
             except ImportError:
-                import arrangement_audition
-            operation = arrangement_audition.begin(song, request.get("params", {}), self.state_version)
+                import arrangement_audition, arrangement_return, crossfader
+            module, success_key = {
+                'return_tracks_to_arrangement': (arrangement_return, 'returned'),
+                'audition_arrangement_passage': (arrangement_audition, 'started'),
+                'set_crossfader_state': (crossfader, 'verified'),
+            }[request['method']]
+            operation = module.begin(song, request.get("params", {}), self.state_version)
             self.state_version += 1
         except Exception as error:
             self._reply(client, {"id": request.get("id"), "error": {"message": str(error) or error.__class__.__name__}}, record)
@@ -6934,9 +6967,9 @@ class SocketBridge:
         self.deferred_request = True
 
         def reply_unverified(error):
-            operation["error"] = f"audition readback failed: {error}"[:600]
+            operation["error"] = f"Native readback failed: {error}"[:600]
             try:
-                result = arrangement_audition.complete(self.control_surface.song(), operation, self.state_version)
+                result = module.complete(self.control_surface.song(), operation, self.state_version)
                 response = {"id": request.get("id"), "result": result}
             except Exception as failure:
                 response = {"id": request.get("id"), "error": {"message": str(failure) or failure.__class__.__name__}}
@@ -6950,9 +6983,9 @@ class SocketBridge:
                 if topology != self._last_topology_signature:
                     self.state_version += 1
                 self._last_topology_signature = topology
-                result = arrangement_audition.complete(current, operation, self.state_version)
+                result = module.complete(current, operation, self.state_version)
                 checks = result.get("verification", {})
-                if attempt < 2 and not result["started"] and operation["error"] is None and \
+                if attempt < 2 and not result[success_key] and operation["error"] is None and \
                         result.get("observed") is not None and checks.get("topologyStable") and checks.get("recordingOff"):
                     self.control_surface.schedule_message(1, lambda: observe(attempt + 1))
                     return

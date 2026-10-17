@@ -33,6 +33,7 @@ import { buildSongGridReference, planGridEnvelopePattern } from "./song-grid-ref
 import { browseLocalSpliceDirectory, listConfiguredSpliceRoots, observeLocalSpliceSample, searchLocalSpliceSamples } from "./splice-local-search.mjs";
 import { inspectGroovePostconditions } from "./groove-workflow.mjs";
 import {beatRepeatFill} from "./beat-repeat-fill.mjs";
+import {sessionClipHold} from './session-clip-hold.mjs';
 import { analyzeMidiFeel, planMidiFeelTransfer, midiFeelClipEndBeats } from "./midi-feel-analysis.mjs";
 import {inspectProducerAudioBus} from "./producer-audio-bus.mjs";
 import {removeClipGroove, MacClipGrooveHost} from "./clip-groove-removal.mjs";
@@ -73,6 +74,8 @@ import { matchDrumVariationReadback, planDrumVariation } from "./drum-variation.
 import { duplicateMidiClipVariations } from "./midi-clip-variations.mjs";
 import { requestSignal } from "./request-context.mjs";
 import { getProducerWorkflow } from "./prompts.mjs";
+import {crossfaderState} from './crossfader.mjs';
+import {returnTracksToArrangement} from './arrangement-return.mjs';
 import { auditionArrangementPassage } from "./arrangement-audition.mjs";
 
 function canonicalLocalSpliceMetadataItem(item, configuredRoots) {
@@ -694,6 +697,8 @@ export class ToolService {
       return liveAudioCapture(this.bridge, this.confirmations, name, args);
     if (["perform_beat_repeat_fill", "get_beat_repeat_fill", "finish_beat_repeat_fill"].includes(name))
       return beatRepeatFill(this.bridge,this.confirmations,name,args);
+    if (['hold_session_clip','get_session_clip_hold','finish_session_clip_hold'].includes(name))
+      return sessionClipHold(this.bridge,this.confirmations,name,args);
     if (["get_instrument_comparison", "prepare_instrument_comparison", "adopt_instrument_comparison", "select_instrument_comparison"].includes(name))
       return instrumentComparison(this.bridge, this.confirmations, name, args);
     if (name === "get_selection_context") return this.bridge.request(name, {});
@@ -835,6 +840,8 @@ export class ToolService {
     if (name === "get_set_mixer") return this.bridge.request("get_set_mixer", {});
     if (name === "get_return_routing") return this.bridge.request("get_return_routing", {returnTrackId:args.returnTrackId});
     if (name === "get_producer_workflow") return getProducerWorkflow(args);
+    if (['get_crossfader_context','set_crossfader_state'].includes(name)) return crossfaderState(this.bridge,this.confirmations,name,args);
+    if (name === 'return_tracks_to_arrangement') return returnTracksToArrangement(this.bridge,this.confirmations,args);
     if (name === "audition_arrangement_passage") return auditionArrangementPassage(this.bridge,this.confirmations,args);
     if (name === "list_producer_chain_blueprints") return { blueprints: listProducerChainBlueprints() };
     if (name === "get_producer_chain_blueprint") return { blueprint: getProducerChainBlueprint(args.target) };
