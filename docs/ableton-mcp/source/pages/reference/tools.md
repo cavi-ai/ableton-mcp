@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 242 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 244 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (105)
 
@@ -114,7 +114,7 @@ The server publishes 242 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (119)
+## Mutations (121)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -209,6 +209,7 @@ The server publishes 242 tools. Mutations of the Live Set require `expectedState
 | `set_clip_parameter_envelope` | Plan or replace one Session clip parameter envelope with exact step data. | `expectedStateVersion`, `trackId`, `clipId`, `deviceId`, `parameterId`, `points` |
 | `set_clip_timing` | Plan or apply guarded clip loop, signature, launch quantization, Session launch Legato, native clip mute, groove, and editor-grid changes. | `expectedStateVersion`, `trackId`, `clipId` |
 | `set_device_active` | Plan or set the active state of one exact loaded device on an ordinary, Return, or Main track. | `expectedStateVersion`, `trackId`, `deviceId`, `active` |
+| `set_device_parameter_display` | Set one continuous device parameter to a finite native unit display (Hz/kHz, ms/s, dB, %). Resolves through Live's formatter without guessing raw values; refuses automation, recording and unrepresentable targets. Requires all profile. | `expectedStateVersion`, `trackId`, `deviceId`, `parameterId`, `targetDisplay` |
 | `set_device_sidechain_routing` | Plan or apply one guarded native device-sidechain source type or channel change. Read refreshed channels after changing source type. Rejects unsupported devices and ambiguous choices; does not enable external sidechain automatically. | `expectedStateVersion`, `trackId`, `deviceId` |
 | `set_drum_pad_state` | Plan or mute/solo an exact populated Drum Rack pad by MIDI note with a guarded rack snapshot. Does not assign sounds to pads. | `expectedStateVersion`, `trackId`, `deviceId`, `note` |
 | `set_groove` | Plan or apply guarded Groove Pool base-grid, name and percentage edits. Timing, random, pre-quantization use 0–100; velocity uses -100–100. Affects every clip using this shared groove; does not bake or extract a groove. | `expectedStateVersion`, `grooveId` |
@@ -227,6 +228,7 @@ The server publishes 242 tools. Mutations of the Live Set require `expectedState
 | `set_track_midi_routing` | Plan or apply guarded changes to one track's native MIDI input/output note and scale transposition. Affects every clip launched on the track; does not change device-level or rack-chain note routing. | `expectedStateVersion`, `trackId` |
 | `set_track_mixer` | Plan or apply guarded track volume, pan, mute, solo, and return-send changes. | `expectedStateVersion`, `trackId` |
 | `set_track_routing` | Plan or apply guarded track routing and monitoring changes by exact choice ID. | `expectedStateVersion`, `trackId` |
+| `set_track_send_db` | Set one track-to-Return send in native dB or to its verified silent minimum. Rechecks track, send and Return identity, current value and automation. Refuses recording, frozen or disabled sends and unsupported levels. | `expectedStateVersion`, `trackId`, `sendId`, `returnTrackId`, `sendDb` |
 | `set_track_volume_db` | Set a track fader in dB using Live's native display, with identity, value and automation rechecks. Refuses recording, disabled or automated faders and unrepresentable levels. | `expectedStateVersion`, `trackId`, `volumeDb` |
 | `set_transport_context` | Plan or apply guarded metronome and count-in changes. | `expectedStateVersion` |
 | `set_transport_recording_context` | Plan or apply guarded playhead and recording-mode changes. | `expectedStateVersion` |

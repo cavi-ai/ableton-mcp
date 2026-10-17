@@ -278,6 +278,8 @@ const toolNames = [
   "set_track_freeze_state",
   "set_bulk_track_mixer",
   "set_track_volume_db",
+  "set_track_send_db",
+  "set_device_parameter_display",
   "stop_all_clips"
 ];
 // A smaller first-session surface for hosts with a tight tool-context budget.

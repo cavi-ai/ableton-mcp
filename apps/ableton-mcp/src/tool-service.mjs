@@ -1,6 +1,8 @@
 import { enrichArrangementSection, assertArrangementRange } from "./arrangement-section.mjs";
 import { assertExpectedState } from "./bridge-protocol.mjs";
 import {setTrackVolumeDb} from "./track-volume.mjs";
+import {setTrackSendDb} from "./track-send.mjs";
+import {setDeviceParameterDisplay} from "./parameter-display.mjs";
 import { enrichSessionOrientation, enrichMidiPartsContext } from "./session-orientation.mjs";
 import { instrumentComparison } from "./instrument-comparison.mjs";
 import { liveAudioCapture } from "./live-audio-capture.mjs";
@@ -1528,6 +1530,7 @@ export class ToolService {
       return this.bridge.request("list_device_parameters", args);
     }
     if (name === "set_device_parameters") return this.#setDeviceParameters(args);
+    if (name === "set_device_parameter_display") return setDeviceParameterDisplay(this.bridge,this.confirmations,args);
     if (name === "set_looper_state") return this.#setLooperState(args);
     if (name === "set_beat_repeat_enabled") return this.#setBeatRepeatEnabled(args);
     if (name === "set_beat_repeat_grid") return this.#setBeatRepeatGrid(args);
@@ -1591,6 +1594,7 @@ export class ToolService {
     if (name === "transform_midi_notes") return this.#transformMidiNotes(args);
     if (name === "set_track_mixer") return this.#setTrackMixer(args);
     if (name === "set_track_volume_db") return setTrackVolumeDb(this.bridge,this.confirmations,args);
+    if (name === "set_track_send_db") return setTrackSendDb(this.bridge,this.confirmations,args);
     if (name === "set_bulk_track_mixer") return this.#setBulkTrackMixer(args);
     if (name === "stop_all_clips") return this.#stopAllClips(args);
     if (name === "set_track_routing") return this.#setTrackRouting(args);
