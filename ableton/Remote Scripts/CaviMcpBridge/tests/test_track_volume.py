@@ -109,6 +109,129 @@ class TrackVolumeTests(unittest.TestCase):
             self.apply()
         self.assertEqual(volume.value, 0.75)
 
+    def test_return_and_main_faders_use_native_db_and_independent_readback(self):
+        for track_id, owner in [('return-0', self.song.return_tracks[0]), ('master', self.song.master_track)]:
+            with self.subTest(track_id=track_id):
+                owner.mixer_device.volume = Volume()
+                self.args['trackId'] = track_id
+                before = self.source()
+                self.assertEqual(before['trackId'], track_id)
+                self.assertEqual(before['ownerType'], 'master' if track_id == 'master' else 'return')
+                self.assertTrue(self.apply(before)['verified'])
+                mixer = dispatch_request(self.song, {'method': 'get_set_mixer'}, 4)
+                observed = mixer['master'] if track_id == 'master' else mixer['returns'][0]
+                self.assertEqual(observed['volume']['decibels'], -12)
+                self.assertEqual(observed['volume']['automationState'], {'value': 0, 'name': 'none'})
+                self.assertEqual(observed['pan']['value'], 0)
+                self.assertEqual(self.song.tracks[0].mixer_device.volume.value, .75)
+
+    def test_bus_plans_bind_native_owner_mixer_and_parameter(self):
+        for track_id in ['return-0', 'master']:
+            for replaced in ['owner', 'mixer', 'parameter']:
+                with self.subTest(track_id=track_id, replaced=replaced):
+                    self.setUp()
+                    self.args['trackId'] = track_id
+                    owner = self.song.master_track if track_id == 'master' else self.song.return_tracks[0]
+                    owner.mixer_device.volume = Volume()
+                    before = self.source()
+                    if replaced == 'owner':
+                        if track_id == 'master': self.song.master_track = copy.deepcopy(owner)
+                        else: self.song.return_tracks[0] = copy.deepcopy(owner)
+                    elif replaced == 'mixer': owner.mixer_device = copy.deepcopy(owner.mixer_device)
+                    else: owner.mixer_device.volume = Volume()
+                    with self.assertRaisesRegex(ValueError, 'changed'):
+                        self.apply(before)
+
+    def test_bus_faders_refuse_recording_count_in_automation_and_invalid_ids(self):
+        for track_id in ['return-0', 'master']:
+            self.args['trackId'] = track_id
+            owner = self.song.master_track if track_id == 'master' else self.song.return_tracks[0]
+            owner.mixer_device.volume = Volume()
+            for state in [1, 2, None]:
+                owner.mixer_device.volume.automation_state = state
+                with self.assertRaisesRegex(ValueError, 'automation'): self.source()
+            owner.mixer_device.volume.automation_state = 0
+            for flag in ['record_mode', 'session_record', 'is_counting_in']:
+                setattr(self.song, flag, True)
+                with self.assertRaisesRegex(ValueError, 'recording|count-in'): self.source()
+                setattr(self.song, flag, False)
+        for track_id in ['return-00', 'track-00', 'master-0', 'return--1', None]:
+            self.args['trackId'] = track_id
+            with self.assertRaises(ValueError): self.source()
+
+    def test_native_undo_entry_rechecks_bus_ownership_before_any_write(self):
+        for track_id in ['return-0', 'master']:
+            self.setUp()
+            self.args['trackId'] = track_id
+            owner = self.song.master_track if track_id == 'master' else self.song.return_tracks[0]
+            owner.mixer_device.volume = Volume()
+            original = owner.mixer_device.volume
+            before = self.source()
+            self.song.begin_undo_step = lambda: setattr(owner, 'mixer_device', copy.deepcopy(owner.mixer_device))
+            with self.assertRaisesRegex(ValueError, 'changed'): self.apply(before)
+            self.assertEqual(original.value, .75)
+            self.assertEqual(owner.mixer_device.volume.value, .75)
+
+    def test_replaced_owner_during_failed_write_prevents_orphan_rollback(self):
+        owner = self.song.return_tracks[0]
+        song = self.song
+        class ReplacingVolume(Volume):
+            _value = .75
+            writes = []
+            @property
+            def value(self): return self._value
+            @value.setter
+            def value(self, value):
+                self.writes.append(value)
+                self._value = value
+                song.return_tracks[0] = copy.deepcopy(owner)
+                raise RuntimeError('owner replaced')
+        parameter = owner.mixer_device.volume = ReplacingVolume()
+        self.args['trackId'] = 'return-0'
+        with self.assertRaisesRegex(RuntimeError, 'rollback failed'): self.apply()
+        self.assertEqual(len(parameter.writes), 1)
+
+    def test_replaced_bus_mixer_at_undo_exit_cannot_report_verified(self):
+        for track_id in ['return-0', 'master']:
+            self.setUp()
+            self.args['trackId'] = track_id
+            owner = self.song.master_track if track_id == 'master' else self.song.return_tracks[0]
+            owner.mixer_device.volume = Volume()
+            self.song.end_undo_step = lambda: setattr(owner, 'mixer_device', copy.deepcopy(owner.mixer_device))
+            with self.assertRaisesRegex(ValueError, 'changed'):
+                self.apply()
+
+    def test_bus_readback_and_rollback_recheck_native_ownership(self):
+        for replace_at in ['final_read', 'rollback']:
+            self.setUp()
+            self.args['trackId'] = 'return-0'
+            owner = self.song.return_tracks[0]
+            class ReplacingVolume(Volume):
+                _value = .75
+                replace_on_read = False
+                @property
+                def value(self): return self._value
+                @value.setter
+                def value(self, value):
+                    self._value = value
+                    if replace_at == 'rollback':
+                        if value != .75: raise RuntimeError('write failed')
+                        self.replace()
+                def replace(self):
+                    replacement = copy.copy(owner.mixer_device)
+                    replacement.volume = Volume()
+                    owner.mixer_device = replacement
+                def str_for_value(self, value):
+                    result = super().str_for_value(value)
+                    if self.replace_on_read: self.replace()
+                    return result
+            parameter = owner.mixer_device.volume = ReplacingVolume()
+            if replace_at == 'final_read':
+                self.song.end_undo_step = lambda: setattr(parameter, 'replace_on_read', True)
+            with self.subTest(replace_at=replace_at):
+                with self.assertRaisesRegex((ValueError, RuntimeError), 'changed|rollback failed'):
+                    self.apply()
+
 
 if __name__ == "__main__":
     unittest.main()
