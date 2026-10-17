@@ -1,8 +1,11 @@
+import {importMidiFile,MacMidiImportHost} from './midi-import.mjs';
 import {saveNativeDevicePreset,MacDevicePresetHost} from './device-preset.mjs';
 import {collectProjectMedia,projectMediaInventory,MacProjectMediaHost} from './project-media.mjs';
 import { enrichArrangementSection, assertArrangementRange } from "./arrangement-section.mjs";
 import { assertExpectedState } from "./bridge-protocol.mjs";
 import {getSceneLaunchContext} from "./scene-context.mjs";
+import {readTakeLaneContext} from "./take-lanes.mjs";
+import {MacTakeLaneAuditionHost,takeLaneAudition} from "./take-lane-audition.mjs";
 import {setTrackVolumeDb} from "./track-volume.mjs";
 import {setTrackSendDb} from "./track-send.mjs";
 import {setDeviceParameterDisplay} from "./parameter-display.mjs";
@@ -20,7 +23,10 @@ import { planClipPitchAdjustment } from "./audio-tuning.mjs";
 import { buildSongGridReference, planGridEnvelopePattern } from "./song-grid-reference.mjs";
 import { browseLocalSpliceDirectory, listConfiguredSpliceRoots, observeLocalSpliceSample, searchLocalSpliceSamples } from "./splice-local-search.mjs";
 import { inspectGroovePostconditions } from "./groove-workflow.mjs";
-import { analyzeMidiFeel, planMidiFeelTransfer } from "./midi-feel-analysis.mjs";
+import {beatRepeatFill} from "./beat-repeat-fill.mjs";
+import { analyzeMidiFeel, planMidiFeelTransfer, midiFeelClipEndBeats } from "./midi-feel-analysis.mjs";
+import {inspectProducerAudioBus} from "./producer-audio-bus.mjs";
+import {removeClipGroove, MacClipGrooveHost} from "./clip-groove-removal.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { MacLiveSetHost } from "./live-set-host.mjs";
 import {MacAudioExportHost,exportAudioMix} from "./audio-export.mjs";
@@ -446,7 +452,7 @@ function normalizeBrowserSearch(args) {
 
 export class ToolService {
   constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, deviceChainLibrary, groupSystemLibrary, midiFeelLibrary, browserMetadata, spliceRoots = [], generationQueuePath,
-    liveSetHost = new MacLiveSetHost(), audioExportHost, projectMediaHost, devicePresetHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000 }) {
+    liveSetHost = new MacLiveSetHost(), audioExportHost, projectMediaHost, devicePresetHost, midiImportHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000, takeLaneAuditionHost, grooveRemovalHost }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
@@ -458,9 +464,12 @@ export class ToolService {
     this.spliceRoots = spliceRoots;
     this.generationQueuePath = generationQueuePath;
     this.liveSetHost = liveSetHost;
+    this.midiImportHost=midiImportHost??new MacMidiImportHost({liveSetHost});
     this.devicePresetHost=devicePresetHost??new MacDevicePresetHost({liveSetHost});
     this.projectMediaHost=projectMediaHost??new MacProjectMediaHost({liveSetHost});
     this.audioExportHost = audioExportHost ?? new MacAudioExportHost({liveSetHost});
+    this.takeLaneAuditionHost=takeLaneAuditionHost??new MacTakeLaneAuditionHost({liveSetHost});
+    this.grooveRemovalHost = grooveRemovalHost ?? new MacClipGrooveHost({liveSetHost});
     this.liveSetOpenTimeoutMs = liveSetOpenTimeoutMs;
     this.liveSetSaveTimeoutMs = liveSetSaveTimeoutMs;
     this.liveSetLaunchTimeoutMs = liveSetLaunchTimeoutMs;
@@ -473,6 +482,7 @@ export class ToolService {
 
   async call(name, args = {}) {
     requestSignal()?.throwIfAborted();
+    if(name==='import_midi_file')return importMidiFile(this.bridge,this.confirmations,this.midiImportHost,args);
     if(name==='save_native_device_preset')return saveNativeDevicePreset(this.bridge,this.confirmations,this.devicePresetHost,args);
     if(name==='get_project_media')return projectMediaInventory(this.bridge,this.projectMediaHost);
     if(name==='collect_project_media')return collectProjectMedia(this.bridge,this.confirmations,this.projectMediaHost,args);
@@ -555,10 +565,10 @@ export class ToolService {
       const requested = planMidiFeelTransfer(before, clipTiming, args);
       const notes = new Map(before.notes.map(note => [note.noteId, note]));
       const changes = requested.map((change, index) =>
-        normalizeMidiNoteChange(change, index, notes.get(change.noteId), before.lengthBeats));
+        normalizeMidiNoteChange(change, index, notes.get(change.noteId), midiFeelClipEndBeats(before, clipTiming)));
       const plan = { method: "set_midi_note_properties", operation: "apply_midi_feel_template",
         ...target, expectedStateVersion: args.expectedStateVersion, before, clipTiming,
-        template: args.template, changes };
+        template: args.template, originBeats: args.originBeats ?? 0, changes };
       if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
       this.#consumeConfirmation(plan, args);
       const observed = await this.bridge.request("set_midi_note_properties", plan);
@@ -660,6 +670,8 @@ export class ToolService {
     if (name === "analyze_midi_parts") return enrichMidiPartsContext(await this.bridge.request(name, args));
     if (["capture_live_audio", "get_live_audio_capture", "finish_live_audio_capture"].includes(name))
       return liveAudioCapture(this.bridge, this.confirmations, name, args);
+    if (["perform_beat_repeat_fill", "get_beat_repeat_fill", "finish_beat_repeat_fill"].includes(name))
+      return beatRepeatFill(this.bridge,this.confirmations,name,args);
     if (["get_instrument_comparison", "prepare_instrument_comparison", "adopt_instrument_comparison", "select_instrument_comparison"].includes(name))
       return instrumentComparison(this.bridge, this.confirmations, name, args);
     if (name === "get_selection_context") return this.bridge.request(name, {});
@@ -667,6 +679,7 @@ export class ToolService {
     if (name === "open_live_set") return this.#openLiveSet(args);
     if (name === "save_live_set") return this.#saveLiveSet(args);
     if (name === "get_transport_context") return this.bridge.request("get_transport_context", {});
+    if (name === "get_rack_performance_context") return this.bridge.request(name, args);
     if (name === "get_looper_performance_context") return this.bridge.request("get_looper_performance_context", args);
     if (name === "get_beat_repeat_performance_context") return this.bridge.request("get_beat_repeat_performance_context", args);
     if (name === "get_history_state") return this.bridge.request("get_history_state", {});
@@ -713,6 +726,8 @@ export class ToolService {
     if (name === "list_arrangement_cue_points") return this.bridge.request("list_arrangement_cue_points", {});
     if (name === "list_tracks") return this.bridge.request("list_tracks", {});
     if (name === "list_scenes") return this.bridge.request("list_scenes", {});
+    if (['get_take_lane_audition_context','show_take_lanes','select_take_lane_audition'].includes(name)) return takeLaneAudition(name,this.bridge,this.confirmations,this.takeLaneAuditionHost,args);
+    if (name === "get_take_lane_context") return readTakeLaneContext(this.bridge,args);
     if (name === "get_scene_launch_context") return getSceneLaunchContext(this.bridge,args);
     if (name === "get_simpler_sample_state") return this.#readSimplerSampleState(args);
     if (name === "load_simpler_sample") return this.#loadSimplerSample(args);
@@ -791,7 +806,9 @@ export class ToolService {
     if (name === "plan_midi_scale_chord_remapping") return this.#planMidiScaleChordRemapping(args);
     if (name === "plan_midi_diatonic_chord_quality") return this.#planMidiDiatonicChordQuality(args);
     if (name === "get_track_mixer") return this.bridge.request("get_track_mixer", args);
+    if (name === "get_track_signal_activity") return this.bridge.request("get_track_signal_activity", args);
     if (name === "get_track_routing") return this.bridge.request("get_track_routing", args);
+    if (name === "get_return_routing") return this.bridge.request("get_return_routing", args);
     if (name === "get_set_mixer") return this.bridge.request("get_set_mixer", {});
     if (name === "get_producer_workflow") return getProducerWorkflow(args);
     if (name === "audition_arrangement_passage") return auditionArrangementPassage(this.bridge,this.confirmations,args);
@@ -804,6 +821,7 @@ export class ToolService {
         verification: verifyProducerChain(args.target, observed.devices) };
     }
     if (name === "inspect_producer_bus") {
+      if (args.busKind === "audio") return inspectProducerAudioBus(this.bridge,args);
       const blueprint = getProducerChainBlueprint(args.target);
       if (!["shared-instrument-bus", "shared-audio-bus"].includes(blueprint.topology))
         throw new Error("target must be a shared-bus blueprint");
@@ -1112,7 +1130,8 @@ export class ToolService {
     }
     if (name === "get_automation_capabilities") return {
       sessionClipParameterEnvelopes: { read: true, write: true, shape: "steps" },
-      sessionClipMixerEnvelopes: { read: true, create: true, replace: false, controls: ["volume", "send"], shape: "steps" },
+      sessionClipMixerEnvelopes: { read: true, create: true, replace: false, controls: ["volume", "pan", "send"], shape: "steps",
+        pan: { panningMode: 0, splitStereo: false, targets: "raw_native_values" } },
       arrangementParameterAutomation: {
         read: false, write: false,
         reason: "Ableton Live's public Clip API returns no automation envelope for Arrangement clips"
@@ -1479,9 +1498,16 @@ export class ToolService {
       const parameters = await this.bridge.request("list_device_parameters", { trackId: args.trackId, deviceId: args.deviceId });
       assertExpectedState(args, parameters);
       if (parameters.deviceId !== args.deviceId || !Array.isArray(parameters.parameters)) throw new Error("rack parameter identity mismatch");
-      return this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
+      const result = await this.#confirmedMutation({ method: name, trackId: args.trackId, deviceId: args.deviceId,
         expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, beforeParameters: parameters.parameters,
         limitation: "Live does not expose the stored variation's target values or mapping destinations." }, args);
+      if (!result.dryRun) {
+        const previousCount = rack.rackMacros.variationCount;
+        result.observed.storedVariationIndex = result.observed.stored === true &&
+          Number.isSafeInteger(previousCount) && previousCount >= 0 &&
+          result.observed.device?.rackMacros?.variationCount === previousCount + 1 ? previousCount : null;
+      }
+      return result;
     }
     if (name === "recall_rack_macro_variation") {
       requireExpectedState(args);
@@ -2365,6 +2391,7 @@ export class ToolService {
   }
 
   async #setClipTiming(args) {
+    if (args.grooveId === null) return removeClipGroove(this.bridge, this.confirmations, this.grooveRemovalHost, args);
     requireExpectedState(args);
     const observed = await this.bridge.request("get_clip_timing", { trackId: args.trackId, clipId: args.clipId });
     assertExpectedState(args, observed);
@@ -2418,8 +2445,8 @@ export class ToolService {
       changes.editorGrid = editorGrid;
     }
     if (args.grooveId !== undefined) {
-      if (typeof args.grooveId !== "string") throw new Error("grooveId must identify an available groove");
-      if (!observed.availableGrooves.some(({ id }) => id === args.grooveId)) throw new Error(`unknown groove ${args.grooveId}`);
+      if (args.grooveId !== null && typeof args.grooveId !== "string") throw new Error("grooveId must identify an available groove or be null");
+      if (args.grooveId !== null && !observed.availableGrooves.some(({ id }) => id === args.grooveId)) throw new Error(`unknown groove ${args.grooveId}`);
       changes.grooveId = args.grooveId;
     }
     if (!Object.keys(changes).length) throw new Error("at least one clip timing change is required");
@@ -4690,15 +4717,19 @@ export class ToolService {
     const listMethod = method === "load_browser_item" ? "get_browser_items" : "get_factory_browser_items";
     const listing = await this.bridge.request(listMethod, browserPath);
     if (!listing.item.loadable) throw new Error(`Live browser item ${listing.item.name} is not loadable`);
+    const beforeLoadContext=await this.bridge.request("get_browser_load_context",{trackId:args.trackId,...browserPath});
+    assertExpectedState(args,beforeLoadContext);
+    if(hashPlan(beforeLoadContext.item)!==hashPlan(listing.item))throw new Error("native browser item changed while planning");
     return this.#confirmedMutation({
       method, trackId: args.trackId,
       expectedStateVersion: args.expectedStateVersion,
       root: browserPath.root, path: browserPath.path, item: listing.item,
-      beforeClipTopology,
+      beforeClipTopology, beforeLoadContext,
       loadBehavior: {
+        mayCreateTracks:true,
         mayReplaceExistingDevices: observed.devices.length > 0,
         existingDeviceIds: observed.devices.map(({ id }) => id),
-        warning: "Live browser loading may replace an existing instrument or rack, or insert or replace a Session clip when loading audio. Inspect before and beforeClipTopology; use an empty staging track to avoid changing existing content."
+        warning: "Live browser loading may replace an existing instrument or rack, insert or replace a Session clip, or create tracks/scenes. MIDI files may create separate tracks instead of filling the selected destination. Inspect before, beforeClipTopology and beforeLoadContext; resolve returned trackEffect identities before further edits. Preserve uncertain imports and never replay automatically."
       },
       before: observed
     }, args);
