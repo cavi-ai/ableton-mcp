@@ -14,7 +14,7 @@ Use **Save Live Set As** to choose a new destination and name. In the macOS save
 
 Verify that the panel closes, the main window displays the saved Set's name and file URL, and the `.als` file exists at that destination. A save attempt or a dismissed panel is not evidence of a saved Set. Subsequent **Cmd+S** saves update the current Set.
 
-Saving a Set is not evidence that external samples have been collected into its Project. Check sample dependencies separately before moving or sharing a Project. Keep third-party presets, commercial samples, and test Sets out of the source-code repository.
+Saving a Set is not evidence that external samples have been collected into its Project. Use the [Project handoff workflow](project-handoff.md) to inspect saved sample references and collect their sources before moving or sharing a Project. Keep third-party presets, commercial samples, and test Sets out of the source-code repository.
 
 ## Save and load a device preset
 

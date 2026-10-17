@@ -73,6 +73,7 @@ const toolNames = [
   "duplicate_midi_clip_variations",
   "open_live_set",
   "save_live_set",
+  "get_project_media", "collect_project_media",
   "export_audio_mix",
   "get_transport_context",
   "set_transport_context",
