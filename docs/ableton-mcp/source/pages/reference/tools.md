@@ -48,7 +48,7 @@ The server publishes 251 tools. Mutations of the Live Set require `expectedState
 | `get_preset` | Read one exact NKS preset catalog record. | `presetId` |
 | `get_preset_metadata` | Read user tags, favorite state, and revision for one preset. | `presetId` |
 | `get_producer_chain_blueprint` | Return one ordered factory-device chain or shared-bus topology with exact browser paths, stage roles, execution tools, and explicit limitations. | `target` |
-| `get_producer_workflow` | List producer workflows, or retrieve one with named string arguments. Returns shared MCP prompt instructions without calling Live or executing work. Omit workflow to list names and required arguments. Requires all profile. | none |
+| `get_producer_workflow` | List producer workflows, or retrieve one with named string arguments. Returns shared MCP prompt instructions without calling Live or executing work. Omit workflow to list names and required arguments. Available in all and producer profiles. | none |
 | `get_production_context` | Read a consistent Live selection and musical context into a private artifact; return a bounded overview and contextRef. No model call. | `projectId` |
 | `get_scene_launch_context` | Preview an exact Session scene in one native read: every track/slot, clip/stop/Group actions, arms, recording risks, current playback and global/scene musical context. Preserves selection and playback. Launch metadata only; no audible or follow-action prediction. All profile. | `sceneId` |
 | `get_selection_context` | Read selected track/scene/device, displayed clip and highlighted slot together without changing focus. Null is unresolved; clip and slot can differ. | none |

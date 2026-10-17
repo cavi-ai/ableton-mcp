@@ -43,11 +43,64 @@ test("context and role results are stored as bounded references; creative and fu
   const result = await service.call("run_production_task", { projectId: "song", goal: "Simplify the bass", roles: "both", contextRefs: [context.contextRef] });
   assert.equal(result.operationCount, 1);
   assert.equal(packets[0].role, "creative"); assert.equal(packets[1].role, "functional");
+  assert.equal(packets[0].workflow, undefined);
   assert.equal(packets[0].creativeProposal, undefined);
   assert.ok(packets[1].creativeProposal);
   assert.ok(JSON.stringify(packets).length < 48000 * 2);
   assert.equal(artifacts.get("song", result.taskId).kind, "task");
   assert.ok(JSON.stringify(result).length < 5000);
+});
+
+test("an explicitly selected workflow reaches both specialists before their first observation round", async t => {
+  const {service,packets,artifacts,calls}=await setup(t,()=>response());
+  const result=await service.call('run_production_task',{projectId:'song',goal:'Propose only the next level adjustment',roles:'both',
+    workflow:{name:'balance-mix',arguments:{request:'Set the named bass to -12 dB, keep the other tracks',mode:'autonomous'}}});
+  assert.equal(result.status,'proposed');assert.equal(result.readsUsed,0);assert.equal(packets.length,2);
+  for(const packet of packets){
+    assert.equal(packet.workflow.workflow,'balance-mix');
+    assert.ok(packet.workflow.messages[0].content.text.includes('Set the named bass to -12 dB, keep the other tracks'));
+  }
+  assert.match(result.workflowRef,/^[a-f0-9]{64}$/);
+  const saved=artifacts.get('song',result.workflowRef);
+  assert.equal(saved.kind,'workflow');assert.equal(saved.value.selection.name,'balance-mix');
+  assert.equal(saved.value.selection.arguments.mode,'autonomous');
+  assert.equal(artifacts.get('song',result.taskId).value.workflowRef,result.workflowRef);
+  assert.equal(calls.some(call=>call.name==='set_track_mixer'),false);
+});
+
+test("invalid workflow choices fail before Live observation or a model request", async t => {
+  for(const workflow of [{name:'missing'}, {name:'balance-mix'},
+    {name:'balance-mix',arguments:{request:'Bass',mode:'guess'}},
+    {name:'balance-mix',arguments:{request:'Bass',silenceOthers:'yes'}}]){
+    const {service,calls,packets}=await setup(t,()=>response());
+    await assert.rejects(service.call('run_production_task',{projectId:'song',goal:'Balance',workflow}));
+    assert.equal(calls.length,0);assert.equal(packets.length,0);
+  }
+});
+
+test("selected workflows retain valid empty optional arguments from public workflow retrieval", async t => {
+  const {service,packets}=await setup(t,()=>response());
+  const result=await service.call('run_production_task',{projectId:'song',goal:'Propose the next continuation phase',
+    workflow:{name:'resume-session-work',arguments:{request:'Continue the named bass',previousContext:''}}});
+  assert.equal(result.status,'proposed');assert.equal(packets[0].workflow.workflow,'resume-session-work');
+});
+
+test("workflow guidance never grants undiscovered operations or bypasses exact scope", async t => {
+  for(const operation of [{tool:'load_simpler_sample',args:{trackId:'track-0',deviceId:'track-0:device-0',sourcePath:'/sample.wav'}},
+    {tool:'set_track_mixer',args:{trackId:'track-1',pan:.25}}]){
+    const {service,calls}=await setup(t,()=>response({operations:[operation]}));
+    await assert.rejects(service.call('run_production_task',{projectId:'song',goal:'Refine this instrument',scope:{trackId:'track-0'},
+      workflow:{name:'build-sample-instrument',arguments:{request:'Refine the named instrument'}}}),/allowed|scope/);
+    assert.equal(calls.some(call=>call.name===operation.tool),false);
+  }
+});
+
+test("a selected workflow remains subject to the existing model-input byte budget", async t => {
+  const {service,packets}=await setup(t,()=>response());
+  const result=await service.call('run_production_task',{projectId:'song',goal:'Plan the next phase',
+    constraints:Array.from({length:12},()=> 'x'.repeat(2000)),
+    workflow:{name:'build-sample-instrument',arguments:{request:'y'.repeat(6000)}}});
+  assert.equal(result.status,'budget_exhausted');assert.equal(result.operationCount,0);assert.equal(packets.length,0);
 });
 
 test("specialists can request bounded reads but cannot execute, escape scope or use arbitrary tools", async t => {
