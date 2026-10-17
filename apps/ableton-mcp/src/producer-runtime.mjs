@@ -21,14 +21,36 @@ function embedSchema(value, pointer) {
       ? pointer + item.slice(1) : embedSchema(item, pointer)]));
 }
 
+function callSchemas(tools, field, extra = {}) {
+  return { anyOf: tools.map((tool, index) => object({ tool: { type: "string", const: tool.name },
+    args: embedSchema(tool.inputSchema, `#/properties/${field}/items/anyOf/${index}/properties/args`),
+    ...structuredClone(extra) })) };
+}
+
 function responseFormat(packet) {
   const schema = structuredClone(producerResponseSchema);
   const operations = packet.role === "functional" ? packet.tools?.operations || [] : [];
   // Replace the operation item rather than mutating the call shared by reads/checks.
-  if (operations.length) schema.properties.operations.items = { anyOf: operations.map((tool, index) =>
-    object({ tool: { type: "string", const: tool.name },
-      args: embedSchema(tool.inputSchema, `#/properties/operations/items/anyOf/${index}/properties/args`) })) };
+  if (operations.length) schema.properties.operations.items = callSchemas(operations, "operations");
   else schema.properties.operations.maxItems = 0;
+  if (Array.isArray(packet.tools?.reads)) {
+    const reads = packet.tools.reads;
+    schema.properties.reads.items = callSchemas([...reads,
+      { name: "discover_production_tools", inputSchema: object({
+        query: { type: "string", minLength: 2, maxLength: 120 },
+        kind: { type: "string", enum: packet.role === "functional" ? ["read", "operation"] : ["read"] },
+        offset: { type: "integer", minimum: 0, maximum: 10000 }
+      }, ["query", "kind"]) },
+      { name: "read_production_artifact", inputSchema: object({
+        artifactId: { type: "string", pattern: "^[a-f0-9]{64}$" },
+        offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 8000 }
+      }, ["artifactId"]) }
+    ], "reads");
+    if (packet.role === "functional" && reads.length) schema.properties.checks.items = callSchemas(reads, "checks", {
+      path: producerResponseSchema.properties.checks.items.properties.path, expected: {}
+    });
+    else schema.properties.checks.maxItems = 0;
+  }
   return schema;
 }
 const runtimeProperties = {

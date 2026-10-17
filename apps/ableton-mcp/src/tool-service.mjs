@@ -783,6 +783,7 @@ export class ToolService {
     if (name === "plan_midi_scale_chord_remapping") return this.#planMidiScaleChordRemapping(args);
     if (name === "plan_midi_diatonic_chord_quality") return this.#planMidiDiatonicChordQuality(args);
     if (name === "get_track_mixer") return this.bridge.request("get_track_mixer", args);
+    if (name === "get_track_signal_activity") return this.bridge.request("get_track_signal_activity", args);
     if (name === "get_track_routing") return this.bridge.request("get_track_routing", args);
     if (name === "get_set_mixer") return this.bridge.request("get_set_mixer", {});
     if (name === "get_producer_workflow") return getProducerWorkflow(args);

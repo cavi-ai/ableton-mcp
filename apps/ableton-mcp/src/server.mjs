@@ -163,6 +163,7 @@ const toolNames = [
   "duplicate_clip_loop",
   "get_automation_capabilities",
   "get_track_mixer",
+  "get_track_signal_activity",
   "get_track_routing",
   "set_track_routing",
   "set_group_fold_state",
