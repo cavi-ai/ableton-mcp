@@ -2996,6 +2996,12 @@ def dispatch_request(song, request, state_version, application=None):
                                      "openDocument": callable(getattr(application, "open_document", None)),
                                      "saveDocument": callable(getattr(application, "save_document", None)),
                                      "saveDocumentAs": callable(getattr(application, "save_document_as", None))}}
+    if method == "get_audio_export_source":
+        try:
+            from .audio_export import source
+        except ImportError:
+            from audio_export import source
+        return source(song, state_version)
     if method == "get_transport_context":
         return _transport_context(song, state_version)
     if method == "capture_midi_session":
@@ -6400,7 +6406,7 @@ class SocketBridge:
             pass
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         server.bind(self.socket_path)
-        server.listen(1)
+        server.listen(self.requests.maxsize)
         server.settimeout(0.5)
         while not self.stopped.is_set():
             try:
