@@ -1,5 +1,9 @@
 [
-  "get_arrangement_recording_source", "record_arrangement_take", "get_arrangement_take", "finish_arrangement_take",
+  "get_recording_setup_source",
+  "get_arrangement_recording_source",
+  "record_arrangement_take",
+  "get_arrangement_take",
+  "finish_arrangement_take",
   "get_bridge_protocol",
   "get_device_ab_context",
   "copy_device_ab_slot",

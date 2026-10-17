@@ -3159,6 +3159,12 @@ def dispatch_request(song, request, state_version, application=None):
         except ImportError:
             from audio_export import source
         return source(song, state_version)
+    if method == "get_recording_setup_source":
+        try:
+            from .recording_setup import source
+        except ImportError:
+            from recording_setup import source
+        return source(song, params, state_version)
     if method == "get_transport_context":
         return _transport_context(song, state_version)
     if method in ("get_midi_capture_context", "capture_midi_session"):
@@ -3283,10 +3289,10 @@ def dispatch_request(song, request, state_version, application=None):
         return observed
     if method == "set_transport_context":
         changes = params["changes"]
+        if "countInDuration" in changes:
+            raise ValueError("count-in is read-only in the native API; use the guarded native UI path")
         if "metronome" in changes:
             song.metronome = bool(_change_value(changes["metronome"]))
-        if "countInDuration" in changes:
-            song.count_in_duration = int(_change_value(changes["countInDuration"]))
         return _transport_context(song, state_version + 1)
     if method == "get_history_state":
         return {"stateVersion": state_version, "canUndo": bool(song.can_undo), "canRedo": bool(song.can_redo)}

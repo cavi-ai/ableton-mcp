@@ -255,7 +255,7 @@ The server publishes 278 tools. Mutations of the Live Set require `expectedState
 | `set_track_routing` | Plan or apply guarded track routing and monitoring changes by exact choice ID. | `expectedStateVersion`, `trackId` |
 | `set_track_send_db` | Set one track-to-Return send in native dB or to its verified silent minimum. Rechecks track, send and Return identity, current value and automation. Refuses recording, frozen or disabled sends and unsupported levels. | `expectedStateVersion`, `trackId`, `sendId`, `returnTrackId`, `sendDb` |
 | `set_track_volume_db` | Set a track fader in dB using Live's native display, with identity, value and automation rechecks. Refuses recording, disabled or automated faders and unrepresentable levels. | `expectedStateVersion`, `trackId`, `volumeDb` |
-| `set_transport_context` | Plan or apply guarded metronome and count-in changes. | `expectedStateVersion` |
+| `set_transport_context` | Plan/apply metronome or count-in settings. Count-in requires stopped playback/recording, a saved Set and macOS English Live UI; changes focus. | `expectedStateVersion` |
 | `set_transport_recording_context` | Plan or apply guarded playhead and recording-mode changes. | `expectedStateVersion` |
 | `show_take_lanes` | Show Arrangement and one track take lanes through the macOS English Live UI. Requires an unarmed unfrozen track, recording off and unfolded ancestor groups. Requires a saved Set with native document identity and one Live instance. Changes visible UI/focus; no playback or comp edit. | `expectedStateVersion`, `trackId` |
 | `stop_all_clips` | Plan or stop every playing Session clip in one guarded step using Live's native stop-all action. Playback-only; does not delete or mute clips. | `expectedStateVersion` |

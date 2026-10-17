@@ -1,3 +1,4 @@
+import {recordingSetup,MacRecordingSetupHost} from "./recording-setup.mjs";
 import {arrangementRecording} from "./arrangement-recording.mjs";
 import {importMidiFile,MacMidiImportHost} from './midi-import.mjs';
 import {saveNativeDevicePreset,MacDevicePresetHost} from './device-preset.mjs';
@@ -454,7 +455,7 @@ function normalizeBrowserSearch(args) {
 
 export class ToolService {
   constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, deviceChainLibrary, groupSystemLibrary, midiFeelLibrary, browserMetadata, spliceRoots = [], generationQueuePath,
-    liveSetHost = new MacLiveSetHost(), audioExportHost, projectMediaHost, devicePresetHost, midiImportHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000, takeLaneAuditionHost, grooveRemovalHost }) {
+    liveSetHost = new MacLiveSetHost(), audioExportHost, projectMediaHost, devicePresetHost, recordingSetupHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000, midiImportHost, takeLaneAuditionHost, grooveRemovalHost }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
@@ -466,6 +467,7 @@ export class ToolService {
     this.spliceRoots = spliceRoots;
     this.generationQueuePath = generationQueuePath;
     this.liveSetHost = liveSetHost;
+    this.recordingSetupHost=recordingSetupHost??new MacRecordingSetupHost({liveSetHost});
     this.midiImportHost=midiImportHost??new MacMidiImportHost({liveSetHost});
     this.devicePresetHost=devicePresetHost??new MacDevicePresetHost({liveSetHost});
     this.projectMediaHost=projectMediaHost??new MacProjectMediaHost({liveSetHost});
@@ -2427,6 +2429,7 @@ export class ToolService {
       value: normalizeChoice(args.countInDuration, "countInDuration", observed.countInDuration.choices)
     };
     if (!Object.keys(changes).length) throw new Error("at least one transport context change is required");
+    if (args.countInDuration!==undefined) return recordingSetup(this.bridge,this.confirmations,this.recordingSetupHost,args,{observed,changes});
     return this.#confirmedMutation({
       method: "set_transport_context", expectedStateVersion: args.expectedStateVersion,
       before: observed, changes

@@ -2523,17 +2523,17 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(changed["markers"], {"unit": "seconds", "startSeconds": 1.0, "endSeconds": 7.0})
         self.assertEqual((clip.loop_start, clip.loop_end), (1.0, 7.0))
 
-    def test_transport_context_reads_and_writes_metronome_and_count_in(self):
+    def test_transport_context_reads_count_in_and_writes_metronome(self):
         song = Song()
         observed = dispatch_request(song, {"method": "get_transport_context"}, 3)
         self.assertFalse(observed["metronome"])
         self.assertEqual(observed["countInDuration"]["name"], "one_bar")
         changed = dispatch_request(song, {"method": "set_transport_context", "params": {"changes": {
-            "metronome": {"value": True}, "countInDuration": {"value": 2}
+            "metronome": {"value": True}
         }}}, 3)
         self.assertEqual(changed["stateVersion"], 4)
         self.assertTrue(song.metronome)
-        self.assertEqual(changed["countInDuration"]["name"], "two_bars")
+        self.assertEqual(changed["countInDuration"]["name"], "one_bar")
 
     def test_clip_duplication_and_deletion_return_observed_slots(self):
         song = Song()

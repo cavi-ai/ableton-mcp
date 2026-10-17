@@ -2362,13 +2362,13 @@ test("fixed-length Session recording signs the empty armed slot and one-shot gri
   await assert.rejects(() => service.call("launch_clip", { ...args, trackId: "track-1", clipId: "track-1:clip-0" }), /armed/);
 });
 
-test("transport context exposes and guards metronome and count-in changes", async () => {
+test("transport context exposes count-in and guards native metronome changes", async () => {
   const { service, calls } = fixture();
   const observed = await service.call("get_transport_context");
   assert.equal(observed.countInDuration.name, "one_bar");
-  const args = { expectedStateVersion: 4, metronome: true, countInDuration: "two_bars" };
+  const args = { expectedStateVersion: 4, metronome: true };
   const dry = await service.call("set_transport_context", args);
-  assert.deepEqual(dry.plan.changes, { metronome: { previous: false, value: true }, countInDuration: { previous: 1, value: 2 } });
+  assert.deepEqual(dry.plan.changes, { metronome: { previous: false, value: true } });
   const live = await service.call("set_transport_context", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
   assert.equal(live.dryRun, false);
   assert.equal(calls.at(-1).method, "set_transport_context");

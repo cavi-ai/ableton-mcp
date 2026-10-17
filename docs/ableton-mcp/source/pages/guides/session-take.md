@@ -6,7 +6,7 @@ Retrieve `record-session-take` through `get_producer_workflow` in the `all` prof
 
 Resolve an exact empty Session slot and its owning audio/MIDI track. `get_selection_context.highlightedClipSlot` can identify an empty selected slot; the detail clip or selected scene can refer to different material. Use actual input/channel choices from `get_track_routing`, and inspect MIDI routing when relevant. Resampling records Live's output. An armed track or configured input is not evidence of incoming signal or audible monitoring.
 
-The target must be armed and unfrozen, with other tracks unarmed, recording off and pending launches resolved. Preserve existing clips. Read tempo, meter, count-in, metronome, launch quantization and MIDI recording quantization. A duration in bars must use the current meter. Announce the intended start; actual recording can be delayed by native count-in or launch quantization.
+The target must be armed and unfrozen, with other tracks unarmed, recording off and pending launches resolved. Preserve existing clips. Read tempo, meter, count-in, metronome, launch quantization and MIDI recording quantization. Use [recording start preparation](recording-start.md) for requested count-in/metronome changes before starting the take. A duration in bars must use the current meter. Announce the intended start; actual recording can be delayed by native count-in or launch quantization.
 
 ## Confirm and observe
 
