@@ -584,6 +584,67 @@ def _scene_launch_context(song, params, state_version):
                      "denominator": int(song.signature_denominator), "launchQuantization": int(song.clip_trigger_quantization)}}
 
 
+def _set_clip_slot_stop_button(song, params, state_version):
+    if type(params.get("expectedStateVersion")) is not int or params["expectedStateVersion"] != state_version:
+        raise ValueError("stop-button state version changed")
+    value = params.get("hasStopButton")
+    if type(value) is not bool:
+        raise ValueError("hasStopButton must be boolean")
+    track, index, slot = _clip_slot(song, params["trackId"], params["clipId"])
+    if params.get("sceneId") != f"scene-{index}":
+        raise ValueError("sceneId does not match the target slot")
+    before = _scene_launch_context(song, params, state_version)
+    if before != params.get("before"):
+        raise ValueError("stop-button context changed; review a fresh plan")
+    row = next(item for item in before["tracks"] if item["id"] == params["trackId"])
+    if row["isGroup"] or row["slot"]["hasClip"]:
+        raise ValueError("stop-button edits require an empty ordinary track slot")
+    previous = row["slot"]["hasStopButton"]
+    if type(previous) is not bool:
+        raise ValueError("native stop button is unavailable")
+    recording = before["recording"]
+    if (row["frozen"] or row["slot"]["isTriggered"] is not False or row["firedSlotIndex"] >= 0 or
+            recording["arrangement"]["record"] or recording["session"]["record"] or
+            any((item["playingClip"] or {}).get("isRecording") or
+                (item["slot"]["clip"] or {}).get("isRecording") for item in before["tracks"])):
+        raise ValueError("resolve frozen tracks, recording and pending target launches before editing the stop button")
+    if previous == value:
+        raise ValueError("stop button already has the requested value")
+
+    def owned(context):
+        return context["identityToken"] == before["identityToken"] and not slot.has_clip
+
+    with _undo_step(song):
+        try:
+            slot.has_stop_button = value
+            after = _scene_launch_context(song, params, state_version + 1)
+            if not owned(after):
+                raise RuntimeError("stop-button ownership is unconfirmed")
+            if bool(slot.has_stop_button) != value:
+                raise RuntimeError("stop-button readback mismatch")
+        except Exception as error:
+            try:
+                current = _scene_launch_context(song, params, state_version)
+                confirmed = owned(current)
+            except Exception:
+                confirmed = False
+            if not confirmed:
+                raise RuntimeError(f"stop-button edit failed: {error}; rollback skipped because ownership is unconfirmed; inspect the slot") from error
+            try:
+                if bool(slot.has_stop_button) != previous:
+                    slot.has_stop_button = previous
+                restored = _scene_launch_context(song, params, state_version)
+                if not owned(restored) or bool(slot.has_stop_button) != previous:
+                    raise RuntimeError("original stop button was not restored")
+            except Exception as rollback_error:
+                raise RuntimeError(f"stop-button edit failed: {error}; rollback failed: {rollback_error}") from error
+            raise
+    return {"stateVersion": state_version + 1, "trackId": params["trackId"], "clipId": params["clipId"],
+            "sceneId": params["sceneId"], "hasStopButton": bool(slot.has_stop_button), "verified": True,
+            "sceneContext": after,
+            "limitation": "Stop-button readback only. Does not launch, stop playback or prove armed-empty recording behavior; inspect the entire row before launching."}
+
+
 _parameter_edit_song = None
 _parameter_edit_identities = {}
 
@@ -6320,6 +6381,8 @@ def dispatch_request(song, request, state_version, application=None):
         _, track = _track(song, params["trackId"])
         track.arm = bool(params["armed"])
         return {"stateVersion": state_version + 1, "trackId": params["trackId"], "armed": track.arm}
+    if method == "set_clip_slot_stop_button":
+        return _set_clip_slot_stop_button(song, params, state_version)
     if method == "launch_scene":
         force_legato = params.get("forceLegato", False)
         if type(force_legato) is not bool:

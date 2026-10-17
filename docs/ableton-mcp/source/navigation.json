@@ -24,6 +24,7 @@
         { "title": "Audition an Arrangement passage", "path": "guides/arrangement-audition.md" },
         { "title": "Play a Session scene", "path": "guides/scene-launch.md" },
         { "title": "Build a Session scene", "path": "guides/session-scene-building.md" },
+        { "title": "Keep parts playing across scenes", "path": "guides/session-stop-buttons.md" },
         { "title": "Record a Session take", "path": "guides/session-take.md" },
         { "title": "Capture Live audio", "path": "guides/live-audio-capture.md" },
         { "title": "Export a native audio mix", "path": "guides/audio-export.md" },
