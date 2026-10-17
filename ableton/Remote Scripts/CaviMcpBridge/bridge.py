@@ -3819,6 +3819,14 @@ def dispatch_request(song, request, state_version, application=None):
         return {"stateVersion": state_version, "query": query, "searchedRoots": searched,
                 "unavailableRoots": unavailable, "results": results[:limit],
                 "visitedItems": visited, "truncated": reason is not None, "truncationReason": reason}
+    if method in ("get_midi_note_removal_context", "remove_midi_notes"):
+        try:
+            from . import midi_note_removal
+        except ImportError:
+            import midi_note_removal
+        if method == "get_midi_note_removal_context":
+            return midi_note_removal.context(song, params, state_version)
+        return midi_note_removal.apply(song, params, state_version)
     if method in ("get_browser_preview_context", "set_browser_preview"):
         try:
             from . import browser_preview

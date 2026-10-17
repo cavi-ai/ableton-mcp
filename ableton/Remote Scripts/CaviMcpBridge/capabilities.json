@@ -1,4 +1,5 @@
 [
+  "get_midi_note_removal_context", "remove_midi_notes",
   "get_recording_setup_source",
   "get_arrangement_recording_source",
   "record_arrangement_take",
