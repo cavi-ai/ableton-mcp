@@ -4681,15 +4681,19 @@ export class ToolService {
     const listMethod = method === "load_browser_item" ? "get_browser_items" : "get_factory_browser_items";
     const listing = await this.bridge.request(listMethod, browserPath);
     if (!listing.item.loadable) throw new Error(`Live browser item ${listing.item.name} is not loadable`);
+    const beforeLoadContext=await this.bridge.request("get_browser_load_context",{trackId:args.trackId,...browserPath});
+    assertExpectedState(args,beforeLoadContext);
+    if(hashPlan(beforeLoadContext.item)!==hashPlan(listing.item))throw new Error("native browser item changed while planning");
     return this.#confirmedMutation({
       method, trackId: args.trackId,
       expectedStateVersion: args.expectedStateVersion,
       root: browserPath.root, path: browserPath.path, item: listing.item,
-      beforeClipTopology,
+      beforeClipTopology, beforeLoadContext,
       loadBehavior: {
+        mayCreateTracks:true,
         mayReplaceExistingDevices: observed.devices.length > 0,
         existingDeviceIds: observed.devices.map(({ id }) => id),
-        warning: "Live browser loading may replace an existing instrument or rack, or insert or replace a Session clip when loading audio. Inspect before and beforeClipTopology; use an empty staging track to avoid changing existing content."
+        warning: "Live browser loading may replace an existing instrument or rack, insert or replace a Session clip, or create tracks/scenes. MIDI files may create separate tracks instead of filling the selected destination. Inspect before, beforeClipTopology and beforeLoadContext; resolve returned trackEffect identities before further edits. Preserve uncertain imports and never replay automatically."
       },
       before: observed
     }, args);
