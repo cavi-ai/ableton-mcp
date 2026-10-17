@@ -150,7 +150,7 @@ test("doctor exposes a stale bundled Remote Script beside a current User Library
   try {
     for (const directory of [source, userCopy, bundledCopy]) await mkdir(directory, { recursive: true });
     for (const staleFile of ["capabilities.json", "simpler_sample.py"]) {
-      for (const name of ["__init__.py", "arrangement_audition.py", "arrangement_section.py", "audio_capture.py", "audio_export.py", "bridge.py", "browser_load.py", "capabilities.json", "clip_duplication.py", "clip_envelope.py", "device_preset.py", "instrument_comparison.py", "parameter_display.py", "protocol.py", "session_recording.py", "signal_activity.py", "simpler_sample.py", "take_lanes.py", "track_send.py", "track_volume.py"]) {
+      for (const name of ["__init__.py", "arrangement_audition.py", "arrangement_section.py", "audio_capture.py", "audio_export.py", "bridge.py", "browser_load.py", "capabilities.json", "clip_duplication.py", "clip_envelope.py", "device_preset.py", "instrument_comparison.py", "midi_import.py", "parameter_display.py", "protocol.py", "session_recording.py", "signal_activity.py", "simpler_sample.py", "take_lanes.py", "track_send.py", "track_volume.py"]) {
         await writeFile(join(source, name), `${name}: current`);
         await writeFile(join(userCopy, name), `${name}: current`);
         await writeFile(join(bundledCopy, name), name === staleFile ? `${name}: stale` : `${name}: current`);

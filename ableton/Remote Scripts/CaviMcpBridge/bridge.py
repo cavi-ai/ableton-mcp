@@ -3721,6 +3721,16 @@ def dispatch_request(song, request, state_version, application=None):
                 params["maxDepth"], params["limit"],
             ),
         }
+    if method in ("get_midi_import_target", "select_midi_import_target", "inspect_midi_import"):
+        try:
+            from . import midi_import
+        except ImportError:
+            import midi_import
+        if method == "get_midi_import_target":
+            return midi_import.source(song, params, state_version)
+        if method == "select_midi_import_target":
+            return midi_import.select(song, params, state_version, application)
+        return midi_import.inspect(song, params["identityToken"], state_version)
     if method == "get_browser_load_context":
         try:
             from .browser_load import context

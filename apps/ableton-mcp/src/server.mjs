@@ -76,6 +76,7 @@ const toolNames = [
   "save_native_device_preset",
   "get_project_media", "collect_project_media",
   "export_audio_mix",
+  "import_midi_file",
   "get_transport_context",
   "set_transport_context",
   "get_history_state",

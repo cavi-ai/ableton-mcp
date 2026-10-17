@@ -386,6 +386,7 @@ const mixerEnvelopePoint={oneOf:creationEnvelopePoint.oneOf.map(schema=>({...sch
     {targetDisplay:string('Volume/send only: finite native dB target, such as -24 dB or -6 dB. Pan requires value. Decimal point only; -inf is not accepted.')})}}))};
 
 const contracts = {
+  import_midi_file:{description:'Import a local MIDI file through macOS English Live into an entirely empty final Session MIDI staging track. Requires muted, unarmed, monitoring off, No Output and stopped recording/playback. Verifies exact file selection and observed clip/object structure; multitrack files may add tracks. No complete event or audible equivalence claim. All profile.',inputSchema:guarded({trackId:ids.trackId,clipId:ids.clipId,sourcePath:string('Existing absolute regular .mid/.smf file, at most 8 MiB and 256 declared MIDI tracks.'),expectedSetFingerprint:string('Current Set fingerprint from get_live_state.')},['trackId','clipId','sourcePath','expectedSetFingerprint'])},
   save_native_device_preset: {description:'Save an exact device or rack as a new native User Library preset through macOS English Live. Sets intended preset naming and changes focus; may rename the source. Requires saved Set and stopped transport. Refuses existing names; verifies Live XML/VST3 artifacts and exposed source state. Audio Unit artifact verification is unavailable. No recall, audible-equivalence or sample-portability claim.',inputSchema:guarded({trackId:ids.deviceOwnerId,deviceId:ids.deviceId,name:string('New visible filename stem, without extension; at most 80 characters. Existing native User Library preset names refuse.')},['trackId','deviceId','name'])},
   get_project_media: {description:'Inspect saved Live 12 sample references and file contents in the current Project. Reports missing, ambiguous and external samples; distinguishes the saved snapshot from unsaved Live edits. Does not certify plug-in libraries, licenses, Max dependencies or other Sets. Requires macOS English Live for native clean-state observation.',inputSchema:object()},
   collect_project_media: {description:'Collect all four native media categories into the current Project and save its clean named Live 12 Set. Requires stopped transport and macOS English Live. Binds saved references and source bytes; verifies Project-relative sample copies. Can copy large libraries. No automatic replay or complete-portability claim.',inputSchema:guarded({expectedSetFingerprint:string('Current Set fingerprint from get_live_state.')},['expectedSetFingerprint'])},
@@ -759,7 +760,11 @@ const destructiveTools = new Set([
   "set_simpler_sample_region",
   "set_simpler_manual_slices",
   "audition_arrangement_passage",
-  "open_live_set", "save_live_set", "collect_project_media", "save_native_device_preset",
+  "open_live_set",
+  "save_live_set",
+  "import_midi_file",
+  "collect_project_media",
+  "save_native_device_preset",
   "delete_session_object", "delete_clip", "delete_arrangement_clip",
   "delete_arrangement_cue_point", "remove_audio_warp_marker",
   "delete_device", "crop_audio_clip", "set_looper_state", "set_device_parameters", "set_clip_parameter_envelope",
