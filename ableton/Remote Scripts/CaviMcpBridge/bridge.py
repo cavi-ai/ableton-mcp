@@ -3423,6 +3423,12 @@ def dispatch_request(song, request, state_version, application=None):
         return _track_midi_routing(song, params["trackId"], state_version + 1)
     if method == "get_track_freeze_state":
         return _track_freeze_state(song, params["trackId"], state_version)
+    if method == "get_track_bounce_source":
+        try:
+            from .track_bounce import source
+        except ImportError:
+            from track_bounce import source
+        return source(song, params, state_version)
     if method == "get_track_freeze_source":
         try:
             from .track_freeze import source
