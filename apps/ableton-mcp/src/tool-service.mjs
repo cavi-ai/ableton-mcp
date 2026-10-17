@@ -1619,6 +1619,7 @@ export class ToolService {
     if (name === "set_beat_repeat_enabled") return this.#setBeatRepeatEnabled(args);
     if (name === "set_beat_repeat_grid") return this.#setBeatRepeatGrid(args);
     if (name === "set_beat_repeat_interval") return this.#setBeatRepeatInterval(args);
+    if (name === "get_device_activation_context") return this.bridge.request(name, {trackId: args.trackId, deviceId: args.deviceId});
     if (name === "set_device_active" || name === "delete_device" || name === "move_device") return this.#deviceLifecycle(name, args);
     if (name === "set_song_musical_context") return this.#setSongMusicalContext(args);
     if (name === "set_groove") return this.#setGroove(args);
@@ -2275,6 +2276,14 @@ export class ToolService {
   async #deviceLifecycle(method, args) {
     requireExpectedState(args);
     if (method === "set_device_active" && typeof args.active !== "boolean") throw new Error("active must be boolean");
+    if (method === "set_device_active") {
+      const before = await this.bridge.request("get_device_activation_edit_context", {trackId: args.trackId, deviceId: args.deviceId});
+      assertExpectedState(args, before);
+      if (!before.supported) throw Error("unique native binary Device On control is unavailable");
+      return this.#confirmedMutation({method, trackId: args.trackId, deviceId: args.deviceId,
+        expectedStateVersion: args.expectedStateVersion, active: args.active, beforeDevice: before.device, before,
+        warning: "Changes only this device's local Device On control, preserving focus/playback. An enclosing rack can keep the device effectively inactive. Active or unknown Device On automation refuses. Partial work remains without rollback or replay; readback does not prove audible bypass or equal loudness."}, args);
+    }
     const observed = await this.#observeDevice(args);
     assertExpectedState({ expectedStateVersion: args.expectedStateVersion, trackId: args.trackId }, observed);
     const device = observed.device;
@@ -2282,7 +2291,6 @@ export class ToolService {
       method, trackId: args.trackId, deviceId: args.deviceId,
       expectedStateVersion: args.expectedStateVersion, beforeDevice: device
     };
-    if (method === "set_device_active") plan.active = args.active;
     if (method === "move_device") {
       if (!Number.isSafeInteger(args.targetPosition) || args.targetPosition < 0) throw new Error("targetPosition must be a nonnegative integer");
       plan.targetPosition = args.targetPosition;

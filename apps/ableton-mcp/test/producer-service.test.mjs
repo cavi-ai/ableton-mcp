@@ -380,6 +380,19 @@ test("specialists discover additional tool schemas lazily without executing oper
   assert.equal(calls.some(call => call.name === "create_scale_bassline_clip"), false);
 });
 
+test("producer specialists discover and read exact device activation context", async t => {
+  let round = 0;
+  const {service,packets,calls}=await setup(t,()=>++round===1
+    ? response({reads:[{tool:'discover_production_tools',args:{query:'get_device_activation_context',kind:'read'}}]})
+    : round===2 ? response({reads:[{tool:'get_device_activation_context',args:{trackId:'track-0',deviceId:'track-0:device-0'}}]}) : response());
+  const result=await service.call('run_production_task',{projectId:'song',goal:'Inspect this effect before comparing bypass',roles:'functional',
+    workflow:{name:'compare-effect-bypass',arguments:{request:'Compare the named EQ and preserve playback'}}});
+  assert.equal(result.status,'proposed');
+  assert.equal(packets.length,3);
+  assert.equal(calls.filter(c=>c.name==='get_device_activation_context').length,1);
+  assert.equal(calls.some(c=>c.name==='set_device_active'),false);
+});
+
 test("native not-executed outcomes are preserved in rejected receipts", async t => {
   const { service, base, artifacts } = await setup(t, () => response({ operations: [{ tool: "set_tempo", args: { tempo: 100 } }] }));
   const task = await service.call("run_production_task", { projectId: "song", goal: "tempo", roles: "functional" });
