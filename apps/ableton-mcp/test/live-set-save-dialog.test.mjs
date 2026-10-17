@@ -156,3 +156,13 @@ test("audio Save observes fresh child references after a stale native AX element
   assert.equal(JSON.parse(native.execute("adoptAudioExport")).prepared,true);
   assert.deepEqual(native.saves,[]);
 });
+
+test('MIDI export binds its own Save purpose and never adopts audio or Set dialogs',()=>{
+  const native=dialog({purpose:'Save MIDI Clip As:',filename:'Original.mid'});
+  const prepared=JSON.parse(native.execute('adoptMidiExport'));
+  assert.equal(prepared.prepared,true);assert.equal(prepared.purpose,'Save MIDI Clip As:');
+  assert.deepEqual(native.saves,[]);
+  for(const purpose of ['Save Audio File As:','Save Live Set As:']){
+    const other=dialog({purpose});assert.throws(()=>other.execute('adoptMidiExport'));assert.deepEqual(other.keys,[]);assert.deepEqual(other.saves,[]);
+  }
+});
