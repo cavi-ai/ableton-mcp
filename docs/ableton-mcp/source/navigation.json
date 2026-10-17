@@ -43,6 +43,7 @@
         { "title": "Diagnose a silent part", "path": "guides/signal-diagnosis.md" },
         { "title": "Arrange Session ideas", "path": "guides/session-arrangement.md" },
         { "title": "MIDI clip variations", "path": "guides/midi-clip-variations.md" },
+        { "title": "Match MIDI feel", "path": "guides/midi-feel.md" },
         { "title": "Reuse Session clips", "path": "guides/clip-reuse.md" },
         { "title": "Develop an audio clip", "path": "guides/audio-clip-development.md" },
         { "title": "Shared instrument buses", "path": "guides/shared-instrument-buses.md" },

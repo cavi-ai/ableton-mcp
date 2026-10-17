@@ -1881,13 +1881,16 @@ test("named MIDI feel templates persist from an exact source clip without overwr
   const directory = await mkdtemp(join(tmpdir(), "cavi-feel-library-test-"));
   try {
     const { service, calls } = fixture({ midiFeelLibrary: new SnapshotLibrary({ directory, formats: ["cavi-midi-feel-v1"] }), extendedNotes: [
-      { noteId: 7, pitch: 42, start: 0.26, duration: 0.1, velocity: 90 }
+      { noteId: 7, pitch: 42, start: 0.26, duration: 0.1, velocity: 90 },
+      { noteId: 8, pitch: 36, start: 0.5, duration: 0.1, velocity: 30 }
     ] });
-    const args = { name: "house-hats", trackId: "track-0", clipId: "track-0:clip-0", grid: "straight16" };
+    const args = { name: "house-hats", trackId: "track-0", clipId: "track-0:clip-0", grid: "straight16", originBeats: 0.25, noteIds: [7] };
     const saved = await service.call("save_midi_feel_template", args);
     assert.equal(saved.name, "house-hats");
     assert.equal(saved.template.source.stateVersion, 4);
-    assert.deepEqual(saved.template.slots.map(slot => [slot.slot, slot.meanVelocity]), [[1, 90]]);
+    assert.equal(saved.template.source.originBeats, .25);
+    assert.deepEqual(saved.template.source.noteIds, [7]);
+    assert.deepEqual(saved.template.slots.map(slot => [slot.slot, slot.meanVelocity]), [[0, 90]]);
     const loaded = await service.call("load_midi_feel_template", { name: "house-hats" });
     assert.deepEqual(loaded.template, saved.template);
     await assert.rejects(() => service.call("save_midi_feel_template", args), /already exists/);

@@ -22,8 +22,8 @@ import { planClipPitchAdjustment } from "./audio-tuning.mjs";
 import { buildSongGridReference, planGridEnvelopePattern } from "./song-grid-reference.mjs";
 import { browseLocalSpliceDirectory, listConfiguredSpliceRoots, observeLocalSpliceSample, searchLocalSpliceSamples } from "./splice-local-search.mjs";
 import { inspectGroovePostconditions } from "./groove-workflow.mjs";
+import { analyzeMidiFeel, planMidiFeelTransfer, midiFeelClipEndBeats } from "./midi-feel-analysis.mjs";
 import {removeClipGroove, MacClipGrooveHost} from "./clip-groove-removal.mjs";
-import { analyzeMidiFeel, planMidiFeelTransfer } from "./midi-feel-analysis.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { MacLiveSetHost } from "./live-set-host.mjs";
 import {MacAudioExportHost,exportAudioMix} from "./audio-export.mjs";
@@ -562,10 +562,10 @@ export class ToolService {
       const requested = planMidiFeelTransfer(before, clipTiming, args);
       const notes = new Map(before.notes.map(note => [note.noteId, note]));
       const changes = requested.map((change, index) =>
-        normalizeMidiNoteChange(change, index, notes.get(change.noteId), before.lengthBeats));
+        normalizeMidiNoteChange(change, index, notes.get(change.noteId), midiFeelClipEndBeats(before, clipTiming)));
       const plan = { method: "set_midi_note_properties", operation: "apply_midi_feel_template",
         ...target, expectedStateVersion: args.expectedStateVersion, before, clipTiming,
-        template: args.template, changes };
+        template: args.template, originBeats: args.originBeats ?? 0, changes };
       if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
       this.#consumeConfirmation(plan, args);
       const observed = await this.bridge.request("set_midi_note_properties", plan);
