@@ -802,6 +802,19 @@ def _track_routing(song, track_id, state_version):
     }
 
 
+def _return_routing(song, return_id, state_version):
+    if not isinstance(return_id, str) or not return_id.startswith("return-"):
+        raise ValueError("an exact Return Track ID is required")
+    return_id, track = _device_owner(song, return_id)
+    output_types = list(track.available_output_routing_types)
+    output_channels = list(track.available_output_routing_channels)
+    return {"stateVersion": state_version, "returnTrackId": return_id, "name": track.name,
+            "output": {"type": _current_routing_option(track.current_output_routing, output_types),
+                       "channel": _current_routing_option(track.current_output_sub_routing, output_channels),
+                       "availableTypes": [_routing_option(option) for option in output_types],
+                       "availableChannels": [_routing_option(option) for option in output_channels]}}
+
+
 def _track_midi_routing(song, track_id, state_version):
     _, track = _track(song, track_id)
     midi_map = getattr(track, "midi_map", None)
@@ -3705,6 +3718,8 @@ def dispatch_request(song, request, state_version, application=None):
                 "deviceChain": dispatch_request(song, {"method": "list_devices", "params": {"trackId": params["trackId"]}}, state_version + 1)}
     if method == "get_set_mixer":
         return _set_mixer(song, state_version)
+    if method == "get_return_routing":
+        return _return_routing(song, params["returnTrackId"], state_version)
     if method == "create_return_track":
         before = _set_mixer(song, state_version)["returns"]
         if before != params["beforeReturns"]:
