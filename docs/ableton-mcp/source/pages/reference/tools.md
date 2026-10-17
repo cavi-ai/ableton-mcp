@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 255 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 258 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (109)
+## Read-only (110)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -52,6 +52,7 @@ The server publishes 255 tools. Mutations of the Live Set require `expectedState
 | `get_producer_chain_blueprint` | Return one ordered factory-device chain or shared-bus topology with exact browser paths, stage roles, execution tools, and explicit limitations. | `target` |
 | `get_producer_workflow` | List producer workflows, or retrieve one with named string arguments. Returns shared MCP prompt instructions without calling Live or executing work. Omit workflow to list names and required arguments. Available in all and producer profiles. | none |
 | `get_production_context` | Read a consistent Live selection and musical context into a private artifact; return a bounded overview and contextRef. No model call. | `projectId` |
+| `get_project_media` | Inspect saved Live 12 sample references and file contents in the current Project. Reports missing, ambiguous and external samples; distinguishes the saved snapshot from unsaved Live edits. Does not certify plug-in libraries, licenses, Max dependencies or other Sets. Requires macOS English Live for native clean-state observation. | none |
 | `get_scene_launch_context` | Preview an exact Session scene in one native read: every track/slot, clip/stop/Group actions, arms, recording risks, current playback and global/scene musical context. Preserves selection and playback. Launch metadata only; no audible or follow-action prediction. All profile. | `sceneId` |
 | `get_selection_context` | Read selected track/scene/device, displayed clip and highlighted slot together without changing focus. Null is unresolved; clip and slot can differ. | none |
 | `get_session_orientation` | Read Set, recording, selection, clip and instruments together; configured scale and ambiguous MIDI evidence. No edits, playback or focus changes. | none |
@@ -247,13 +248,14 @@ The server publishes 255 tools. Mutations of the Live Set require `expectedState
 | `transport_stop` | Plan or stop Ableton transport playback. | `expectedStateVersion` |
 | `undo` | Plan or apply one guarded Ableton undo operation. | `expectedStateVersion` |
 
-## Destructive mutations (22)
+## Destructive mutations (24)
 
 | Tool | Description | Required arguments |
 |---|---|---|
 | `adjust_rack_macro_count` | Plan or invoke one native add/remove macro action on an exact rack, then report the observed count. Removal is refused while any macro mapping exists because Live does not expose the affected mapping target. | `expectedStateVersion`, `trackId`, `deviceId`, `action` |
 | `apply_production_operation` | Plan one proposed operation through its original tool, or execute using that exact plan's confirmation. Requires unchanged task state; later operations require the preceding applied receipt. Returns bounded result references and observed postconditions, not an audible judgment. | `projectId`, `taskId`, `operationIndex`, `expectedStateVersion` |
 | `audition_arrangement_passage` | Plan/start a looping Arrangement passage from stopped transport with recording off and no pending launches. Return only explicit ordinary tracks from Session override; reject Groups. Changes global loop/playhead and starts global playback until stopped. Other tracks may sound. Partial failure reports observed controls; earlier Session phase is not restored. Requires all profile. | `expectedStateVersion`, `trackIds`, `startBeats`, `endBeats` |
+| `collect_project_media` | Collect all four native media categories into the current Project and save its clean named Live 12 Set. Requires stopped transport and macOS English Live. Binds saved references and source bytes; verifies Project-relative sample copies. Can copy large libraries. No automatic replay or complete-portability claim. | `expectedStateVersion`, `expectedSetFingerprint` |
 | `complete_nks_generation_job` | Mark an owned NKS job done only after its catalog preset contains verified saved-artifact evidence. Does not generate or validate the artifact itself. | `presetId`, `workerId` |
 | `crop_audio_clip` | Plan or apply Live native cropping of one exact audio clip. Preview reports the selected loop interval when enabled, otherwise start/end markers, in current units. Live may retain pre-loop playback material and creates a processed source. Selected interval is not a guarantee of exclusive source-file bounds. Binds audio and loop state and reads back native results. | `expectedStateVersion`, `trackId`, `clipId` |
 | `delete_arrangement_clip` | Plan or delete one exact Arrangement clip, preserving other timeline material. Requires current clip identity and confirmation; deletion is undoable in Live. | `expectedStateVersion`, `trackId`, `clipId` |
@@ -267,6 +269,7 @@ The server publishes 255 tools. Mutations of the Live Set require `expectedState
 | `open_live_set` | Plan/open a macOS Set; launch requires closed Live and configured app. | `path` |
 | `remove_audio_warp_marker` | Plan or apply deletion of an exact visible audio warp marker. Rejects the hidden terminal marker and stale clip state. | `expectedStateVersion`, `trackId`, `clipId`, `beatTime` |
 | `save_live_set` | Save macOS Set; verify write or clean state. Path: Save As without overwrite. | `expectedStateVersion`, `expectedSetFingerprint` |
+| `save_native_device_preset` | Save an exact device or rack as a new native User Library preset through macOS English Live. Sets intended preset naming and changes focus; may rename the source. Requires saved Set and stopped transport. Refuses existing names; verifies Live XML/VST3 artifacts and exposed source state. Audio Unit artifact verification is unavailable. No recall, audible-equivalence or sample-portability claim. | `expectedStateVersion`, `trackId`, `deviceId`, `name` |
 | `set_clip_parameter_envelope` | Plan/set 1–512 ordered Session envelope steps with native context checks and explicit clamping. Existing lanes require replaceExisting:true, which discards the whole curve, including unsampled edits. No full-curve backup or restoration. Playback must be stopped; recording off. Verifies sampled interiors. | `expectedStateVersion`, `trackId`, `clipId`, `deviceId`, `parameterId`, `points` |
 | `set_device_parameters` | Plan/set bounded device parameters on ordinary/Return/Main tracks. Strings select exact unambiguous quantized labels; numbers retain native clamping. Looper State Record/Overdub writes mutate recorded content: restoring a parameter does not restore captured audio. | `expectedStateVersion`, `trackId`, `deviceId`, `changes` |
 | `set_looper_state` | Plan or request one exact native Looper State choice: Stop, Record, Play, or Overdub. Native execution rechecks the complete Looper, routing, and transport snapshot before writing State; result reports the immediately observed State parameter and whether it matches the target, not an audible or quantized-boundary outcome. Record/Overdub can mutate captured audio and cannot be rolled back by restoring a parameter value. This does not promise beat-scheduled execution; verify native quantization behavior separately. | `expectedStateVersion`, `trackId`, `deviceId`, `targetState` |
