@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { toolContracts } from "./tool-contracts.mjs";
@@ -7,6 +8,7 @@ import { validateToolArguments } from "./tool-validation.mjs";
 import { createProducerRuntime, parseProducerResponse } from "./producer-runtime.mjs";
 import { requestSignal, withRequestSignal } from "./request-context.mjs";
 import { getProducerWorkflow } from "./prompts.mjs";
+import { ProductionSessions } from "./production-sessions.mjs";
 
 const readNames = ["get_live_state", "get_selection_context", "get_song_musical_context", "list_tracks", "list_clips",
   "list_devices", "list_device_parameters", "get_device_parameter_edit_context", "get_clip_timing",
@@ -34,6 +36,9 @@ export class ProducerService {
   #activeTasks = 0;
   constructor({ service, artifacts, config, runtimeFactory = createProducerRuntime }) {
     this.service = service; this.artifacts = artifacts; this.config = config; this.runtimeFactory = runtimeFactory;
+    this.sessions = new ProductionSessions({ artifacts, context: (projectId, scope) => this.#sessionContext(projectId, scope),
+      run: args => this.#run(args), apply: args => this.#serialized(() => this.#apply(args)),
+      verify: (projectId, checks) => this.#checks(projectId, checks) });
   }
 
   discoveryExamples() { return this.service.discoveryExamples?.(); }
@@ -48,6 +53,14 @@ export class ProducerService {
     }
     validateToolArguments(name, args);
     const { projectId } = args;
+    if (name === "get_production_session") return this.sessions.get(args);
+    if (name === "advance_production_session") return this.sessions.advance(args);
+    if (name === "start_production_session") {
+      if ((args.scope?.clipId || args.scope?.deviceId) && !args.scope.trackId) throw new Error("clip and device session scopes require trackId");
+      if (args.postconditions) this.#validatePostconditions(args.postconditions, args.scope || {});
+      if (args.workflow) getProducerWorkflow({ workflow: args.workflow.name, arguments: args.workflow.arguments });
+      return this.sessions.start(args);
+    }
     if (name === "read_production_artifact") return this.artifacts.page(projectId, args.artifactId, args.offset, args.limit);
     if (name === "record_production_note") {
       for (const id of args.contextRefs || []) this.artifacts.get(projectId, id);
@@ -80,6 +93,50 @@ export class ProducerService {
     const contextRef = this.artifacts.put(projectId, "context", { live: before, selection, musical });
     return { ...identity(before), contextRef, summary: "Live selection and musical context captured.",
       preview: JSON.stringify({ selection, musical }).slice(0, 1800), previewTruncated: JSON.stringify({ selection, musical }).length > 1800 };
+  }
+
+  async #sessionContext(projectId, scope = {}) {
+    const observed = await this.#context(projectId);
+    const live = this.artifacts.get(projectId, observed.contextRef).value.live;
+    if (!live.filePath) throw new Error("Save the Live Set before starting or resuming a durable production session");
+    const snapshot = async () => {
+      const values = {};
+      if (scope.trackId) {
+        values.mixer = await this.service.call("get_track_mixer", { trackId: scope.trackId });
+        values.devices = await this.service.call("list_devices", { trackId: scope.trackId });
+      }
+      if (scope.clipId) {
+        const target = { trackId: scope.trackId, clipId: scope.clipId };
+        values.timing = await this.service.call("get_clip_timing", target);
+        try { values.clip = await this.service.call("get_midi_clip_notes_extended", target); }
+        catch (error) {
+          if (!/not a MIDI clip/.test(error.message)) throw error;
+          values.clip = await this.service.call("get_audio_clip_state", target);
+        }
+      }
+      if (scope.deviceId) values.parameters = await this.service.call("list_device_parameters", { trackId: scope.trackId, deviceId: scope.deviceId });
+      // Transport and selection do not define the target's musical content.
+      return JSON.parse(JSON.stringify(values, (key, value) => ["stateVersion", "setFingerprint", "isPlaying", "isTriggered", "playingPosition"].includes(key) ? undefined : value));
+    };
+    const first = await snapshot(), second = await snapshot(), after = await this.#live();
+    if (!sameState(observed, after) || live.filePath !== after.filePath || !isDeepStrictEqual(first, second))
+      throw new Error("session target changed during observation; read again");
+    const targetRef = this.artifacts.put(projectId, "session-target", { scope, observations: second });
+    return { ...observed, documentPath: live.filePath, targetRef,
+      targetHash: createHash("sha256").update(JSON.stringify(second)).digest("hex") };
+  }
+
+  async #checks(projectId, checks) {
+    const results = [];
+    for (const check of checks) {
+      checkSignal();
+      const observed = await this.service.call(check.tool, check.args);
+      let field = observed;
+      for (const key of check.path) field = field !== null && typeof field === "object" && Object.hasOwn(field, key) ? field[key] : undefined;
+      results.push({ tool: check.tool, path: check.path, matches: isDeepStrictEqual(field, check.expected),
+        observationRef: this.artifacts.put(projectId, "postcondition", { check, observed }) });
+    }
+    return results;
   }
 
   #preview(projectId, artifactId) {
@@ -319,14 +376,7 @@ export class ProducerService {
     const checks = []; let after, observationError;
     try {
       if (operationIndex === task.operations.length - 1) {
-        for (const check of task.checks) {
-          checkSignal();
-          const observed = await this.service.call(check.tool, check.args);
-          let field = observed;
-          for (const key of check.path) field = field !== null && typeof field === "object" && Object.hasOwn(field, key) ? field[key] : undefined;
-          checks.push({ tool: check.tool, path: check.path, matches: isDeepStrictEqual(field, check.expected),
-            observationRef: this.artifacts.put(projectId, "postcondition", { check, observed }) });
-        }
+        checks.push(...await this.#checks(projectId, task.checks));
       }
       after = await this.#live();
     } catch (error) { observationError = error.message; }

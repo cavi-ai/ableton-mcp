@@ -89,7 +89,7 @@ const producer = await exchange(bin, ["serve"], producerEnvironment, [
   { id: 2, method: "tools/call", params: { name: "record_production_note", arguments: {
     projectId: "song", kind: "intent", text: "Preserve the original bass." } } }
 ]);
-assert.equal(producer[0].result.tools.length, 9);
+assert.equal(producer[0].result.tools.length, 12);
 const noteRef = producer[1].result.structuredContent.noteRef;
 assert.match(noteRef, /^[a-f0-9]{64}$/);
 const note = JSON.parse(execFileSync(bin, ["call", "read_production_artifact", "--args",
