@@ -678,6 +678,7 @@ const contracts = {
     solo: boolean("Solo state applied to every listed track; a solo write mutes everything else at Live level.")
   }, ["trackIds"]) },
   set_track_volume_db: { description: "Set a track fader in dB using Live's native display, with identity, value and automation rechecks. Refuses recording, disabled or automated faders and unrepresentable levels.", inputSchema: guarded({trackId:ids.trackId,volumeDb:number("Finite absolute fader level in dB; native range, no clamping.")},["trackId","volumeDb"]) },
+  set_track_send_db: { description: "Set one track-to-Return send in native dB or to its verified silent minimum. Rechecks track, send and Return identity, current value and automation. Refuses recording, frozen or disabled sends and unsupported levels.", inputSchema: guarded({trackId:ids.trackId,sendId:string("Canonical send-N ID from get_track_mixer."),returnTrackId:string("Matching return-N ID from the selected send record."),sendDb:{oneOf:[{type:"number"},{type:"string",enum:["-inf"]}],description:"Absolute finite dB target, or -inf for the native verified silent minimum; no clamping."}},["trackId","sendId","returnTrackId","sendDb"]) },
   stop_all_clips: { description: "Plan or stop every playing Session clip in one guarded step using Live's native stop-all action. Playback-only; does not delete or mute clips.", inputSchema: guarded() }
 };
 

@@ -15,16 +15,16 @@ _tolerance_db = 0.05
 
 def _decibels(display):
     if not isinstance(display, str):
-        raise ValueError("native fader dB display is unavailable")
+        raise ValueError("native gain dB display is unavailable")
     text = display.strip().replace("−", "-")
     if text.lower() in ("-inf db", "-infinity db", "-∞ db"):
         return -math.inf
     match = re.fullmatch(r"([+-]?(?:[0-9]+(?:[.,][0-9]*)?|[.,][0-9]+))\s*dB", text, re.IGNORECASE)
     if not match:
-        raise ValueError("native fader dB display is unavailable")
+        raise ValueError("native gain dB display is unavailable")
     value = float(match[1].replace(",", "."))
     if not math.isfinite(value):
-        raise ValueError("native fader dB display is unavailable")
+        raise ValueError("native gain dB display is unavailable")
     return value
 
 
@@ -46,15 +46,15 @@ def volume_record(parameter):
 def _target(parameter, requested):
     low, high = float(parameter.min), float(parameter.max)
     if not math.isfinite(low) or not math.isfinite(high) or low >= high:
-        raise ValueError("native fader bounds are unavailable")
+        raise ValueError("native gain bounds are unavailable")
     def candidate(value):
         display = parameter.str_for_value(value)
         return {"value": value, "displayValue": display, "decibels": _decibels(display)}
     bottom, top, current = candidate(low), candidate(high), candidate(parameter.value)
     if bottom["decibels"] > top["decibels"] or not math.isfinite(top["decibels"]):
-        raise ValueError("native fader dB scale is unavailable")
+        raise ValueError("native gain dB scale is unavailable")
     if requested < bottom["decibels"] or requested > top["decibels"]:
-        raise ValueError("requested dB level is outside the native fader range")
+        raise ValueError("requested dB level is outside the native gain range")
     best = min([bottom, top, current], key=lambda item: abs(item["decibels"] - requested))
     # Query the native formatter without moving the fader. No normalized-to-dB
     # formula is assumed, and unrepresentable targets are refused.
@@ -68,7 +68,7 @@ def _target(parameter, requested):
         else:
             high = middle
     if not math.isfinite(best["decibels"]) or abs(best["decibels"] - requested) > _tolerance_db + 1e-9:
-        raise ValueError("requested level is not representable within 0.05 dB on the native fader")
+        raise ValueError("requested level is not representable within 0.05 dB on the native gain control")
     return best
 
 

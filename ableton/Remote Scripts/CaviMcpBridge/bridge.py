@@ -4430,17 +4430,27 @@ def dispatch_request(song, request, state_version, application=None):
         except ImportError:
             import track_volume
         return (track_volume.source if method == "get_track_volume_edit_context" else track_volume.apply)(song, params, state_version)
+    if method in ("get_track_send_edit_context", "set_track_send_db"):
+        try:
+            from . import track_send
+        except ImportError:
+            import track_send
+        return (track_send.source if method == "get_track_send_edit_context" else track_send.apply)(song, params, state_version)
     if method == "get_track_mixer":
         try:
             from .track_volume import volume_record
+            from .track_send import send_record
         except ImportError:
             from track_volume import volume_record
+            from track_send import send_record
         _, track = _track(song, params["trackId"])
         return {
             "stateVersion": state_version, "trackId": params["trackId"],
             "volume": volume_record(track.mixer_device.volume),
             "pan": {"value": track.mixer_device.panning.value, "min": track.mixer_device.panning.min, "max": track.mixer_device.panning.max},
-            "mute": track.mute, "solo": track.solo, "sends": _send_records(song, track),
+            "mute": track.mute, "solo": track.solo,
+            "sends": [{**row, **send_record(track.mixer_device.sends[index])}
+                      for index, row in enumerate(_send_records(song, track))],
         }
     if method == "list_scenes":
         return {"stateVersion": state_version, "scenes": [_scene_record(scene, index) for index, scene in enumerate(song.scenes)]}

@@ -2,6 +2,8 @@
 
 Retrieve `balance-mix` through `get_producer_workflow` in the `all` profile, or open its MCP prompt. Describe the parts and desired balance. The default `collaborative` mode proposes a direction unless already chosen; `autonomous` chooses small, stated changes within the brief. Playback, recording, isolation and saving need their own authority.
 
+The workflow covers explicitly chosen track faders and track-to-Return sends. Adding effects, changing Return processing or routing, and changing send pre/post settings require their own scope.
+
 ## Work in native dB
 
 `get_track_mixer` reports the volume fader's raw value, `displayValue`, finite `decibels`, enablement and automation state. A silent or unavailable dB value is `null`. Raw fader values are not a linear amplitude or dB scale. A finite relative request such as “lower the bass by 2 dB” needs its actual current dB value before calculating an absolute target. A silent fader needs an absolute target.
@@ -9,6 +11,16 @@ Retrieve `balance-mix` through `get_producer_workflow` in the `all` profile, or 
 Plan `set_track_volume_db` with exact `trackId`, finite absolute `volumeDb`, and fresh `expectedStateVersion`. Review and execute with its confirmation token and plan hash. The updated bridge searches Live's native formatter without moving the fader, then rechecks document, native track/fader identity, current value, enablement, automation and recording before writing. Targets outside the native range or not representable within 0.05 dB are refused without clamping. Return and Main faders are outside this tool; a named Group fader affects its routed descendants and carries a plan warning.
 
 Known automated/overridden, disabled, frozen or unresolved faders and active recording are refused. Do not remove automation or stop recording to bypass that boundary. Inactive automation state is not proof that no stored envelopes exist. Unsupported native dB displays remain unavailable rather than using an assumed conversion formula.
+
+## Balance effect sends
+
+`get_track_mixer` also reports each send's native `displayValue`, finite `decibels`, `silent`, enablement and automation state. Resolve its exact `id` and `returnTrackId` and confirm the Return name. Duplicate names do not establish a destination. A Group send feeds the Group's routed material; do not unintentionally adjust both a Group and its children.
+
+Plan `set_track_send_db` with `trackId`, `sendId`, matching `returnTrackId`, absolute `sendDb` and fresh `expectedStateVersion`. For “raise the reverb send by 2 dB,” calculate the absolute target from that send's observed finite dB value. A silent or unavailable baseline cannot support a finite relative calculation. Use `sendDb: "-inf"` only for an explicitly intended silent minimum; Live must verify that minimum as silent. No other string targets are accepted.
+
+The plan binds native document, track, send-parameter and Return identity, current level, enablement, automation and recording. Disabled, frozen, automated/overridden or unresolved sends and active recording are refused. Finite levels must be representable within 0.05 dB without clamping. Inspect and confirm the unchanged plan, require `observed.verified`, and independently read the selected send again. A changed send uses one undo step; failed readback attempts to restore only its previous raw value and reports rollback failures.
+
+Neighboring sends, faders, effects and routing are preserved. Return processing and send pre/post settings are outside the verification context. A gain-setting readback does not establish an audible wet/dry balance. Reversion needs fresh native identity, value and automation comparisons against the last applied observation. Restore an observed silent baseline through the same guarded tool with `sendDb: "-inf"`. Restoring a displayed finite dB level need not recover the exact original raw value or automation; do not use global undo or an unguarded raw write to bypass a conflict.
 
 ## Verify and refine
 

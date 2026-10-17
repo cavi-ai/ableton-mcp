@@ -4512,6 +4512,8 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(observed["sends"][0], {
             "id": "send-0", "returnTrackId": "return-0", "name": "Reverb",
             "value": 0.2, "min": 0.0, "max": 1.0,
+            "displayValue": None, "decibels": None, "silent": None,
+            "enabled": None, "automationState": None,
         })
         changed = dispatch_request(song, {"method": "set_track_mixer", "params": {
             "trackId": "track-0", "changes": {
