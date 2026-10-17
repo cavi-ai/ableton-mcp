@@ -36,7 +36,7 @@ def _equal(left, right):
     return left["unit"] == right["unit"] and math.isclose(left["value"], right["value"], rel_tol=1e-9, abs_tol=1e-9)
 
 
-def _target(parameter, requested):
+def _target(parameter, requested, include_current=True):
     low, high = float(parameter.min), float(parameter.max)
     if not math.isfinite(low) or not math.isfinite(high) or low >= high:
         raise ValueError("native parameter bounds unavailable")
@@ -57,8 +57,8 @@ def _target(parameter, requested):
         raise ValueError("native display scale is not observably monotonic")
     if not min(values[0], values[-1]) <= requested["value"] <= max(values[0], values[-1]):
         raise ValueError("requested display is outside the native parameter range")
-    current = candidate(parameter.value)
-    for item in [current, *samples]:
+    candidates = [candidate(parameter.value), *samples] if include_current else samples
+    for item in candidates:
         if _equal(item["quantity"], requested):
             return item
     for _ in range(48):

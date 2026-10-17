@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 297 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 298 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (128)
 
@@ -137,7 +137,7 @@ The server publishes 297 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (140)
+## Mutations (141)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -207,6 +207,7 @@ The server publishes 297 tools. Mutations of the Live Set require `expectedState
 | `move_audio_warp_marker` | Plan or apply movement of an exact audio warp marker to a target beat. Preserves sample position; rejects neighbor crossing and the hidden terminal marker. | `expectedStateVersion`, `trackId`, `clipId`, `beatTime`, `targetBeatTime` |
 | `move_device` | Plan or reorder one exact device within its current ordinary, Return, Main, or rack chain. Live may choose the nearest valid position; read actualPosition and the new device ID from the result. | `expectedStateVersion`, `trackId`, `deviceId`, `targetPosition` |
 | `move_device_to_chain` | Plan or move an exact device into a rack chain across ordinary, Return, or Main tracks, including nested destinations. Live may choose the nearest valid position; use the returned device ID and actualPosition. | `expectedStateVersion`, `trackId`, `deviceId`, `targetTrackId`, `targetChainId`, `targetPosition` |
+| `override_parameter_automation` | Explicitly take one exact active or overridden device/mixer automation control into manual control at one absolute native value or finite unit display. Keeps the envelope and playback. Active automation may advance before confirmation; manual values and native ancestry remain bound. Recording/count-in and unsafe targets refuse. One write with bounded readback; partial work remains without rollback/replay. All profile. | `expectedStateVersion`, `trackId`, `parameterId` |
 | `panic` | Plan or stop Live playback immediately using the guarded panic operation. | `expectedStateVersion` |
 | `perform_beat_repeat_fill` | Set an existing native Beat Repeat's Repeat On for 0.25–8 requested wall-clock seconds, then release Off on Live display ticks without a client. Requires authorized playback, Repeat Off and no source recording/Repeat automation. Owns only Repeat; manual changes relinquish ownership. No beat timing, bypass or audible-result guarantee. Updated bridge; all profile. | `expectedStateVersion`, `trackId`, `deviceId`, `durationSeconds` |
 | `place_session_clip_in_arrangement` | Plan/copy a Session clip onto its own Arrangement track. Updated bridge binds source identity and notes/timing or audio settings; excludes file bytes and automation. Rejects overlap and verifies interval. Limits: 4096 source notes and 4096 timeline clips. Refuses frozen, recording, pending-launch or unwarped sources. | `expectedStateVersion`, `trackId`, `clipId`, `startBeats` |

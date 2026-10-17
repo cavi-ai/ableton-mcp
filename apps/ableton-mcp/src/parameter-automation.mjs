@@ -16,18 +16,21 @@ function target(args){
  return request;
 }
 
-function ready(before,request){
+function ready(before,request,{allowActive=false}={}){
  if(typeof before.identityToken!=='string'||!before.identityToken||before.trackId!==request.trackId||
   before.deviceId!==(request.deviceId??null)||before.parameterId!==request.parameterId||
   before.controls?.length!==1||before.controls[0].id!==request.parameterId)throw Error('updated native automation target context required');
  const p=before.controls[0],t=before.transport;
- if(p.supported!==true||p.reEnableSupported!==true||p.enabled!==true||
-  p.automationState?.value!==2||p.automationState?.name!=='overridden')throw Error('select one supported enabled control with known overridden automation');
+ const state=p.automationState,eligible=state?.value===2&&state.name==='overridden'||allowActive&&state?.value===1&&state.name==='playing';
+ if(p.supported!==true||p.reEnableSupported!==true||p.enabled!==true||!eligible)
+  throw Error(allowActive?'select one supported enabled control with known active or overridden automation':'select one supported enabled control with known overridden automation');
  if(before.frozen!==false||!t||t.arrangementRecord!==false||t.sessionRecord!==false||t.countingIn!==false)
   throw Error('resolve frozen or unknown target state, recording and count-in before handing back automation');
  if(!request.deviceId&&['pan','left','right'].includes(request.parameterId)&&before.panningMode!==(request.parameterId==='pan'?0:1))
   throw Error('selected pan control must match the known active native mode');
 }
+
+export {target as parameterAutomationTarget,ready as assertAutomationControlReady};
 
 export async function parameterAutomation(bridge,confirmations,name,args){
  const request=target(args);
