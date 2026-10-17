@@ -27,6 +27,7 @@
         { "title": "Audition an Arrangement passage", "path": "guides/arrangement-audition.md" },
         { "title": "Return tracks to Arrangement", "path": "guides/arrangement-return.md" },
         { "title": "Prepare crossfader parts", "path": "guides/crossfader.md" },
+        { "title": "Shape stereo placement", "path": "guides/stereo-panning.md" },
         { "title": "Play a Session scene", "path": "guides/scene-launch.md" },
         { "title": "Build a Session scene", "path": "guides/session-scene-building.md" },
         { "title": "Keep parts playing across scenes", "path": "guides/session-stop-buttons.md" },

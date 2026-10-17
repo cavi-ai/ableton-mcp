@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 295 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 297 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (127)
+## Read-only (128)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -51,6 +51,7 @@ The server publishes 295 tools. Mutations of the Live Set require `expectedState
 | `get_midi_capture_context` | Read global Capture MIDI readiness, armed/monitored candidates, playing-clip risks, input routing, full-note digests and clip timing with native identity. Does not expose buffer contents or reserve a moving playhead. | none |
 | `get_midi_clip_notes` | Read standard MIDI notes from one exact Session or Arrangement MIDI clip; Arrangement responses include timeline identity. | `trackId`, `clipId` |
 | `get_midi_clip_notes_extended` | Read MIDI note IDs, probability, release velocity, deviation and other fields from one Session/Arrangement clip; includes Arrangement timeline identity. | `trackId`, `clipId` |
+| `get_mixer_panning_context` | Read exact track, Group, Return or Main panning mode and Stereo/left/right native values, displays, bounds, enablement and automation. Binds native owner/mixer/parameter identities. Read-only; unsupported fields explicit. All profile. | `trackId` |
 | `get_nks_generation_job` | Read one durable NKS generation job and its ordered event history without creating or changing the queue. | `presetId` |
 | `get_nks_generation_status` | Read discovered preset and durable job counts for one product. Serum 2 and Omnisphere also report pilot size, validated count, gate state, queueable factory count (including already queued presets), remaining discovered pilot IDs, and unqueued discovered pilot IDs without a durable job. Does not create a queue or contact Live. | `productSlug` |
 | `get_parameter_automation_context` | Read discoverable device parameters or mixer controls and native automation handoff support on an exact track, Group, Return or Main. Omit parameterId to list, supply one observed ID for a target read. Unsupported controls remain explicit. Read-only; all profile. | `trackId` |
@@ -136,7 +137,7 @@ The server publishes 295 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (139)
+## Mutations (140)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -254,6 +255,7 @@ The server publishes 295 tools. Mutations of the Live Set require `expectedState
 | `set_live_object_colors` | Set colors for one to 64 exact tracks, Returns, Main, scenes or existing Session/Arrangement clips in one undo step. Binds native identity and current color/name/selection. Live may choose a nearby palette color; reports actual RGB and exactMatch. Track color inheritance can affect Rack-chain appearance. No automatic clip recoloring or musical writes. Partial changes remain. All profile. | `expectedStateVersion`, `changes`, `expectedSetFingerprint` |
 | `set_master_mixer` | Plan or apply master mixer and available hardware output-channel changes. The native write rechecks the signed mixer state, validates bounded values, and groups all writes in one undo step with rollback on failure. | `expectedStateVersion` |
 | `set_midi_note_properties` | Plan or apply guarded per-note timing, velocity, probability, mute, and pitch changes by stable note ID on one exact Session or Arrangement MIDI clip. | `expectedStateVersion`, `trackId`, `clipId`, `changes` |
+| `set_mixer_panning` | Change one mixer panning mode or its active Stereo balance / Split Stereo channel positions in separate confirmations. Recording/count-in off, unfrozen target, known inactive affected automation and native identities required. Immediate edits; partial work retained without rollback/replay. No timed sweep or audible image claim. Updated bridge; all profile. | `expectedStateVersion`, `trackId` |
 | `set_preset_metadata` | Plan or update user tags and favorite state for one preset with an exact revision guard. | `expectedMetadataRevision`, `presetId` |
 | `set_rack_chain_mixer` | Plan or apply exact rack-chain volume, pan, mute, solo, and send levels using native ranges and guarded hierarchy state. | `expectedStateVersion`, `trackId`, `deviceId`, `chainId` |
 | `set_rack_chain_note_routing` | Plan or reassign a Drum Rack chain to a MIDI pad note and optionally change its instrument output note. Occupied destinations layer chains rather than replace sounds. | `expectedStateVersion`, `trackId`, `deviceId`, `chainId` |

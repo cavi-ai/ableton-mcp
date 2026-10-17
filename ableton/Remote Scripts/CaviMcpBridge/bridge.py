@@ -834,11 +834,55 @@ def _value_record(parameter):
     return {"value": parameter.value, "min": parameter.min, "max": parameter.max}
 
 
+def _pan_record(mixer):
+    try:
+        from .panning import mode_record
+    except ImportError:
+        from panning import mode_record
+    return {**_value_record(mixer.panning), "panningMode": mode_record(mixer)}
+
+
+def _require_stereo_pan(mixer):
+    try:
+        from .panning import require_stereo
+    except ImportError:
+        from panning import require_stereo
+    require_stereo(mixer)
+
+
+def _write_stereo_pan(mixer, value, write=None, pan_owner=None):
+    if write is not None and mixer.panning.value == value:
+        return
+    if pan_owner is not None:
+        song, owner_id, owner = pan_owner
+        if _device_owner(song, owner_id)[1] != owner or owner.mixer_device != mixer:
+            raise ValueError('pan write refused: native owner or mixer changed')
+    _require_stereo_pan(mixer)
+    if write is None:
+        mixer.panning.value = value
+    else:
+        if pan_owner is None:
+            raise ValueError('pan rollback requires native ownership binding')
+        write(mixer.panning, "value", value, (*pan_owner, mixer, mixer.panning))
+
+
+def _restore_mixer_journal_entry(entry):
+    target, attribute, previous = entry[:3]
+    if len(entry) == 4:
+        song, owner_id, owner, mixer, parameter = entry[3]
+        _, current_owner = _device_owner(song, owner_id)
+        if current_owner != owner or owner.mixer_device != mixer or mixer.panning != parameter or target != parameter:
+            raise ValueError('pan restoration skipped: native owner, mixer or parameter changed')
+        _write_stereo_pan(mixer, previous)
+    else:
+        setattr(target, attribute, previous)
+
+
 def _return_mixer_record(track, index):
     return {
         "id": f"return-{index}", "name": track.name,
         "volume": _value_record(track.mixer_device.volume),
-        "pan": _value_record(track.mixer_device.panning),
+        "pan": _pan_record(track.mixer_device),
         "mute": bool(track.mute), "solo": bool(track.solo),
         "devices": [_device_tree(device, f"return-{index}:device-{device_index}")
                     for device_index, device in enumerate(getattr(track, "devices", ()))],
@@ -875,7 +919,7 @@ def _set_mixer(song, state_version):
     return {
         "stateVersion": state_version,
         "master": {
-            "volume": _value_record(mixer.volume), "pan": _value_record(mixer.panning),
+            "volume": _value_record(mixer.volume), "pan": _pan_record(mixer),
             "cueVolume": _value_record(mixer.cue_volume), "crossfader": _value_record(mixer.crossfader),
             "outputRouting": {
                 "supported": output_supported,
@@ -893,7 +937,7 @@ def _track_state_snapshot(song, track_id, state_version):
     return {
         "stateVersion": state_version, "trackId": track_id,
         "track": {**_track_record(song, track, track_index), "type": _track_type(track)},
-        "mixer": {"volume": _value_record(track.mixer_device.volume), "pan": _value_record(track.mixer_device.panning),
+        "mixer": {"volume": _value_record(track.mixer_device.volume), "pan": _pan_record(track.mixer_device),
                   "mute": bool(track.mute), "solo": bool(track.solo), "sends": _send_records(song, track)},
         "routing": {"input": routing["input"], "output": routing["output"], "monitoring": routing["monitoring"]},
         "devices": [_snapshot_device(device, f"{track_id}:device-{index}")
@@ -926,11 +970,11 @@ def _device_chain_snapshot(song, owner_id, state_version):
     return {
         "stateVersion": state_version, "trackId": owner_id,
         **({"ownerMixer": {"volume": _value_record(owner.mixer_device.volume),
-                            "pan": _value_record(owner.mixer_device.panning),
+                            "pan": _pan_record(owner.mixer_device),
                             "mute": bool(owner.mute), "solo": bool(owner.solo)}}
            if owner_id.startswith("return-") else {}),
         **({"ownerMixer": {"volume": _value_record(owner.mixer_device.volume),
-                            "pan": _value_record(owner.mixer_device.panning),
+                            "pan": _pan_record(owner.mixer_device),
                             "cueVolume": _value_record(owner.mixer_device.cue_volume),
                             "crossfader": _value_record(owner.mixer_device.crossfader),
                             "outputRouting": _set_mixer(song, state_version)["master"]["outputRouting"]}}
@@ -1114,9 +1158,9 @@ class _GroupRecallContext:
 def _rollback_track_state_journal(journal):
     track, writes, pad_restore, route_previous = journal
     errors = []
-    for owner, attribute, previous in reversed(writes):
+    for entry in reversed(writes):
         try:
-            setattr(owner, attribute, previous)
+            _restore_mixer_journal_entry(entry)
         except Exception as error:
             errors.append(error)
     errors.extend(_restore_snapshot_drum_pads(pad_restore))
@@ -3136,6 +3180,12 @@ def dispatch_request(song, request, state_version, application=None):
         return (object_colors.source if method == "get_live_object_colors" else object_colors.write)(song, params, state_version)
     if method == "get_session_orientation":
         return _session_orientation(song, state_version, application)
+    if method in ("get_mixer_panning_context", "set_mixer_panning"):
+        try:
+            from . import panning
+        except ImportError:
+            import panning
+        return (panning.context if method == "get_mixer_panning_context" else panning.apply)(song, params, state_version)
     if method in ("get_crossfader_context", "set_crossfader_state"):
         try:
             from . import crossfader
@@ -3933,6 +3983,8 @@ def dispatch_request(song, request, state_version, application=None):
         if params.get("beforeMaster") != _set_mixer(song, state_version)["master"]:
             raise ValueError("master mixer changed after planning")
         changes = params["changes"]
+        if "pan" in changes:
+            _require_stereo_pan(mixer)
         properties = {"volume": "volume", "pan": "panning", "cueVolume": "cue_volume", "crossfader": "crossfader"}
         if not isinstance(changes, dict) or not changes or set(changes) - (set(properties) | {"outputChannelId"}):
             raise ValueError("invalid master mixer changes")
@@ -3957,18 +4009,23 @@ def dispatch_request(song, request, state_version, application=None):
             if not routing["supported"] or selected is None or routing_change["value"] != selected:
                 raise ValueError("master output channel is unavailable")
         writes = []
-        def write(target, attribute, value):
+        def write(target, attribute, value, pan_binding=None):
             previous = getattr(target, attribute)
             if previous != value:
-                writes.append((target, attribute, previous))
+                writes.append((target, attribute, previous) + ((pan_binding,) if pan_binding is not None else ()))
                 setattr(target, attribute, value)
         song.begin_undo_step()
         try:
+            if "pan" in changes:
+                _require_stereo_pan(mixer)
             if selected is not None:
                 write(song.master_track, "current_output_sub_routing", selected["name"])
             for key, attribute in properties.items():
                 if key in changes:
-                    write(getattr(mixer, attribute), "value", changes[key]["value"])
+                    if key == "pan":
+                        _write_stereo_pan(mixer, changes[key]["value"], write, (song, "master", song.master_track))
+                    else:
+                        write(getattr(mixer, attribute), "value", changes[key]["value"])
             result = _set_mixer(song, state_version + 1)
             master = result["master"]
             if any(master[key]["value"] != changes[key]["value"] for key in properties if key in changes) or \
@@ -3976,9 +4033,9 @@ def dispatch_request(song, request, state_version, application=None):
                 raise ValueError("Live did not apply the complete master mixer change")
         except Exception as error:
             rollback_errors = []
-            for target, attribute, previous in reversed(writes):
+            for entry in reversed(writes):
                 try:
-                    setattr(target, attribute, previous)
+                    _restore_mixer_journal_entry(entry)
                 except Exception as rollback_error:
                     rollback_errors.append(rollback_error)
             if rollback_errors:
@@ -3990,9 +4047,12 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "set_return_mixer":
         index = int(params["returnTrackId"].removeprefix("return-"))
         track = song.return_tracks[index]
+        panning_mixer = track.mixer_device
         if _return_mixer_record(track, index) != params.get("beforeReturn"):
             raise ValueError("return track changed after planning")
         changes = params["changes"]
+        if "pan" in changes:
+            _require_stereo_pan(track.mixer_device)
         if not isinstance(changes, dict) or not changes or set(changes) - {"volume", "pan", "mute", "solo"}:
             raise ValueError("invalid return mixer changes")
         for key in ("volume", "pan"):
@@ -4010,17 +4070,19 @@ def dispatch_request(song, request, state_version, application=None):
                                    type(changes[key].get("value")) is not bool):
                 raise ValueError(f"return {key} state is invalid")
         writes = []
-        def write(target, attribute, value):
+        def write(target, attribute, value, pan_binding=None):
             previous = getattr(target, attribute)
             if previous != value:
-                writes.append((target, attribute, previous))
+                writes.append((target, attribute, previous) + ((pan_binding,) if pan_binding is not None else ()))
                 setattr(target, attribute, value)
         song.begin_undo_step()
         try:
+            if "pan" in changes:
+                _require_stereo_pan(track.mixer_device)
             if "volume" in changes:
                 write(track.mixer_device.volume, "value", changes["volume"]["value"])
             if "pan" in changes:
-                write(track.mixer_device.panning, "value", changes["pan"]["value"])
+                _write_stereo_pan(panning_mixer, changes["pan"]["value"], write, (song, params["returnTrackId"], track))
             for key in ("mute", "solo"):
                 if key in changes:
                     write(track, key, changes[key]["value"])
@@ -4030,9 +4092,9 @@ def dispatch_request(song, request, state_version, application=None):
                 raise ValueError("Live did not apply the complete return mixer change")
         except Exception as error:
             rollback_errors = []
-            for target, attribute, previous in reversed(writes):
+            for entry in reversed(writes):
                 try:
-                    setattr(target, attribute, previous)
+                    _restore_mixer_journal_entry(entry)
                 except Exception as rollback_error:
                     rollback_errors.append(rollback_error)
             if rollback_errors:
@@ -4305,11 +4367,14 @@ def dispatch_request(song, request, state_version, application=None):
         return _device_chain_snapshot(song, params["trackId"], state_version)
     if method == "set_device_chain_snapshot":
         owner_id, owner = _device_owner(song, params["trackId"])
+        panning_mixer = owner.mixer_device
         current = _device_chain_snapshot(song, owner_id, state_version)
         if current != params["before"]:
             raise ValueError("device chain changed after planning")
         target = params["target"]
         format_name = target.get("format")
+        if target.get("ownerMixer", {}).get("pan") != current.get("ownerMixer", {}).get("pan", {}).get("value") and target.get("ownerMixer"):
+            _require_stereo_pan(owner.mixer_device)
         if format_name not in ("cavi-device-chain-v1", "cavi-device-chain-v2", "cavi-device-chain-v3", "cavi-device-chain-v4", "cavi-device-chain-v5", "cavi-device-chain-v6") or not isinstance(target.get("devices"), list) or len(target["devices"]) != len(current["devices"]):
             raise ValueError("device chain topology mismatch")
         if format_name == "cavi-device-chain-v5":
@@ -4379,23 +4444,28 @@ def dispatch_request(song, request, state_version, application=None):
         for saved_device, native_device in zip(target["devices"], current["devices"]):
             validate_device(saved_device, native_device)
         writes, pad_restore = [], []
-        def write(target_object, attribute, value):
+        def write(target_object, attribute, value, pan_binding=None):
             previous = getattr(target_object, attribute)
             if previous != value:
-                writes.append((target_object, attribute, previous))
+                writes.append((target_object, attribute, previous) + ((pan_binding,) if pan_binding is not None else ()))
                 setattr(target_object, attribute, value)
         song.begin_undo_step()
         try:
+            if target.get("ownerMixer") and target["ownerMixer"]["pan"] != current["ownerMixer"]["pan"]["value"]:
+                _require_stereo_pan(owner.mixer_device)
             if format_name == "cavi-device-chain-v5":
                 write(owner.mixer_device.volume, "value", target["ownerMixer"]["volume"])
-                write(owner.mixer_device.panning, "value", target["ownerMixer"]["pan"])
+                _write_stereo_pan(panning_mixer, target["ownerMixer"]["pan"], write, (song, owner_id, owner))
                 write(owner, "mute", target["ownerMixer"]["mute"])
                 write(owner, "solo", target["ownerMixer"]["solo"])
             if format_name == "cavi-device-chain-v6":
                 saved_mixer = target["ownerMixer"]
                 for key, attribute in (("volume", "volume"), ("pan", "panning"),
                                        ("cueVolume", "cue_volume"), ("crossfader", "crossfader")):
-                    write(getattr(owner.mixer_device, attribute), "value", saved_mixer[key])
+                    if key == "pan":
+                        _write_stereo_pan(panning_mixer, saved_mixer[key], write, (song, owner_id, owner))
+                    else:
+                        write(getattr(owner.mixer_device, attribute), "value", saved_mixer[key])
                 routing = current["ownerMixer"]["outputRouting"]
                 if routing["supported"]:
                     selected = next(option for option in routing["availableChannels"]
@@ -4423,9 +4493,9 @@ def dispatch_request(song, request, state_version, application=None):
                 raise ValueError("Live did not apply the complete device chain snapshot")
         except Exception as error:
             rollback_errors = []
-            for target_object, attribute, previous in reversed(writes):
+            for entry in reversed(writes):
                 try:
-                    setattr(target_object, attribute, previous)
+                    _restore_mixer_journal_entry(entry)
                 except Exception as rollback_error:
                     rollback_errors.append(rollback_error)
             rollback_errors.extend(_restore_snapshot_drum_pads(pad_restore))
@@ -4452,6 +4522,9 @@ def dispatch_request(song, request, state_version, application=None):
         for record in records:
             if _track_state_snapshot(song, record["trackId"], state_version) != record.get("before"):
                 raise ValueError("group system state changed after planning")
+            _, target_track = _track(song, record["trackId"])
+            if record["target"]["mixer"]["pan"] != record["before"]["mixer"]["pan"]["value"]:
+                _require_stereo_pan(target_track.mixer_device)
         def belongs_to_root(track):
             seen = set()
             parent = getattr(track, "group_track", None) if bool(getattr(track, "is_grouped", False)) else None
@@ -4493,6 +4566,9 @@ def dispatch_request(song, request, state_version, application=None):
         current = _track_state_snapshot(song, track_id, state_version)
         if current != params["before"]:
             raise ValueError("track state changed after planning")
+        _, pan_owner = _track(song, track_id)
+        if target["mixer"]["pan"] != current["mixer"]["pan"]["value"]:
+            _require_stereo_pan(pan_owner.mixer_device)
         if target.get("format") not in ("cavi-track-state-v1", "cavi-track-state-v2", "cavi-track-state-v3", "cavi-track-state-v4"):
             raise ValueError("invalid track snapshot format")
         nested = target["format"] != "cavi-track-state-v1"
@@ -4573,11 +4649,12 @@ def dispatch_request(song, request, state_version, application=None):
             validate_device(saved_device, native_device)
         _, track = _track(song, track_id)
         writes, pad_restore = [], []
+        panning_mixer = track.mixer_device
         route_previous = {}
-        def write(owner, attribute, value):
+        def write(owner, attribute, value, pan_binding=None):
             previous = getattr(owner, attribute)
             if previous != value:
-                writes.append((owner, attribute, previous))
+                writes.append((owner, attribute, previous) + ((pan_binding,) if pan_binding is not None else ()))
                 setattr(owner, attribute, value)
         def write_route(attribute, value):
             previous = getattr(track, attribute)
@@ -4587,9 +4664,11 @@ def dispatch_request(song, request, state_version, application=None):
         if group_context is None:
             song.begin_undo_step()
         try:
+            if target["mixer"]["pan"] != current["mixer"]["pan"]["value"]:
+                _require_stereo_pan(track.mixer_device)
             write(track, "name", target["track"]["name"])
             write(track.mixer_device.volume, "value", target["mixer"]["volume"])
-            write(track.mixer_device.panning, "value", target["mixer"]["pan"])
+            _write_stereo_pan(panning_mixer, target["mixer"]["pan"], write, (song, track_id, track))
             write(track, "mute", target["mixer"]["mute"])
             write(track, "solo", target["mixer"]["solo"])
             for send, saved in zip(track.mixer_device.sends, target["mixer"]["sends"]):
@@ -4713,7 +4792,7 @@ def dispatch_request(song, request, state_version, application=None):
         return {
             "stateVersion": state_version, "trackId": params["trackId"],
             "volume": volume_record(track.mixer_device.volume),
-            "pan": {"value": track.mixer_device.panning.value, "min": track.mixer_device.panning.min, "max": track.mixer_device.panning.max},
+            "pan": _pan_record(track.mixer_device),
             "mute": track.mute, "solo": track.solo,
             "sends": [{**row, **send_record(track.mixer_device.sends[index])}
                       for index, row in enumerate(_send_records(song, track))],
@@ -6626,11 +6705,14 @@ def dispatch_request(song, request, state_version, application=None):
         return {"stateVersion": state_version + 1, "tempo": song.tempo}
     if method == "set_track_mixer":
         _, track = _track(song, params["trackId"])
+        panning_mixer = track.mixer_device
         changes = params.get("changes", params)
+        if "pan" in changes:
+            _require_stereo_pan(track.mixer_device)
         if "volume" in changes:
             track.mixer_device.volume.value = _clamp(_change_value(changes["volume"]), track.mixer_device.volume)
         if "pan" in changes:
-            track.mixer_device.panning.value = _clamp(_change_value(changes["pan"]), track.mixer_device.panning)
+            _write_stereo_pan(panning_mixer, _clamp(_change_value(changes["pan"]), panning_mixer.panning), pan_owner=(song, params["trackId"], track))
         for key in ("mute", "solo"):
             if key in changes:
                 setattr(track, key, bool(_change_value(changes[key])))
@@ -6650,11 +6732,22 @@ def dispatch_request(song, request, state_version, application=None):
         if current != params["before"]:
             raise ValueError("one or more track mixers changed since observation")
         for track_id, track_record in zip(params["trackIds"], params["tracks"]):
+            if "pan" in track_record["changes"]:
+                _, track = _track(song, track_id)
+                _require_stereo_pan(track.mixer_device)
+        for track_id, track_record in zip(params["trackIds"], params["tracks"]):
             _, track = _track(song, track_id)
+            panning_mixer = track.mixer_device
+            if "pan" in track_record["changes"]:
+                _require_stereo_pan(track.mixer_device)
             for key in ("volume", "pan"):
                 if key in track_record["changes"]:
                     parameter = getattr(track.mixer_device, "panning" if key == "pan" else "volume")
-                    parameter.value = _clamp(track_record["changes"][key]["value"], parameter)
+                    value = _clamp(track_record["changes"][key]["value"], parameter)
+                    if key == "pan":
+                        _write_stereo_pan(panning_mixer, value, pan_owner=(song, track_id, track))
+                    else:
+                        parameter.value = value
             for key in ("mute", "solo"):
                 if key in track_record["changes"]:
                     setattr(track, key, bool(track_record["changes"][key]["value"]))
@@ -6894,7 +6987,7 @@ class SocketBridge:
                 if request.get("method") == "prepare_instrument_comparison":
                     self._defer_instrument_comparison(client, request, song, record)
                     return
-                if request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state", "re_enable_parameter_automation"):
+                if request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state", "re_enable_parameter_automation", "set_mixer_panning"):
                     self._defer_observed_mutation(client, request, song, record)
                     return
                 result = dispatch_request(
@@ -6957,14 +7050,15 @@ class SocketBridge:
     def _defer_observed_mutation(self, client, request, song, record=None):
         try:
             try:
-                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation
+                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, panning
             except ImportError:
-                import arrangement_audition, arrangement_return, crossfader, parameter_automation
+                import arrangement_audition, arrangement_return, crossfader, parameter_automation, panning
             module, success_key = {
                 'return_tracks_to_arrangement': (arrangement_return, 'returned'),
                 'audition_arrangement_passage': (arrangement_audition, 'started'),
                 'set_crossfader_state': (crossfader, 'verified'),
                 're_enable_parameter_automation': (parameter_automation, 'verified'),
+                'set_mixer_panning': (panning, 'verified'),
             }[request['method']]
             operation = module.begin(song, request.get("params", {}), self.state_version)
             self.state_version += 1
