@@ -3480,18 +3480,19 @@ export class ToolService {
     if (observed.scenes.length <= 1) throw new Error("cannot delete the last scene");
     const sceneIndex = observed.scenes.findIndex(({ id }) => id === args.targetId);
     if (sceneIndex === -1) throw new Error(`unknown scene ${args.targetId}`);
-    const tracks = (await this.bridge.request("list_tracks", {})).tracks;
-    const occupiedClips = [];
-    for (const track of tracks) {
-      const slot = (await this.bridge.request("list_clips", { trackId: track.id })).clips[sceneIndex];
-      if (slot?.hasClip) occupiedClips.push({ trackId: track.id, clipId: slot.id, name: slot.name });
-    }
+    const sceneRemovalContext=await this.bridge.request('get_scene_removal_context',{sceneId:args.targetId});
+    assertExpectedState(args,sceneRemovalContext);
+    if(sceneRemovalContext.sceneId!==args.targetId || !sceneRemovalContext.identityToken ||
+       sceneRemovalContext.scenes?.[sceneIndex]?.name!==observed.scenes[sceneIndex].name ||
+       !Array.isArray(sceneRemovalContext.tracks) || !Array.isArray(sceneRemovalContext.occupiedClips))
+      throw Error('updated native scene removal identity and complete Session material context required');
+    const occupiedClips=sceneRemovalContext.occupiedClips;
     if (occupiedClips.length && args.allowContent !== true) {
       throw new Error("allowContent: true is required to delete a scene containing clips");
     }
     const scene = observed.scenes[sceneIndex];
     return this.#confirmedMutation({ method: "delete_session_object",
-      expectedStateVersion: args.expectedStateVersion,
+      expectedStateVersion: args.expectedStateVersion,sceneRemovalContext,allowContent:args.allowContent===true,
       target: { targetType: "scene", targetId: scene.id, name: scene.name, occupiedClips }
     }, args);
   }

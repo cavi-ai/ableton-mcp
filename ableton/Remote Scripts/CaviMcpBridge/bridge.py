@@ -5294,6 +5294,12 @@ def dispatch_request(song, request, state_version, application=None):
         return {"stateVersion": state_version + 1, "target": {
             **target, "name": item.name,
         }}
+    if method == 'get_scene_removal_context' or method == 'delete_session_object' and params.get('target',{}).get('targetType') == 'scene':
+        try:
+            from . import scene_removal
+        except ImportError:
+            import scene_removal
+        return scene_removal.context(song,params,state_version) if method == 'get_scene_removal_context' else scene_removal.remove(song,params,state_version)
     if method == "delete_session_object":
         target = params["target"]
         if target["targetType"] == "track":
@@ -5314,8 +5320,6 @@ def dispatch_request(song, request, state_version, application=None):
                 song.delete_return_track(index)
             finally:
                 song.end_undo_step()
-        elif target["targetType"] == "scene":
-            song.delete_scene(int(target["targetId"].removeprefix("scene-")))
         else:
             raise ValueError("unsupported deletion targetType")
         return {"stateVersion": state_version + 1, "deleted": target}
@@ -7376,7 +7380,8 @@ class SocketBridge:
                     return
                 if (request.get("method") == "set_transport_recording_context" and "currentSongTime" in request.get("params", {}).get("changes", {})) or request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state", "re_enable_parameter_automation", "override_parameter_automation", "set_mixer_panning", "jump_to_arrangement_cue_point") or (
                         request.get("method") == "set_clip_timing" and "loop" in request.get("params", {}).get("changes", {})) or (
-                        request.get("method") == "duplicate_session_object" and request.get("params", {}).get("target", {}).get("targetType") == "scene"):
+                        request.get("method") == "duplicate_session_object" and request.get("params", {}).get("target", {}).get("targetType") == "scene") or (
+                        request.get("method") == "delete_session_object" and request.get("params", {}).get("target", {}).get("targetType") == "scene"):
                     self._defer_observed_mutation(client, request, song, record)
                     return
                 result = dispatch_request(
@@ -7439,9 +7444,9 @@ class SocketBridge:
     def _defer_observed_mutation(self, client, request, song, record=None):
         try:
             try:
-                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication
+                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication, scene_removal
             except ImportError:
-                import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication
+                import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication, scene_removal
             module, success_key = {
                 'return_tracks_to_arrangement': (arrangement_return, 'returned'),
                 'audition_arrangement_passage': (arrangement_audition, 'started'),
@@ -7453,6 +7458,7 @@ class SocketBridge:
                 'set_transport_recording_context': (transport_seek, 'nativeReturned'),
                 'set_clip_timing': (clip_loop_edit, 'requestedChangesVerified'),
                 'duplicate_session_object': (scene_duplication, 'copyVerified'),
+                'delete_session_object': (scene_removal, 'deletionVerified'),
             }[request['method']]
             operation = module.begin(song, request.get("params", {}), self.state_version)
             self.state_version += 1
@@ -7470,7 +7476,7 @@ class SocketBridge:
                     result = module.complete(self.control_surface.song(), operation, self.state_version)
                 response = {"id": request.get("id"), "result": result}
             except Exception as failure:
-                if request['method'] in ('set_clip_timing', 'duplicate_session_object'):
+                if request['method'] in ('set_clip_timing', 'duplicate_session_object', 'delete_session_object'):
                     result = module.unobserved(operation, self.state_version, failure)
                     response = {"id": request.get("id"), "result": result}
                 else:

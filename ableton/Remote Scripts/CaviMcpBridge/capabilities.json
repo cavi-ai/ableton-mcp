@@ -13,6 +13,7 @@
   "get_midi_retrograde_context", "insert_midi_notes",
   "get_session_scene_capture_context",
   "get_scene_duplication_context",
+  "get_scene_removal_context",
   "capture_session_scene",
   "get_arrangement_copy_source",
   "get_arrangement_duplicate_source",
