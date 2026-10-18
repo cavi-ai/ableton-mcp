@@ -3323,19 +3323,14 @@ export class ToolService {
   async #duplicateSessionObject(args) {
     requireExpectedState(args);
     if (args.targetType === "track") {
-      if (args.name !== undefined && (typeof args.name !== "string" || !args.name.trim())) {
-        throw new Error("name must be a non-empty string");
-      }
-      const observed = await this.bridge.request("list_tracks", {});
-      assertExpectedState({ expectedStateVersion: args.expectedStateVersion }, observed);
-      const index = observed.tracks.findIndex(({ id }) => id === args.targetId);
-      if (index === -1) throw new Error(`unknown track ${args.targetId}`);
-      const source = observed.tracks[index];
-      return this.#confirmedMutation({
-        method: "duplicate_session_object", expectedStateVersion: args.expectedStateVersion,
-        target: { targetType: "track", targetId: source.id, sourceName: source.name, name: args.name?.trim() || source.name,
-          destinationId: `track-${index + 1}`, displaced: observed.tracks[index + 1] || null }
-      }, args);
+      if(args.name!==undefined && (typeof args.name!=="string" || !args.name.trim() || args.name.length>128 || /[\x00-\x1f\x7f]/u.test(args.name)))throw Error("name must be a non-empty string of at most 128 characters without controls");
+      const trackCopyContext=await this.bridge.request("get_track_copy_context",{trackId:args.targetId});
+      assertExpectedState(args,trackCopyContext);
+      if(trackCopyContext.trackId!==args.targetId || !trackCopyContext.identityToken || !Array.isArray(trackCopyContext.sourceTracks) || !trackCopyContext.sourceTracks.length || trackCopyContext.sourceTracks[0].trackId!==args.targetId || !/^track-(0|[1-9][0-9]*)$/u.test(trackCopyContext.destinationId??""))
+        throw Error("updated native track copy identity, complete subtree and insertion context required");
+      return this.#confirmedMutation({method:"duplicate_session_object",expectedStateVersion:args.expectedStateVersion,trackCopyContext,explicitCopyName:args.name!==undefined,
+        target:{targetType:"track",targetId:args.targetId,sourceName:trackCopyContext.sourceTracks[0].name,name:args.name?.trim()||trackCopyContext.sourceTracks[0].name,
+          destinationId:trackCopyContext.destinationId,displaced:trackCopyContext.displaced}},args);
     }
     if (args.targetType === "clip") {
       const observed = await this.bridge.request("list_clips", { trackId: args.trackId });

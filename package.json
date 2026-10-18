@@ -90,6 +90,7 @@
     "ableton/Remote Scripts/CaviMcpBridge/arrangement_recording.py",
     "ableton/Remote Scripts/CaviMcpBridge/arrangement_return.py",
     "ableton/Remote Scripts/CaviMcpBridge/track_bounce.py",
+    "ableton/Remote Scripts/CaviMcpBridge/track_copy.py",
     "ableton/Remote Scripts/CaviMcpBridge/track_freeze.py",
     "ableton/Remote Scripts/CaviMcpBridge/recording_setup.py",
     "ableton/Remote Scripts/CaviMcpBridge/signal_activity.py",

@@ -5031,14 +5031,15 @@ def dispatch_request(song, request, state_version, application=None):
         return {"stateVersion": state_version + 1, "target": {
             **target, "name": item.name,
         }}
+    if method == "get_track_copy_context" or method == "duplicate_session_object" and params.get("target",{}).get("targetType") == "track":
+        try:
+            from . import track_copy
+        except ImportError:
+            import track_copy
+        return track_copy.context(song,params,state_version) if method == "get_track_copy_context" else track_copy.duplicate(song,params,state_version)
     if method == "duplicate_session_object":
         target = params["target"]
-        if target["targetType"] == "track":
-            source_index = int(target["targetId"].removeprefix("track-"))
-            song.duplicate_track(source_index)
-            item = song.tracks[source_index + 1]
-            item.name = target["name"]
-        elif target["targetType"] == "scene":
+        if target["targetType"] == "scene":
             source_index = int(target["targetId"].removeprefix("scene-"))
             song.duplicate_scene(source_index)
             item = song.scenes[source_index + 1]
@@ -7090,7 +7091,8 @@ class SocketBridge:
                 if request.get("method") == "prepare_instrument_comparison":
                     self._defer_instrument_comparison(client, request, song, record)
                     return
-                if request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state", "re_enable_parameter_automation", "override_parameter_automation", "set_mixer_panning"):
+                if (request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state", "re_enable_parameter_automation", "override_parameter_automation", "set_mixer_panning") or
+                        request.get("method") == "duplicate_session_object" and request.get("params",{}).get("target",{}).get("targetType") == "track"):
                     self._defer_observed_mutation(client, request, song, record)
                     return
                 result = dispatch_request(
@@ -7153,9 +7155,9 @@ class SocketBridge:
     def _defer_observed_mutation(self, client, request, song, record=None):
         try:
             try:
-                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning
+                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, track_copy
             except ImportError:
-                import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning
+                import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, track_copy
             module, success_key = {
                 'return_tracks_to_arrangement': (arrangement_return, 'returned'),
                 'audition_arrangement_passage': (arrangement_audition, 'started'),
@@ -7163,6 +7165,7 @@ class SocketBridge:
                 're_enable_parameter_automation': (parameter_automation, 'verified'),
                 'override_parameter_automation': (manual_override, 'verified'),
                 'set_mixer_panning': (panning, 'verified'),
+                'duplicate_session_object': (track_copy, 'copyVerified'),
             }[request['method']]
             operation = module.begin(song, request.get("params", {}), self.state_version)
             self.state_version += 1
@@ -7177,7 +7180,10 @@ class SocketBridge:
                 result = module.complete(self.control_surface.song(), operation, self.state_version)
                 response = {"id": request.get("id"), "result": result}
             except Exception as failure:
-                response = {"id": request.get("id"), "error": {"message": str(failure) or failure.__class__.__name__}}
+                if request["method"] == "duplicate_session_object":
+                    response = {"id": request.get("id"), "result": module.unobserved(operation,self.state_version,failure)}
+                else:
+                    response = {"id": request.get("id"), "error": {"message": str(failure) or failure.__class__.__name__}}
             self.deferred_request = False
             self._reply(client, response, record)
 

@@ -145,6 +145,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         groove: { amount: 1, swingAmount: 0, pool: [{ id: "groove-0", name: "Swing 16-65", baseGrid: { value: 3, name: "1_16", choices: [{ value: 14, name: "1_16_triplet" }] } }] },
         loop: { enabled: false, startBeats: 0, lengthBeats: 8 }
       };
+      if (method === "get_track_copy_context") return {stateVersion:4,trackId:params.trackId,identityToken:"copy-owner",sourceTracks:[{trackId:"track-0",name:"Synth"}],destinationId:"track-1",displaced:{id:"track-1",name:"Empty MIDI",isGroup:true,isGrouped:false,groupTrackId:null,foldState:0}};
       if (method === "list_tracks") return { stateVersion: 4, tracks: [
         { id: "track-0", name: "Synth", isGroup: false, isGrouped: false, groupTrackId: null, foldState: null },
         { id: "track-1", name: "Empty MIDI", isGroup: true, isGrouped: false, groupTrackId: null, foldState: 0 }

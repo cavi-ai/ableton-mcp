@@ -13,6 +13,7 @@
     {
       "title": "Guides",
       "pages": [
+        { "title": "Duplicate a musical part", "path": "guides/track-copies.md" },
         { "title": "Prepare a recording start", "path": "guides/recording-start.md" },
         { "title": "Guarded mutations", "path": "guides/guarded-mutations.md" },
         { "title": "Cancel agent work", "path": "guides/request-cancellation.md" },
