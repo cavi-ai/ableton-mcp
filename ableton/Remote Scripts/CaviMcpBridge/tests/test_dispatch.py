@@ -4637,10 +4637,11 @@ class DispatchTest(unittest.TestCase):
             "target": {"targetType": "scene", "targetId": "scene-0", "destinationId": "scene-1", "name": "Verse"}
         }}, 5)
         self.assertEqual(len(song.scenes), 3)
-        dispatch_request(song, {"method": "delete_session_object", "params": {
-            "target": {"targetType": "scene", "targetId": "scene-1", "name": "Verse", "occupiedClips": []}
-        }}, 6)
-        self.assertEqual(len(song.scenes), 2)
+        with self.assertRaises(ValueError):
+            dispatch_request(song, {"method": "delete_session_object", "params": {
+                "target": {"targetType": "scene", "targetId": "scene-1", "name": "Verse", "occupiedClips": []}
+            }}, 6)
+        self.assertEqual(len(song.scenes), 3)
         dispatch_request(song, {"method": "delete_session_object", "params": {
             "target": {"targetType": "track", "targetId": "track-1", "name": "Synth", "clipCount": 0, "deviceCount": 0}
         }}, 7)

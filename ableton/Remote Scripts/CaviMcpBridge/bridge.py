@@ -5049,6 +5049,12 @@ def dispatch_request(song, request, state_version, application=None):
         return {"stateVersion": state_version + 1, "target": {
             **target, "name": item.name,
         }}
+    if method == 'get_scene_removal_context' or method == 'delete_session_object' and params.get('target',{}).get('targetType') == 'scene':
+        try:
+            from . import scene_removal
+        except ImportError:
+            import scene_removal
+        return scene_removal.context(song,params,state_version) if method == 'get_scene_removal_context' else scene_removal.remove(song,params,state_version)
     if method == "delete_session_object":
         target = params["target"]
         if target["targetType"] == "track":
@@ -5069,8 +5075,6 @@ def dispatch_request(song, request, state_version, application=None):
                 song.delete_return_track(index)
             finally:
                 song.end_undo_step()
-        elif target["targetType"] == "scene":
-            song.delete_scene(int(target["targetId"].removeprefix("scene-")))
         else:
             _, _, slot = _clip_slot(song, target["trackId"], target["targetId"])
             if not slot.has_clip:
@@ -7090,7 +7094,8 @@ class SocketBridge:
                 if request.get("method") == "prepare_instrument_comparison":
                     self._defer_instrument_comparison(client, request, song, record)
                     return
-                if request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state", "re_enable_parameter_automation", "override_parameter_automation", "set_mixer_panning"):
+                if (request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state", "re_enable_parameter_automation", "override_parameter_automation", "set_mixer_panning") or
+                        request.get('method') == 'delete_session_object' and request.get('params',{}).get('target',{}).get('targetType') == 'scene'):
                     self._defer_observed_mutation(client, request, song, record)
                     return
                 result = dispatch_request(
@@ -7153,9 +7158,9 @@ class SocketBridge:
     def _defer_observed_mutation(self, client, request, song, record=None):
         try:
             try:
-                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning
+                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, scene_removal
             except ImportError:
-                import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning
+                import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, scene_removal
             module, success_key = {
                 'return_tracks_to_arrangement': (arrangement_return, 'returned'),
                 'audition_arrangement_passage': (arrangement_audition, 'started'),
@@ -7163,6 +7168,7 @@ class SocketBridge:
                 're_enable_parameter_automation': (parameter_automation, 'verified'),
                 'override_parameter_automation': (manual_override, 'verified'),
                 'set_mixer_panning': (panning, 'verified'),
+                'delete_session_object': (scene_removal, 'deletionVerified'),
             }[request['method']]
             operation = module.begin(song, request.get("params", {}), self.state_version)
             self.state_version += 1
@@ -7177,7 +7183,10 @@ class SocketBridge:
                 result = module.complete(self.control_surface.song(), operation, self.state_version)
                 response = {"id": request.get("id"), "result": result}
             except Exception as failure:
-                response = {"id": request.get("id"), "error": {"message": str(failure) or failure.__class__.__name__}}
+                if request['method'] == 'delete_session_object':
+                    response = {"id": request.get("id"), "result": module.unobserved(operation,self.state_version,failure)}
+                else:
+                    response = {"id": request.get("id"), "error": {"message": str(failure) or failure.__class__.__name__}}
             self.deferred_request = False
             self._reply(client, response, record)
 
