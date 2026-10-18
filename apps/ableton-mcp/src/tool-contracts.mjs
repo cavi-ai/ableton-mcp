@@ -388,6 +388,8 @@ const mixerEnvelopePoint={oneOf:creationEnvelopePoint.oneOf.map(schema=>({...sch
     {targetDisplay:string('Volume/send only: finite native dB target, such as -24 dB or -6 dB. Pan requires value. Decimal point only; -inf is not accepted.')})}}))};
 
 const contracts = {
+  get_midi_note_removal_context: {description:'Read complete notes, timing, native target identity and safety for explicit note deletion from a Session/Arrangement MIDI clip. Read-only, up to 4096 notes without sampling; all profile.',inputSchema:clip},
+  remove_midi_notes: {description:'Delete exact note IDs and their expression from one Session/Arrangement MIDI clip. Keeps other notes and timing; playback can continue. Rejects stale or unsafe sources. Reports actual partial work without rollback or reconstruction. Explicit deletion intent required; all profile.',inputSchema:guarded({trackId:ids.trackId,clipId:ids.clipId,noteIds:{...array({type:'integer',minimum:0},'Exact observed note IDs to delete; empty never means all.'),minItems:1,maxItems:4096,uniqueItems:true}},['trackId','clipId','noteIds'])},
   get_midi_note_insertion_context: {description:'Read complete notes, timing, native identity and edit safety for adding notes to one Session/Arrangement MIDI clip. Read-only, up to 4096 notes without sampling; all profile.',inputSchema:clip},
   insert_midi_notes: {description:'Add explicit notes to an existing Session/Arrangement MIDI clip without rewriting existing notes. Rejects same-pitch overlaps, stale sources, recording/count-in, frozen or pending targets. Preserves timing/playback. Reports partial native work without rollback or replay; all profile.',inputSchema:guarded({trackId:ids.trackId,clipId:ids.clipId,notes:{...array(object({...note.properties,velocityDeviation:{type:'integer',minimum:-127,maximum:127},releaseVelocity:{type:'integer',minimum:0,maximum:127},probability:number('Playback probability.',{minimum:0,maximum:1})},note.required),'Explicit additions in absolute clip beats; optional deviation 0, release velocity 64, probability 1 and mute false.'),minItems:1,maxItems:4096}},['trackId','clipId','notes'])},
   capture_session_scene: {description:'Natively capture AND immediately launch the currently playing Session combination as a named scene below the selected anchor. Binds sources/layouts and rechecks at undo entry. Requires playing transport, all explicit/implicit arms off, recording/count-in off and settled launches. Live can adjust copied start markers; verifies other exposed material and reports exact marker differences and playback separately. Full-row launch can affect Arrangement overrides and empty tracks. Partial work remains without rollback/replay. No rendered audio or mixer recall. Updated bridge; all profile.',inputSchema:guarded({afterSceneId:{type:'string',pattern:'^scene-(0|[1-9][0-9]*)$',description:'Exact selected scene ID from selection/scenes. Native action inserts below it and immediately launches the captured row.'},name:{type:'string',minLength:1,maxLength:128,pattern:'^[^\\x00-\\x1f\\x7f]+$',description:'Explicit new scene name without controls.'}},['afterSceneId','name'])},
@@ -763,6 +765,7 @@ const contracts = {
 };
 
 const readOnlyTools = new Set([
+  'get_midi_note_removal_context',
   'get_midi_note_insertion_context',
   'get_browser_preview_context',
   'get_midi_note_selection',
@@ -838,6 +841,7 @@ const readOnlyTools = new Set([
 ]);
 
 const destructiveTools = new Set([
+  'remove_midi_notes',
   "export_looper_clip",
   "load_simpler_sample",
   "set_simpler_sample_region",
