@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 307 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 309 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (132)
+## Read-only (133)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -52,6 +52,7 @@ The server publishes 307 tools. Mutations of the Live Set require `expectedState
 | `get_midi_capture_context` | Read global Capture MIDI readiness, armed/monitored candidates, playing-clip risks, input routing, full-note digests and clip timing with native identity. Does not expose buffer contents or reserve a moving playhead. | none |
 | `get_midi_clip_notes` | Read standard MIDI notes from one exact Session or Arrangement MIDI clip; Arrangement responses include timeline identity. | `trackId`, `clipId` |
 | `get_midi_clip_notes_extended` | Read complete Session/Arrangement MIDI notes and timeline identity. | `trackId`, `clipId` |
+| `get_midi_note_insertion_context` | Read complete notes, timing, native identity and edit safety for adding notes to one Session/Arrangement MIDI clip. Read-only, up to 4096 notes without sampling; all profile. | `trackId`, `clipId` |
 | `get_midi_note_selection` | Read stable native note selection for one exact current detail Session/Arrangement MIDI clip without moving focus or selecting notes. Returns selected IDs/properties and a token for optional set_midi_note_properties guarding. Empty, unavailable and not-detail-clip are distinct. Up to 4096 selected notes, no truncation; all profile. | `trackId`, `clipId` |
 | `get_mixer_panning_context` | Read exact track, Group, Return or Main panning mode and Stereo/left/right native values, displays, bounds, enablement and automation. Binds native owner/mixer/parameter identities. Read-only; unsupported fields explicit. All profile. | `trackId` |
 | `get_nks_generation_job` | Read one durable NKS generation job and its ordered event history without creating or changing the queue. | `presetId` |
@@ -141,7 +142,7 @@ The server publishes 307 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (145)
+## Mutations (146)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -203,6 +204,7 @@ The server publishes 307 tools. Mutations of the Live Set require `expectedState
 | `heartbeat_nks_generation_job` | Extend an unexpired NKS generation lease owned by this worker. | `presetId`, `workerId` |
 | `hold_session_clip` | Hold one existing Gate/Repeat Session clip for 0.25–8 wall-clock seconds, then request native release without this client. Requires global playback, recording off, an unarmed/unfrozen target and no pending launches or other playing Session clip on its track. Honors quantization; may override target Arrangement. Gate may stop on release; Repeat may continue. Concurrent controller input cannot be distinguished. Command receipts are not button-state or audible proof. All profile. | `expectedStateVersion`, `trackId`, `clipId`, `durationSeconds` |
 | `humanize_midi_notes` | Plan or apply guarded deterministic MIDI timing and velocity humanization with exact clip, grid, and complete native note readback. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `seed`, `gridBeats`, `maxTimingOffsetBeats`, `maxVelocityOffset` |
+| `insert_midi_notes` | Add explicit notes to an existing Session/Arrangement MIDI clip without rewriting existing notes. Rejects same-pitch overlaps, stale sources, recording/count-in, frozen or pending targets. Preserves timing/playback. Reports partial native work without rollback or replay; all profile. | `expectedStateVersion`, `trackId`, `clipId`, `notes` |
 | `jump_to_arrangement_cue_point` | Plan or move the playhead to one exact Arrangement cue point. | `expectedStateVersion`, `cuePointId` |
 | `launch_clip` | Launch a Session slot. recordLengthBeats records an empty armed slot; updated bridge rechecks input, native identity and recording readiness. launchQuantization overrides once. Receipt does not prove take completion. | `expectedStateVersion`, `trackId`, `clipId` |
 | `launch_scene` | Plan/fire a scene with full-row recheck. May stop, record or change tempo/meter. Request-only receipt. Requires updated bridge. | `expectedStateVersion`, `sceneId` |
