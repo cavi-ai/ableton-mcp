@@ -3,9 +3,9 @@ import json
 import uuid
 
 try:
-    from .bridge import _clip_slot, _clip_timing, _audio_clip_state, _midi_note_record, _set_fingerprint, _undo_step, _clip_list
+    from .bridge import _clip_slot, _clip_reference, _clip_timing, _audio_clip_state, _midi_note_record, _set_fingerprint, _undo_step, _clip_list
 except ImportError:
-    from bridge import _clip_slot, _clip_timing, _audio_clip_state, _midi_note_record, _set_fingerprint, _undo_step, _clip_list
+    from bridge import _clip_slot, _clip_reference, _clip_timing, _audio_clip_state, _midi_note_record, _set_fingerprint, _undo_step, _clip_list
 
 _song = None
 _identities = {}
@@ -30,8 +30,7 @@ def _same(song, params, identity):
 
 
 def _content(song, track_id, clip_id, version):
-    _, _, slot = _clip_slot(song, track_id, clip_id)
-    clip = slot.clip
+    clip, _ = _clip_reference(song, track_id, clip_id)
     timing = _clip_timing(song, track_id, clip_id, version)
     for key in ("stateVersion", "trackId", "clipId", "location", "timeline"):
         timing.pop(key, None)
