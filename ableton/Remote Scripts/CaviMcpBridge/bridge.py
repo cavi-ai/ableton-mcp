@@ -6161,7 +6161,17 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "list_devices":
         owner_id, track = _device_owner(song, params["trackId"])
         return {"stateVersion": state_version, "trackId": owner_id, "devices": [_device_tree(device, f"{owner_id}:device-{i}") for i, device in enumerate(track.devices)]}
-    if method in ("set_device_active", "delete_device", "move_device"):
+    if method in ("get_device_activation_context", "get_device_activation_edit_context", "set_device_active"):
+        try:
+            from . import device_bypass
+        except ImportError:
+            import device_bypass
+        if method != "set_device_active":
+            result = device_bypass.context(song, params, state_version)
+            if method == "get_device_activation_edit_context": device_bypass._safe(result)
+            return result
+        return device_bypass.apply(song, params, state_version)
+    if method in ("delete_device", "move_device"):
         track, index, device = _device(song, params["trackId"], params["deviceId"])
         before = params["beforeDevice"]
         if device.name != before["name"] or device.class_name != before["className"]:
@@ -6179,16 +6189,6 @@ def dispatch_request(song, request, state_version, application=None):
             return {"stateVersion": state_version + 1, "trackId": params["trackId"],
                     "requestedPosition": position, "actualPosition": actual,
                     "device": _device_record(device, new_id)}
-        if method == "set_device_active":
-            on_parameter = next((parameter for parameter in device.parameters
-                                 if getattr(parameter, "original_name", parameter.name) == "Device On"), None)
-            if on_parameter is None or not on_parameter.is_enabled:
-                raise ValueError("device has no writable Device On parameter")
-            on_parameter.value = on_parameter.max if params["active"] else on_parameter.min
-            return {
-                "stateVersion": state_version + 1, "trackId": params["trackId"],
-                "device": _device_record(device, params["deviceId"]),
-            }
         if not callable(getattr(track, "delete_device", None)):
             raise ValueError("device owner has no native deletion API")
         track.delete_device(index)
