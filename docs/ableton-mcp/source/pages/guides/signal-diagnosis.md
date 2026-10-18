@@ -18,13 +18,21 @@ For a resolved signal path, request only the relevant part, parent Groups, Retur
 { "trackIds": ["track-2", "track-0", "return-0", "master"] }
 ```
 
-Batch results contain ordered `tracks` records and one shared `transport`, `stateVersion` and `meterSemantics`. Single-track results retain their existing shape. Choose exactly one selector. Invalid, duplicate, missing or oversized targets refuse the entire request before meter reads; the tool never guesses a route or substitutes the selected track. Resolve actual routing and Group membership first.
+Batch results contain ordered `tracks` records and one shared `transport`, `stateVersion` and `meterSemantics`. Single-track results retain their existing shape. Choose exactly one selector. Invalid, duplicate, missing or oversized targets refuse the entire request before meter reads; the tool never guesses a route or substitutes the selected track. Resolve actual routing first. Each record includes `groupContext`, and the result shares one `soloContext`.
 
 Each meter has `status: "available"`, `"unavailable"` or `"invalid"` and a `value`. A valid zero stays zero; unavailable, nonnumeric, nonfinite or out-of-range readings have a null value and an explicit status. Nothing is clamped or replaced with assumed silence. The tool does not start playback, move selection, change controls, add meter listeners or wait for a sampling window.
 
 `transport.currentSongTimeBeats` is Live's song position in quarter-note beats, not seconds or a meter-sampling timestamp. The `stateVersion` identifies bridge state; it is not an audio sample counter or proof that a previous reading is still current.
 
 Native meter values span 0–1 and hold the recent peak for one second. They are not linear amplitude measurements to convert to dB, loudness readings, clip indicators or proof of sustained silence. A fresh zero may miss an intermittent part, while a nonzero value can reflect an earlier event or tail. MIDI activity does not establish audio generation. A batch shares one native callback and transport observation, but its meter properties are read sequentially and are not sample-synchronous. Other parts can contribute to bus and Main readings. See the [Track meter reference](https://docs.cycling74.com/apiref/lom/track/).
+
+## Read Group and solo context
+
+`groupContext.parents` follows native Group ownership nearest first and includes exact current IDs, names and mute, solo and `mutedViaSolo` flags. Duplicate labels do not establish membership. An `available` ancestry is resolved; individual null controls remain unknown. Return/Main ancestry is `not_applicable`. Missing membership, invalid or removed parents, cycles and a 32-parent depth limit return `unavailable`, with any observed prefix and a reason. Parent meters are not sampled automatically.
+
+Shared `soloContext.soloedTracks` lists observed explicit solos on ordinary tracks, Groups and Returns. Only `status: "available"` establishes the full inspected list. `partial` retains known solos and names `unknownTrackIds`; `unavailable` with `scope_limit` means the scan was skipped, not that no parts are soloed. Optional context supports 256 ordinary/Group tracks and 64 Returns. Oversized context does not remove requested meter observations.
+
+`contextSemantics` reports `groupMembershipOnly: true`, `explicitSolosOnly: true` and `routingTraced: false`. Group membership is not proof of an audio destination: confirm the selected routes before attributing a part’s silence to a parent mute. These observations do not identify every device/rack gate, bus contribution or external path, and do not establish isolated or audible output. A native track/Return/Main layout replacement during the read refuses the snapshot rather than attaching observations to stale IDs.
 
 ## Trace the expected source
 

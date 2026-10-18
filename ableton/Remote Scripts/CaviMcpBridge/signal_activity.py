@@ -25,6 +25,62 @@ def _meter(track, name):
     return {"status": "available", "value": value}
 
 
+def _solo_context(tracks, returns):
+    result = {'status':'available','soloedTracks':[],'unknownTrackIds':[],'reason':None,
+              'trackCount':len(tracks),'returnCount':len(returns)}
+    if len(tracks) > 256 or len(returns) > 64:
+        result.update(status='unavailable',reason='scope_limit')
+        return result
+    for prefix,owners in [('track-',tracks),('return-',returns)]:
+        for index,owner in enumerate(owners):
+            track_id = prefix+str(index)
+            solo = _boolean(owner,'solo')
+            if solo is True:
+                result['soloedTracks'].append({'trackId':track_id,'name':_optional(owner,'name',lambda value:isinstance(value,str)),'solo':True})
+            elif solo is None:result['unknownTrackIds'].append(track_id)
+    if result['unknownTrackIds']:result.update(status='partial',reason='solo_state_unavailable')
+    return result
+
+
+def _group_context(track_id, track, tracks):
+    result = {'status':'available','parents':[],'reason':None}
+    if track_id == 'master' or track_id.startswith('return-'):
+        result['status'] = 'not_applicable'
+        return result
+    seen,current = [track],track
+    while True:
+        grouped = _boolean(current,'is_grouped')
+        if grouped is False:return result
+        reason = None
+        if grouped is None:reason = 'group_membership_unavailable'
+        elif len(tracks) > 256:reason = 'scope_limit'
+        elif len(result['parents']) >= 32:reason = 'depth_limit'
+        if reason:
+            result.update(status='unavailable',reason=reason)
+            return result
+        parent = _optional(current,'group_track',lambda value:value is not None)
+        if parent is None:reason = 'parent_unavailable'
+        else:
+            try:
+                index = next((i for i,owner in enumerate(tracks) if owner == parent),None)
+                cycle = any(parent == owner for owner in seen)
+            except Exception:
+                reason = 'native_parent_unavailable'
+            else:
+                group_type = _boolean(parent,'is_foldable')
+                if cycle:reason = 'cycle'
+                elif index is None:reason = 'parent_not_in_set'
+                elif group_type is None:reason = 'parent_group_type_unavailable'
+                elif not group_type:reason = 'parent_is_not_group'
+        if reason:
+            result.update(status='unavailable',reason=reason)
+            return result
+        result['parents'].append({'trackId':'track-'+str(index),'name':_optional(parent,'name',lambda value:isinstance(value,str)),
+                                  'controls':{key:_boolean(parent,attribute) for key,attribute in (
+                                      ('mute','mute'),('solo','solo'),('mutedViaSolo','muted_via_solo'))}})
+        seen.append(parent);current = parent
+
+
 def _track_record(track_id, track):
     integer = lambda value: type(value) is int
     return {
@@ -56,11 +112,17 @@ def snapshot(song, params, state_version):
     else:
         ids = [params["trackId"]]
     # Resolve the entire scope before reading meters; never return a partial batch.
+    layout = tuple(song.tracks),tuple(song.return_tracks),song.master_track
     owners = [_device_owner(song, track_id) for track_id in ids]
     common = {
         "stateVersion": state_version, "snapshotOnly": True, "audibleOutputVerified": False,
         "meterSemantics": {"unit": "native_0_to_1", "kind": "peak_hold", "holdSeconds": 1},
         "transport": {"isPlaying": bool(song.is_playing), "currentSongTimeBeats": float(song.current_song_time)},
+        "soloContext":_solo_context(layout[0],layout[1]),
+        "contextSemantics":{"groupMembershipOnly":True,"explicitSolosOnly":True,"routingTraced":False},
     }
-    records = [_track_record(track_id, track) for track_id, track in owners]
+    records = [{**_track_record(track_id, track),'groupContext':_group_context(track_id,track,layout[0])} for track_id, track in owners]
+    if (tuple(song.tracks),tuple(song.return_tracks),song.master_track) != layout or any(
+            _device_owner(song,track_id)[1] != owner for track_id,owner in owners):
+        raise ValueError('native track layout changed during signal snapshot; read again')
     return {**common, "tracks": records} if batch else {**common, **records[0]}
