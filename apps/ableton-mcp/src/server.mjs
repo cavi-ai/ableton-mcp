@@ -489,7 +489,8 @@ export async function runStdio({ service, toolProfile = "all", input = process.s
         pending.delete(request.id);
       }
     };
-    if (request.method === "tools/call" && request.params?.name === "run_production_task") {
+    if (request.method === "tools/call" && (request.params?.name === "run_production_task" ||
+        (request.params?.name === "advance_production_session" && request.params?.arguments?.action === "propose"))) {
       // Proposal work cannot mutate Live and must not hold the control queue.
       const task = dispatch();
       specialistTasks.add(task);
