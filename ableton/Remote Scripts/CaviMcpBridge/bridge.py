@@ -5273,6 +5273,12 @@ def dispatch_request(song, request, state_version, application=None):
         except ImportError:
             from clip_mute import source
         return source(song, params, state_version)
+    if method in ("get_session_clip_entry_context", "set_session_clip_entry"):
+        try:
+            from . import clip_entry
+        except ImportError:
+            import clip_entry
+        return (clip_entry.context if method == "get_session_clip_entry_context" else clip_entry.set_start)(song, params, state_version)
     if method == "get_clip_launch_edit_context":
         try:
             from .clip_launch import source
