@@ -8,7 +8,7 @@ Bounce Track in Place replaces the entire target with audio in both Session and 
 
 Execution requires a saved Set, stopped playback and recording, an unarmed ordinary target, no pending launches, macOS English Live, an updated bridge, Accessibility/Automation access and one expected Live instance. The target must be visible in the current Session or Arrangement view. The tool supports one to 128 clips within the exposed-material bounds of native track preparation. External hardware and live-input monitoring need separate preparation. Preserve routing when Live refuses a render rather than changing it to force success.
 
-Plan the existing track duplication tool first. Use a unique copy name, inspect the planned destination, and re-read the resulting inventory. Keep the source unchanged and verify the copy is muted, unarmed, not soloed and monitor-off. Compare its exposed devices, clip timing and stored notes or audio state with the source before destructive conversion. Duplication does not establish complete hidden-state or audible equivalence.
+Plan the [guarded track duplication](track-copies.md) tool first. Require `copyVerified: true`, `originalMaterialPreserved: true` and `nameApplied: true` before preparing a conversion. Use a unique copy name, inspect the planned destination, and re-read the resulting inventory. Keep the source unchanged and verify the copy is muted, unarmed, not soloed and monitor-off. Compare its exposed devices, clip timing and stored notes or audio state with the source before destructive conversion. Duplication does not establish complete hidden-state or audible equivalence.
 
 ## Confirm and verify conversion
 

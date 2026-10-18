@@ -47,7 +47,7 @@ def _controls(song, tracks, targets):
     return rows
 
 
-def _material(song, track, budget, name_override=None):
+def _material(song, track, budget, name_override=None, include_note_ids=True):
     index = list(song.tracks).index(track)
     key, refs = f'track-{index}', [track]
     def devices(items):
@@ -83,6 +83,9 @@ def _material(song, track, budget, name_override=None):
             budget['notes'] += len(row['notes'])
             if budget['notes'] > 16384:
                 raise ValueError('grouping evidence exceeds 16384 stored MIDI notes')
+            if not include_note_ids:
+                row['notes'] = sorted([{k:v for k,v in note.items() if k != 'noteId'} for note in row['notes']],
+                                      key=lambda note: json.dumps(note,sort_keys=True))
         material.append(row)
     state = _persisted_track_state(_track_state_snapshot(song, key, 0))
     if name_override is not None:

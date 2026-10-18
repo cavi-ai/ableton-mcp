@@ -4487,12 +4487,11 @@ class DispatchTest(unittest.TestCase):
 
     def test_session_duplicate_and_delete_return_exact_observed_state(self):
         song = Song()
-        duplicated_track = dispatch_request(song, {"method": "duplicate_session_object", "params": {
-            "target": {"targetType": "track", "targetId": "track-0", "destinationId": "track-1",
-                       "sourceName": "Synth", "name": "Synth Layer"}
-        }}, 2)
-        self.assertEqual(duplicated_track["target"]["destinationId"], "track-1")
-        self.assertEqual(song.tracks[1].name, "Synth Layer")
+        with self.assertRaises(ValueError):
+            dispatch_request(song, {"method": "duplicate_session_object", "params": {
+                "target": {"targetType": "track", "targetId": "track-0", "destinationId": "track-1",
+                           "sourceName": "Synth", "name": "Synth Layer"}}}, 2)
+        self.assertEqual(len(song.tracks), 2)
         copy_ids = {"trackId":"track-0","sourceClipId":"track-0:clip-0","targetClipId":"track-0:clip-1","expectedStateVersion":3}
         copy_before = dispatch_request(song, {"method":"get_clip_duplication_source","params":copy_ids}, 3)
         duplicated = dispatch_request(song, {"method": "duplicate_session_object", "params": {
@@ -4524,7 +4523,7 @@ class DispatchTest(unittest.TestCase):
             dispatch_request(song, {"method": "delete_session_object", "params": {
                 "target": {"targetType": "track", "targetId": "track-1", "name": "Synth", "clipCount": 0, "deviceCount": 0}
             }}, 7)
-        self.assertEqual(len(song.tracks), 3)
+        self.assertEqual(len(song.tracks), 2)
 
     def test_track_mixer_read_and_write_include_named_return_sends(self):
         song = Song()

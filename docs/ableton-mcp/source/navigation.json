@@ -14,6 +14,7 @@
       "title": "Guides",
       "pages": [
         { "title": "Remove a Return effect", "path": "guides/return-removal.md" },
+        { "title": "Duplicate a musical part", "path": "guides/track-copies.md" },
         { "title": "Prepare a recording start", "path": "guides/recording-start.md" },
         { "title": "Develop a Session scene", "path": "guides/session-scene-development.md" },
         { "title": "Remove a Session scene", "path": "guides/session-scene-removal.md" },

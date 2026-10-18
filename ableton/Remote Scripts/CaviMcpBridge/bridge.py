@@ -5266,6 +5266,12 @@ def dispatch_request(song, request, state_version, application=None):
         except ImportError:
             import scene_duplication
         return scene_duplication.context(song,params,state_version) if method == 'get_scene_duplication_context' else scene_duplication.duplicate(song,params,state_version)
+    if method == "get_track_copy_context" or method == "duplicate_session_object" and params.get("target",{}).get("targetType") == "track":
+        try:
+            from . import track_copy
+        except ImportError:
+            import track_copy
+        return track_copy.context(song,params,state_version) if method == "get_track_copy_context" else track_copy.duplicate(song,params,state_version)
     if method == "duplicate_session_object":
         target = params["target"]
         if target["targetType"] == "clip":
@@ -5284,11 +5290,6 @@ def dispatch_request(song, request, state_version, application=None):
             if not source_id.startswith(prefix) or not source_id[len(prefix):].isdigit() or params.get("targetClipId") != prefix + str(int(source_id[len(prefix):]) + 1):
                 raise ValueError("clip duplication requires the following empty slot")
             return duplicate(song, params, state_version)
-        if target["targetType"] == "track":
-            source_index = int(target["targetId"].removeprefix("track-"))
-            song.duplicate_track(source_index)
-            item = song.tracks[source_index + 1]
-            item.name = target["name"]
         else:
             raise ValueError("unsupported duplication targetType")
         return {"stateVersion": state_version + 1, "target": {
@@ -7371,7 +7372,7 @@ class SocketBridge:
                     return
                 if (request.get("method") == "set_transport_recording_context" and "currentSongTime" in request.get("params", {}).get("changes", {})) or request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state", "re_enable_parameter_automation", "override_parameter_automation", "set_mixer_panning", "jump_to_arrangement_cue_point") or (
                         request.get("method") == "set_clip_timing" and "loop" in request.get("params", {}).get("changes", {})) or (
-                        request.get("method") == "duplicate_session_object" and request.get("params", {}).get("target", {}).get("targetType") == "scene") or (
+                        request.get("method") == "duplicate_session_object" and request.get("params", {}).get("target", {}).get("targetType") in ("scene", "track")) or (
                         request.get("method") == "delete_session_object" and request.get("params", {}).get("target", {}).get("targetType") in ("scene", "track", "return")):
                     self._defer_observed_mutation(client, request, song, record)
                     return
@@ -7435,9 +7436,9 @@ class SocketBridge:
     def _defer_observed_mutation(self, client, request, song, record=None):
         try:
             try:
-                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication, scene_removal, track_removal, return_removal
+                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication, scene_removal, track_removal, return_removal, track_copy
             except ImportError:
-                import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication, scene_removal, track_removal, return_removal
+                import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication, scene_removal, track_removal, return_removal, track_copy
             module, success_key = {
                 'return_tracks_to_arrangement': (arrangement_return, 'returned'),
                 'audition_arrangement_passage': (arrangement_audition, 'started'),
@@ -7448,7 +7449,7 @@ class SocketBridge:
                 'jump_to_arrangement_cue_point': (cue_jump, 'positionVerified'),
                 'set_transport_recording_context': (transport_seek, 'nativeReturned'),
                 'set_clip_timing': (clip_loop_edit, 'requestedChangesVerified'),
-                'duplicate_session_object': (scene_duplication, 'copyVerified'),
+                'duplicate_session_object': (track_copy if request.get('params', {}).get('target', {}).get('targetType') == 'track' else scene_duplication, 'copyVerified'),
                 'delete_session_object': (return_removal if request.get('params', {}).get('target', {}).get('targetType') == 'return' else track_removal if request.get('params', {}).get('target', {}).get('targetType') == 'track' else scene_removal, 'deletionVerified'),
             }[request['method']]
             operation = module.begin(song, request.get("params", {}), self.state_version)
