@@ -88,9 +88,9 @@ test("return track creation binds the current bus list and requires a nonempty n
 });
 
 test("return track rename binds the exact current bus identity", async () => {
-  const before = { stateVersion: 4, returns: [{ id: "return-0", name: "A-Reverb" }] };
+  const before = { stateVersion:4,targetType:"return",targetId:"return-0",identityToken:"native-bus",object:{id:"return-0",name:"A-Reverb"} };
   const service = new ToolService({ bridge: { async request(method, params) {
-    if (method === "get_set_mixer") return before;
+    if (method === "get_session_object_name_context") { if(params.targetId!=="return-0")throw Error("unknown return");return before; }
     if (method === "rename_session_object") return { stateVersion: 5,
       target: { ...params.target, name: "A-Short Verb" } };
     throw new Error(method);

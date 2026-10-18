@@ -5009,24 +5009,21 @@ def dispatch_request(song, request, state_version, application=None):
                     scene.time_signature_numerator = target["numerator"]
                     scene.time_signature_denominator = target["denominator"]
         return {"stateVersion": state_version + 1, "scene": _scene_record(scene, index)}
+    if method == "get_session_object_name_context" or (method == "rename_session_object" and params.get("target", {}).get("targetType") in ("track", "return", "scene")):
+        try:
+            from . import session_names
+        except ImportError:
+            import session_names
+        return (session_names.context if method == "get_session_object_name_context" else session_names.rename)(song, params, state_version)
     if method == "rename_session_object":
         target = params["target"]
-        if target["targetType"] == "track":
-            _, item = _track(song, target["targetId"])
-        elif target["targetType"] == "return":
-            suffix = target["targetId"].removeprefix("return-")
-            if not suffix.isascii() or not suffix.isdigit() or str(int(suffix)) != suffix or int(suffix) >= len(song.return_tracks):
-                raise ValueError("return track is unavailable")
-            item = song.return_tracks[int(suffix)]
-            if item.name != target["previousName"]:
-                raise ValueError("return track identity changed")
-        elif target["targetType"] == "scene":
-            item = song.scenes[int(target["targetId"].removeprefix("scene-"))]
-        else:
+        if target["targetType"] == "clip":
             _, _, slot = _clip_slot(song, target["trackId"], target["targetId"])
             if not slot.has_clip:
                 raise ValueError("clip slot is empty")
             item = slot.clip
+        else:
+            raise ValueError("unsupported rename targetType")
         item.name = target["name"]
         return {"stateVersion": state_version + 1, "target": {
             **target, "name": item.name,
