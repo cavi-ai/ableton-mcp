@@ -29,3 +29,11 @@ Muted tracks and clips remain included as stored material. Track records include
 Current key, scale and meter are reported as current configuration, not an automation map or a detected key for the passage. Per-clip evidence and exclusions remain visible alongside the combined result. Audio, detected drums, recording clips and clips over 4096 stored MIDI notes have explicit exclusion statuses. `coverage.status: complete` means eligible requested clips were analyzed; it does not establish a key or complete audible coverage. With no overlapping clips, coverage is `empty` and combined evidence is null.
 
 A request may scan at most 4096 Arrangement clips, overlap at most 128 clips and analyze at most 16384 stored MIDI notes. Excessive loop expansion also rejects the request. Nothing is silently sampled; choose a shorter passage or fewer tracks after a limit error. Malformed or unsupported timing fails rather than guessing an alignment.
+
+## Develop a copy on the same track
+
+Use `duplicate_arrangement_clip` for an explicitly chosen source and nonoverlapping destination in quarter-note song beats. The plan binds the native source, its complete exposed notes or audio settings, clip timing and existing timeline identities/intervals. Manual source edits or clip replacement require a fresh plan even when the bridge state version has not changed. The updated Remote Script is required.
+
+Confirm once, then inspect `copyVerified`, `sourcePreserved`, `destinationRetained` and the actual `duplicatedClip`. Inserting before the source can renumber clip IDs; use the returned `sourceClip.id` and the copy ID for subsequent work. Duplication retains the source name and does not start playback. Read back the copied notes and timing before developing or auditioning the alternative.
+
+If a native call fails or readback differs, any partial copy remains for inspection. Do not repeat the confirmation or automatically delete material. `copyVerified` covers exposed MIDI note properties, timing, audio settings and the requested interval. Prior clips retain their native identities, names, types and intervals; their hidden contents are not compared. Clip envelopes, hidden state, external sample bytes and audible equivalence are outside verification. Audio copies share the source file and all clips on the track share its processing.

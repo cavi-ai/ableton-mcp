@@ -3171,12 +3171,16 @@ def dispatch_request(song, request, state_version, application=None):
         except ImportError:
             from scene_capture import context, capture
         return (context if request["method"] == "get_session_scene_capture_context" else capture)(song, request.get("params", {}), state_version)
-    if request.get("method") in ("get_arrangement_copy_source", "copy_arrangement_clip_to_track"):
+    if request.get("method") in ("get_arrangement_copy_source", "copy_arrangement_clip_to_track", "get_arrangement_duplicate_source", "duplicate_arrangement_clip"):
         try:
             from .arrangement_copy import source, duplicate
         except ImportError:
             from arrangement_copy import source, duplicate
-        return (source if request["method"] == "get_arrangement_copy_source" else duplicate)(song, request.get("params", {}), state_version)
+        method, params = request["method"], request.get("params", {})
+        same_track = method in ("get_arrangement_duplicate_source", "duplicate_arrangement_clip")
+        if same_track:
+            params = {**params, "destinationTrackId": params.get("trackId")}
+        return (source if method.startswith("get_") else duplicate)(song, params, state_version, same_track=same_track)
     if request.get('method') in ('get_device_preset_source', 'select_device_preset_source'):
         try:
             from .device_preset import source, select
@@ -5081,7 +5085,7 @@ def dispatch_request(song, request, state_version, application=None):
         return _clip_list(song, params["trackId"], state_version)
     if method == "list_arrangement_clips":
         return _arrangement_clips(song, params["trackId"], state_version)
-    if method in ("delete_arrangement_clip", "move_arrangement_clip", "duplicate_arrangement_clip"):
+    if method in ("delete_arrangement_clip", "move_arrangement_clip"):
         track_id = params["trackId"]
         _, track = _track(song, track_id)
         prefix = f"{track_id}:arrangement-clip-"
@@ -5094,45 +5098,6 @@ def dispatch_request(song, request, state_version, application=None):
         before = _arrangement_clip_record(clip, track_id, index)
         if before != params["before"]:
             raise ValueError("Arrangement clip identity changed")
-        if method == "duplicate_arrangement_clip":
-            start = float(params["startBeats"])
-            end = start + before["lengthBeats"]
-            if not math.isfinite(start) or start < 0 or not math.isfinite(end) or end <= start:
-                raise ValueError("duplication must define a finite positive interval")
-            if any(start < other.end_time and end > other.start_time for other in track.arrangement_clips):
-                raise ValueError("duplication would overlap another Arrangement clip")
-            duplicate = None
-            song.begin_undo_step()
-            try:
-                duplicate = track.duplicate_clip_to_arrangement(clip, start)
-                if not (
-                    math.isclose(float(duplicate.start_time), start, rel_tol=0.0, abs_tol=1e-8)
-                    and math.isclose(float(duplicate.end_time), end, rel_tol=0.0, abs_tol=1e-8)
-                ):
-                    raise ValueError("Live changed the duplicated clip interval")
-                if any(
-                    other != duplicate
-                    and float(duplicate.start_time) < float(other.end_time)
-                    and float(duplicate.end_time) > float(other.start_time)
-                    for other in track.arrangement_clips
-                ):
-                    raise ValueError("duplicated clip overlaps another Arrangement clip after the native copy")
-            except Exception as error:
-                if duplicate is not None:
-                    try:
-                        track.delete_clip(duplicate)
-                    except Exception as rollback_error:
-                        raise RuntimeError(
-                            f"duplication failed: {error}; rollback failed: {rollback_error}; use Live undo"
-                        ) from error
-                raise
-            finally:
-                song.end_undo_step()
-            result = _arrangement_clips(song, track_id, state_version + 1)
-            duplicate_index = next(i for i, item in enumerate(track.arrangement_clips) if item == duplicate)
-            result["duplicatedClip"] = _arrangement_clip_record(duplicate, track_id, duplicate_index)
-            result["sourceClip"] = before
-            return result
         if method == "move_arrangement_clip":
             start = float(params["startBeats"])
             end = start + before["lengthBeats"]

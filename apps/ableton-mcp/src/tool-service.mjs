@@ -786,7 +786,8 @@ export class ToolService {
     if (name === "list_clips") return this.bridge.request("list_clips", args);
     if (name === "list_arrangement_clips") return this.bridge.request(name, args);
     if (name === "place_session_clip_in_arrangement") return this.#placeSessionClipInArrangement(args);
-    if (["delete_arrangement_clip", "move_arrangement_clip", "duplicate_arrangement_clip"].includes(name)) return this.#mutateArrangementClip(name, args);
+    if (name === "duplicate_arrangement_clip") return copyArrangementClip(this.bridge, this.confirmations, args, {sameTrack: true});
+    if (["delete_arrangement_clip", "move_arrangement_clip"].includes(name)) return this.#mutateArrangementClip(name, args);
     if (name === "get_midi_clip_notes") return this.bridge.request("get_midi_clip_notes", args);
     if (name === "get_midi_clip_notes_extended") return this.bridge.request("get_midi_clip_notes_extended", args);
     if (name === "get_midi_note_selection") return this.bridge.request("get_midi_note_selection", args);
@@ -2846,7 +2847,7 @@ export class ToolService {
     const before = observed.clips.find(({ id }) => id === args.clipId);
     if (!before) throw new Error(`unknown Arrangement clip ID ${args.clipId}`);
     const plan = { method, trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion, before };
-    if (method === "move_arrangement_clip" || method === "duplicate_arrangement_clip") {
+    if (method === "move_arrangement_clip") {
       plan.startBeats = finiteRange(args.startBeats, "startBeats", 0, Number.MAX_SAFE_INTEGER);
       const end = plan.startBeats + before.lengthBeats;
       if (!Number.isFinite(end) || end > Number.MAX_SAFE_INTEGER || before.lengthBeats <= 0) throw new Error(`${method === "move_arrangement_clip" ? "move" : "duplication"} interval is invalid`);

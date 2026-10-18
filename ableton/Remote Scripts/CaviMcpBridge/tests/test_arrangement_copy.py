@@ -169,3 +169,202 @@ class ArrangementCopyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "4096"):
             self.context()
         self.assertEqual(len(self.calls), 1)
+
+
+class ArrangementDuplicateTests(unittest.TestCase):
+    def setUp(self):
+        base = ArrangementCopyTests()
+        base.setUp()
+        self.song, self.track, self.clip = base.song, base.source, base.clip
+        self.calls = []
+        def duplicate(clip, start):
+            self.calls.append((clip, start))
+            created = copy.deepcopy(clip)
+            created.start_time, created.end_time = start, start + clip.end_time - clip.start_time
+            self.track.arrangement_clips.append(created)
+            self.track.arrangement_clips.sort(key=lambda item: item.start_time)
+            return created
+        self.track.duplicate_clip_to_arrangement = duplicate
+        self.args = {"trackId": "track-0", "clipId": "track-0:arrangement-clip-0", "startBeats": 0,
+                     "expectedStateVersion": 3}
+
+    def context(self):
+        return dispatch_request(self.song, {"method": "get_arrangement_duplicate_source", "params": self.args}, 3)
+
+    def execute(self, before):
+        return dispatch_request(self.song, {"method": "duplicate_arrangement_clip",
+                                "params": {**self.args, "before": before}}, 3)
+
+    def test_duplicate_before_source_resolves_shifted_native_identity(self):
+        before = self.context()
+        self.assertEqual(self.calls, [])
+        result = self.execute(before)
+        self.assertTrue(result["copyVerified"])
+        self.assertTrue(result["sourcePreserved"])
+        self.assertTrue(result["destinationRetained"])
+        self.assertEqual(result["sourceClip"]["id"], "track-0:arrangement-clip-1")
+        self.assertEqual(result["duplicatedClip"]["id"], "track-0:arrangement-clip-0")
+        self.assertEqual(result["duplicatedClip"]["startBeats"], 0)
+        self.assertIs(self.track.arrangement_clips[1], self.clip)
+        self.assertEqual(result["observedCopy"]["name"], self.clip.name)
+        self.assertEqual(result["observedCopy"]["notes"], before["source"]["notes"])
+        self.assertEqual(self.song.undo_boundaries, ["begin", "end"])
+
+    def test_same_version_note_timing_replacement_and_layout_edits_refuse(self):
+        for change in (lambda: setattr(self.clip.extended_notes[0], "velocity", 42),
+                       lambda: setattr(self.clip, "loop_end", 3),
+                       lambda: self.track.arrangement_clips.__setitem__(0, copy.deepcopy(self.clip)),
+                       lambda: self.song.tracks.__setitem__(0, copy.deepcopy(self.track)),
+                       lambda: self.track.arrangement_clips.append(copy.deepcopy(self.clip))):
+            self.setUp()
+            before = self.context()
+            change()
+            with self.assertRaisesRegex(ValueError, "changed"):
+                self.execute(before)
+            self.assertEqual(self.calls, [])
+
+    def test_undo_entry_edit_refuses_before_copy(self):
+        before = self.context()
+        self.song.begin_undo_step = lambda: setattr(self.clip.extended_notes[0], "pitch", 42)
+        with self.assertRaisesRegex(ValueError, "changed"):
+            self.execute(before)
+        self.assertEqual(self.calls, [])
+
+    def test_partial_creation_is_retained_without_replay_or_cleanup(self):
+        before, original = self.context(), self.track.duplicate_clip_to_arrangement
+        def fail(clip, start):
+            original(clip, start)
+            raise RuntimeError("failed after creation")
+        self.track.duplicate_clip_to_arrangement = fail
+        result = self.execute(before)
+        self.assertFalse(result["copyVerified"])
+        self.assertFalse(result["nativeReturned"])
+        self.assertTrue(result["sourcePreserved"])
+        self.assertEqual(len(self.track.arrangement_clips), 2)
+        self.assertEqual(len(self.calls), 1)
+        self.assertIn("failed after creation", result["error"])
+
+    def test_incorrect_content_and_drift_are_reported_and_retained(self):
+        for change in (lambda c: setattr(c.extended_notes[0], "pitch", 12),
+                       lambda c: setattr(c, "start_time", c.start_time + 1),
+                       lambda c: setattr(c, "start_time", c.start_time + 1000000)):
+            self.setUp()
+            before, original = self.context(), self.track.duplicate_clip_to_arrangement
+            def duplicate(clip, start):
+                created = original(clip, start)
+                change(created)
+                return created
+            self.track.duplicate_clip_to_arrangement = duplicate
+            result = self.execute(before)
+            self.assertFalse(result["copyVerified"])
+            self.assertTrue(result["sourcePreserved"])
+            self.assertEqual(len(self.track.arrangement_clips), 2)
+            self.assertIsNotNone(result["error"])
+
+    def test_collision_recording_frozen_and_legacy_metadata_only_requests_refuse(self):
+        for change in (lambda: self.args.update(startBeats=9),
+                       lambda: setattr(self.track, "is_frozen", True),
+                       lambda: setattr(self.song, "record_mode", True),
+                       lambda: setattr(self.song, "session_record", True)):
+            self.setUp()
+            change()
+            with self.assertRaises(ValueError):
+                self.context()
+            self.assertEqual(self.calls, [])
+        self.setUp()
+        with self.assertRaisesRegex(ValueError, "changed"):
+            self.execute({"id": self.args["clipId"], "name": self.clip.name})
+        self.assertEqual(self.calls, [])
+
+    def test_audio_duplicate_before_source_preserves_exposed_content(self):
+        self.clip = AudioClip()
+        self.clip.start_time, self.clip.end_time = 8, 12
+        self.clip.file_path = "/samples/voice.wav"
+        self.track.arrangement_clips = [self.clip]
+        self.track.has_midi_input, self.track.has_audio_input = False, True
+        result = self.execute(self.context())
+        self.assertTrue(result["copyVerified"])
+        self.assertTrue(result["sourcePreserved"])
+        self.assertEqual(result["observedCopy"]["audio"]["source"]["path"], self.clip.file_path)
+
+    def test_undo_finalization_failure_reports_actual_copy(self):
+        before = self.context()
+        def fail():
+            raise RuntimeError("undo finalization failed")
+        self.song.end_undo_step = fail
+        result = self.execute(before)
+        self.assertFalse(result["copyVerified"])
+        self.assertTrue(result["nativeReturned"])
+        self.assertIsNotNone(result["duplicatedClip"])
+        self.assertIn("undo finalization failed", result["error"])
+
+    def test_native_equality_across_wrappers_and_new_collision_are_observed(self):
+        class NativeClip(Clip):
+            def __init__(self, native_id):
+                super().__init__()
+                self.native_id = native_id
+                self.is_audio_clip = False
+                self.start_time, self.end_time = 8, 12
+                self.extended_notes = [MidiNote()]
+            def __eq__(self, other):
+                return isinstance(other, NativeClip) and self.native_id == other.native_id
+        for collision in (False, True):
+            self.setUp()
+            self.clip = NativeClip("source")
+            self.track.arrangement_clips = [self.clip]
+            before = self.context()
+            def duplicate(clip, start):
+                created = NativeClip("copy")
+                created.start_time, created.end_time = start, start + 4
+                self.track.arrangement_clips.insert(0, created)
+                if collision:
+                    other = NativeClip("other")
+                    other.start_time, other.end_time = start, start + 4
+                    self.track.arrangement_clips.append(other)
+                return copy.deepcopy(created)
+            self.track.duplicate_clip_to_arrangement = duplicate
+            result = self.execute(before)
+            self.assertEqual(result["copyVerified"], not collision)
+            self.assertTrue(result["sourcePreserved"])
+            self.assertEqual(len(self.track.arrangement_clips), 3 if collision else 2)
+            self.assertIs(self.track.arrangement_clips[1], self.clip)
+
+    def test_same_track_capacity_reserves_room_for_readback(self):
+        for index in range(4094):
+            clip = copy.deepcopy(self.clip)
+            clip.start_time, clip.end_time = 100 + index * 4, 104 + index * 4
+            self.track.arrangement_clips.append(clip)
+        result = self.execute(self.context())
+        self.assertTrue(result["copyVerified"])
+        self.assertEqual(len(self.track.arrangement_clips), 4096)
+        self.args.update(clipId=result["sourceClip"]["id"], startBeats=16)
+        with self.assertRaisesRegex(ValueError, "4096"):
+            self.context()
+        self.assertEqual(len(self.calls), 1)
+
+    def test_final_copy_content_read_rechecks_source_and_prior_layout(self):
+        for action in ("remove_source", "edit_source", "add_clip", "move_source"):
+            self.setUp()
+            before, original = self.context(), self.track.duplicate_clip_to_arrangement
+            def duplicate(clip, start):
+                created = original(clip, start)
+                def notes():
+                    if action == "remove_source" and clip in self.track.arrangement_clips:
+                        self.track.arrangement_clips.remove(clip)
+                    elif action == "edit_source":
+                        clip.extended_notes[0].pitch = 12
+                    elif action == "add_clip":
+                        self.track.arrangement_clips.append(copy.deepcopy(clip))
+                    elif action == "move_source":
+                        clip.start_time += 1
+                    return created.extended_notes
+                created.get_all_notes_extended = notes
+                return created
+            self.track.duplicate_clip_to_arrangement = duplicate
+            result = self.execute(before)
+            self.assertFalse(result["copyVerified"], action)
+            if action in ("remove_source", "edit_source", "move_source"):
+                self.assertFalse(result["sourcePreserved"], action)
+            else:
+                self.assertFalse(result["destinationRetained"], action)
+            self.assertEqual(len(self.calls), 1)
