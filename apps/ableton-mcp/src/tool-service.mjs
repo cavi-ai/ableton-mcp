@@ -4813,8 +4813,10 @@ export class ToolService {
 
   async #setTrackRouting(args) {
     requireExpectedState(args);
-    const observed = await this.bridge.request("get_track_routing", { trackId: args.trackId });
+    const observed = await this.bridge.request("get_track_routing_edit_context", { trackId: args.trackId });
     assertExpectedState(args, observed);
+    if (!observed.identityToken || observed.trackId !== args.trackId) throw new Error("native routing context required; update the Live bridge");
+    if (!observed.recordingOff || !observed.launchesClear) throw new Error("routing requires known inactive recording, count-in and pending launches");
     const changes = {};
     for (const [argument, section, field] of [
       ["inputTypeId", "input", "type"], ["inputChannelId", "input", "channel"],
@@ -4823,7 +4825,9 @@ export class ToolService {
       if (args[argument] === undefined) continue;
       if (typeof args[argument] !== "string") throw new Error(`${argument} must be a string`);
       const choices = observed[section][field === "type" ? "availableTypes" : "availableChannels"];
-      const selected = choices.find(({ id }) => id === args[argument]);
+      const matches = choices.filter(({ id }) => id === args[argument]);
+      if (matches.length > 1) throw new Error(`ambiguous ${argument} ${args[argument]}`);
+      const selected = matches[0];
       if (!selected) throw new Error(`unknown ${argument} ${args[argument]}`);
       changes[argument] = { previous: observed[section][field], value: selected };
     }
@@ -4834,9 +4838,16 @@ export class ToolService {
       changes.monitoring = { previous: { value: observed.monitoring.value, name: observed.monitoring.name }, value: selected };
     }
     if (!Object.keys(changes).length) throw new Error("at least one routing change is required");
+    if (Object.keys(changes).some(key => key.startsWith("input") || key === "monitoring")) {
+      if (observed.target?.isGroup !== false) throw new Error("input and monitoring changes are not supported on Group Tracks");
+      const arm = observed.armStates?.[Number(args.trackId.slice(6))];
+      if (observed.target?.isFrozen !== false || arm?.armed !== false || arm?.implicitArm !== false) {
+        throw new Error("input and monitoring changes require a known unfrozen, disarmed target");
+      }
+    }
     return this.#confirmedMutation({
       method: "set_track_routing", trackId: args.trackId,
-      expectedStateVersion: args.expectedStateVersion, changes
+      expectedStateVersion: args.expectedStateVersion, before: observed, changes
     }, args);
   }
 

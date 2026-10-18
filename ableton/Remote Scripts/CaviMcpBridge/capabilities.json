@@ -1,5 +1,6 @@
 [
   "get_track_arm_context",
+  "get_track_routing_edit_context",
   "get_midi_crop_context", "crop_midi_clip",
   "get_midi_clip_marker_context", "set_midi_clip_markers",
   "get_clip_loop_edit_context",

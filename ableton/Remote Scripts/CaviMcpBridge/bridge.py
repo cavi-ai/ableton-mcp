@@ -808,14 +808,14 @@ def _track_routing(song, track_id, state_version):
     return {
         "stateVersion": state_version, "trackId": track_id,
         "input": {
-            "type": _current_routing_option(track.current_input_routing, input_types),
-            "channel": _current_routing_option(track.current_input_sub_routing, input_channels),
+            "type": _current_routing_option(getattr(track, "input_routing_type") if hasattr(track, "input_routing_type") else track.current_input_routing, input_types),
+            "channel": _current_routing_option(getattr(track, "input_routing_channel") if hasattr(track, "input_routing_channel") else track.current_input_sub_routing, input_channels),
             "availableTypes": [_routing_option(option) for option in input_types],
             "availableChannels": [_routing_option(option) for option in input_channels],
         },
         "output": {
-            "type": _current_routing_option(track.current_output_routing, output_types),
-            "channel": _current_routing_option(track.current_output_sub_routing, output_channels),
+            "type": _current_routing_option(getattr(track, "output_routing_type") if hasattr(track, "output_routing_type") else track.current_output_routing, output_types),
+            "channel": _current_routing_option(getattr(track, "output_routing_channel") if hasattr(track, "output_routing_channel") else track.current_output_sub_routing, output_channels),
             "availableTypes": [_routing_option(option) for option in output_types],
             "availableChannels": [_routing_option(option) for option in output_channels],
         },
@@ -926,9 +926,9 @@ def _return_routing(song, return_id, state_version):
         raise ValueError('Return routing supports at most 512 choices per field')
     return {'stateVersion': state_version, 'returnTrackId': return_id, 'name': str(track.name),
             'output': {'supported': supported,
-                       'type': _current_routing_option(track.current_output_routing, types) if legacy else
+                       'type': _current_routing_option(getattr(track, "output_routing_type") if hasattr(track, "output_routing_type") else track.current_output_routing, types) if legacy else
                                _routing_option(track.output_routing_type) if supported else None,
-                       'channel': _current_routing_option(track.current_output_sub_routing, channels) if legacy else
+                       'channel': _current_routing_option(getattr(track, "output_routing_channel") if hasattr(track, "output_routing_channel") else track.current_output_sub_routing, channels) if legacy else
                                   _routing_option(track.output_routing_channel) if supported else None,
                        'availableTypes': [_routing_option(option) for option in types],
                        'availableChannels': [_routing_option(option) for option in channels]}}
@@ -3899,27 +3899,12 @@ def dispatch_request(song, request, state_version, application=None):
         return _arrangement_cue_points(song, state_version + 1)
     if method == "get_track_routing":
         return _track_routing(song, params["trackId"], state_version)
-    if method == "set_track_routing":
-        _, track = _track(song, params["trackId"])
-        changes = params["changes"]
-        if "monitoring" in changes and bool(getattr(track, "is_foldable", False)):
-            raise ValueError("monitoring is not supported on Group Tracks")
-        properties = {
-            "inputTypeId": ("current_input_routing", track.available_input_routing_types),
-            "inputChannelId": ("current_input_sub_routing", track.available_input_routing_channels),
-            "outputTypeId": ("current_output_routing", track.available_output_routing_types),
-            "outputChannelId": ("current_output_sub_routing", track.available_output_routing_channels),
-        }
-        for key, (attribute, choices) in properties.items():
-            if key in changes:
-                identifier = changes[key]["value"]["id"]
-                selected = next(
-                    option for option in choices if _routing_id(option) == identifier
-                )
-                setattr(track, attribute, _routing_option(selected)["name"])
-        if "monitoring" in changes:
-            track.current_monitoring_state = int(changes["monitoring"]["value"]["value"])
-        return _track_routing(song, params["trackId"], state_version + 1)
+    if method in ("get_track_routing_edit_context", "set_track_routing"):
+        try:
+            from . import track_routing
+        except ImportError:
+            import track_routing
+        return (track_routing.context if method == "get_track_routing_edit_context" else track_routing.apply)(song, params, state_version)
     if method == "get_track_midi_routing":
         return _track_midi_routing(song, params["trackId"], state_version)
     if method == "set_track_midi_routing":
@@ -7254,7 +7239,7 @@ class SocketBridge:
                 if request.get("method") == "prepare_instrument_comparison":
                     self._defer_instrument_comparison(client, request, song, record)
                     return
-                if (request.get("method") == "set_transport_recording_context" and "currentSongTime" in request.get("params", {}).get("changes", {})) or request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state", "re_enable_parameter_automation", "override_parameter_automation", "set_mixer_panning", "jump_to_arrangement_cue_point", "arm_track") or (
+                if (request.get("method") == "set_transport_recording_context" and "currentSongTime" in request.get("params", {}).get("changes", {})) or request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state", "re_enable_parameter_automation", "override_parameter_automation", "set_mixer_panning", "jump_to_arrangement_cue_point", "arm_track", "set_track_routing") or (
                         request.get("method") == "set_clip_timing" and "loop" in request.get("params", {}).get("changes", {})) or (
                         request.get("method") == "duplicate_session_object" and request.get("params", {}).get("target", {}).get("targetType") in ("scene", "track")) or (
                         request.get("method") == "delete_session_object" and request.get("params", {}).get("target", {}).get("targetType") in ("scene", "track", "return")):
@@ -7320,9 +7305,9 @@ class SocketBridge:
     def _defer_observed_mutation(self, client, request, song, record=None):
         try:
             try:
-                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication, scene_removal, track_removal, return_removal, track_copy, track_arming
+                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication, scene_removal, track_removal, return_removal, track_copy, track_arming, track_routing
             except ImportError:
-                import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication, scene_removal, track_removal, return_removal, track_copy, track_arming
+                import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication, scene_removal, track_removal, return_removal, track_copy, track_arming, track_routing
             module, success_key = {
                 'return_tracks_to_arrangement': (arrangement_return, 'returned'),
                 'audition_arrangement_passage': (arrangement_audition, 'started'),
@@ -7331,6 +7316,7 @@ class SocketBridge:
                 'override_parameter_automation': (manual_override, 'verified'),
                 'set_mixer_panning': (panning, 'verified'),
                 'arm_track': (track_arming, 'verified'),
+                'set_track_routing': (track_routing, 'verified'),
                 'jump_to_arrangement_cue_point': (cue_jump, 'positionVerified'),
                 'set_transport_recording_context': (transport_seek, 'nativeReturned'),
                 'set_clip_timing': (clip_loop_edit, 'requestedChangesVerified'),
@@ -7346,7 +7332,7 @@ class SocketBridge:
 
         def reply_unverified(error):
             try:
-                if request["method"] in ("jump_to_arrangement_cue_point", "set_transport_recording_context", "arm_track"):
+                if request["method"] in ("jump_to_arrangement_cue_point", "set_transport_recording_context", "arm_track", "set_track_routing"):
                     result = module.unobserved(operation, self.state_version, error)
                 else:
                     operation["error"] = f"Native readback failed: {error}"[:600]

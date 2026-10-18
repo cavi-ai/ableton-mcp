@@ -1218,21 +1218,18 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(song.current_song_time, 4.0)
 
     def test_track_routing_reads_choices_and_applies_exact_identifiers(self):
-        song = Song()
+        from test_track_routing import ready_song
+        song = ready_song()
         observed = dispatch_request(song, {"method": "get_track_routing", "params": {"trackId": "track-0"}}, 3)
         self.assertEqual(observed["input"]["type"], {"id": "all-ins", "name": "All Ins"})
         self.assertEqual(observed["monitoring"]["name"], "auto")
-        changed = dispatch_request(song, {"method": "set_track_routing", "params": {
-            "trackId": "track-0", "changes": {
-                "inputChannelId": {"value": {"id": "channel-1"}},
-                "outputTypeId": {"value": {"id": "no-output"}},
-                "monitoring": {"value": {"value": 2}},
-            }
-        }}, 3)
+        before = dispatch_request(song, {"method":"get_track_routing_edit_context","params":{"trackId":"track-0"}}, 3)
+        changed = dispatch_request(song, {"method":"set_track_routing","params":{"trackId":"track-0",
+            "expectedStateVersion":3,"before":before,"changes":{
+                "outputTypeId":{"previous":before["output"]["type"],"value":before["output"]["availableTypes"][1]}}}}, 3)
+        self.assertTrue(changed["verified"])
         self.assertEqual(changed["stateVersion"], 4)
-        self.assertEqual(changed["input"]["channel"]["id"], "channel-1")
         self.assertEqual(changed["output"]["type"]["id"], "no-output")
-        self.assertEqual(changed["monitoring"]["name"], "off")
 
     def test_track_midi_routing_reads_map_and_applies_guarded_changes(self):
         song = Song()
@@ -1461,15 +1458,17 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(after_failure, before_failure)
 
     def test_group_routing_does_not_access_unsupported_monitoring(self):
-        song = Song()
+        from test_track_routing import ready_song
+        song = ready_song()
         group = song.tracks[0]
         group.is_foldable = True
         del group.current_monitoring_state
         observed = dispatch_request(song, {"method": "get_track_routing", "params": {"trackId": "track-0"}}, 3)
         self.assertIsNone(observed["monitoring"])
+        before = dispatch_request(song, {"method":"get_track_routing_edit_context","params":{"trackId":"track-0"}}, 3)
         previous = group.current_output_routing
-        with self.assertRaisesRegex(ValueError, "monitoring is not supported"):
-            dispatch_request(song, {"method": "set_track_routing", "params": {"trackId": "track-0", "changes": {
+        with self.assertRaisesRegex(ValueError, "monitoring changes are not supported"):
+            dispatch_request(song, {"method": "set_track_routing", "params": {"trackId": "track-0", "expectedStateVersion":3, "before":before, "changes": {
                 "outputTypeId": {"value": {"id": "no-output"}}, "monitoring": {"value": {"value": 0}}
             }}}, 3)
         self.assertEqual(group.current_output_routing, previous)

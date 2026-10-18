@@ -266,7 +266,9 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         stateVersion: 4, trackId: params.trackId, clips: [{ id: `${params.trackId}:arrangement-clip-0`,
           name: "Hook", startBeats: 8, endBeats: 16, lengthBeats: 8, type: "midi" }]
       };
-      if (method === "get_track_routing") return {
+      if (method === "get_track_routing" || method === "get_track_routing_edit_context") return {
+        identityToken: "native-routing-owner", recordingOff: true, launchesClear: true,
+        target: {isGroup:false,isFrozen:false}, armStates:[{armed:false,implicitArm:false}],
         stateVersion: 4, trackId: params.trackId,
         input: {
           type: { id: "all-ins", name: "All Ins" }, channel: { id: "all-channels", name: "All Channels" },
@@ -1370,8 +1372,8 @@ test("track routing rejects unknown choices and empty changes", async () => {
 
 test("Group Track monitoring is rejected before mutation planning", async () => {
   const service = new ToolService({ bridge: { async request(method) {
-    assert.equal(method, "get_track_routing");
-    return { stateVersion: 4, trackId: "track-0", monitoring: null };
+    assert.equal(method, "get_track_routing_edit_context");
+    return { stateVersion: 4, trackId: "track-0", identityToken: "group", recordingOff:true, launchesClear:true, monitoring: null };
   } } });
   await assert.rejects(service.call("set_track_routing", { trackId: "track-0", expectedStateVersion: 4, monitoring: "in" }), /monitoring is not supported/);
 });
