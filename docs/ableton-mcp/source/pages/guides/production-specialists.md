@@ -142,6 +142,24 @@ Call `advance_production_session` with `projectId`, `sessionId`, the latest `exp
 5. At `audition`, use the existing playback/capture tools or listen in Live. `feedback` requires explicit user listening feedback in `text` and moves to `evaluate`. The session tool itself does not start playback or claim to hear audio.
 6. `evaluate` requires a `decision` of `accept` or `revise`. Acceptance records the user's decision separately from operation receipts and field checks. Revision returns to `inspect`, preserving feedback as selected context. `audibleQualityVerified` remains false.
 
+For a defined operational task, `roles: "functional"` starts directly with a functional proposal, without a creative alternative or creative runtime. Omit it or use `"both"` for the creative-then-functional flow above. Role selection does not authorize execution: every operation still requires its original dry run and confirmation.
+
+To finish from observed criteria, explicitly start with `completion: "postconditions"` and nonempty caller `postconditions`. For example:
+
+```json
+{
+  "projectId": "song",
+  "goal": "Set the tempo to 100 BPM without changing other controls",
+  "roles": "functional",
+  "completion": "postconditions",
+  "postconditions": [
+    { "tool": "get_live_state", "args": {}, "path": ["tempo"], "expected": 100 }
+  ]
+}
+```
+
+After all operations are applied, or when a proposal requires no operation, this mode enters `evaluate` directly. `evaluate` with `decision: "accept"` rechecks the caller's criteria against fresh Live state. All must pass before the session becomes `complete` with `status: "postconditions_met"`. Failed checks stay in `evaluate`; `decision: "revise"` returns to inspection. Unknown or unverified writes still require inspection and a new proposal. The evaluation artifact records `basis: "postconditions"`; the session does not invent listening feedback or a user decision. These checks establish only the declared field comparisons, never audible quality. Use criteria that actually express the requested result. The default `completion: "listening"` continues to require explicit user feedback and a decision.
+
 Use `resume` at the start of another conversation. It captures fresh Live context. A changed observed state discards the executable proposal and operation cursor; a different document path fails closed. Scoped observations compare the exact owner’s mixer, routing and device inventory, the exact clip's timing and MIDI notes or audio state, and the exact device's parameters. Clip and device scopes require their owning `trackId`. These observations detect relevant manual edits even when the bridge version is unchanged. They do not cover all possible Live properties, identical native-object replacements or hidden plug-in state; native mutation guards still apply. Playback and selection alone do not define target content. Old artifacts remain available for inspection, but are never replayed automatically. A session stores exact scope IDs; resolve the intended owner again after structural edits instead of guessing replacements.
 
 Durable scopes accept ordinary/Group `track-N`, Return `return-N`, or Main `master` in `scope.trackId`. Resolve those IDs from `list_tracks` or `get_set_mixer`. Return and Main snapshots use the exact selected bus from `get_set_mixer`, not an ordinary-track mixer read. Returns also bind their output routing; Main’s hardware output is included in its mixer record. Ordinary/Group scopes include their routing snapshot. Two matching observation passes are required. A different Return’s mixer does not enter the selected Return’s target snapshot. Bus scopes may name an exact owned `deviceId`; clips require an ordinary-track owner, and bus clip scopes fail before observation or a model request. Shared Return mixer operations must match the declared owner; `set_master_mixer` requires Main scope when a track owner is specified. Broader operations still need their own permitted scope and original native confirmation.
@@ -150,7 +168,7 @@ Every durable session also binds the song’s observed tempo, meter, configured 
 
 Every update requires the latest session revision. Publishing a revision uses an exclusive filesystem link so competing processes cannot both advance the same revision. Before execution, a pending revision is saved. If the process exits during execution or the outcome is uncertain, resume requires inspection and a new proposal. It cannot infer whether an interrupted operation ran from the missing reply.
 
-Session history stays in immutable private artifacts. Model requests select the current observation, chosen alternative and latest relevant feedback; they do not load the session's full history. The existing per-task model, read and byte limits also apply to session proposals. Both roles must be configured for this creative-then-functional flow; direct functional tasks remain available separately.
+Session history stays in immutable private artifacts. Model requests select the current observation, chosen alternative and latest relevant feedback; they do not load the session's full history. The existing per-task model, read and byte limits also apply to session proposals. Both roles must be configured for the default creative-then-functional flow; functional-only sessions require only the functional runtime.
 
 ## Artifact storage
 

@@ -458,6 +458,111 @@ test("production sessions select a creative alternative before functional execut
   assert.ok(JSON.stringify(session).length < 6000);
 });
 
+test('functional sessions complete caller criteria without a creative role or invented listening feedback', async t => {
+  const { service, artifacts, packets, reopen } = await setup(t, () => response({
+    operations: [{ tool: 'set_tempo', args: { tempo: 100 } }],
+    checks: [{ tool: 'get_live_state', args: {}, path: ['tempo'], expected: 99 }]
+  }));
+  delete service.config.creative;
+  let session = await service.call('start_production_session', { projectId: 'song', goal: 'Set tempo to 100',
+    roles: 'functional', completion: 'postconditions', postconditions: [
+      { tool: 'get_live_state', args: {}, path: ['tempo'], expected: 100 }
+    ] });
+  const advance = async args => session = await service.call('advance_production_session', {
+    projectId: 'song', sessionId: session.sessionId, expectedRevision: session.revision, ...args
+  });
+  assert.equal(session.roles, 'functional'); assert.equal(session.completion, 'postconditions');
+  await advance({ action: 'propose' }); assert.equal(session.phase, 'apply');
+  assert.deepEqual(packets.map(p => p.role), ['functional']);
+  const plan = await advance({ action: 'apply', expectedStateVersion: 1 });
+  assert.equal(plan.operation.status, 'planned');
+  await advance({ action: 'apply', expectedStateVersion: 1, dryRun: false,
+    confirmationToken: plan.operation.confirmationToken, planHash: plan.operation.planHash });
+  assert.equal(session.phase, 'evaluate'); assert.equal(session.operation.status, 'applied');
+  await advance({ action: 'evaluate', decision: 'accept' });
+  assert.equal(session.phase, 'complete'); assert.equal(session.status, 'postconditions_met');
+  assert.equal(session.userDecision, undefined); assert.equal(session.feedbackRef, undefined);
+  assert.equal(session.audibleQualityVerified, false);
+  const evaluation = artifacts.get('song', session.evaluationRef).value;
+  assert.equal(evaluation.basis, 'postconditions'); assert.equal(evaluation.checks.length, 1);
+  assert.equal(evaluation.checks[0].matches, true); assert.equal(evaluation.feedbackRef, undefined);
+  const resumed = await reopen().call('advance_production_session', {
+    projectId: 'song', sessionId: session.sessionId, expectedRevision: session.revision, action: 'resume'
+  });
+  assert.equal(resumed.phase, 'complete'); assert.equal(resumed.roles, 'functional');
+  assert.equal(resumed.completion, 'postconditions'); assert.equal(resumed.stateChanged, false);
+});
+
+test('postcondition completion requires caller criteria before any observation or generation', async t => {
+  for (const args of [{ completion: 'postconditions' }, { completion: 'postconditions', postconditions: [] },
+    { completion: 'invented' }, { roles: 'creative' }]) {
+    const { service, calls, packets } = await setup(t, () => response());
+    await assert.rejects(service.call('start_production_session', { projectId: 'song', goal: 'Set tempo', ...args }),
+      /postconditions|criteria|schema|arguments/);
+    assert.equal(calls.length, 0); assert.equal(packets.length, 0);
+  }
+});
+
+test('empty functional proposals cannot complete failed caller criteria and can be revised without feedback', async t => {
+  const { service, artifacts } = await setup(t, () => response());
+  let session = await service.call('start_production_session', { projectId: 'song', goal: 'Set tempo to 100',
+    roles: 'functional', completion: 'postconditions', postconditions: [
+      { tool: 'get_live_state', args: {}, path: ['tempo'], expected: 100 }
+    ] });
+  const advance = async args => session = await service.call('advance_production_session', {
+    projectId: 'song', sessionId: session.sessionId, expectedRevision: session.revision, ...args
+  });
+  await advance({ action: 'propose' }); assert.equal(session.phase, 'evaluate');
+  await advance({ action: 'evaluate', decision: 'accept' });
+  assert.equal(session.phase, 'evaluate'); assert.equal(session.status, 'postconditions_failed');
+  assert.equal(artifacts.get('song', session.evaluationRef).value.checks[0].matches, false);
+  assert.equal(session.userDecision, undefined);
+  await advance({ action: 'evaluate', decision: 'revise' });
+  assert.equal(session.phase, 'inspect'); assert.equal(session.evaluationRef, undefined);
+  assert.equal(session.userDecision, undefined);
+  await advance({ action: 'propose' }); assert.equal(session.phase, 'evaluate');
+});
+
+test('caller-checked sessions can complete an already satisfied task in either role flow without writes', async t => {
+  for (const roles of ['both', 'functional']) {
+    const { service, calls, packets } = await setup(t, packet => response(packet.role === 'creative'
+      ? { alternatives: [{ name: 'Keep', description: 'Keep the existing tempo.' }] } : {}));
+    let session = await service.call('start_production_session', { projectId: 'song', goal: 'Keep tempo 120', roles,
+      completion: 'postconditions', postconditions: [{ tool: 'get_live_state', args: {}, path: ['tempo'], expected: 120 }] });
+    const advance = async args => session = await service.call('advance_production_session', {
+      projectId: 'song', sessionId: session.sessionId, expectedRevision: session.revision, ...args
+    });
+    await advance({ action: 'propose' });
+    if (roles === 'both') { await advance({ action: 'choose', alternativeIndex: 0 }); await advance({ action: 'propose' }); }
+    assert.equal(session.phase, 'evaluate'); assert.equal(session.receiptId, undefined);
+    await advance({ action: 'evaluate', decision: 'accept' });
+    assert.equal(session.phase, 'complete'); assert.equal(session.status, 'postconditions_met');
+    assert.equal(session.userDecision, undefined); assert.equal(session.audibleQualityVerified, false);
+    assert.equal(calls.some(call => call.name === 'set_tempo'), false);
+    assert.deepEqual(packets.map(p => p.role), roles === 'both' ? ['creative', 'functional'] : ['functional']);
+  }
+});
+
+test('functional listening sessions still require actual feedback and postcondition sessions refuse stale acceptance', async t => {
+  for (const completion of ['listening', 'postconditions']) {
+    const { service, change } = await setup(t, () => response());
+    let session = await service.call('start_production_session', { projectId: 'song', goal: 'Keep tempo 120',
+      roles: 'functional', completion, postconditions: [{ tool: 'get_live_state', args: {}, path: ['tempo'], expected: 120 }] });
+    const advance = async args => session = await service.call('advance_production_session', {
+      projectId: 'song', sessionId: session.sessionId, expectedRevision: session.revision, ...args
+    });
+    await advance({ action: 'propose' });
+    if (completion === 'listening') {
+      assert.equal(session.phase, 'audition');
+      await assert.rejects(advance({ action: 'evaluate', decision: 'accept' }), /feedback|phase/);
+      await advance({ action: 'feedback', text: 'I prefer the current tempo.' });
+    }
+    change();
+    await assert.rejects(advance({ action: 'evaluate', decision: 'accept' }), /state changed/);
+    await advance({ action: 'resume' }); assert.equal(session.phase, 'inspect');
+  }
+});
+
 test("resuming after a manual edit invalidates saved proposals without changing Live", async t => {
   const { service, calls, change } = await setup(t, packet => response(packet.role === "creative" ?
     { alternatives: [{ name: "Sparse", description: "Less busy" }] } : { operations: [{ tool: "set_tempo", args: { tempo: 100 } }] }));
@@ -732,6 +837,7 @@ test('discovered shared mixer proposals retain the exact declared owner scope',a
 });
 
 test('explicit native verification failures stop durable execution despite passing field checks',async t=>{
+ for(const completion of ['listening','postconditions']){
  const {service,base,artifacts}=await setup(t,packet=>response(packet.role==='creative'?
   {alternatives:[{name:'Try',description:'Apply one guarded change.'}]}:{operations:[{tool:'set_tempo',args:{tempo:100}}]}));
  const original=base.call.bind(base);
@@ -741,6 +847,7 @@ test('explicit native verification failures stop durable execution despite passi
    targetRetained:true,contextPreserved:false,error:'unrequested context changed'}}:result;
  };
  let session=await service.call('start_production_session',{projectId:'song',goal:'Apply one guarded change',
+  completion,
   postconditions:[{tool:'get_live_state',args:{},path:['tempo'],expected:100}]});
  const advance=args=>service.call('advance_production_session',{projectId:'song',sessionId:session.sessionId,expectedRevision:session.revision,...args});
  for(const args of [{action:'propose'},{action:'choose',alternativeIndex:0},{action:'propose'}])session=await advance(args);
@@ -751,6 +858,8 @@ test('explicit native verification failures stop durable execution despite passi
  assert.equal(session.operationIndex,0);
  assert.equal(artifacts.get('song',session.receiptId).value.nativeVerificationFailed,true);
  await assert.rejects(advance({action:'apply',expectedStateVersion:2}),/phase/);
+ await assert.rejects(advance({action:'evaluate',decision:'accept'}),/phase/);
+ }
 });
 
 test('raw and wrapped explicit native failures cannot become applied receipts',async t=>{

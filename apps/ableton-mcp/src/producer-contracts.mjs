@@ -41,10 +41,13 @@ producerToolContracts.apply_production_operation.annotations.destructiveHint = t
 const sessionId = { ...string("Durable session ID returned by start_production_session.", 36), pattern: "^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$" };
 const taskProperties = producerToolContracts.run_production_task.inputSchema.properties;
 producerToolContracts.start_production_session = contract("Capture a durable production brief and current Set identity. Starts at inspect; does not call a model or change Live. Keep the returned sessionId for later conversations.",
-  Object.fromEntries(["goal", "scope", "constraints", "postconditions", "workflow"].map(key => [key, taskProperties[key]])), ["goal"], false);
+  { ...Object.fromEntries(["goal", "scope", "constraints", "postconditions", "workflow"].map(key => [key, taskProperties[key]])),
+    roles: { type: "string", enum: ["both", "functional"], description: "both (default) chooses a creative alternative before functional work; functional proposes the operational task directly." },
+    completion: { type: "string", enum: ["listening", "postconditions"], description: "listening (default) requires actual user feedback and a decision. postconditions requires nonempty caller criteria and can finish from their fresh field checks without claiming user approval or audible quality." }
+  }, ["goal"], false);
 producerToolContracts.get_production_session = contract("Read a bounded durable session summary, or list up to twenty sessions in this project when sessionId is omitted. Does not refresh Live; use advance action resume before continuing.",
   { sessionId, offset: { type: "integer", minimum: 0 } }, []);
-producerToolContracts.advance_production_session = contract("Advance one durable session phase with optimistic revision checks. propose runs a bounded specialist; choose selects a saved creative alternative; apply retains original dry-run and confirmation guards. resume observes fresh Live state and invalidates stale proposals. Record actual listening feedback before evaluate. Interrupted execution is never replayed.", {
+producerToolContracts.advance_production_session = contract("Advance one durable session phase with optimistic revision checks. propose runs a bounded specialist; choose selects a saved creative alternative; apply retains original dry-run and confirmation guards. resume observes fresh Live state and invalidates stale proposals. evaluate uses the session's declared listening or caller-postcondition completion. Interrupted execution is never replayed.", {
   sessionId, expectedRevision: { type: "integer", minimum: 1 },
   action: { type: "string", enum: ["resume", "propose", "choose", "apply", "feedback", "evaluate"] },
   alternativeIndex: { type: "integer", minimum: 0, maximum: 3 },

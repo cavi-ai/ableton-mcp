@@ -11,6 +11,7 @@ export class ProductionSessions {
     const { value: s, sessionRef } = record;
     return { sessionId: s.sessionId, sessionRef, revision: s.revision, phase: s.phase,
       goal: s.goal.slice(0, 600), goalTruncated: s.goal.length > 600, scope: s.scope,
+      roles: s.roles || "both", completion: s.completion || "listening",
       basis: s.basis, contextRef: s.contextRef, targetRef: s.targetRef, selectedRef: s.selectedRef, feedbackRef: s.feedbackRef,
       taskId: s.taskId, receiptId: s.receiptId, operationIndex: s.operationIndex,
       status: s.status, stateChanged: s.stateChanged || false, userDecision: s.userDecision, evaluationRef: s.evaluationRef,
@@ -20,6 +21,8 @@ export class ProductionSessions {
   }
 
   async start(args) {
+    if (args.completion === "postconditions" && !args.postconditions?.length)
+      throw new Error("postcondition completion requires nonempty caller postconditions");
     const observed = await this.context(args.projectId, args.scope);
     return this.summary(this.artifacts.createSession(args.projectId, { ...args, scope: args.scope || {},
       phase: "inspect", basis: { stateVersion: observed.stateVersion, setFingerprint: observed.setFingerprint },
@@ -43,6 +46,8 @@ export class ProductionSessions {
     if (Object.keys(args).some(key => !["projectId", "sessionId", "expectedRevision", "action", ...allowed].includes(key)))
       throw new Error("arguments do not match the session action");
     const phase = (...phases) => { if (!phases.includes(s.phase)) throw new Error(`action ${action} is invalid in session phase ${s.phase}`); };
+    const checkedCompletion = s.completion === "postconditions";
+    const finishedOperationsPhase = checkedCompletion ? "evaluate" : "audition";
     const save = value => {
       record = this.artifacts.advanceSession(projectId, sessionId, s.revision, value);
       s = record.value;
@@ -79,19 +84,20 @@ export class ProductionSessions {
     }
     if (action === "evaluate") {
       phase("evaluate");
-      if (!s.feedbackRef || !args.decision) throw new Error("feedback and an explicit decision are required");
+      if ((!checkedCompletion && !s.feedbackRef) || !args.decision) throw new Error("feedback and an explicit decision are required");
       const observed = await fresh();
       if (s.receiptId && this.artifacts.get(projectId, s.receiptId).value.status !== "applied") throw new Error("operation outcome requires inspection");
       if (args.decision === "accept") {
         const task = this.artifacts.get(projectId, s.taskId).value;
-        const checks = await this.verify(projectId, task.checks);
+        const checks = await this.verify(projectId, checkedCompletion ? s.postconditions : task.checks);
         await fresh();
         const evaluationRef = this.artifacts.put(projectId, "evaluation", { taskId: s.taskId, receiptId: s.receiptId,
-          feedbackRef: s.feedbackRef, checks, decision: args.decision });
+          feedbackRef: s.feedbackRef, checks, decision: args.decision, basis: checkedCompletion ? "postconditions" : "listening" });
         if (checks.some(check => !check.matches)) return { ...save({ ...s, evaluationRef, status: "postconditions_failed" }), checks };
-        return save({ ...s, evaluationRef, phase: "complete", userDecision: "accept", status: "accepted" });
+        return save({ ...s, evaluationRef, phase: "complete", userDecision: checkedCompletion ? undefined : "accept",
+          status: checkedCompletion ? "postconditions_met" : "accepted" });
       }
-      return save({ ...restart(observed), feedbackRef: s.feedbackRef, userDecision: "revise" });
+      return save({ ...restart(observed), feedbackRef: s.feedbackRef, userDecision: checkedCompletion ? undefined : "revise" });
     }
     if (action === "choose") {
       phase("choose");
@@ -104,7 +110,7 @@ export class ProductionSessions {
     if (action === "propose") {
       phase("inspect", "propose");
       await fresh();
-      const role = s.phase === "inspect" ? "creative" : "functional";
+      const role = s.phase === "inspect" && s.roles !== "functional" ? "creative" : "functional";
       save({ ...s, phase: "proposing", status: "running" });
       let task;
       try {
@@ -118,7 +124,7 @@ export class ProductionSessions {
       const savedTask = this.artifacts.get(projectId, task.taskId).value;
       const alternatives = savedTask.results.find(item => item.role === "creative")?.result.alternatives;
       const nextPhase = task.status !== "proposed" ? "inspect" : role === "creative" ? (alternatives?.length ? "choose" : "inspect")
-        : task.operationCount ? "apply" : "audition";
+        : task.operationCount ? "apply" : finishedOperationsPhase;
       return { ...save({ ...s, phase: nextPhase, status: task.status, taskId: task.taskId,
         alternatives, operationIndex: 0, receiptId: undefined }), task };
     }
@@ -143,7 +149,7 @@ export class ProductionSessions {
     }
     const task = this.artifacts.get(projectId, s.taskId).value;
     const applied = operation.status === "applied";
-    return { ...save({ ...s, phase: applied ? (s.operationIndex + 1 < task.operations.length ? "apply" : "audition") : "needs_inspection",
+    return { ...save({ ...s, phase: applied ? (s.operationIndex + 1 < task.operations.length ? "apply" : finishedOperationsPhase) : "needs_inspection",
       operationIndex: applied ? s.operationIndex + 1 : s.operationIndex, receiptId: operation.receiptId,
       basis: applied ? { stateVersion: observed.stateVersion, setFingerprint: observed.setFingerprint } : s.basis,
       ...(applied ? { targetHash: observed.targetHash, targetRef: observed.targetRef, contextRef: observed.contextRef } : {}),
