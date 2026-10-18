@@ -7,6 +7,7 @@ import {captureSessionScene} from './scene-capture.mjs';
 import {planArrangementRepeat} from './arrangement-repeat.mjs';
 import {copyArrangementClip} from './arrangement-copy.mjs';
 import {moveArrangementClip} from './arrangement-move.mjs';
+import {armTrack} from './track-arming.mjs';
 import {removeClip} from './clip-removal.mjs';
 import {saveMidiClip,MacMidiExportHost} from './midi-export.mjs';
 import {renameArrangementClip,renameSessionClip} from './clip-names.mjs';
@@ -880,6 +881,8 @@ export class ToolService {
     if (name === "get_track_mixer") return this.bridge.request("get_track_mixer", args);
     if (name === "get_track_signal_activity") return this.bridge.request("get_track_signal_activity", args);
     if (name === "get_track_routing") return this.bridge.request("get_track_routing", args);
+    if (name === "get_track_arm_context") return this.bridge.request(name, args);
+    if (name === "arm_track") return armTrack(this.bridge,this.confirmations,args);
     if (name === "get_set_mixer") return this.bridge.request("get_set_mixer", {});
     if (name === "get_return_routing") return this.bridge.request("get_return_routing", {returnTrackId:args.returnTrackId});
     if (name === "get_producer_workflow") return getProducerWorkflow(args);

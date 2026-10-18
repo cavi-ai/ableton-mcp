@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 327 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 328 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (138)
+## Read-only (139)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -83,6 +83,7 @@ The server publishes 327 tools. Mutations of the Live Set require `expectedState
 | `get_song_musical_context` | Read key, scale, time signature, quantization, groove, swing, and Arrangement loop context. | none |
 | `get_take_lane_audition_context` | Read native take inventory and currently exposed macOS English Live audition checkboxes without changing view, focus or playback. Hidden lanes have unknown audition state. Requires a saved Set with native document identity, one Live instance and an updated bridge; all profile. | `trackId` |
 | `get_take_lane_context` | Inspect one track take-lane inventory and optionally one complete stored take clip. Read-only; preserves focus. Selected MIDI reports up to 4096 notes; audio reports exposed source/timing controls. Does not expose comp selections, envelopes or rendered sound. All profile. | `trackId` |
+| `get_track_arm_context` | Read exact native track arm capability, input, all arm states and recording readiness without changing focus or controls. Explains refusals; all profile. | `trackId` |
 | `get_track_freeze_state` | Read one track native freeze state. A frozen flag does not prove saved state or audio equivalence. | `trackId` |
 | `get_track_grouping_status` | Inspect a retained native grouping handle from a group_tracks plan, including after a lost reply. Resolves actual Group/member IDs, hierarchy, exposed material and controls. Read-only; does not repeat grouping or restore anything. Runtime handles can expire or disappear after bridge reload; missing handles require current-track inspection. All profile. | `groupingId` |
 | `get_track_midi_routing` | Read one track's native MIDI note routing (input/output notes and scale transposition) from its MIDIMap. Reports unsupported explicitly when Live does not expose it. | `trackId` |
@@ -171,7 +172,7 @@ The server publishes 327 tools. Mutations of the Live Set require `expectedState
 | `apply_midi_transposition` | Plan or apply guarded chromatic MIDI transposition with complete native readback verification. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `semitones` |
 | `apply_midi_velocity_curve` | Plan or apply a guarded MIDI velocity curve while preserving timing, pitch, duration, probability, and expression metadata. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `curve` |
 | `apply_monophonic_audio_tuning` | Plan or apply an exact Live clip coarse/fine pitch offset from full-source, stable monophonic analysis of a mono or stereo local source at most 60 seconds long. Every stereo channel must agree; confirmation binds a SHA-256 source hash and current clip state, then verifies native pitch readback. Whole-clip tuning only: not note-by-note vocal correction, rendered audio analysis, or audible validation. | `expectedStateVersion`, `trackId`, `clipId`, `targetMidiNote` |
-| `arm_track` | Plan or set the record-arm state of one exact track. | `expectedStateVersion`, `trackId`, `armed` |
+| `arm_track` | Guard exact-track arming; inspect verified and partial state. | `expectedStateVersion`, `trackId`, `armed` |
 | `capture_live_audio` | Plan or start a bounded Live Resampling recording of current playback into a new muted, monitor-off audio track. Requires playback, recording off and no armed tracks. Only its capture is stopped/disarmed automatically, even after client disconnect. No isolated-stem, hardware or listener proof. | `expectedStateVersion`, `beats`, `name` |
 | `capture_midi_session` | Capture Live's hidden recent MIDI input into Session globally. Rechecks native identities, existing note/timing, routing, arms, monitoring and musical/recording state. May start playback/add scenes/change tempo. Known playing-clip changes require explicit allowExistingClipChanges. Read changedSlots and captureVerified; no exact buffer preview or automatic rollback. | `expectedStateVersion` |
 | `capture_session_scene` | Natively capture AND immediately launch the currently playing Session combination as a named scene below the selected anchor. Binds sources/layouts and rechecks at undo entry. Requires playing transport, all explicit/implicit arms off, recording/count-in off and settled launches. Live can adjust copied start markers; verifies other exposed material and reports exact marker differences and playback separately. Full-row launch can affect Arrangement overrides and empty tracks. Partial work remains without rollback/replay. No rendered audio or mixer recall. Updated bridge; all profile. | `expectedStateVersion`, `afterSceneId`, `name` |

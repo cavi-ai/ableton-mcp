@@ -4319,8 +4319,9 @@ class DispatchTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "launchQuantization"):
             dispatch_request(song, {"method": "launch_clip", "params": {"trackId": "track-0", "clipId": "track-0:clip-0",
                                                         "launchQuantization": 99}}, 5)
-        dispatch_request(song, {"method": "arm_track", "params": {"trackId": "track-0", "armed": True}}, 6)
-        self.assertTrue(song.tracks[0].arm)
+        with self.assertRaisesRegex(ValueError, 'context'):
+            dispatch_request(song, {"method": "arm_track", "params": {"trackId": "track-0", "armed": True}}, 6)
+        self.assertFalse(song.tracks[0].arm)
 
     def test_fixed_length_recording_requires_armed_empty_slot(self):
         song = Song()

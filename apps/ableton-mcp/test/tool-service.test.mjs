@@ -2310,7 +2310,7 @@ test("clip parameter envelope contract rejects invalid step times and durations"
 
 test("core transport, mixer, scene, and clip operations use guarded mutation plans", async () => {
   const { service, calls } = fixture();
-  for (const name of ["transport_play", "transport_stop", "set_tempo", "launch_clip", "stop_clip", "arm_track"]) {
+  for (const name of ["transport_play", "transport_stop", "set_tempo", "launch_clip", "stop_clip"]) {
     const target=name==="launch_clip"?{trackId:"track-0",clipId:"track-0:clip-0"}:{};
     const dry = await service.call(name, { expectedStateVersion: 4, value: 0.5,...target });
     assert.equal(dry.dryRun, true);

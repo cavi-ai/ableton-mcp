@@ -752,7 +752,8 @@ const contracts = {
   launch_clip: { description: "Launch a Session slot. recordLengthBeats records an empty armed slot; updated bridge rechecks input, native identity and recording readiness. launchQuantization overrides once. Receipt does not prove take completion.", inputSchema: guarded({ trackId: ids.trackId, clipId: ids.clipId, recordLengthBeats: number("Fixed recording length in beats for an empty armed slot.", { exclusiveMinimum: 0 }), launchQuantization: choice("One-shot native launch quantization choice from get_clip_timing or list_clips.launchQuantizationChoices.") }, ["trackId", "clipId"]) },
   stop_clip: { description: "Plan or stop one exact Session clip slot.", inputSchema: guarded({ trackId: ids.trackId, clipId: ids.clipId }, ["trackId", "clipId"]) },
   set_clip_slot_stop_button: {description:'Plan or change the stop button of one empty ordinary Session slot. Binds native full-row context, verifies readback and attempts owned rollback. Does not launch, stop playback or guarantee armed-empty recording behavior. Requires updated bridge; all profile.', inputSchema:guarded({trackId:ids.trackId,clipId:ids.clipId,hasStopButton:boolean('True stops this track on scene launch; false leaves an unarmed empty slot without a stop button.')},['trackId','clipId','hasStopButton'])},
-  arm_track: { description: "Plan or set the record-arm state of one exact track.", inputSchema: guarded({ trackId: ids.trackId, armed: boolean("Requested arm state.") }, ["trackId", "armed"]) },
+  get_track_arm_context: {description:'Read exact native track arm capability, input, all arm states and recording readiness without changing focus or controls. Explains refusals; all profile.',inputSchema:track},
+  arm_track: { description: "Guard exact-track arming; inspect verified and partial state.", inputSchema: guarded({ trackId: ids.trackId, armed: boolean("Requested arm state.") }, ["trackId", "armed"]) },
   set_scene_launch_quantization: { description: "Plan or apply a guarded per-scene clip-launch quantization override from list_scenes. The global setting stays in song musical context; only the selected scene changes.", inputSchema: guarded({ sceneId: ids.sceneId, launchQuantization: choice("Launch quantization value or name from list_scenes.") }, ["sceneId", "launchQuantization"]) },
   set_scene_musical_context: { description: "Plan or set an exact Session scene tempo and/or time-signature override. Disabled overrides inherit the song context; enabled overrides take effect when the scene is launched.", inputSchema: guarded({ sceneId: ids.sceneId, tempoEnabled: boolean("Enable or disable the scene tempo override."), tempo: number("Scene tempo in BPM when enabled.", { minimum: 20, maximum: 999 }), timeSignatureEnabled: boolean("Enable or disable the scene meter override."), numerator: { type: "integer", minimum: 1, maximum: 99 }, denominator: { type: "integer", enum: [1, 2, 4, 8, 16] } }, ["sceneId"]) },
   create_groove: { description: "Plan or create a new groove in Live's Groove Pool with an optional name. Adjust its base grid and amounts afterward with set_groove; groove deletion is not exposed by Live's public API.", inputSchema: guarded({ name: string("New groove name.") }) },
@@ -782,6 +783,7 @@ const contracts = {
 };
 
 const readOnlyTools = new Set([
+  'get_track_arm_context',
   'get_session_midi_overdub_context',
   'get_session_arrangement_recording',
   'get_selected_parameter_context',

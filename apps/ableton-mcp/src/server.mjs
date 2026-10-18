@@ -42,6 +42,7 @@ const resourceTemplates = resourceUris.filter((uri) => uri.includes("{"))
   .map((uriTemplate) => ({ uriTemplate, name: uriTemplate, mimeType: "application/json" }));
 
 const toolNames = [
+  'get_track_arm_context',
   'set_session_clip_entry',
   'get_parameter_automation_context', 're_enable_parameter_automation',
   'get_browser_preview_context', 'set_browser_preview',
