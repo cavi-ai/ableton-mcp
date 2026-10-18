@@ -51,6 +51,7 @@
     "ableton/Remote Scripts/CaviMcpBridge/arrangement_audition.py",
     "ableton/Remote Scripts/CaviMcpBridge/track_volume.py",
     "ableton/Remote Scripts/CaviMcpBridge/track_grouping.py",
+    "ableton/Remote Scripts/CaviMcpBridge/track_removal.py",
     "ableton/Remote Scripts/CaviMcpBridge/clip_hold.py",
     "ableton/Remote Scripts/CaviMcpBridge/clip_launch.py",
     "ableton/Remote Scripts/CaviMcpBridge/clip_names.py",

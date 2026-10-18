@@ -145,6 +145,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         groove: { amount: 1, swingAmount: 0, pool: [{ id: "groove-0", name: "Swing 16-65", baseGrid: { value: 3, name: "1_16", choices: [{ value: 14, name: "1_16_triplet" }] } }] },
         loop: { enabled: false, startBeats: 0, lengthBeats: 8 }
       };
+      if(method==='get_track_removal_context')return {stateVersion:4,trackId:params.trackId,identityToken:'track-removal',removedTracks:[{trackId:params.trackId,name:'Synth',sessionClipCount:1,arrangementClipCount:0,deviceCount:2,clips:[{clipId:'track-0:clip-0',name:'Loop'}],devices:[{id:'device-0',name:'Serum 2'},{id:'track-0:device-1',name:'EQ Eight'}]}]};
       if (method === "list_tracks") return { stateVersion: 4, tracks: [
         { id: "track-0", name: "Synth", isGroup: false, isGrouped: false, groupTrackId: null, foldState: null },
         { id: "track-1", name: "Empty MIDI", isGroup: true, isGrouped: false, groupTrackId: null, foldState: 0 }

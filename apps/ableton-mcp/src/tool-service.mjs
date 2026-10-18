@@ -3400,22 +3400,18 @@ export class ToolService {
       }, args);
     }
     if (args.targetType === "track") {
-      const observed = await this.bridge.request("list_tracks", {});
-      assertExpectedState(args, observed);
-      if (observed.tracks.length <= 1) throw new Error("cannot delete the last track");
-      const track = observed.tracks.find(({ id }) => id === args.targetId);
-      if (!track) throw new Error(`unknown track ${args.targetId}`);
-      const clips = (await this.bridge.request("list_clips", { trackId: track.id })).clips
-        .filter(({ hasClip }) => hasClip).map(({ id, name }) => ({ id, name }));
-      const devices = (await this.bridge.request("list_devices", { trackId: track.id })).devices;
-      if ((clips.length || devices.length) && args.allowContent !== true) {
-        throw new Error("allowContent: true is required to delete a track containing clips or devices");
-      }
-      return this.#confirmedMutation({ method: "delete_session_object",
-        expectedStateVersion: args.expectedStateVersion,
-        target: { targetType: "track", targetId: track.id, name: track.name,
-          clipCount: clips.length, deviceCount: devices.length, clips, devices }
-      }, args);
+      const trackRemovalContext=await this.bridge.request('get_track_removal_context',{trackId:args.targetId});
+      assertExpectedState(args,trackRemovalContext);
+      const removed=trackRemovalContext.removedTracks;
+      if(trackRemovalContext.trackId!==args.targetId || !trackRemovalContext.identityToken || !Array.isArray(removed) || !removed.length ||
+         removed[0].trackId!==args.targetId || removed.some(row=>!Array.isArray(row.clips)||!Array.isArray(row.devices)||!Number.isInteger(row.sessionClipCount)||!Number.isInteger(row.arrangementClipCount)||!Number.isInteger(row.deviceCount)))
+        throw Error('updated native track removal identity and complete Group/Session/Arrangement context required');
+      if(args.allowContent!==true)throw Error('allowContent: true is required to delete tracks, including unexposed automation');
+      return this.#confirmedMutation({method:'delete_session_object',expectedStateVersion:args.expectedStateVersion,
+        trackRemovalContext,allowContent:true,target:{targetType:'track',targetId:args.targetId,name:removed[0].name,
+          clipCount:removed.reduce((sum,row)=>sum+row.sessionClipCount+row.arrangementClipCount,0),
+          deviceCount:removed.reduce((sum,row)=>sum+row.deviceCount,0),
+          clips:removed.flatMap(row=>row.clips.map(clip=>({id:clip.clipId,name:clip.name}))),devices:removed.flatMap(row=>row.devices)}},args);
     }
     if (args.targetType !== "scene") throw new Error("targetType must be track, return, scene, or clip");
     const observed = await this.bridge.request("list_scenes", {});
