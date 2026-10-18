@@ -95,6 +95,7 @@
     "ableton/Remote Scripts/CaviMcpBridge/device_bypass.py",
     "ableton/Remote Scripts/CaviMcpBridge/take_lanes.py",
     "ableton/Remote Scripts/CaviMcpBridge/midi_capture.py",
+    "ableton/Remote Scripts/CaviMcpBridge/midi_clip_markers.py",
     "ableton/Remote Scripts/CaviMcpBridge/audio_midi_sketch.py",
     "ableton/Remote Scripts/CaviMcpBridge/beat_repeat_fill.py",
     "ableton/Remote Scripts/CaviMcpBridge/arrangement_recording.py",

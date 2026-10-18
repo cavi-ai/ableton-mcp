@@ -83,6 +83,7 @@
         { "title": "Arrange Session ideas", "path": "guides/session-arrangement.md" },
         { "title": "Repeat an Arrangement passage", "path": "guides/arrangement-repeat.md" },
         { "title": "Record a Session performance", "path": "guides/session-performance-recording.md" },
+        { "title": "Define MIDI phrase bounds", "path": "guides/midi-clip-markers.md" },
         { "title": "MIDI clip variations", "path": "guides/midi-clip-variations.md" },
         { "title": "Make space in a MIDI part", "path": "guides/midi-simplification.md" },
         { "title": "Match MIDI feel", "path": "guides/midi-feel.md" },

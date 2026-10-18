@@ -1,5 +1,6 @@
 [
   "get_midi_crop_context", "crop_midi_clip",
+  "get_midi_clip_marker_context", "set_midi_clip_markers",
   "get_arrangement_audio_import_target",
   "create_arrangement_audio_clip",
   "get_arrangement_creation_target",
