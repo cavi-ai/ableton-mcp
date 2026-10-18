@@ -4520,10 +4520,11 @@ class DispatchTest(unittest.TestCase):
                 "target": {"targetType": "scene", "targetId": "scene-1", "name": "Verse", "occupiedClips": []}
             }}, 6)
         self.assertEqual(len(song.scenes), 2)
-        dispatch_request(song, {"method": "delete_session_object", "params": {
-            "target": {"targetType": "track", "targetId": "track-1", "name": "Synth", "clipCount": 0, "deviceCount": 0}
-        }}, 7)
-        self.assertEqual(len(song.tracks), 2)
+        with self.assertRaises(ValueError):
+            dispatch_request(song, {"method": "delete_session_object", "params": {
+                "target": {"targetType": "track", "targetId": "track-1", "name": "Synth", "clipCount": 0, "deviceCount": 0}
+            }}, 7)
+        self.assertEqual(len(song.tracks), 3)
 
     def test_track_mixer_read_and_write_include_named_return_sends(self):
         song = Song()

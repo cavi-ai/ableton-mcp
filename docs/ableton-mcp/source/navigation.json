@@ -16,6 +16,7 @@
         { "title": "Prepare a recording start", "path": "guides/recording-start.md" },
         { "title": "Develop a Session scene", "path": "guides/session-scene-development.md" },
         { "title": "Remove a Session scene", "path": "guides/session-scene-removal.md" },
+        { "title": "Remove a track or Group", "path": "guides/track-removal.md" },
         { "title": "Guarded mutations", "path": "guides/guarded-mutations.md" },
         { "title": "Cancel agent work", "path": "guides/request-cancellation.md" },
         { "title": "Manual control and automation", "path": "guides/parameter-automation.md" },

@@ -5300,11 +5300,15 @@ def dispatch_request(song, request, state_version, application=None):
         except ImportError:
             import scene_removal
         return scene_removal.context(song,params,state_version) if method == 'get_scene_removal_context' else scene_removal.remove(song,params,state_version)
+    if method == 'get_track_removal_context' or method == 'delete_session_object' and params.get('target',{}).get('targetType') == 'track':
+        try:
+            from . import track_removal
+        except ImportError:
+            import track_removal
+        return track_removal.context(song,params,state_version) if method == 'get_track_removal_context' else track_removal.remove(song,params,state_version)
     if method == "delete_session_object":
         target = params["target"]
-        if target["targetType"] == "track":
-            song.delete_track(int(target["targetId"].removeprefix("track-")))
-        elif target["targetType"] == "return":
+        if target["targetType"] == "return":
             suffix = target["targetId"].removeprefix("return-")
             if not suffix.isascii() or not suffix.isdigit() or str(int(suffix)) != suffix or int(suffix) >= len(song.return_tracks):
                 raise ValueError("return track is unavailable")
@@ -7381,7 +7385,7 @@ class SocketBridge:
                 if (request.get("method") == "set_transport_recording_context" and "currentSongTime" in request.get("params", {}).get("changes", {})) or request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state", "re_enable_parameter_automation", "override_parameter_automation", "set_mixer_panning", "jump_to_arrangement_cue_point") or (
                         request.get("method") == "set_clip_timing" and "loop" in request.get("params", {}).get("changes", {})) or (
                         request.get("method") == "duplicate_session_object" and request.get("params", {}).get("target", {}).get("targetType") == "scene") or (
-                        request.get("method") == "delete_session_object" and request.get("params", {}).get("target", {}).get("targetType") == "scene"):
+                        request.get("method") == "delete_session_object" and request.get("params", {}).get("target", {}).get("targetType") in ("scene", "track")):
                     self._defer_observed_mutation(client, request, song, record)
                     return
                 result = dispatch_request(
@@ -7444,9 +7448,9 @@ class SocketBridge:
     def _defer_observed_mutation(self, client, request, song, record=None):
         try:
             try:
-                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication, scene_removal
+                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication, scene_removal, track_removal
             except ImportError:
-                import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication, scene_removal
+                import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication, scene_removal, track_removal
             module, success_key = {
                 'return_tracks_to_arrangement': (arrangement_return, 'returned'),
                 'audition_arrangement_passage': (arrangement_audition, 'started'),
@@ -7458,7 +7462,7 @@ class SocketBridge:
                 'set_transport_recording_context': (transport_seek, 'nativeReturned'),
                 'set_clip_timing': (clip_loop_edit, 'requestedChangesVerified'),
                 'duplicate_session_object': (scene_duplication, 'copyVerified'),
-                'delete_session_object': (scene_removal, 'deletionVerified'),
+                'delete_session_object': (track_removal if request.get('params', {}).get('target', {}).get('targetType') == 'track' else scene_removal, 'deletionVerified'),
             }[request['method']]
             operation = module.begin(song, request.get("params", {}), self.state_version)
             self.state_version += 1
