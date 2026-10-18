@@ -3159,6 +3159,11 @@ def dispatch_request(song, request, state_version, application=None):
         except ImportError:
             from session_overdub import context, change
         return (context if request["method"] == "get_session_midi_overdub_context" else change)(song, request.get("params", {}), state_version)
+    if request.get('method') in ('get_session_arrangement_source', 'record_session_arrangement',
+                                 'get_session_arrangement_recording', 'finish_session_arrangement_recording'):
+        module = _session_arrangement_module()
+        return {'get_session_arrangement_source': module.source, 'record_session_arrangement': module.start,
+                'get_session_arrangement_recording': module.read, 'finish_session_arrangement_recording': module.finish}[request['method']](song, request.get('params', {}), state_version)
     if request.get("method") in ("get_arrangement_audio_import_target", "create_arrangement_audio_clip"):
         try:
             from .arrangement_audio import target, create
@@ -6962,6 +6967,14 @@ def dispatch_request(song, request, state_version, application=None):
     raise ValueError(f"unsupported method {method}")
 
 
+def _session_arrangement_module():
+    try:
+        from . import session_arrangement
+    except ImportError:
+        import session_arrangement
+    return session_arrangement
+
+
 def _track_topology_signature(song):
     return (
         tuple((track, bool(getattr(track, "is_foldable", False)),
@@ -6990,6 +7003,7 @@ class SocketBridge:
         try:
             _clip_hold_module().shutdown(self.control_surface.song())
             _arrangement_recording_module().shutdown(self.control_surface.song())
+            _session_arrangement_module().shutdown(self.control_surface.song())
             fill = _beat_repeat_fill_module()
             fill.shutdown(self.control_surface.song())
             capture = _audio_capture_module()
@@ -7083,6 +7097,9 @@ class SocketBridge:
         recording = _arrangement_recording_module()
         if recording.has_active():
             self.state_version += recording.advance(self.control_surface.song())
+        performance = _session_arrangement_module()
+        if performance.has_active():
+            self.state_version += performance.advance(self.control_surface.song())
         fill = _beat_repeat_fill_module()
         if fill.has_active():
             self.state_version += fill.advance(self.control_surface.song())
