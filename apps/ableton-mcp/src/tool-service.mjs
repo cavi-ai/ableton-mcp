@@ -1,4 +1,5 @@
 import {captureSessionScene} from './scene-capture.mjs';
+import {planArrangementRepeat} from './arrangement-repeat.mjs';
 import {copyArrangementClip} from './arrangement-copy.mjs';
 import {saveMidiClip,MacMidiExportHost} from './midi-export.mjs';
 import {renameArrangementClip} from './clip-names.mjs';
@@ -707,6 +708,7 @@ export class ToolService {
       return { items: this.#browserMetadataLibrary().search(args), limitation: "Private MCP tags and favorites only; saved identities are not reverified against Live or the local filesystem in this search and do not change native collections." };
     }
     if (name === "get_live_state") return this.bridge.request("get_live_state", {});
+    if (name === "plan_arrangement_repeat") return planArrangementRepeat(this.bridge,args);
     if (name === "get_session_orientation") return enrichSessionOrientation(await this.bridge.request(name, {}));
     if (name === "analyze_arrangement_section") {
       assertArrangementRange(args);
