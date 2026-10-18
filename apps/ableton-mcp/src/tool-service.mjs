@@ -4685,14 +4685,41 @@ export class ToolService {
       verification: { matchesExpectedNotes: true }, timestamp: new Date().toISOString() };
   }
 
+  #mixerFields(args, sends = true) {
+    const fields = ["volume", "pan", "mute", "solo"].filter(key => args[key] !== undefined);
+    for (const key of ["mute", "solo"]) if (args[key] !== undefined && typeof args[key] !== "boolean") throw new Error(`${key} must be boolean`);
+    if (sends && args.sends !== undefined) {
+      if (!Array.isArray(args.sends)) throw new Error("sends must be an array");
+      const seen = new Set();
+      for (const send of args.sends) {
+        if (!send || typeof send.id !== "string" || !/^send-(0|[1-9][0-9]*)$/.test(send.id)) throw new Error(`unknown send ${send?.id}`);
+        if (seen.has(send.id)) throw new Error(`duplicate send ${send.id}`);
+        seen.add(send.id); fields.push(send.id);
+      }
+    }
+    return fields.sort();
+  }
+
+  async #trackMixerContext(args, trackIds, fields) {
+    const before = await this.bridge.request("get_track_mixer_edit_context", { trackIds, fields });
+    assertExpectedState({ expectedStateVersion: args.expectedStateVersion }, before);
+    if (typeof before.identityToken !== "string" || !before.identityToken ||
+        JSON.stringify(before.trackIds) !== JSON.stringify(trackIds) ||
+        JSON.stringify(before.tracks?.map(row => row.trackId)) !== JSON.stringify(trackIds)) {
+      throw new Error("native mixer context required; update the Live bridge");
+    }
+    if (before.readyToChange !== true) throw new Error(`mixer changes refused: ${(before.reasons ?? []).join(", ")}`);
+    return before;
+  }
+
   async #setTrackMixer(args) {
     requireExpectedState(args);
     const hasScalar = ["volume", "pan", "mute", "solo"].some((key) => args[key] !== undefined);
     if (!hasScalar && (!Array.isArray(args.sends) || args.sends.length === 0)) {
       throw new Error("at least one mixer change is required");
     }
-    const observed = await this.bridge.request("get_track_mixer", { trackId: args.trackId });
-    assertExpectedState(args, observed);
+    const before = await this.#trackMixerContext(args, [args.trackId], this.#mixerFields(args));
+    const observed = before.tracks[0];
     if (args.pan !== undefined) assertStereoPan(observed.pan);
     const changes = {};
     for (const key of ["volume", "pan"]) {
@@ -4729,7 +4756,7 @@ export class ToolService {
     }
     const plan = {
       method: "set_track_mixer", trackId: args.trackId,
-      expectedStateVersion: args.expectedStateVersion, changes
+      expectedStateVersion: args.expectedStateVersion, before, changes
     };
     if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
     this.#consumeConfirmation(plan, args);
@@ -4745,14 +4772,12 @@ export class ToolService {
     if (trackIds.length > 64) throw new Error("trackIds supports at most 64 tracks");
     const hasChange = ["volume", "pan", "mute", "solo"].some((key) => args[key] !== undefined);
     if (!hasChange) throw new Error("at least one bulk mixer change is required");
+    const before = await this.#trackMixerContext(args, trackIds, this.#mixerFields(args, false));
     const soloTracks = [];
-    const observedList = [];
-    for (const trackId of trackIds) {
-      const observed = await this.bridge.request("get_track_mixer", { trackId });
-      assertExpectedState(args, observed);
+    const observedList = before.tracks;
+    for (const observed of observedList) {
       if (args.pan !== undefined) assertStereoPan(observed.pan);
-      observedList.push(observed);
-      if (args.solo === true && observed.solo) soloTracks.push(trackId);
+      if (args.solo === true && observed.solo) soloTracks.push(observed.trackId);
       if (args.volume !== undefined && !Number.isFinite(Number(args.volume))) throw new Error("volume must be finite");
     }
     const tracks = trackIds.map((trackId, index) => {
@@ -4774,7 +4799,7 @@ export class ToolService {
     });
     return this.#confirmedMutation({ method: "set_bulk_track_mixer",
       expectedStateVersion: args.expectedStateVersion,
-      trackIds, tracks, before: observedList,
+      trackIds, tracks, before,
       ...(args.solo === true && soloTracks.length ? { warning: `Tracks ${soloTracks.join(", ")} were already soloed.` } : {}) }, args);
   }
 

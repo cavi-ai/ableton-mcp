@@ -249,6 +249,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
           }
         ]
       };
+      if (method === "get_track_mixer_edit_context") return {stateVersion:4,identityToken:"native-mixer",trackIds:params.trackIds,readyToChange:true,reasons:[],tracks:await Promise.all(params.trackIds.map(trackId=>this.request("get_track_mixer",{trackId})))};
       if (method === "get_track_mixer") return {
         stateVersion: 4, trackId: params.trackId,
         volume: { value: 0.75, min: 0, max: 1 },

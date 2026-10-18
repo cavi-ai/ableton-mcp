@@ -190,7 +190,7 @@ test("bulk track mixer clamps per track and requires one observed snapshot", asy
   const calls = [];
   const service = new ToolService({ bridge: { async request(method, params) {
     calls.push({ method, params });
-    if (method === "get_track_mixer") return mixers[params.trackId];
+    if (method === "get_track_mixer_edit_context") return {stateVersion:4,identityToken:"mixer",trackIds:params.trackIds,readyToChange:true,reasons:[],tracks:params.trackIds.map(id=>mixers[id])};
     if (method === "set_bulk_track_mixer") return { stateVersion: 5, trackIds: params.trackIds, tracks: params.trackIds.map(id => mixers[id]) };
     throw new Error(method);
   } } });
@@ -198,7 +198,7 @@ test("bulk track mixer clamps per track and requires one observed snapshot", asy
   const dry = await service.call("set_bulk_track_mixer", args);
   assert.equal(dry.plan.tracks[0].changes.volume.value, 1);
   assert.equal(dry.plan.tracks[1].changes.volume.value, 1);
-  assert.deepEqual(dry.plan.before, [mixers["track-0"], mixers["track-1"]]);
+  assert.deepEqual(dry.plan.before.tracks, [mixers["track-0"], mixers["track-1"]]);
   await assert.rejects(() => service.call("set_bulk_track_mixer", { ...args, trackIds: ["track-0", "track-0"] }), /unique/);
   await assert.rejects(() => service.call("set_bulk_track_mixer", { trackIds: ["track-0"], expectedStateVersion: 4 }), /at least one/);
   const result = await service.call("set_bulk_track_mixer", { ...args, dryRun: false,

@@ -118,7 +118,8 @@
     "ableton/Remote Scripts/CaviMcpBridge/midi_retrograde.py",
     "ableton/Remote Scripts/CaviMcpBridge/track_arming.py",
     "ableton/Remote Scripts/CaviMcpBridge/track_routing.py",
-    "ableton/Remote Scripts/CaviMcpBridge/sidechain_routing.py"
+    "ableton/Remote Scripts/CaviMcpBridge/sidechain_routing.py",
+    "ableton/Remote Scripts/CaviMcpBridge/track_mixer.py"
   ],
   "workspaces": [
     "apps/*",

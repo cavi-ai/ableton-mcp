@@ -4,6 +4,8 @@ import struct
 import unittest
 from types import SimpleNamespace
 from test_dispatch import Song, Parameter
+from test_track_routing import ready_song
+from test_track_mixer import prepare_mixers,mixer_plan
 from bridge import dispatch_request, SocketBridge, _persisted_track_state, _persisted_device_chain
 
 
@@ -158,6 +160,7 @@ class PanningTests(unittest.TestCase):
         self.assertEqual(mixer.right_split_stereo.writes, [.3])
 
     def test_legacy_pan_guards_recheck_after_earlier_setters_switch_mode(self):
+        self.song = prepare(prepare_mixers(ready_song()))
         for owner_id, owner in [('track-0', self.song.tracks[0]), ('return-0', self.song.return_tracks[0]), ('master', self.song.master_track)]:
             mixer = owner.mixer_device
             mixer.volume = Pan(.75)
@@ -168,19 +171,25 @@ class PanningTests(unittest.TestCase):
             params = {'trackId': owner_id, 'changes': changes}
             if owner_id == 'master': params['beforeMaster'] = source['master']
             if owner_id == 'return-0': params.update(returnTrackId=owner_id, beforeReturn=source['returns'][0])
-            with self.assertRaisesRegex(ValueError, 'Stereo'):
-                self.call('set_master_mixer' if owner_id == 'master' else 'set_return_mixer' if owner_id == 'return-0' else 'set_track_mixer', params)
+            if owner_id == 'track-0':
+                result = self.call('set_track_mixer',mixer_plan(self.song,{owner_id:{'volume':.5,'pan':.5}}))
+                self.assertFalse(result['verified'])
+                self.assertEqual([row['field'] for row in result['writes']],['volume'])
+                self.assertEqual(result['observedContext']['tracks'][0]['pan']['panningMode']['name'],'splitStereo')
+            else:
+                with self.assertRaisesRegex(ValueError, 'Stereo'):
+                    self.call('set_master_mixer' if owner_id == 'master' else 'set_return_mixer', params)
             self.assertEqual(mixer.panning.writes, [])
 
     def test_bulk_rechecks_later_owner_before_any_of_its_writes(self):
+        self.song = prepare(prepare_mixers(ready_song()))
         first, second = [track.mixer_device for track in self.song.tracks]
         first.volume = Pan(.75)
         first.volume.callback = lambda: setattr(second, 'panning_mode', 1)
         second_volume = second.volume.value
-        before = [self.call('get_track_mixer', {'trackId': key}) for key in ['track-0', 'track-1']]
-        with self.assertRaisesRegex(ValueError, 'Stereo'):
-            self.call('set_bulk_track_mixer', {'trackIds': ['track-0', 'track-1'], 'before': before, 'expectedStateVersion': 4,
-                'tracks': [{'changes': {'volume': {'value': .5}, 'pan': {'value': .5}}}] * 2})
+        result = self.call('set_bulk_track_mixer',mixer_plan(self.song,{key:{'volume':.5,'pan':.5} for key in ['track-0','track-1']}))
+        self.assertFalse(result['verified'])
+        self.assertEqual([(row['trackId'],row['field']) for row in result['writes']],[('track-0','volume')])
         self.assertEqual(second.volume.value, second_volume)
         self.assertEqual(second.panning.writes, [])
 
@@ -258,15 +267,14 @@ class PanningTests(unittest.TestCase):
             self.assertEqual(mixer.panning.value, .5, operation)
 
     def test_legacy_stereo_pan_setters_refuse_split_mode_before_other_changes(self):
+        self.song = prepare(prepare_mixers(ready_song()))
         self.song.tracks[1].mixer_device.panning_mode = 1
         before = self.song.tracks[1].mixer_device.volume.value
         with self.assertRaisesRegex(ValueError, 'Stereo'):
-            self.call('set_track_mixer', {'trackId': 'track-1', 'changes': {'volume': .1, 'pan': .5}})
+            self.call('set_track_mixer',mixer_plan(self.song,{'track-1':{'volume':.1,'pan':.5}}))
         self.assertEqual(self.song.tracks[1].mixer_device.volume.value, before)
         with self.assertRaisesRegex(ValueError, 'Stereo'):
-            self.call('set_bulk_track_mixer', {'expectedStateVersion': 4, 'trackIds': ['track-0', 'track-1'],
-                'before': [self.call('get_track_mixer', {'trackId': i}) for i in ['track-0', 'track-1']],
-                'tracks': [{'changes': {'pan': {'value': .5}}}] * 2})
+            self.call('set_bulk_track_mixer',mixer_plan(self.song,{key:{'pan':.5} for key in ['track-0','track-1']}))
         self.assertEqual(self.song.tracks[0].mixer_device.panning.writes, [])
 
     def test_bus_pan_setters_and_snapshot_recalls_refuse_inactive_pan_before_other_writes(self):
