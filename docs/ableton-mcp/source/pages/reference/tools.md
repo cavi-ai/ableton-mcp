@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 300 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 301 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (129)
 
@@ -138,7 +138,7 @@ The server publishes 300 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (142)
+## Mutations (143)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -169,6 +169,7 @@ The server publishes 300 tools. Mutations of the Live Set require `expectedState
 | `copy_device_ab_slot` | Request native copying of current device state over the other A/B slot. Requires explicit overwriteOtherSlot true; previous other-slot contents are not backed up. Binds native identity/current controls and refuses recording, frozen owner or active/unknown automation. Copy request is not hidden-state verification. No automatic rollback. | `expectedStateVersion`, `trackId`, `deviceId`, `overwriteOtherSlot` |
 | `correct_midi_clip_to_scale` | Plan or apply guarded pitch correction of exact chromatic MIDI notes into the current Live scale. Direction is explicit; equal nearest choices require an explicit tie break. Existing in-scale notes are never changed. | `expectedStateVersion`, `trackId`, `clipId`, `direction` |
 | `create_arrangement_cue_point` | Plan or create an Arrangement cue point at an exact beat position. | `expectedStateVersion`, `name`, `timeBeats` |
+| `create_arrangement_midi_clip` | Create one named MIDI part directly in an empty Arrangement interval on an ordinary MIDI track, with up to 4096 basic notes relative to the clip start. Binds native owner/layout, rechecks at undo entry and reports actual interval, notes and timing. Preserves existing layout and processing; partial work remains without rollback or replay. Does not start playback or use Session staging. Updated bridge; all profile. | `expectedStateVersion`, `trackId`, `startBeats`, `lengthBeats`, `name`, `notes` |
 | `create_audio_clip` | Plan/import local audio into an empty Session slot on an unfrozen audio track. Binds source identity, size and mtime; Live validates format. | `expectedStateVersion`, `trackId`, `clipId`, `sourcePath` |
 | `create_clip_mixer_envelope` | Create an absent Session volume, Stereo pan or exact Return-send envelope with 1–128 ordered steps. Exact raw values; volume/send also accept finite native dB targets. Pan refuses Split Stereo or unknown modes. No clamping. Requires stopped playback, recording off and inactive target automation. Binds clip, mixer and Return identity; verifies sampled interiors. Existing lanes are preserved. All profile. | `expectedStateVersion`, `trackId`, `clipId`, `mixerControl`, `points` |
 | `create_clip_parameter_envelope` | Create an absent Session clip device-parameter envelope with 1–128 ordered, nonoverlapping steps in beats. Accepts exact native values or supported unit displays. Requires stopped playback and recording off; preserves existing lanes. Verifies sampled steps, not the full curve. Requires all profile. | `expectedStateVersion`, `trackId`, `clipId`, `deviceId`, `parameterId`, `points` |
