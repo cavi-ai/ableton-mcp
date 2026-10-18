@@ -27,6 +27,7 @@
         { "title": "Edit selected MIDI notes", "path": "guides/selected-midi-notes.md" },
         { "title": "Write a supporting part", "path": "guides/supporting-parts.md" },
         { "title": "Analyze an Arrangement passage", "path": "guides/arrangement-section.md" },
+        { "title": "Move an Arrangement part", "path": "guides/arrangement-movement.md" },
         { "title": "Audition an Arrangement passage", "path": "guides/arrangement-audition.md" },
         { "title": "Return tracks to Arrangement", "path": "guides/arrangement-return.md" },
         { "title": "Prepare crossfader parts", "path": "guides/crossfader.md" },
