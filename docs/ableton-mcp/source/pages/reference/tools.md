@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 303 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 306 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (130)
+## Read-only (131)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -62,6 +62,7 @@ The server publishes 303 tools. Mutations of the Live Set require `expectedState
 | `get_producer_chain_blueprint` | Return one ordered factory-device chain or shared-bus topology with exact browser paths, stage roles, execution tools, and explicit limitations. | `target` |
 | `get_producer_workflow` | List producer workflows, or retrieve one with named string arguments. Returns shared MCP prompt instructions without calling Live or executing work. Omit workflow to list names and required arguments. Available in all and producer profiles. | none |
 | `get_production_context` | Read a consistent Live selection and musical context into a private artifact; return a bounded overview and contextRef. No model call. | `projectId` |
+| `get_production_session` | Read a bounded durable session summary, or list up to twenty sessions in this project when sessionId is omitted. Does not refresh Live; use advance action resume before continuing. | `projectId` |
 | `get_project_media` | Inspect saved Live 12 sample references and file contents in the current Project. Reports missing, ambiguous and external samples; distinguishes the saved snapshot from unsaved Live edits. Does not certify plug-in libraries, licenses, Max dependencies or other Sets. Requires macOS English Live for native clean-state observation. | none |
 | `get_rack_performance_context` | Read one native snapshot of visible rack macros, exact mapped descendant parameters, ranges, current values, automation and variation count/index. Unresolved mappings and unknown layouts are explicit. Saved variation contents and audible results are unavailable. | `trackId`, `deviceId` |
 | `get_return_routing` | Read the exact output destination and available choices of one Return Track without changing routing, selection or playback. Reports unavailable native properties explicitly; send pre/post mode is not exposed. | `returnTrackId` |
@@ -139,7 +140,7 @@ The server publishes 303 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (144)
+## Mutations (145)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -275,11 +276,12 @@ The server publishes 303 tools. Mutations of the Live Set require `expectedState
 | `set_track_mixer` | Plan or apply guarded track volume, pan, mute, solo, and return-send changes. | `expectedStateVersion`, `trackId` |
 | `set_track_routing` | Plan or apply guarded track routing and monitoring changes by exact choice ID. | `expectedStateVersion`, `trackId` |
 | `set_track_send_db` | Set one track-to-Return send in native dB or to its verified silent minimum. Rechecks track, send and Return identity, current value and automation. Refuses recording, frozen or disabled sends and unsupported levels. | `expectedStateVersion`, `trackId`, `sendId`, `returnTrackId`, `sendDb` |
-| `set_track_volume_db` | Set a track fader in dB using Live's native display, with identity, value and automation rechecks. Refuses recording, disabled or automated faders and unrepresentable levels. | `expectedStateVersion`, `trackId`, `volumeDb` |
+| `set_track_volume_db` | Set a track, Group, Return or Main fader in dB using Live's native display, with native owner/mixer/fader identity, value and automation rechecks. Refuses recording/count-in, frozen, disabled or automated faders and unrepresentable levels. Return/Main edits affect all routed audio. Updated bridge; all profile. | `expectedStateVersion`, `trackId`, `volumeDb` |
 | `set_transport_context` | Plan/apply metronome or count-in settings. Count-in requires stopped playback/recording, a saved Set and macOS English Live UI; changes focus. | `expectedStateVersion` |
 | `set_transport_recording_context` | Plan or apply guarded playhead and recording-mode changes. | `expectedStateVersion` |
 | `show_live_object` | Select and show an exact track, Session slot/clip, Arrangement clip or device in native Live views. Omit clipId/deviceId for the track. Plans preserve focus; confirmation changes selection and control-surface focus and may unfold Group ancestors, expand devices and reveal Rack chains. No playback or musical writes requested. Recording must be off. Native view readback does not prove desktop activation, timeline scrolling or plug-in editor visibility. All profile. | `expectedStateVersion`, `trackId`, `view`, `expectedSetFingerprint` |
 | `show_take_lanes` | Show Arrangement and one track take lanes through the macOS English Live UI. Requires an unarmed unfrozen track, recording off and unfolded ancestor groups. Requires a saved Set with native document identity and one Live instance. Changes visible UI/focus; no playback or comp edit. | `expectedStateVersion`, `trackId` |
+| `start_production_session` | Capture a durable production brief and current Set identity. Starts at inspect; does not call a model or change Live. Keep the returned sessionId for later conversations. | `projectId`, `goal` |
 | `stop_all_clips` | Plan or stop every playing Session clip in one guarded step using Live's native stop-all action. Playback-only; does not delete or mute clips. | `expectedStateVersion` |
 | `stop_clip` | Plan or stop one exact Session clip slot. | `expectedStateVersion`, `trackId`, `clipId` |
 | `store_rack_macro_variation` | Plan or store a new native variation of mapped rack macros. Binds exact rack and parameter state, reports the observed count and appended storedVariationIndex independently of selection; variation contents are not exposed by Live's API. | `expectedStateVersion`, `trackId`, `deviceId` |
@@ -288,11 +290,12 @@ The server publishes 303 tools. Mutations of the Live Set require `expectedState
 | `transport_stop` | Plan or stop Ableton transport playback. | `expectedStateVersion` |
 | `undo` | Plan or apply one guarded Ableton undo operation. | `expectedStateVersion` |
 
-## Destructive mutations (29)
+## Destructive mutations (30)
 
 | Tool | Description | Required arguments |
 |---|---|---|
 | `adjust_rack_macro_count` | Plan or invoke one native add/remove macro action on an exact rack, then report the observed count. Removal is refused while any macro mapping exists because Live does not expose the affected mapping target. | `expectedStateVersion`, `trackId`, `deviceId`, `action` |
+| `advance_production_session` | Advance one durable session phase with optimistic revision checks. propose runs a bounded specialist; choose selects a saved creative alternative; apply retains original dry-run and confirmation guards. resume observes fresh Live state and invalidates stale proposals. Record actual listening feedback before evaluate. Interrupted execution is never replayed. | `projectId`, `sessionId`, `expectedRevision`, `action` |
 | `apply_production_operation` | Plan one proposed operation through its original tool, or execute using that exact plan's confirmation. Requires unchanged task state; later operations require the preceding applied receipt. Returns bounded result references and observed postconditions, not an audible judgment. | `projectId`, `taskId`, `operationIndex`, `expectedStateVersion` |
 | `audition_arrangement_passage` | Plan/start a looping Arrangement passage from stopped transport with recording off and no pending launches. Return only explicit ordinary tracks from Session override; reject Groups. Changes global loop/playhead and starts global playback until stopped. Other tracks may sound. Partial failure reports observed controls; earlier Session phase is not restored. Requires all profile. | `expectedStateVersion`, `trackIds`, `startBeats`, `endBeats` |
 | `bounce_track_in_place` | Destructively commit one whole ordinary track to audio, removing its devices in Session and Arrangement. Duplicate first to keep an editable source. Requires saved Set, stopped transport, unarmed visible target and macOS English Live. Rechecks native identity/selection and verifies audio layout, controls and file coverage; no audible-equivalence claim. | `expectedStateVersion`, `trackId` |
