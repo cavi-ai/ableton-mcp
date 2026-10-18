@@ -37,7 +37,11 @@ def _objects(song, params):
 
 
 def _binding(song, track, clip):
-    return tuple(song.tracks), track, clip, tuple(track.arrangement_clips)
+    layout = tuple(track.arrangement_clips)
+    indices = [i for i, item in enumerate(layout) if item == clip]
+    if len(indices) != 1:
+        raise ValueError("native source is absent or ambiguous")
+    return tuple(song.tracks), track, clip, layout, indices[0]
 
 
 def _empty(track, start, end, ignored=None):
@@ -106,18 +110,19 @@ def _comparison(content):
 
 
 def _layout(song, params, binding, before, removed, extras):
-    track, original = binding[1], binding[2]
+    track = binding[1]
     if tuple(song.tracks) != binding[0] or _track(song, params["trackId"])[1] != track:
         raise RuntimeError("native track ownership changed")
-    expected = tuple(item for item in binding[3] if not removed or item != original)
-    if any(extra is None or any(extra == old for old in binding[3]) or sum(item == extra for item in track.arrangement_clips) != 1 for extra in extras):
+    # A deleted Live reference can compare unequal to itself. Retire its captured slot.
+    expected = tuple(item for i, item in enumerate(binding[3]) if not removed or i != binding[4])
+    if any(extra is None or any(extra == old for old in expected) or sum(item == extra for item in track.arrangement_clips) != 1 for extra in extras):
         raise RuntimeError("native copy ownership is unconfirmed")
     if len(extras) == 2 and extras[0] == extras[1]:
         raise RuntimeError("native staging and destination identities must differ")
     if tuple(item for item in track.arrangement_clips if not any(item == extra for extra in extras)) != expected:
         raise RuntimeError("prior native clip layout changed")
     for i, old in enumerate(binding[3]):
-        if not removed or old != original:
+        if not removed or i != binding[4]:
             if _arrangement_clip_record(old, params["trackId"], i) != before["clips"][i]:
                 raise RuntimeError("prior Arrangement clip interval or name changed")
     _safe(song, track)

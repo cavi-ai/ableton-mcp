@@ -323,3 +323,35 @@ class ArrangementMoveTests(unittest.TestCase):
         self.assertFalse(result["moveVerified"])
         self.assertIsNotNone(result["stagingClip"])
         self.assertEqual(result["observedDestination"]["notes"][0]["pitch"], 60)
+
+    def test_deleted_native_source_reference_is_not_used_to_filter_retained_layout(self):
+        class NativeClip(Clip):
+            def __init__(self, native_id):
+                super().__init__()
+                self.native_id, self.valid = native_id, True
+                self.is_audio_clip = False
+                self.start_time, self.end_time = 8, 12
+                self.extended_notes = [MidiNote()]
+            def __eq__(self, other):
+                return self.valid and isinstance(other, NativeClip) and other.valid and self.native_id == other.native_id
+        self.clip, self.other = NativeClip("source"), NativeClip("other")
+        self.other.start_time, self.other.end_time = 32, 36
+        self.track.arrangement_clips = [self.clip, self.other]
+        def duplicate(clip, start):
+            created = copy.deepcopy(clip)
+            created.native_id = "copy-" + str(len(self.calls))
+            created.start_time, created.end_time = start, start + clip.end_time - clip.start_time
+            self.calls.append(("copy", created, start))
+            self.track.arrangement_clips.append(created)
+            self.track.arrangement_clips.sort(key=lambda item: item.start_time)
+            return created
+        def delete(clip):
+            self.calls.append(("delete", clip))
+            self.track.arrangement_clips.remove(clip)
+            clip.valid = False
+        self.track.duplicate_clip_to_arrangement, self.track.delete_clip = duplicate, delete
+        result = self.execute(self.context())
+        self.assertTrue(result["moveVerified"], result)
+        self.assertTrue(result["existingIntervalsPreserved"])
+        self.assertEqual(len(self.track.arrangement_clips), 2)
+        self.assertIs(self.track.arrangement_clips[1], self.other)
