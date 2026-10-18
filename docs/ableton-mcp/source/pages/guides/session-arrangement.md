@@ -37,3 +37,5 @@ Verify each placed interval, complete MIDI notes or exposed audio settings, and 
 Authorized listening follows [Arrangement audition](arrangement-audition.md), with its scoped return from Session override and global playback warning. Launching a Session scene does not audition the Arrangement. Preserve unrelated mutes, solos, routing and recording; other tracks can sound. Requested measurements use [Live audio capture](live-audio-capture.md). Save only when requested or already authorized and verify the receipt. Save As does not collect samples.
 
 Start with [a musical sketch](musical-sketch.md), refine a chosen [instrument sound](instrument-refinement.md), or inspect shared [Arrangement context](arrangement-section.md) when those are the next musical step.
+
+To try a sparser section while retaining complete clips, follow [clip contribution comparison](clip-contribution.md). It uses whole-clip activation and does not silently remove only part of a spanning clip.

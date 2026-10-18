@@ -357,6 +357,10 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         editorGrid: { quantization: { value: 8, name: "1_16", choices: [{ value: 7, name: "1_8" }, { value: 8, name: "1_16" }] }, isTriplet: false },
         grooveId: null, availableGrooves: [{ id: "groove-0", name: "Swing 16-65" }]
       };
+      if (method === "get_clip_mute_edit_context") return {
+        stateVersion: 4, trackId: params.trackId, clipId: params.clipId,
+        identityToken: 'clip-mute-identity', muted: false, controls: {playing: false}
+      };
       if (method === "get_audio_clip_state") return {
         stateVersion: 4, trackId: params.trackId, clipId: params.clipId,
         gain: { value: 0.5, min: 0, max: 1, displayValue: "0.00 dB" },

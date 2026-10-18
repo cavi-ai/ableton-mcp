@@ -2925,12 +2925,17 @@ class DispatchTest(unittest.TestCase):
     def test_clip_timing_native_mute_is_guarded_and_rejects_stale_state(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip
+        song.is_counting_in = False
+        song.tracks[0].implicit_arm = False
+        song.tracks[0].clip_slots[0].is_triggered = False
+        clip.is_recording = clip.is_overdubbing = clip.is_triggered = False
         clip.muted = False
         params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
         before = dispatch_request(song, {"method": "get_clip_timing", "params": params}, 3)
         self.assertEqual(before["mute"], {"supported": True, "enabled": False})
         changed = dispatch_request(song, {"method": "set_clip_timing", "params": {
-            **params, "before": before, "changes": {"mute": True}
+            **params, "before": before, "changes": {"mute": True},
+            "muteEditContext": dispatch_request(song, {"method": "get_clip_mute_edit_context", "params": params}, 3)
         }}, 3)
         self.assertEqual(changed["mute"], {"supported": True, "enabled": True})
         with self.assertRaisesRegex(ValueError, "timing changed"):

@@ -643,7 +643,7 @@ const contracts = {
     trackId: ids.trackId, clipId: ids.clipId,
     loop: object({ enabled: boolean("Clip loop enabled."), startBeats: number("Beat start; MIDI/warped audio.", { minimum: 0 }), endBeats: number("Beat end; MIDI/warped audio.", { exclusiveMinimum: 0 }), startSeconds: number("Second start; unwarped audio.", { minimum: 0 }), endSeconds: number("Second end; unwarped audio.", { exclusiveMinimum: 0 }) }),
     timeSignature: object({ numerator: { type: "integer", minimum: 1 }, denominator: { type: "integer", enum: [1, 2, 4, 8, 16] } }),
-    launchMode: choice("Session launch choice."), launchQuantization: choice("Launch quantization value or name."), launchLegato: boolean("Session Legato launch."), mute: boolean("Native clip mute."), grooveId: {type: ["string", "null"], description: "ID assigns. Null removes in macOS Clip View: saved Set, unique clip name, sole edit. Selects clip; updated bridge."},
+    launchMode: choice("Session launch choice."), launchQuantization: choice("Launch quantization value or name."), launchLegato: boolean("Session Legato launch."), mute: boolean("Guarded Clip Activator mute; updated bridge."), grooveId: {type: ["string", "null"], description: "ID assigns. Null removes in macOS Clip View: saved Set, unique clip name, sole edit. Selects clip; updated bridge."},
     editorGrid: object({ quantization: choice("Editor-grid choice from get_clip_timing."), isTriplet: boolean("Display clip-editor triplets.") }),
   }, ["trackId", "clipId"]) },
   get_audio_clip_state: { description: "Read Session/Arrangement gain, pitch, warp, markers and fade-switch availability; includes Arrangement timeline identity. Unsupported fades report supported=false.", inputSchema: clip },

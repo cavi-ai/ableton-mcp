@@ -53,6 +53,7 @@
     "ableton/Remote Scripts/CaviMcpBridge/track_grouping.py",
     "ableton/Remote Scripts/CaviMcpBridge/clip_hold.py",
     "ableton/Remote Scripts/CaviMcpBridge/clip_launch.py",
+    "ableton/Remote Scripts/CaviMcpBridge/clip_mute.py",
     "ableton/Remote Scripts/CaviMcpBridge/clip_names.py",
     "ableton/Remote Scripts/CaviMcpBridge/crossfader.py",
     "ableton/Remote Scripts/CaviMcpBridge/panning.py",
