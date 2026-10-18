@@ -692,7 +692,7 @@ export class ToolService {
     }
     if (name === "recall_device_parameter_snapshot") return this.#setDeviceParameters(args, args.snapshot);
     if (name === "search_presets") {
-      return { presets: this.catalog.search(args) };
+      return { presets: this.catalog.search(args), catalog: this.catalog.status() };
     }
     if (name === "get_nks_generation_status") return this.#nksGenerationStatus(args);
     if (name === "get_nks_generation_job") {
@@ -2013,7 +2013,7 @@ export class ToolService {
   }
 
   async readResource(uri) {
-    if (uri === "nks://catalog/products") return { products: this.catalog.products() };
+    if (uri === "nks://catalog/products") return { products: this.catalog.products(), catalog: this.catalog.status() };
     if (uri.startsWith("nks://catalog/presets/")) {
       return { preset: this.catalog.get(decodeURIComponent(uri.slice("nks://catalog/presets/".length))) };
     }
