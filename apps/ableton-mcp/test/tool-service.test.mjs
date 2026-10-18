@@ -107,6 +107,7 @@ test("return track rename binds the exact current bus identity", async () => {
 test("return track deletion discloses devices and affected send lanes", async () => {
   const target = { id: "return-0", name: "A-Reverb", devices: [{ id: "return-0:device-0", name: "Reverb" }] };
   const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_return_removal_context") return {stateVersion:4,returnTrackId:"return-0",identityToken:"return-owner",target,affectedSends:[{ownerId:"track-0",ownerName:"Synth",sendId:"send-0",returnTrackId:"return-0",returnName:"A-Reverb",send:{value:.25}}]};
     if (method === "get_set_mixer") return { stateVersion: 4, returns: [target] };
     if (method === "list_tracks") return { stateVersion: 4, tracks: [{ id: "track-0", name: "Synth" }] };
     if (method === "get_track_mixer") return { stateVersion: 4, trackId: params.trackId,

@@ -2196,7 +2196,7 @@ class DispatchTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "return track identity changed"):
             dispatch_request(song, {"method": "rename_session_object", "params": {"target": target}}, 4)
 
-    def test_delete_return_track_requires_exact_snapshot_and_uses_native_undo(self):
+    def test_legacy_unbound_return_deletion_refuses(self):
         song = Song()
         song.return_tracks[0].devices = [Device()]
         song.return_tracks[0].mixer_device.sends = []
@@ -2206,10 +2206,10 @@ class DispatchTest(unittest.TestCase):
         before = dispatch_request(song, {"method": "get_set_mixer"}, 3)["returns"][0]
         target = {"targetType": "return", "targetId": "return-0", **before,
                   "affectedTrackSends": []}
-        result = dispatch_request(song, {"method": "delete_session_object", "params": {"target": target}}, 3)
-        self.assertEqual(result["deleted"]["targetId"], "return-0")
-        self.assertEqual(song.undo_boundaries, ["begin", "end"])
-        self.assertEqual(len(song.return_tracks), 0)
+        with self.assertRaises(ValueError):
+            dispatch_request(song, {"method": "delete_session_object", "params": {"target": target}}, 3)
+        self.assertEqual(song.undo_boundaries, [])
+        self.assertEqual(len(song.return_tracks), 1)
 
     def test_audio_clip_state_reads_and_writes_warp_pitch_gain_and_markers(self):
         song = Song()
