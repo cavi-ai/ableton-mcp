@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 313 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 314 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (135)
 
@@ -144,7 +144,7 @@ The server publishes 313 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (147)
+## Mutations (148)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -198,6 +198,7 @@ The server publishes 313 tools. Mutations of the Live Set require `expectedState
 | `edit_drum_pattern_clip` | Plan or apply guarded replacement of selected drum lanes and bars in an existing MIDI clip. Preserves unrelated notes and verifies the complete native note set. | `expectedStateVersion`, `trackId`, `clipId`, `grid`, `startBar`, `bars`, `lanes` |
 | `enqueue_nks_generation_jobs` | Plan or enqueue only explicitly selected eligible discovered presets, in batches of at most 100, using a single-use confirmation. Serum 2 and Omnisphere are limited to their deterministic factory pilots until every pilot record is validated. Does not generate or mark any preset saved. | `productSlug`, `presetIds` |
 | `export_audio_mix` | Export Main as stereo WAV through the macOS English Live dialog. Requires stopped transport, recording off, unarmed tracks and an absent destination. Rechecks document/mix controls and verifies native settings and file format. Full-range render completion remains unconfirmed. Current Session overrides are included. Updates export preferences; no overwrite or musical-quality claim. | `expectedStateVersion`, `path`, `start`, `length`, `expectedSetFingerprint` |
+| `export_audio_track` | Export one exact ordinary/Group/Return audio output as stereo WAV through the macOS English Live dialog without changing solo/mutes. The ordered eligible menu and selected position bind duplicate names. Include Return/Main effects only when explicitly chosen. Requires stopped transport, recording off, unarmed tracks and an absent destination. Rechecks document/mix controls and verifies native settings and file format. Full-range render completion remains unconfirmed. Current Session overrides are included. Updates export preferences; no overwrite or musical-quality claim. | `expectedStateVersion`, `trackId`, `path`, `start`, `length`, `expectedSetFingerprint` |
 | `finish_arrangement_take` | Release a stopped Arrangement take handle and retain its material. Cancel true stops only owned global record/playback early; partial material retained. Ownership loss leaves transport untouched and retains the handle until stopped. Does not disarm, restore setup, save or delete; all profile. | `expectedStateVersion`, `takeId` |
 | `finish_beat_repeat_fill` | Release a terminal fill handle; cancel true attempts owned Repeat Off early. Preserves manual Repeat edits and other controls. Cleanup failure stays explicit; releasing a terminal handle does not repair its device. Updated bridge; all profile. | `expectedStateVersion`, `fillId` |
 | `finish_live_audio_capture` | Plan or release a completed capture handle, keeping its track/file. Cancel true stops and disarms an active capture early and retains partial audio. A pending native stop returns captureActive true with stopping status; read until confirmed, then finish. Cleanup failure is explicit and preserves the handle. Never stops source playback. | `expectedStateVersion`, `captureId` |

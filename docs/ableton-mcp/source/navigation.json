@@ -49,6 +49,7 @@
         { "title": "Export a native MIDI clip", "path": "guides/midi-export.md" },
         { "title": "Import MIDI files", "path": "guides/midi-import.md" },
         { "title": "Export a native audio mix", "path": "guides/audio-export.md" },
+        { "title": "Export individual parts", "path": "guides/track-audio-export.md" },
         { "title": "Compare instruments", "path": "guides/instrument-comparison.md" },
         { "title": "Compare device A/B states", "path": "guides/device-ab.md" },
         { "title": "Compare effect bypass", "path": "guides/effect-bypass.md" },
