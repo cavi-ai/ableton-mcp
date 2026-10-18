@@ -25,6 +25,7 @@
         { "title": "Create a musical sketch", "path": "guides/musical-sketch.md" },
         { "title": "Relate musical parts", "path": "guides/musical-parts.md" },
         { "title": "Edit selected MIDI notes", "path": "guides/selected-midi-notes.md" },
+        { "title": "Scale MIDI phrase timing", "path": "guides/midi-time-scaling.md" },
         { "title": "Write a supporting part", "path": "guides/supporting-parts.md" },
         { "title": "Develop a drum part", "path": "guides/drum-development.md" },
         { "title": "Analyze an Arrangement passage", "path": "guides/arrangement-section.md" },
