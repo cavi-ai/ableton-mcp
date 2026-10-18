@@ -1667,6 +1667,22 @@ export class ToolService {
     if (name === "remove_audio_warp_marker") return this.#removeAudioWarpMarker(args);
     if (name === "add_audio_warp_marker") return this.#addAudioWarpMarker(args);
     if (name === "quantize_audio_clip") return this.#quantizeAudioClip(args);
+    if (name === 'set_midi_clip_markers') {
+      requireExpectedState(args);
+      const fields=['startBeats','endBeats'].filter(key=>args[key]!==undefined);
+      if(!fields.length)throw Error('at least one MIDI start/end marker required');
+      if(fields.some(key=>!Number.isFinite(args[key])||args[key]<0))throw Error('finite nonnegative clip-beat markers required');
+      const before=await this.bridge.request('get_midi_clip_marker_context',{trackId:args.trackId,clipId:args.clipId});
+      assertExpectedState(args,before);
+      if(before.trackId!==args.trackId||before.clipId!==args.clipId||typeof before.identityToken!=='string'||!before.identityToken||before.markersSupported!==true||!Array.isArray(before.notes)||
+        !before.clipTiming?.markers||['frozen','clipRecording','clipOverdubbing','pendingLaunch','arrangementRecord','sessionRecord','countingIn'].some(key=>before.editContext?.[key]!==false))
+        throw Error('resolve native MIDI markers, identity, complete notes and recording/frozen/pending-launch context');
+      if(before.clipTiming.loop?.enabled!==true)throw Error('MIDI marker edits require a loop-enabled clip; use separately scoped clip timing for finite phrases');
+      const markers={startBeats:args.startBeats??before.clipTiming.markers.startBeats,endBeats:args.endBeats??before.clipTiming.markers.endBeats};
+      if(!Number.isFinite(markers.startBeats)||!Number.isFinite(markers.endBeats)||markers.startBeats<0||markers.endBeats<=markers.startBeats)throw Error('increasing clip-beat marker range required');
+      return this.#confirmedMutation({method:'set_midi_clip_markers',trackId:args.trackId,clipId:args.clipId,expectedStateVersion:args.expectedStateVersion,before,markers,
+        warning:'Changes playback bounds only; stored notes remain, including material outside the markers. Loop settings are preserved. Partial writes require inspection without automatic rollback or replay; hidden expression is not verified. Continued playback does not prove a seamless or equivalent audible phrase.'},args);
+    }
     if (name === "crop_audio_clip") return this.#cropAudioClip(args);
     if (name === "capture_session_scene") return captureSessionScene(this.bridge,this.confirmations,args);
     if (name === "copy_arrangement_clip_to_track") return copyArrangementClip(this.bridge,this.confirmations,args);

@@ -5262,6 +5262,12 @@ def dispatch_request(song, request, state_version, application=None):
         except ImportError:
             from clip_launch import source
         return source(song, params, state_version)
+    if method in ('get_midi_clip_marker_context', 'set_midi_clip_markers'):
+        try:
+            from . import midi_clip_markers
+        except ImportError:
+            import midi_clip_markers
+        return (midi_clip_markers.context if method == 'get_midi_clip_marker_context' else midi_clip_markers.apply)(song, params, state_version)
     if method == "set_clip_timing":
         if "before" in params and _clip_timing(song, params["trackId"], params["clipId"], state_version) != params["before"]:
             raise ValueError("clip timing changed since observation")

@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 317 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 318 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (135)
 
@@ -144,7 +144,7 @@ The server publishes 317 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (151)
+## Mutations (152)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -270,6 +270,7 @@ The server publishes 317 tools. Mutations of the Live Set require `expectedState
 | `set_group_fold_state` | Plan or apply the folded state of one exact existing group track. | `expectedStateVersion`, `trackId`, `folded` |
 | `set_live_object_colors` | Set colors for one to 64 exact tracks, Returns, Main, scenes or existing Session/Arrangement clips in one undo step. Binds native identity and current color/name/selection. Live may choose a nearby palette color; reports actual RGB and exactMatch. Track color inheritance can affect Rack-chain appearance. No automatic clip recoloring or musical writes. Partial changes remain. All profile. | `expectedStateVersion`, `changes`, `expectedSetFingerprint` |
 | `set_master_mixer` | Plan or apply master mixer and available hardware output-channel changes. The native write rechecks the signed mixer state, validates bounded values, and groups all writes in one undo step with rollback on failure. | `expectedStateVersion` |
+| `set_midi_clip_markers` | Set start/end markers of one loop-enabled Session or Arrangement MIDI clip in absolute source beats. Omitted bound stays unchanged. Preserves stored notes and loop settings; same values make no write. Native guards and partial readback; no automatic rollback. | `expectedStateVersion`, `trackId`, `clipId` |
 | `set_midi_note_properties` | Edit exact MIDI notes; optional token binds current selection. | `expectedStateVersion`, `trackId`, `clipId`, `changes` |
 | `set_mixer_panning` | Change one mixer panning mode or its active Stereo balance / Split Stereo channel positions in separate confirmations. Recording/count-in off, unfrozen target, known inactive affected automation and native identities required. Immediate edits; partial work retained without rollback/replay. No timed sweep or audible image claim. Updated bridge; all profile. | `expectedStateVersion`, `trackId` |
 | `set_preset_metadata` | Plan or update user tags and favorite state for one preset with an exact revision guard. | `expectedMetadataRevision`, `presetId` |

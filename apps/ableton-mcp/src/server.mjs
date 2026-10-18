@@ -163,6 +163,7 @@ const toolNames = [
   "plan_midi_diatonic_chord_quality",
   "get_clip_timing",
   "set_clip_timing",
+  "set_midi_clip_markers",
   "create_track",
   "create_return_track",
   "create_scene",
