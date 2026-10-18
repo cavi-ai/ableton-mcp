@@ -31,6 +31,7 @@
         { "title": "Shape stereo placement", "path": "guides/stereo-panning.md" },
         { "title": "Play a Session scene", "path": "guides/scene-launch.md" },
         { "title": "Build a Session scene", "path": "guides/session-scene-building.md" },
+        { "title": "Keep a Session combination", "path": "guides/scene-capture.md" },
         { "title": "Keep parts playing across scenes", "path": "guides/session-stop-buttons.md" },
         { "title": "Print processed MIDI", "path": "guides/processed-midi.md" },
         { "title": "Keep played MIDI", "path": "guides/midi-capture.md" },

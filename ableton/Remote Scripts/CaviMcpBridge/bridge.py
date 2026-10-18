@@ -3145,6 +3145,12 @@ def _clip_hold_module():
 
 
 def dispatch_request(song, request, state_version, application=None):
+    if request.get("method") in ("get_session_scene_capture_context", "capture_session_scene"):
+        try:
+            from .scene_capture import context, capture
+        except ImportError:
+            from scene_capture import context, capture
+        return (context if request["method"] == "get_session_scene_capture_context" else capture)(song, request.get("params", {}), state_version)
     if request.get("method") in ("get_arrangement_copy_source", "copy_arrangement_clip_to_track"):
         try:
             from .arrangement_copy import source, duplicate
