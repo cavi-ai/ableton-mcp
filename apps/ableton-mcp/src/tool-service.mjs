@@ -1,3 +1,5 @@
+import {captureSessionScene} from './scene-capture.mjs';
+import {copyArrangementClip} from './arrangement-copy.mjs';
 import {saveMidiClip,MacMidiExportHost} from './midi-export.mjs';
 import {trackBounce,MacTrackBounceHost} from "./track-bounce.mjs";
 import {trackFreeze,MacTrackFreezeHost} from "./track-freeze.mjs";
@@ -17,6 +19,8 @@ import {setTrackVolumeDb} from "./track-volume.mjs";
 import {parameterAutomation} from './parameter-automation.mjs';
 import {browserPreview} from './browser-preview.mjs';
 import {selectedControl} from './selected-control.mjs';
+import {midiNoteRemoval} from './midi-note-removal.mjs';
+import {midiInsertion} from './midi-insertion.mjs';
 import {overrideParameterAutomation} from './parameter-override.mjs';
 import {setTrackSendDb} from "./track-send.mjs";
 import {setDeviceParameterDisplay} from "./parameter-display.mjs";
@@ -773,6 +777,7 @@ export class ToolService {
     if (["delete_arrangement_clip", "move_arrangement_clip", "duplicate_arrangement_clip"].includes(name)) return this.#mutateArrangementClip(name, args);
     if (name === "get_midi_clip_notes") return this.bridge.request("get_midi_clip_notes", args);
     if (name === "get_midi_clip_notes_extended") return this.bridge.request("get_midi_clip_notes_extended", args);
+    if (name === "get_midi_note_selection") return this.bridge.request("get_midi_note_selection", args);
     if (name === "analyze_midi_clip_scale") {
       const before = await this.bridge.request("get_song_musical_context", {});
       const clip = await this.bridge.request("get_midi_clip_notes_extended", args);
@@ -1650,6 +1655,8 @@ export class ToolService {
     if (name === "add_audio_warp_marker") return this.#addAudioWarpMarker(args);
     if (name === "quantize_audio_clip") return this.#quantizeAudioClip(args);
     if (name === "crop_audio_clip") return this.#cropAudioClip(args);
+    if (name === "capture_session_scene") return captureSessionScene(this.bridge,this.confirmations,args);
+    if (name === "copy_arrangement_clip_to_track") return copyArrangementClip(this.bridge,this.confirmations,args);
     if (name === "duplicate_clip") return this.#duplicateClip(args);
     if (name === "delete_clip") return this.#deleteClip(args);
     if (name === "duplicate_clip_loop") return this.#duplicateClipLoop(args);
@@ -1687,6 +1694,8 @@ export class ToolService {
     if (['get_parameter_automation_context','re_enable_parameter_automation'].includes(name)) return parameterAutomation(this.bridge,this.confirmations,name,args);
     if (['get_browser_preview_context','set_browser_preview'].includes(name)) return browserPreview(this.bridge,this.confirmations,name,args);
     if (['get_selected_parameter_context','set_selected_parameter'].includes(name)) return selectedControl(this.bridge,this.confirmations,name,args);
+    if (['get_midi_note_removal_context','remove_midi_notes'].includes(name)) return midiNoteRemoval(this.bridge,this.confirmations,name,args);
+    if (['get_midi_note_insertion_context','insert_midi_notes'].includes(name)) return midiInsertion(this.bridge,this.confirmations,name,args);
     if (name==='override_parameter_automation') return overrideParameterAutomation(this.bridge,this.confirmations,args);
     if (name === "set_track_volume_db") return setTrackVolumeDb(this.bridge,this.confirmations,args);
     if (name === "set_track_send_db") return setTrackSendDb(this.bridge,this.confirmations,args);
@@ -3852,8 +3861,23 @@ export class ToolService {
         observed.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
       throw new Error("MIDI clip changed during note-property planning; retry");
     const notes = new Map(observed.notes.map((note) => [note.noteId, note]));
+    let selectionToken;
+    if (args.expectedNoteSelectionToken !== undefined) {
+      const selection = await this.bridge.request("get_midi_note_selection", {trackId: args.trackId, clipId: args.clipId});
+      assertExpectedState(args, selection);
+      if (typeof args.expectedNoteSelectionToken !== "string" || !args.expectedNoteSelectionToken ||
+          selection.trackId !== args.trackId || selection.clipId !== args.clipId || selection.status !== "selected" ||
+          selection.selectionToken !== args.expectedNoteSelectionToken || !Array.isArray(selection.noteIds) ||
+          args.changes.some(change => !selection.noteIds.includes(change.noteId)))
+        throw new Error("MIDI note selection changed or changes include unselected notes");
+      if (["frozen", "clipRecording", "arrangementRecord", "sessionRecord", "countingIn"]
+          .some(key => selection.editContext?.[key] !== false))
+        throw new Error("resolve frozen state, recording and count-in before selected-note edits");
+      selectionToken = args.expectedNoteSelectionToken;
+    }
     const plan = {
       method: "set_midi_note_properties", trackId: args.trackId, clipId: args.clipId,
+      ...(selectionToken !== undefined ? {expectedNoteSelectionToken: selectionToken} : {}),
       expectedStateVersion: args.expectedStateVersion, before: observed, clipTiming,
       changes: args.changes.map((change, index) => {
         const current = notes.get(change.noteId);

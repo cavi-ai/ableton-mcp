@@ -17,7 +17,7 @@ async function setup(t, generate) {
   const confirmations = new ConfirmationStore();
   const base = { async call(name, args = {}) {
     calls.push({ name, args });
-    if (name === "get_live_state") return { stateVersion: version, setFingerprint: "set-a", tempo };
+    if (name === "get_live_state") return { stateVersion: version, setFingerprint: "set-a", filePath: "/music/song.als", tempo };
     if (name === "set_tempo") {
       assert.equal(args.expectedStateVersion, version);
       const plan = { tempo: args.tempo, stateVersion: version };
@@ -31,7 +31,9 @@ async function setup(t, generate) {
   const artifacts = new ProducerArtifacts(directory);
   const service = new ProducerService({ service: base, artifacts, config: { creative: {}, functional: {} },
     runtimeFactory: () => ({ generate: async packet => { packets.push(structuredClone(packet)); return generate(packet); } }) });
-  return { service, base, artifacts, calls, packets, change: () => version++ };
+  return { service, base, artifacts, calls, packets, change: () => version++,
+    reopen: () => new ProducerService({ service: base, artifacts: new ProducerArtifacts(directory), config: { creative: {}, functional: {} },
+      runtimeFactory: service.runtimeFactory }) };
 }
 
 test("context and role results are stored as bounded references; creative and functional inputs stay separate", async t => {
@@ -400,4 +402,158 @@ test("an operation awaiting user action is not reported as applied", async t => 
   const result = await service.call("apply_production_operation", { projectId: "song", taskId: task.taskId,
     operationIndex: 0, expectedStateVersion: 1, dryRun: false, confirmationToken: "token", planHash: "hash" });
   assert.equal(result.status, "pending_user_action");
+});
+
+
+test("production sessions select a creative alternative before functional execution and retain feedback", async t => {
+  const { service, artifacts, packets } = await setup(t, packet => response(packet.role === "creative" ?
+    { alternatives: [{ name: "Sparse", description: "Preserve the original; create a quieter alternative." }] } :
+    { operations: [{ tool: "set_tempo", args: { tempo: 100 } }] }));
+  let session = await service.call("start_production_session", { projectId: "song", goal: "Try a quieter bass", constraints: ["Preserve originals"] });
+  const advance = args => service.call("advance_production_session", { projectId: "song", sessionId: session.sessionId, expectedRevision: session.revision, ...args });
+  assert.equal(session.phase, "inspect");
+  session = await advance({ action: "propose" });
+  assert.equal(session.phase, "choose");
+  assert.equal(packets.length, 1); assert.equal(packets[0].role, "creative");
+  await assert.rejects(advance({ action: "apply", expectedStateVersion: 1 }), /phase/);
+  session = await advance({ action: "choose", alternativeIndex: 0 });
+  session = await advance({ action: "propose" });
+  assert.equal(session.phase, "apply");
+  assert.equal(packets[1].role, "functional");
+  assert.ok(packets[1].context.some(item => item.kind === "selection" && item.text.includes("Sparse")));
+  const plan = await advance({ action: "apply", expectedStateVersion: 1 });
+  assert.equal(plan.operation.status, "planned");
+  session = await advance({ action: "apply", expectedStateVersion: 1, dryRun: false,
+    confirmationToken: plan.operation.confirmationToken, planHash: plan.operation.planHash });
+  assert.equal(session.phase, "audition");
+  await assert.rejects(advance({ action: "evaluate", decision: "accept" }), /feedback|phase/);
+  session = await advance({ action: "feedback", text: "The bass is less busy; I prefer this version." });
+  session = await advance({ action: "evaluate", decision: "accept" });
+  assert.equal(session.phase, "complete");
+  assert.equal(session.audibleQualityVerified, false);
+  const saved = artifacts.get("song", session.sessionRef).value;
+  assert.equal(artifacts.get("song", saved.feedbackRef).kind, "feedback");
+  assert.equal(artifacts.get("song", saved.receiptId).value.status, "applied");
+  assert.ok(JSON.stringify(session).length < 6000);
+});
+
+test("resuming after a manual edit invalidates saved proposals without changing Live", async t => {
+  const { service, calls, change } = await setup(t, packet => response(packet.role === "creative" ?
+    { alternatives: [{ name: "Sparse", description: "Less busy" }] } : { operations: [{ tool: "set_tempo", args: { tempo: 100 } }] }));
+  let session = await service.call("start_production_session", { projectId: "song", goal: "Refine bass", scope: { trackId: "track-0" } });
+  const advance = args => service.call("advance_production_session", { projectId: "song", sessionId: session.sessionId, expectedRevision: session.revision, ...args });
+  session = await advance({ action: "propose" });
+  session = await advance({ action: "choose", alternativeIndex: 0 });
+  session = await advance({ action: "propose" });
+  change();
+  session = await advance({ action: "resume" });
+  assert.equal(session.phase, "inspect");
+  assert.equal(session.taskId, undefined);
+  assert.equal(session.stateChanged, true);
+  assert.equal(calls.filter(call => call.name === "set_tempo").length, 0);
+  await assert.rejects(advance({ action: "apply", expectedStateVersion: 2 }), /phase/);
+});
+
+test("a restarted service inspects an interrupted execution instead of replaying it", async t => {
+  const { service, artifacts, calls, reopen } = await setup(t, () => response());
+  const started = await service.call("start_production_session", { projectId: "song", goal: "Preserve bass" });
+  const saved = artifacts.session("song", started.sessionId);
+  artifacts.advanceSession("song", started.sessionId, started.revision, { ...saved.value, phase: "execution_pending", status: "outcome_unknown" });
+  const next = reopen();
+  const restored = await next.call("get_production_session", { projectId: "song", sessionId: started.sessionId });
+  assert.equal(restored.phase, "execution_pending");
+  await assert.rejects(next.call("advance_production_session", { projectId: "song", sessionId: started.sessionId,
+    expectedRevision: restored.revision, action: "apply", expectedStateVersion: 1 }), /phase/);
+  const resumed = await next.call("advance_production_session", { projectId: "song", sessionId: started.sessionId,
+    expectedRevision: restored.revision, action: "resume" });
+  assert.equal(resumed.phase, "inspect");
+  assert.equal(resumed.status, "interrupted_inspect_before_proposing");
+  assert.equal(calls.filter(call => call.name === "set_tempo").length, 0);
+});
+
+test("a production session refuses another Set and stale concurrent choices", async t => {
+  const { service, base, reopen } = await setup(t, () => response({ alternatives: [{ name: "Sparse", description: "Less busy" }] }));
+  let session = await service.call("start_production_session", { projectId: "song", goal: "Bass" });
+  const args = action => ({ projectId: "song", sessionId: session.sessionId, expectedRevision: session.revision, action });
+  session = await service.call("advance_production_session", args("propose"));
+  const choice = { ...args("choose"), alternativeIndex: 0 };
+  await service.call("advance_production_session", choice);
+  await assert.rejects(reopen().call("advance_production_session", choice), /revision/);
+  const current = await service.call("get_production_session", { projectId: "song", sessionId: session.sessionId });
+  const original = base.call.bind(base);
+  base.call = async (name, args) => name === "get_live_state" ? { stateVersion: 1, setFingerprint: "set-b", filePath: "/music/another.als" } : original(name, args);
+  await assert.rejects(service.call("advance_production_session", { ...args("resume"), expectedRevision: current.revision }), /Set identity/);
+});
+
+test("failed execution outcomes require resume before any new proposal", async t => {
+  const { service, base, artifacts } = await setup(t, packet => response(packet.role === "creative" ?
+    { alternatives: [{ name: "Sparse", description: "Less busy" }] } : { operations: [{ tool: "set_tempo", args: { tempo: 100 } }] }));
+  let session = await service.call("start_production_session", { projectId: "song", goal: "Bass" });
+  const advance = args => service.call("advance_production_session", { projectId: "song", sessionId: session.sessionId, expectedRevision: session.revision, ...args });
+  session = await advance({ action: "propose" });
+  session = await advance({ action: "choose", alternativeIndex: 0 });
+  session = await advance({ action: "propose" });
+  const plan = await advance({ action: "apply", expectedStateVersion: 1 });
+  const original = base.call.bind(base);
+  base.call = async (name, args) => {
+    if (name === "set_tempo" && args.dryRun === false) throw new Error("connection lost");
+    return original(name, args);
+  };
+  session = await advance({ action: "apply", expectedStateVersion: 1, dryRun: false,
+    confirmationToken: plan.operation.confirmationToken, planHash: plan.operation.planHash });
+  assert.equal(session.phase, "needs_inspection");
+  assert.equal(artifacts.get("song", session.receiptId).value.status, "outcome_unknown");
+  await assert.rejects(advance({ action: "propose" }), /phase/);
+});
+
+test("resume accepts edits to a saved Set while invalidating its prior proposal", async t => {
+  const { service, base } = await setup(t, () => response({ alternatives: [{ name: "Sparse", description: "Less busy" }] }));
+  const started = await service.call("start_production_session", { projectId: "song", goal: "Bass" });
+  const original = base.call.bind(base);
+  base.call = async (name, args) => name === "get_live_state" ? { stateVersion: 1, setFingerprint: "renamed-track", filePath: "/music/song.als" } : original(name, args);
+  const resumed = await service.call("advance_production_session", { projectId: "song", sessionId: started.sessionId, expectedRevision: started.revision, action: "resume" });
+  assert.equal(resumed.phase, "inspect");
+  assert.equal(resumed.stateChanged, true);
+});
+
+test("resume detects MIDI edits even when the bridge version and Set fingerprint are unchanged", async t => {
+  const { service, base } = await setup(t, () => response({ alternatives: [{ name: "Sparse", description: "Less busy" }] }));
+  let pitch = 60;
+  const original = base.call.bind(base);
+  base.call = async (name, args) => name === "list_clips" ? { clips: [{ id: "track-0:clip-0", isMidi: true }] }
+    : name === "get_midi_clip_notes_extended" ? { notes: [{ pitch, start: 0, duration: 1 }] } : original(name, args);
+  let session = await service.call("start_production_session", { projectId: "song", goal: "Bass", scope: { trackId: "track-0", clipId: "track-0:clip-0" } });
+  const advance = action => service.call("advance_production_session", { projectId: "song", sessionId: session.sessionId, expectedRevision: session.revision, action });
+  session = await advance("propose");
+  pitch = 62;
+  session = await advance("resume");
+  assert.equal(session.stateChanged, true);
+  assert.equal(session.phase, "inspect");
+  assert.equal(session.taskId, undefined);
+});
+
+test("empty functional proposals cannot bypass caller postconditions at acceptance", async t => {
+  const { service, artifacts } = await setup(t, () => response({ alternatives: [{ name: "Sparse", description: "Less busy" }] }));
+  let session = await service.call("start_production_session", { projectId: "song", goal: "Tempo 100",
+    postconditions: [{ tool: "get_live_state", args: {}, path: ["tempo"], expected: 100 }] });
+  const advance = args => service.call("advance_production_session", { projectId: "song", sessionId: session.sessionId, expectedRevision: session.revision, ...args });
+  session = await advance({ action: "propose" });
+  session = await advance({ action: "choose", alternativeIndex: 0 });
+  session = await advance({ action: "propose" });
+  session = await advance({ action: "feedback", text: "I prefer this version." });
+  session = await advance({ action: "evaluate", decision: "accept" });
+  assert.equal(session.phase, "evaluate");
+  assert.equal(session.status, "postconditions_failed");
+  assert.equal(session.checks[0].matches, false);
+  assert.equal(artifacts.get("song", session.evaluationRef).value.checks[0].matches, false);
+});
+
+test("listening feedback informs both specialists when the user requests another revision", async t => {
+  const { service, packets } = await setup(t, () => response({ alternatives: [{ name: "Sparse", description: "Less busy" }] }));
+  let session = await service.call("start_production_session", { projectId: "song", goal: "Refine bass" });
+  const advance = args => service.call("advance_production_session", { projectId: "song", sessionId: session.sessionId, expectedRevision: session.revision, ...args });
+  for (const args of [{ action: "propose" }, { action: "choose", alternativeIndex: 0 }, { action: "propose" },
+    { action: "feedback", text: "Keep the syncopation but reduce the density." }, { action: "evaluate", decision: "revise" },
+    { action: "propose" }, { action: "choose", alternativeIndex: 0 }, { action: "propose" }]) session = await advance(args);
+  for (const packet of packets.slice(-2)) assert.ok(packet.context.some(item => item.kind === "feedback" && item.text.includes("Keep the syncopation")));
 });

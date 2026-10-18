@@ -1,0 +1,13 @@
+# Remove exact MIDI notes
+
+Use `remove-notes-from-midi-part` through `get_producer_workflow` or its MCP prompt when the user explicitly wants to delete notes. A less busy variation can instead mute chosen notes on a copied clip through [MIDI clip variations](midi-clip-variations.md). Deletion removes the notes and their hidden expression; exposed note records are not a complete backup.
+
+The `all` profile exposes `get_midi_note_removal_context` and `remove_midi_notes`. Resolve the exact Session or Arrangement clip, actual instrument and requested musical scope first. The context reads complete exposed notes, timing, native identity and safety without moving focus or selecting material. Sources are limited to 4096 notes and are never sampled.
+
+Resolve a list of exact observed `noteIds`. An empty list never means all notes. Specify whether a range means note onsets inside it or every note overlapping it. Source-clip beats differ from Arrangement song positions; deleting one source note removes all its repetitions in a looped Arrangement clip. A highlighted slot does not establish the current detail clip or selected notes. If native piano-roll selection evidence is unavailable, resolve the scope without guessing or deleting the whole clip.
+
+Plan `remove_midi_notes` with fresh `expectedStateVersion`. Review `removedNotes`, complete prior notes, timing and the destructive warning before confirmation. IDs must be unique and present. Stale sources, frozen/unknown state, recording/count-in, pending launches and unsupported native removal refuse. Native identity, complete notes and timing are checked again immediately before removal. Other notes are not rewritten, and playback can continue.
+
+Read `nativeReturned`, `removalVerified`, `removedNoteIds`, `remainingRequestedNoteIds`, `unexpectedAddedNoteIds`, `unrequestedNotesPreserved`, `targetIdentityPreserved`, `error` and `observed` separately. A native call returning is not proof of exact deletion. Readback compares actual removed IDs, retained note IDs/exposed properties and timing. It does not verify hidden expression preservation or audible note-off timing.
+
+Partial deletions remain in place without rollback or reconstruction. Null removal fields mean the outcome could not be established, not that nothing was deleted. After a lost reply or mismatch, read complete current notes and reconcile only the intended IDs still present before planning remaining work. Do not replay the original request, recreate notes as a claimed restoration or use global undo. Copying, auditioning and saving follow their own requested scope. See the native [Clip note-removal API](https://docs.cycling74.com/apiref/lom/clip/).
