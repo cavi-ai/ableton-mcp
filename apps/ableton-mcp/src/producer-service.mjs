@@ -24,6 +24,8 @@ const identity = value => ({ stateVersion: value.stateVersion, setFingerprint: v
 const sameState = (left, right) => left.stateVersion === right.stateVersion && left.setFingerprint === right.setFingerprint;
 const eligibleOperation = name => !Object.hasOwn(producerToolContracts, name) &&
   Boolean(toolContracts[name]?.inputSchema.properties.expectedStateVersion && toolContracts[name]?.inputSchema.properties.dryRun);
+const stableSessionObservation = value => JSON.parse(JSON.stringify(value, (key, item) =>
+  ["stateVersion", "setFingerprint", "isPlaying", "isTriggered", "playingPosition"].includes(key) ? undefined : item));
 function validateSessionScope(scope = {}) {
   if (scope.trackId !== undefined && !/^(?:master|(?:track|return)-(?:0|[1-9][0-9]*))$/.test(scope.trackId))
     throw new Error("session scope requires a canonical ordinary, Group, Return or Main owner");
@@ -104,10 +106,12 @@ export class ProducerService {
   async #sessionContext(projectId, scope = {}) {
     validateSessionScope(scope);
     const observed = await this.#context(projectId);
-    const live = this.artifacts.get(projectId, observed.contextRef).value.live;
+    const context = this.artifacts.get(projectId, observed.contextRef).value, live = context.live;
     if (!live.filePath) throw new Error("Save the Live Set before starting or resuming a durable production session");
+    const initialSong = stableSessionObservation({ tempo: live.tempo, musical: context.musical });
     const snapshot = async () => {
-      const values = {};
+      const songLive = await this.#live();
+      const values = { song: { tempo: songLive.tempo, musical: await this.service.call("get_song_musical_context", {}) } };
       if (scope.trackId) {
         if (scope.trackId === "master" || scope.trackId.startsWith("return-")) {
           const buses = await this.service.call("get_set_mixer", {});
@@ -131,10 +135,11 @@ export class ProducerService {
       }
       if (scope.deviceId) values.parameters = await this.service.call("list_device_parameters", { trackId: scope.trackId, deviceId: scope.deviceId });
       // Transport and selection do not define the target's musical content.
-      return JSON.parse(JSON.stringify(values, (key, value) => ["stateVersion", "setFingerprint", "isPlaying", "isTriggered", "playingPosition"].includes(key) ? undefined : value));
+      return stableSessionObservation(values);
     };
     const first = await snapshot(), second = await snapshot(), after = await this.#live();
-    if (!sameState(observed, after) || live.filePath !== after.filePath || !isDeepStrictEqual(first, second))
+    if (!sameState(observed, after) || live.filePath !== after.filePath || live.tempo !== after.tempo ||
+        !isDeepStrictEqual(initialSong, second.song) || !isDeepStrictEqual(first, second))
       throw new Error("session target changed during observation; read again");
     const targetRef = this.artifacts.put(projectId, "session-target", { scope, observations: second });
     return { ...observed, documentPath: live.filePath, targetRef,

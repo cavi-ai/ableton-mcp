@@ -579,6 +579,82 @@ test("listening feedback informs both specialists when the user requests another
   for (const packet of packets.slice(-2)) assert.ok(packet.context.some(item => item.kind === "feedback" && item.text.includes("Keep the syncopation")));
 });
 
+async function musicalSession(t, scope = {}) {
+  const setupResult = await setup(t, () => response({ alternatives: [{ name: 'Keep', description: 'Keep the phrase.' }] }));
+  const { service, base } = setupResult, original = base.call.bind(base);
+  const state = { tempo: 120, playing: false, selection: 'track-0', musical: {
+    timeSignature: { numerator: 4, denominator: 4 }, key: { rootNote: 0, scaleName: 'Major', scaleMode: true },
+    quantization: { clipTrigger: { value: 4 }, midiRecording: { value: 0 } },
+    groove: { amount: .5, swingAmount: 0, pool: [] }, loop: { enabled: false, startBeats: 0, lengthBeats: 16 }
+  } };
+  base.call = async (name, args) => {
+    if (name === 'get_live_state') return { ...await original(name, args), tempo: state.tempo, isPlaying: state.playing };
+    if (name === 'get_selection_context') return { trackId: state.selection };
+    if (name === 'get_song_musical_context') return structuredClone({ stateVersion: 1, ...state.musical });
+    if (name === 'get_set_mixer') return { master: { volume: .8 }, returns: [{ id: 'return-0', volume: .7 }] };
+    return original(name, args);
+  };
+  let session = await service.call('start_production_session', { projectId: 'song', goal: 'Keep the phrase in the song context', scope });
+  const advance = async args => session = await service.call('advance_production_session', {
+    projectId: 'song', sessionId: session.sessionId, expectedRevision: session.revision, ...args
+  });
+  return { ...setupResult, state, started: session, advance };
+}
+
+test('manual tempo changes invalidate durable choices for every owner without a bridge version change', async t => {
+  for (const scope of [{}, { trackId: 'track-0' }, { trackId: 'return-0' }, { trackId: 'master' }]) {
+    const { state, advance, packets, artifacts, started } = await musicalSession(t, scope);
+    await advance({ action: 'propose' });
+    const count = packets.length;
+    state.tempo = 97;
+    await assert.rejects(advance({ action: 'choose', alternativeIndex: 0 }), /state changed/);
+    const resumed = await advance({ action: 'resume' });
+    assert.equal(resumed.stateChanged, true); assert.equal(resumed.phase, 'inspect');
+    assert.equal(resumed.taskId, undefined); assert.equal(packets.length, count);
+    const before = artifacts.get('song', started.targetRef).value.observations;
+    const after = artifacts.get('song', resumed.targetRef).value.observations;
+    assert.equal(before.song.tempo, 120); assert.equal(after.song.tempo, 97);
+    assert.deepEqual(resumed.basis, started.basis);
+  }
+});
+
+test('durable sessions bind meter, configured key, launch quantization, groove and Arrangement loop', async t => {
+  for (const change of [s => s.timeSignature.numerator = 3, s => s.key.rootNote = 7,
+    s => s.quantization.clipTrigger.value = 5, s => s.quantization.midiRecording.value = 2,
+    s => s.groove.amount = .7, s => s.groove.pool.push({ id: 'groove-0', name: 'Swing', timingAmount: .5 }),
+    s => s.loop.enabled = true, s => s.loop.startBeats = 8, s => s.loop.lengthBeats = 32]) {
+    const { state, advance, artifacts, started } = await musicalSession(t, { trackId: 'track-0' });
+    await advance({ action: 'propose' }); change(state.musical);
+    await assert.rejects(advance({ action: 'choose', alternativeIndex: 0 }), /state changed/);
+    const resumed = await advance({ action: 'resume' });
+    assert.equal(resumed.stateChanged, true); assert.equal(resumed.phase, 'inspect');
+    assert.equal(resumed.taskId, undefined);
+    assert.notDeepEqual(artifacts.get('song', resumed.targetRef).value.observations,
+      artifacts.get('song', started.targetRef).value.observations);
+  }
+});
+
+test('musical changes during durable observation refuse a mixed snapshot', async t => {
+  for (const kind of ['tempo', 'musical']) {
+    const { service, base } = await setup(t, () => response());
+    const original = base.call.bind(base); let reads = 0;
+    base.call = async (name, args) => {
+      if (kind === 'tempo' && name === 'get_live_state') return { ...await original(name, args), tempo: ++reads === 1 ? 120 : 97 };
+      if (kind === 'musical' && name === 'get_song_musical_context') return { timeSignature: { numerator: ++reads === 1 ? 4 : 3, denominator: 4 } };
+      return original(name, args);
+    };
+    await assert.rejects(service.call('start_production_session', { projectId: 'song', goal: 'Keep the phrase' }), /changed/);
+  }
+});
+
+test('selection and playback changes preserve durable musical proposals', async t => {
+  const { state, advance, started } = await musicalSession(t, { trackId: 'track-0' });
+  await advance({ action: 'propose' }); state.playing = true; state.selection = 'track-4';
+  const resumed = await advance({ action: 'resume' });
+  assert.equal(resumed.stateChanged, false); assert.equal(resumed.phase, 'choose');
+  assert.equal(resumed.targetRef, started.targetRef);
+});
+
 test('durable Return and Main sessions capture the exact bus and resume after owned edits',async t=>{
  for(const owner of ['return-0','master']){
   const {service,base,artifacts,packets}=await setup(t,()=>response({alternatives:[{name:'Keep',description:'Preserve this bus.'}]}));
