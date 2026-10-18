@@ -44,6 +44,7 @@ import { buildSongGridReference, planGridEnvelopePattern } from "./song-grid-ref
 import { browseLocalSpliceDirectory, listConfiguredSpliceRoots, observeLocalSpliceSample, searchLocalSpliceSamples } from "./splice-local-search.mjs";
 import { inspectGroovePostconditions } from "./groove-workflow.mjs";
 import {beatRepeatFill} from "./beat-repeat-fill.mjs";
+import {sessionOverdub} from './session-overdub.mjs';
 import {sessionClipHold} from './session-clip-hold.mjs';
 import { analyzeMidiFeel, planMidiFeelTransfer, midiFeelClipEndBeats } from "./midi-feel-analysis.mjs";
 import {inspectProducerAudioBus} from "./producer-audio-bus.mjs";
@@ -721,6 +722,8 @@ export class ToolService {
       return liveAudioCapture(this.bridge, this.confirmations, name, args);
     if (["perform_beat_repeat_fill", "get_beat_repeat_fill", "finish_beat_repeat_fill"].includes(name))
       return beatRepeatFill(this.bridge,this.confirmations,name,args);
+    if (['get_session_midi_overdub_context','set_session_midi_overdub'].includes(name))
+      return sessionOverdub(this.bridge,this.confirmations,name,args);
     if (['hold_session_clip','get_session_clip_hold','finish_session_clip_hold'].includes(name))
       return sessionClipHold(this.bridge,this.confirmations,name,args);
     if (["get_instrument_comparison", "prepare_instrument_comparison", "adopt_instrument_comparison", "select_instrument_comparison"].includes(name))

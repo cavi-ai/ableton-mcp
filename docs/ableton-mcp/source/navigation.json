@@ -42,6 +42,7 @@
         { "title": "Add notes to a MIDI part", "path": "guides/midi-note-insertion.md" },
         { "title": "Inspect recorded takes", "path": "guides/recorded-takes.md" },
         { "title": "Record a Session take", "path": "guides/session-take.md" },
+        { "title": "Overdub a Session MIDI loop", "path": "guides/session-overdub.md" },
         { "title": "Capture Live audio", "path": "guides/live-audio-capture.md" },
         { "title": "Audition browser sounds", "path": "guides/browser-preview.md" },
         { "title": "Keep a Looper performance", "path": "guides/looper-performance.md" },
