@@ -13,6 +13,7 @@ import { createProducerRuntime, parseProducerConfig } from "./producer-runtime.m
 import { homedir } from "node:os";
 
 const emptyCatalog = {
+  configured: false,
   search: () => [],
   get: () => undefined,
   products: () => [],

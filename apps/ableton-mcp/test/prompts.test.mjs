@@ -3,6 +3,14 @@ import assert from "node:assert/strict";
 import { createRouter } from "../src/server.mjs";
 import { getPrompt, listPrompts } from "../src/prompts.mjs";
 
+test("instrument exploration distinguishes unavailable NKS configuration from no matches", () => {
+  const text = getPrompt("explore-selected-instrument", { request: "compare bass sounds" }).messages[0].content.text;
+  assert.match(text, /catalog\.configured/);
+  assert.match(text, /not evidence that.*presets.*installed/i);
+  assert.match(text, /search_browser_items/);
+  assert.match(text, /Do not invent preset IDs/);
+});
+
 test("MCP discovery lists every prompt with schema-shaped arguments", async () => {
   const route = createRouter({ call: async () => ({}) });
   const listed = await route({ id: 1, method: "prompts/list" });
