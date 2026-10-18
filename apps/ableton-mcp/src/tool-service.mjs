@@ -18,6 +18,7 @@ import {MacTakeLaneAuditionHost,takeLaneAudition} from "./take-lane-audition.mjs
 import {setTrackVolumeDb} from "./track-volume.mjs";
 import {parameterAutomation} from './parameter-automation.mjs';
 import {browserPreview} from './browser-preview.mjs';
+import {selectedControl} from './selected-control.mjs';
 import {midiNoteRemoval} from './midi-note-removal.mjs';
 import {midiInsertion} from './midi-insertion.mjs';
 import {overrideParameterAutomation} from './parameter-override.mjs';
@@ -1692,6 +1693,7 @@ export class ToolService {
     if (name === "set_track_mixer") return this.#setTrackMixer(args);
     if (['get_parameter_automation_context','re_enable_parameter_automation'].includes(name)) return parameterAutomation(this.bridge,this.confirmations,name,args);
     if (['get_browser_preview_context','set_browser_preview'].includes(name)) return browserPreview(this.bridge,this.confirmations,name,args);
+    if (['get_selected_parameter_context','set_selected_parameter'].includes(name)) return selectedControl(this.bridge,this.confirmations,name,args);
     if (['get_midi_note_removal_context','remove_midi_notes'].includes(name)) return midiNoteRemoval(this.bridge,this.confirmations,name,args);
     if (['get_midi_note_insertion_context','insert_midi_notes'].includes(name)) return midiInsertion(this.bridge,this.confirmations,name,args);
     if (name==='override_parameter_automation') return overrideParameterAutomation(this.bridge,this.confirmations,args);
