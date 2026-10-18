@@ -5046,7 +5046,7 @@ def dispatch_request(song, request, state_version, application=None):
                 ):
                     raise ValueError("Live changed the duplicated clip interval")
                 if any(
-                    other is not duplicate
+                    other != duplicate
                     and float(duplicate.start_time) < float(other.end_time)
                     and float(duplicate.end_time) > float(other.start_time)
                     for other in track.arrangement_clips
