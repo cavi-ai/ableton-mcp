@@ -1904,46 +1904,40 @@ class DispatchTest(unittest.TestCase):
                 dispatch_request(song, {"method": "get_audio_clip_state", "params": {**params, "clipId": invalid}}, 3)
 
     def test_master_and_return_mixer_lifecycle(self):
-        from test_track_mixer import prepare_mixers
+        from test_master_mixer import prepare_main,main_plan
         from test_track_routing import ready_song
         from test_return_mixer import return_plan
-        song = prepare_mixers(ready_song())
+        song = prepare_main(ready_song())
         observed = dispatch_request(song, {"method": "get_set_mixer"}, 3)
         self.assertEqual(observed["master"]["cueVolume"]["value"], 0.7)
         self.assertEqual(observed["master"]["outputRouting"]["channel"]["id"], "1/2")
-        routed = dispatch_request(song, {"method": "set_master_mixer", "params": {"beforeMaster": observed["master"], "changes": {
-            "outputChannelId": {"previous": observed["master"]["outputRouting"]["channel"],
-                                "value": {"id": "3/4", "name": "3/4"}},
-        }}}, 3)
+        routed = dispatch_request(song, {"method":"set_master_mixer","params":main_plan(song,{'outputChannelId':'3/4'},3)},3)
         self.assertEqual(routed["master"]["outputRouting"]["channel"]["id"], "3/4")
         self.assertEqual(observed["returns"][0]["name"], "Reverb")
-        master = dispatch_request(song, {"method": "set_master_mixer", "params": {"beforeMaster": routed["master"], "changes": {
-            "volume": {"previousValue": 0.8, "requestedValue": 0.5, "value": 0.5},
-            "crossfader": {"previousValue": 0.0, "requestedValue": -0.25, "value": -0.25},
-        }}}, 3)
+        master = dispatch_request(song, {"method":"set_master_mixer","params":main_plan(song,{'volume':.5,'crossfader':-.25},3)},3)
         self.assertEqual(master["master"]["volume"]["value"], 0.5)
         returned = dispatch_request(song, {"method": "set_return_mixer", "params": return_plan(song,{'pan':.5,'mute':True})}, 4)
         self.assertTrue(returned["return"]["mute"])
         self.assertEqual(returned["return"]["pan"]["value"], 0.5)
 
     def test_master_mixer_rejects_stale_plan_before_routing_output(self):
-        song = Song()
-        before = dispatch_request(song, {"method": "get_set_mixer"}, 3)["master"]
+        from test_master_mixer import prepare_main,main_plan
+        from test_track_routing import ready_song
+        song = prepare_main(ready_song())
+        plan = main_plan(song,{'outputChannelId':'3/4','pan':.25},3)
         song.master_track.mixer_device.volume.value = 0.65
-        with self.assertRaisesRegex(ValueError, "master mixer changed"):
-            dispatch_request(song, {"method": "set_master_mixer", "params": {
-                "beforeMaster": before, "changes": {
-                    "outputChannelId": {"previous": before["outputRouting"]["channel"],
-                                        "value": {"id": "3/4", "name": "3/4"}},
-                    "pan": {"previousValue": 0.0, "requestedValue": 0.25, "value": 0.25}
-                }}}, 3)
+        with self.assertRaisesRegex(ValueError, "changed"):
+            dispatch_request(song, {"method":"set_master_mixer","params":plan},3)
         self.assertEqual(song.master_track.current_output_sub_routing, "1/2")
         self.assertEqual(song.master_track.mixer_device.panning.value, 0.0)
 
-    def test_master_mixer_rolls_back_output_and_volume_after_failed_control_write(self):
-        song = Song()
+    def test_master_mixer_retains_output_and_volume_after_failed_control_write(self):
+        from test_master_mixer import prepare_main,main_plan
+        from test_track_routing import ready_song
+        song = prepare_main(ready_song())
         class FailingValue:
             min, max = -1.0, 1.0
+            is_enabled,is_quantized,automation_state = True,False,0
             @property
             def value(self):
                 return 0.0
@@ -1954,29 +1948,18 @@ class DispatchTest(unittest.TestCase):
         boundaries = []
         song.begin_undo_step = lambda: boundaries.append("begin")
         song.end_undo_step = lambda: boundaries.append("end")
-        before = dispatch_request(song, {"method": "get_set_mixer"}, 3)["master"]
-        with self.assertRaisesRegex(RuntimeError, "crossfader write failed"):
-            dispatch_request(song, {"method": "set_master_mixer", "params": {
-                "beforeMaster": before, "changes": {
-                    "outputChannelId": {"previous": before["outputRouting"]["channel"],
-                                        "value": {"id": "3/4", "name": "3/4"}},
-                    "volume": {"previousValue": 0.8, "requestedValue": 0.5, "value": 0.5},
-                    "crossfader": {"previousValue": 0.0, "requestedValue": -0.25, "value": -0.25}
-                }}}, 3)
-        self.assertEqual(song.master_track.current_output_sub_routing, "1/2")
-        self.assertEqual(song.master_track.mixer_device.volume.value, 0.8)
+        result = dispatch_request(song, {"method":"set_master_mixer","params":main_plan(song,{'outputChannelId':'3/4','volume':.5,'crossfader':-.25},3)},3)
+        self.assertFalse(result['verified']);self.assertIn('crossfader write failed',result['error'])
+        self.assertEqual(song.master_track.current_output_sub_routing, "3/4")
+        self.assertEqual(song.master_track.mixer_device.volume.value, 0.5)
         self.assertEqual(boundaries, ["begin", "end"])
 
     def test_master_mixer_rejects_out_of_range_value_before_any_write(self):
-        song = Song()
-        before = dispatch_request(song, {"method": "get_set_mixer"}, 3)["master"]
-        with self.assertRaisesRegex(ValueError, "master volume.*range"):
-            dispatch_request(song, {"method": "set_master_mixer", "params": {
-                "beforeMaster": before, "changes": {
-                    "outputChannelId": {"previous": before["outputRouting"]["channel"],
-                                        "value": {"id": "3/4", "name": "3/4"}},
-                    "volume": {"previousValue": 0.8, "requestedValue": 2.0, "value": 2.0}
-                }}}, 3)
+        from test_master_mixer import prepare_main,main_plan
+        from test_track_routing import ready_song
+        song = prepare_main(ready_song())
+        with self.assertRaisesRegex(ValueError, "native bounds"):
+            dispatch_request(song, {"method":"set_master_mixer","params":main_plan(song,{'outputChannelId':'3/4','volume':2},3)},3)
         self.assertEqual(song.master_track.current_output_sub_routing, "1/2")
         self.assertEqual(song.master_track.mixer_device.volume.value, 0.8)
 

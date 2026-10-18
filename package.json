@@ -45,6 +45,7 @@
     "ableton/Remote Scripts/CaviMcpBridge/protocol.py",
     "ableton/Remote Scripts/CaviMcpBridge/parameter_automation.py",
     "ableton/Remote Scripts/CaviMcpBridge/manual_override.py",
+    "ableton/Remote Scripts/CaviMcpBridge/master_mixer.py",
     "ableton/Remote Scripts/CaviMcpBridge/parameter_display.py",
     "ableton/Remote Scripts/CaviMcpBridge/object_colors.py",
     "ableton/Remote Scripts/CaviMcpBridge/device_preset.py",

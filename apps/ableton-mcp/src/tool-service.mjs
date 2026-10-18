@@ -5033,16 +5033,22 @@ export class ToolService {
       }
       return this.#confirmedMutation({method,returnTrackId:args.returnTrackId,expectedStateVersion:args.expectedStateVersion,before,changes},args);
     }
-    const observed = await this.bridge.request("get_set_mixer", {});
-    assertExpectedState({ expectedStateVersion: args.expectedStateVersion }, observed);
-    const target = observed.master;
+    const fields = ["volume","pan","cueVolume","crossfader","outputChannelId"].filter(key=>args[key]!==undefined).sort();
+    if (!fields.length) throw new Error("at least one master mixer change is required");
+    const before = await this.bridge.request("get_master_mixer_edit_context", {fields});
+    assertExpectedState({expectedStateVersion:args.expectedStateVersion}, before);
+    if (typeof before.identityToken !== "string" || !before.identityToken || !before.master ||
+        JSON.stringify(before.fields)!==JSON.stringify(fields)) throw new Error("native Main mixer context required; update the Live bridge");
+    if (before.readyToChange !== true) throw new Error(`Main mixer changes refused: ${(before.reasons ?? []).join(", ")}`);
+    const target = before.master;
     if (args.pan !== undefined) assertStereoPan(target.pan);
     const numericKeys = ["volume", "pan", "cueVolume", "crossfader"];
     const changes = {};
     if (args.outputChannelId !== undefined) {
       const routing = target.outputRouting;
-      const selected = routing?.availableChannels.find(({ id }) => id === args.outputChannelId);
-      if (!routing?.supported || !selected) throw new Error("master output channel is unavailable");
+      const choices = routing?.availableChannels.filter(({ id }) => id === args.outputChannelId) ?? [];
+      if (!routing?.supported || choices.length !== 1) throw new Error("master output channel is unavailable or ambiguous");
+      const selected = choices[0];
       changes.outputChannelId = { previous: routing.channel, value: selected };
     }
     for (const key of numericKeys) {
@@ -5057,7 +5063,7 @@ export class ToolService {
     if (!Object.keys(changes).length) {
       throw new Error("at least one master mixer change is required");
     }
-    const plan = { method, expectedStateVersion: args.expectedStateVersion, changes, beforeMaster: target };
+    const plan = { method, expectedStateVersion: args.expectedStateVersion, changes, before };
     return this.#confirmedMutation(plan, args);
   }
 

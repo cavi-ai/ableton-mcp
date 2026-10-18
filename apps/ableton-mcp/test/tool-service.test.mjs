@@ -250,6 +250,10 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         ]
       };
       if (method === "get_track_mixer_edit_context") return {stateVersion:4,identityToken:"native-mixer",trackIds:params.trackIds,readyToChange:true,reasons:[],tracks:await Promise.all(params.trackIds.map(trackId=>this.request("get_track_mixer",{trackId})))};
+      if (method === "get_master_mixer_edit_context") {
+        const mixer = await this.request("get_set_mixer",{});
+        return {stateVersion:mixer.stateVersion,identityToken:"native-main",fields:params.fields,master:mixer.master,readyToChange:true,reasons:[]};
+      }
       if (method === "get_return_mixer_edit_context") {
         const mixer = await this.request("get_set_mixer",{}), target = mixer.returns.find(row=>row.id===params.returnTrackId);
         if (!target) throw new Error(`unknown return track ${params.returnTrackId}`);
