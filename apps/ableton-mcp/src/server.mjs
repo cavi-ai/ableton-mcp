@@ -184,6 +184,7 @@ const toolNames = [
   "remove_audio_warp_marker",
   "add_audio_warp_marker",
   "quantize_audio_clip",
+  "crop_midi_clip",
   "crop_audio_clip",
   "duplicate_clip",
   "delete_clip",

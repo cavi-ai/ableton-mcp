@@ -73,6 +73,7 @@
     "LICENSE",
     "README.md",
     "docs/ableton-mcp/source/pages",
+    "ableton/Remote Scripts/CaviMcpBridge/midi_crop.py",
     "ableton/Remote Scripts/CaviMcpBridge/midi_export.py",
     "ableton/Remote Scripts/CaviMcpBridge/live_navigation.py",
     "ableton/Remote Scripts/CaviMcpBridge/browser_load.py",

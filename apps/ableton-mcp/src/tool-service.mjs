@@ -1667,6 +1667,20 @@ export class ToolService {
     if (name === "remove_audio_warp_marker") return this.#removeAudioWarpMarker(args);
     if (name === "add_audio_warp_marker") return this.#addAudioWarpMarker(args);
     if (name === "quantize_audio_clip") return this.#quantizeAudioClip(args);
+    if (name === 'crop_midi_clip') {
+      requireExpectedState(args);
+      const before = await this.bridge.request('get_midi_crop_context', {trackId:args.trackId,clipId:args.clipId});
+      assertExpectedState(args,before);
+      const region = before.selectedRegion;
+      if (before.trackId !== args.trackId || before.clipId !== args.clipId || typeof before.identityToken !== 'string' || !before.identityToken ||
+          before.cropSupported !== true || !Array.isArray(before.notes) || !before.clipTiming ||
+          !region || typeof region.fromLoop !== 'boolean' || !Number.isFinite(region.startBeats) || !Number.isFinite(region.endBeats) || region.startBeats < 0 || region.endBeats <= region.startBeats ||
+          ['frozen','clipRecording','clipOverdubbing','pendingLaunch','arrangementRecord','sessionRecord','countingIn'].some(k=>before.editContext?.[k]!==false))
+        throw Error('resolve native MIDI crop interval, identity, complete notes, modification support and edit context');
+      return this.#confirmedMutation({method:'crop_midi_clip',trackId:args.trackId,clipId:args.clipId,
+        expectedStateVersion:args.expectedStateVersion,before,
+        warning:'Native crop can retain pre-loop pickup material, shorten crossing notes, select the target clip, discard notes/expression/envelopes, shift clip-beat coordinates and change note IDs. It uses the observed loop or marker interval; it is not a note-selection crop. Preserve the original through a separate named copy by default. Inspect complete readback; no automatic rollback or replay.'},args);
+    }
     if (name === "crop_audio_clip") return this.#cropAudioClip(args);
     if (name === "capture_session_scene") return captureSessionScene(this.bridge,this.confirmations,args);
     if (name === "copy_arrangement_clip_to_track") return copyArrangementClip(this.bridge,this.confirmations,args);

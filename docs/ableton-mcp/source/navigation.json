@@ -37,6 +37,7 @@
         { "title": "Keep parts playing across scenes", "path": "guides/session-stop-buttons.md" },
         { "title": "Print processed MIDI", "path": "guides/processed-midi.md" },
         { "title": "Keep played MIDI", "path": "guides/midi-capture.md" },
+        { "title": "Crop a MIDI phrase", "path": "guides/midi-crop.md" },
         { "title": "Remove exact MIDI notes", "path": "guides/midi-note-removal.md" },
         { "title": "Add notes to a MIDI part", "path": "guides/midi-note-insertion.md" },
         { "title": "Inspect recorded takes", "path": "guides/recorded-takes.md" },

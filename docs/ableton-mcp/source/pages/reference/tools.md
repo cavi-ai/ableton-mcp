@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 317 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 318 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (135)
 
@@ -300,7 +300,7 @@ The server publishes 317 tools. Mutations of the Live Set require `expectedState
 | `transport_stop` | Plan or stop Ableton transport playback. | `expectedStateVersion` |
 | `undo` | Plan or apply one guarded Ableton undo operation. | `expectedStateVersion` |
 
-## Destructive mutations (31)
+## Destructive mutations (32)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -312,6 +312,7 @@ The server publishes 317 tools. Mutations of the Live Set require `expectedState
 | `collect_project_media` | Collect all four native media categories into the current Project and save its clean named Live 12 Set. Requires stopped transport and macOS English Live. Binds saved references and source bytes; verifies Project-relative sample copies. Can copy large libraries. No automatic replay or complete-portability claim. | `expectedStateVersion`, `expectedSetFingerprint` |
 | `complete_nks_generation_job` | Mark an owned NKS job done only after its catalog preset contains verified saved-artifact evidence. Does not generate or validate the artifact itself. | `presetId`, `workerId` |
 | `crop_audio_clip` | Plan or apply Live native cropping of one exact audio clip. Preview reports the selected loop interval when enabled, otherwise start/end markers, in current units. Live may retain pre-loop playback material and creates a processed source. Selected interval is not a guarantee of exclusive source-file bounds. Binds audio and loop state and reads back native results. | `expectedStateVersion`, `trackId`, `clipId` |
+| `crop_midi_clip` | Request native MIDI crop to the observed loop or marker interval. Can discard notes/expression and change source coordinates or IDs. Binds native context and returns complete exposed readback; no automatic rollback. | `expectedStateVersion`, `trackId`, `clipId` |
 | `delete_arrangement_clip` | Plan or delete one exact Arrangement clip, preserving other timeline material. Requires current clip identity and confirmation; deletion is undoable in Live. | `expectedStateVersion`, `trackId`, `clipId` |
 | `delete_arrangement_cue_point` | Plan or delete one exact Arrangement cue point. | `expectedStateVersion`, `cuePointId` |
 | `delete_clip` | Plan or delete one exact occupied Session clip. | `expectedStateVersion`, `trackId`, `clipId` |
