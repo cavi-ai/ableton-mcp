@@ -310,6 +310,13 @@ function resolveParameterValue(parameter, requested) {
   return matches[0].value;
 }
 
+async function audioImportSource(path) {
+  if(typeof path!=='string'||!isAbsolute(path))throw Error('sourcePath must be an absolute local audio-file path');
+  const sourcePath=await realpath(path),source=await stat(sourcePath,{bigint:true});
+  if(!source.isFile())throw Error('sourcePath must reference a regular file');
+  return {sourcePath,sourceFile:{size:String(source.size),mtimeNs:String(source.mtimeNs),device:String(source.dev),inode:String(source.ino)}};
+}
+
 function normalizeMidiNote(note, index, lengthBeats) {
   const pitch = Number(note.pitch);
   const start = Number(note.start);
@@ -1675,6 +1682,7 @@ export class ToolService {
     if (name === "apply_midi_diatonic_harmony") return this.#applyMidiDiatonicHarmony(args);
     if (name === "apply_midi_scale_chord_remapping") return this.#applyMidiScaleChordRemapping(args);
     if (name === "apply_midi_diatonic_chord_quality") return this.#applyMidiDiatonicChordQuality(args);
+    if (name === "create_arrangement_audio_clip") return this.#createArrangementAudioClip(args);
     if (name === "create_audio_clip") return this.#createAudioClip(args);
     if (name === "set_clip_parameter_envelope") return replaceClipParameterEnvelope(this.bridge,this.confirmations,args);
     if (name === "create_clip_parameter_envelope") return createClipParameterEnvelope(this.bridge,this.confirmations,args);
@@ -3814,13 +3822,19 @@ export class ToolService {
     return result;
   }
 
+  async #createArrangementAudioClip(args) {
+    requireExpectedState(args);
+    const startBeats=finiteRange(args.startBeats,'startBeats',0,1576800);
+    if(typeof args.name!=='string'||!args.name.trim()||args.name.length>128||/[\x00-\x1f\x7f]/u.test(args.name))throw Error('explicit name of 1 to 128 characters without controls required');
+    const source=await audioImportSource(args.sourcePath),ids={trackId:args.trackId,startBeats};
+    const before=await this.bridge.request('get_arrangement_audio_import_target',ids);assertExpectedState(args,before);
+    if(!before.identityToken||before.startBeats!==startBeats)throw Error('updated native Arrangement audio import context required');
+    return this.#confirmedMutation({method:'create_arrangement_audio_clip',...ids,...source,name:args.name,expectedStateVersion:args.expectedStateVersion,before},args);
+  }
+
   async #createAudioClip(args) {
     requireExpectedState(args);
-    if (typeof args.sourcePath !== "string" || !isAbsolute(args.sourcePath)) throw new Error("sourcePath must be an absolute local audio-file path");
-    const sourcePath = await realpath(args.sourcePath);
-    const source = await stat(sourcePath, { bigint: true });
-    if (!source.isFile()) throw new Error("sourcePath must reference a regular file");
-    const sourceFile = { size: String(source.size), mtimeNs: String(source.mtimeNs), device: String(source.dev), inode: String(source.ino) };
+    const {sourcePath,sourceFile}=await audioImportSource(args.sourcePath);
     const observed = await this.bridge.request("list_clips", { trackId: args.trackId });
     assertExpectedState(args, observed);
     const slot = observed.clips.find(({ id }) => id === args.clipId);

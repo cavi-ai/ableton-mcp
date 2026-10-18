@@ -1,5 +1,7 @@
 # Develop an audio clip
 
+To bring in a local recording or loop first, use [audio import](audio-import.md), which distinguishes direct Arrangement import from Session staging and preserves the source file.
+
 Retrieve `develop-selected-audio-clip` through `get_producer_workflow` in the `all` profile, or open its MCP prompt. Describe the change to the selected Session audio clip and any timing, pitch or texture to preserve.
 
 ## Preserve the source

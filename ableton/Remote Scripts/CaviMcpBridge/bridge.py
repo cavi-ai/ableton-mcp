@@ -3145,6 +3145,12 @@ def _clip_hold_module():
 
 
 def dispatch_request(song, request, state_version, application=None):
+    if request.get("method") in ("get_arrangement_audio_import_target", "create_arrangement_audio_clip"):
+        try:
+            from .arrangement_audio import target, create
+        except ImportError:
+            from arrangement_audio import target, create
+        return (target if request["method"] == "get_arrangement_audio_import_target" else create)(song, request.get("params", {}), state_version)
     if request.get('method') in ('get_device_preset_source', 'select_device_preset_source'):
         try:
             from .device_preset import source, select
