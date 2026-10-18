@@ -4799,9 +4799,15 @@ export class ToolService {
     if (keys.length !== 1) throw new Error("exactly one sidechain source type or channel change is required");
     const key = keys[0];
     if (typeof args[key] !== "string") throw new Error(`${key} must be a string`);
-    const before = await this.bridge.request("get_device_sidechain_routing", { trackId: args.trackId, deviceId: args.deviceId });
+    const before = await this.bridge.request("get_device_sidechain_edit_context", { trackId: args.trackId, deviceId: args.deviceId });
     assertExpectedState(args, before);
+    if (!before.identityToken || before.trackId !== args.trackId || before.deviceId !== args.deviceId) {
+      throw new Error("native sidechain context required; update the Live bridge");
+    }
     if (!before.sidechain.supported) throw new Error("device sidechain routing is unsupported");
+    if (before.frozen !== false || !before.recordingOff || !before.launchesClear) {
+      throw new Error("sidechain routing requires known inactive recording, count-in and pending launches and an unfrozen owner");
+    }
     const isType = key === "sourceTypeId";
     const matches = before.sidechain[isType ? "availableTypes" : "availableChannels"].filter(option => option.id === args[key]);
     if (!matches.length) throw new Error(`unknown ${key} ${args[key]}`);

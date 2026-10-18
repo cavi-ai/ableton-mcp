@@ -2031,12 +2031,13 @@ test("device sidechain readback preserves exact native routing identity", async 
 
 test("device sidechain changes bind full native state and reject ambiguous sources", async () => {
   const before = { stateVersion: 4, trackId: "track-0", deviceId: "track-0:device-0",
+    identityToken:"owner",frozen:false,recordingOff:true,launchesClear:true,
     device: { name: "Compressor", className: "Compressor2" },
     sidechain: { supported: true, type: { id: "none", name: "No Input" },
       channel: { id: "", name: "" }, availableTypes: [{ id: "bass", name: "Bass" }], availableChannels: [{ id: "", name: "" }] } };
   let mutations = 0;
   const service = new ToolService({ bridge: { async request(method, params) {
-    if (method === "get_device_sidechain_routing") return structuredClone(before);
+    if (method === "get_device_sidechain_edit_context") return structuredClone(before);
     if (method === "set_device_sidechain_routing") {
       assert.deepEqual(params.before, before);
       assert.deepEqual(params.changes, { sourceTypeId: { previous: before.sidechain.type, value: { id: "bass", name: "Bass" } } });

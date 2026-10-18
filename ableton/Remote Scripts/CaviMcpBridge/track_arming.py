@@ -3,10 +3,10 @@ import copy
 import re
 import uuid
 try:
-    from .bridge import _track, _routing_option, _undo_step
+    from .bridge import _device_owner, _track, _routing_option, _undo_step
     from .clip_mute import _flag
 except ImportError:
-    from bridge import _track, _routing_option, _undo_step
+    from bridge import _device_owner, _track, _routing_option, _undo_step
     from clip_mute import _flag
 
 _song = None
@@ -20,7 +20,7 @@ def _inspect(song, track_id):
         raise ValueError('track arming supports at most 256 tracks including Groups')
     if len(scenes) > 4096:
         raise ValueError('track arming supports at most 4096 scenes')
-    _, target = _track(song, track_id)
+    _, target = _device_owner(song, track_id)
     references, arms, recording, pending, count = [], [], [], [], 0
     for index, track in enumerate(tracks):
         group, capable = _flag(track, 'is_foldable'), _flag(track, 'can_be_armed')

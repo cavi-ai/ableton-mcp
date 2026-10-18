@@ -4450,26 +4450,12 @@ def dispatch_request(song, request, state_version, application=None):
         return {"stateVersion": state_version + 1, "return": observed}
     if method == "get_device_sidechain_routing":
         return _device_sidechain_routing(song, params["trackId"], params["deviceId"], state_version)
-    if method == "set_device_sidechain_routing":
-        track_id, device_id = params["trackId"], params["deviceId"]
-        current = _device_sidechain_routing(song, track_id, device_id, state_version)
-        if current != params["before"]:
-            raise ValueError("device sidechain identity or state changed")
-        if not current["sidechain"]["supported"]:
-            raise ValueError("device sidechain routing is unsupported")
-        changes = params["changes"]
-        if len(changes) != 1 or not set(changes).issubset({"sourceTypeId", "sourceChannelId"}):
-            raise ValueError("exactly one sidechain routing change is required")
-        _, _, device = _device(song, track_id, device_id)
-        key = next(iter(changes))
-        is_type = key == "sourceTypeId"
-        choices = device.available_input_routing_types if is_type else device.available_input_routing_channels
-        matches = [option for option in choices if _routing_option(option) == changes[key]["value"]]
-        if len(matches) != 1:
-            raise ValueError("unknown or ambiguous sidechain routing choice")
-        with _undo_step(song):
-            setattr(device, "input_routing_type" if is_type else "input_routing_channel", matches[0])
-        return _device_sidechain_routing(song, track_id, device_id, state_version + 1)
+    if method in ("get_device_sidechain_edit_context", "set_device_sidechain_routing"):
+        try:
+            from . import sidechain_routing
+        except ImportError:
+            import sidechain_routing
+        return (sidechain_routing.context if method == "get_device_sidechain_edit_context" else sidechain_routing.apply)(song, params, state_version)
     if method == "get_audio_midi_sketch_source":
         try:
             from .audio_midi_sketch import source
@@ -7239,7 +7225,7 @@ class SocketBridge:
                 if request.get("method") == "prepare_instrument_comparison":
                     self._defer_instrument_comparison(client, request, song, record)
                     return
-                if (request.get("method") == "set_transport_recording_context" and "currentSongTime" in request.get("params", {}).get("changes", {})) or request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state", "re_enable_parameter_automation", "override_parameter_automation", "set_mixer_panning", "jump_to_arrangement_cue_point", "arm_track", "set_track_routing") or (
+                if (request.get("method") == "set_transport_recording_context" and "currentSongTime" in request.get("params", {}).get("changes", {})) or request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state", "re_enable_parameter_automation", "override_parameter_automation", "set_mixer_panning", "jump_to_arrangement_cue_point", "arm_track", "set_track_routing", "set_device_sidechain_routing") or (
                         request.get("method") == "set_clip_timing" and "loop" in request.get("params", {}).get("changes", {})) or (
                         request.get("method") == "duplicate_session_object" and request.get("params", {}).get("target", {}).get("targetType") in ("scene", "track")) or (
                         request.get("method") == "delete_session_object" and request.get("params", {}).get("target", {}).get("targetType") in ("scene", "track", "return")):
@@ -7305,9 +7291,9 @@ class SocketBridge:
     def _defer_observed_mutation(self, client, request, song, record=None):
         try:
             try:
-                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication, scene_removal, track_removal, return_removal, track_copy, track_arming, track_routing
+                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication, scene_removal, track_removal, return_removal, track_copy, track_arming, track_routing, sidechain_routing
             except ImportError:
-                import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication, scene_removal, track_removal, return_removal, track_copy, track_arming, track_routing
+                import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication, scene_removal, track_removal, return_removal, track_copy, track_arming, track_routing, sidechain_routing
             module, success_key = {
                 'return_tracks_to_arrangement': (arrangement_return, 'returned'),
                 'audition_arrangement_passage': (arrangement_audition, 'started'),
@@ -7317,6 +7303,7 @@ class SocketBridge:
                 'set_mixer_panning': (panning, 'verified'),
                 'arm_track': (track_arming, 'verified'),
                 'set_track_routing': (track_routing, 'verified'),
+                'set_device_sidechain_routing': (sidechain_routing, 'verified'),
                 'jump_to_arrangement_cue_point': (cue_jump, 'positionVerified'),
                 'set_transport_recording_context': (transport_seek, 'nativeReturned'),
                 'set_clip_timing': (clip_loop_edit, 'requestedChangesVerified'),
@@ -7332,7 +7319,7 @@ class SocketBridge:
 
         def reply_unverified(error):
             try:
-                if request["method"] in ("jump_to_arrangement_cue_point", "set_transport_recording_context", "arm_track", "set_track_routing"):
+                if request["method"] in ("jump_to_arrangement_cue_point", "set_transport_recording_context", "arm_track", "set_track_routing", "set_device_sidechain_routing"):
                     result = module.unobserved(operation, self.state_version, error)
                 else:
                     operation["error"] = f"Native readback failed: {error}"[:600]
