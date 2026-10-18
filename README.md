@@ -58,7 +58,7 @@ For separate creative and functional model contexts, configure optional [product
 - **Audio analysis**: loudness, true peak, spectrum, pitch, transients and tuning of local audio files.
 - **Optional NKS preset catalog**: search, tags and favorites for presets discovered from your plug-in libraries.
 
-It publishes 317 tools, 9 concrete resources, 13 resource templates and 68 prompt templates. When Live's Remote Script API doesn't expose something, such as Arrangement automation, the tool reports that boundary and fails closed.
+It publishes 317 tools, 9 concrete resources, 13 resource templates and 69 prompt templates. When Live's Remote Script API doesn't expose something, such as Arrangement automation, the tool reports that boundary and fails closed.
 
 ## Documentation
 
@@ -67,6 +67,7 @@ It publishes 317 tools, 9 concrete resources, 13 resource templates and 68 promp
 - [Cancel agent work](docs/ableton-mcp/source/pages/guides/request-cancellation.md)
 - [Resume work after an interruption](docs/ableton-mcp/source/pages/guides/resume-session-work.md)
 - [Create a playable musical sketch](docs/ableton-mcp/source/pages/guides/musical-sketch.md)
+- [Reverse a MIDI phrase](docs/ableton-mcp/source/pages/guides/midi-retrograde.md)
 - [Organize names and colors](docs/ableton-mcp/source/pages/guides/session-organization.md)
 - [Understand a Set and explore instruments](docs/ableton-mcp/source/pages/guides/session-orientation.md)
 - [Understand how MIDI parts relate](docs/ableton-mcp/source/pages/guides/musical-parts.md)

@@ -295,7 +295,7 @@ The server publishes 317 tools. Mutations of the Live Set require `expectedState
 | `stop_all_clips` | Plan or stop every playing Session clip in one guarded step using Live's native stop-all action. Playback-only; does not delete or mute clips. | `expectedStateVersion` |
 | `stop_clip` | Plan or stop one exact Session clip slot. | `expectedStateVersion`, `trackId`, `clipId` |
 | `store_rack_macro_variation` | Plan or store a new native variation of mapped rack macros. Binds exact rack and parameter state, reports the observed count and appended storedVariationIndex independently of selection; variation contents are not exposed by Live's API. | `expectedStateVersion`, `trackId`, `deviceId` |
-| `transform_midi_notes` | Plan or apply guarded quantize, legato, or duplicate transforms to exact MIDI note IDs on one exact Session or Arrangement MIDI clip. | `expectedStateVersion`, `trackId`, `clipId`, `operation`, `noteIds` |
+| `transform_midi_notes` | Plan/apply exact-ID quantize, legato, duplicate or reverseTime MIDI transforms. reverseTime reflects whole selected note spans in an explicit clip-beat window, retaining duration and other exposed properties; hidden expression/envelopes are not reversed. | `expectedStateVersion`, `trackId`, `clipId`, `operation`, `noteIds` |
 | `transport_play` | Plan or start Ableton transport playback. | `expectedStateVersion` |
 | `transport_stop` | Plan or stop Ableton transport playback. | `expectedStateVersion` |
 | `undo` | Plan or apply one guarded Ableton undo operation. | `expectedStateVersion` |

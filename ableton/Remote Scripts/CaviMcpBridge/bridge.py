@@ -5418,6 +5418,12 @@ def dispatch_request(song, request, state_version, application=None):
         except ImportError:
             from midi_note_selection import context
         return context(song, params, state_version)
+    if method == "get_midi_retrograde_context" or (method == "transform_midi_notes" and isinstance(params.get("operation"), dict) and params["operation"].get("type") == "reverseTime"):
+        try:
+            from . import midi_retrograde
+        except ImportError:
+            import midi_retrograde
+        return (midi_retrograde.context if method == "get_midi_retrograde_context" else midi_retrograde.apply)(song, params, state_version)
     if method in ("get_midi_clip_notes_extended", "set_midi_note_properties", "transform_midi_notes"):
         clip, timeline = _midi_clip(song, params["trackId"], params["clipId"])
         location = "arrangement" if timeline is not None else "session"
