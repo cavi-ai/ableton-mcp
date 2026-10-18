@@ -44,6 +44,7 @@ const resourceTemplates = resourceUris.filter((uri) => uri.includes("{"))
 const toolNames = [
   'get_parameter_automation_context', 're_enable_parameter_automation',
   'get_browser_preview_context', 'set_browser_preview',
+  'get_selected_parameter_context', 'set_selected_parameter',
   'get_midi_note_removal_context', 'remove_midi_notes',
   'get_midi_note_insertion_context', 'insert_midi_notes',
   'override_parameter_automation',

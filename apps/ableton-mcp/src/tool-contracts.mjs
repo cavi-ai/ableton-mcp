@@ -388,6 +388,8 @@ const mixerEnvelopePoint={oneOf:creationEnvelopePoint.oneOf.map(schema=>({...sch
     {targetDisplay:string('Volume/send only: finite native dB target, such as -24 dB or -6 dB. Pan requires value. Decimal point only; -inf is not accepted.')})}}))};
 
 const contracts = {
+  get_selected_parameter_context: {description:'Resolve Live’s selected native device or track/Return/Main mixer parameter without changing focus. Includes exact target IDs, control bounds/display/automation and selection token. None, unavailable and unresolved are distinct; chain mixers and hidden controls are unresolved. All profile.',inputSchema:empty},
+  set_selected_parameter: {description:'Edit the exact currently selected native control at one absolute value or finite unit display. Requires fresh selection token and unchanged identity/value/context; rejects active/unknown automation, recording/count-in and unsafe owners. Preserves focus/playback; partial work retained without rollback/replay. All profile.',inputSchema:{...guarded({expectedSelectionToken:{type:'string',minLength:1,maxLength:128},value:number('Exact native absolute value within observed bounds; quantized controls require an integer.'),targetDisplay:string('Continuous control target in finite Hz/kHz, ms/s, dB or %; decimal point only.')},['expectedSelectionToken']),oneOf:[{required:['value'],properties:{value:{}}},{required:['targetDisplay'],properties:{targetDisplay:{}}}]}},
   get_midi_note_removal_context: {description:'Read complete notes, timing, native target identity and safety for explicit note deletion from a Session/Arrangement MIDI clip. Read-only, up to 4096 notes without sampling; all profile.',inputSchema:clip},
   remove_midi_notes: {description:'Delete exact note IDs and their expression from one Session/Arrangement MIDI clip. Keeps other notes and timing; playback can continue. Rejects stale or unsafe sources. Reports actual partial work without rollback or reconstruction. Explicit deletion intent required; all profile.',inputSchema:guarded({trackId:ids.trackId,clipId:ids.clipId,noteIds:{...array({type:'integer',minimum:0},'Exact observed note IDs to delete; empty never means all.'),minItems:1,maxItems:4096,uniqueItems:true}},['trackId','clipId','noteIds'])},
   get_midi_note_insertion_context: {description:'Read complete notes, timing, native identity and edit safety for adding notes to one Session/Arrangement MIDI clip. Read-only, up to 4096 notes without sampling; all profile.',inputSchema:clip},
@@ -765,6 +767,7 @@ const contracts = {
 };
 
 const readOnlyTools = new Set([
+  'get_selected_parameter_context',
   'get_midi_note_removal_context',
   'get_midi_note_insertion_context',
   'get_browser_preview_context',
