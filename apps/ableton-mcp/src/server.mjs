@@ -44,6 +44,9 @@ const resourceTemplates = resourceUris.filter((uri) => uri.includes("{"))
 const toolNames = [
   'get_parameter_automation_context', 're_enable_parameter_automation',
   'get_browser_preview_context', 'set_browser_preview',
+  'get_selected_parameter_context', 'set_selected_parameter',
+  'get_midi_note_removal_context', 'remove_midi_notes',
+  'get_midi_note_insertion_context', 'insert_midi_notes',
   'override_parameter_automation',
   "group_tracks",
   "get_track_grouping_status",
@@ -136,6 +139,7 @@ const toolNames = [
   "list_clips",
   "get_midi_clip_notes",
   "get_midi_clip_notes_extended",
+  "get_midi_note_selection",
   "analyze_midi_clip_scale",
   "analyze_midi_clip_chords",
   "plan_scale_chord_progression",
@@ -206,6 +210,8 @@ const toolNames = [
   "delete_arrangement_clip",
   "move_arrangement_clip",
   "duplicate_arrangement_clip",
+  "copy_arrangement_clip_to_track",
+  "capture_session_scene",
   "create_audio_clip",
   "set_return_mixer",
   "list_factory_device_profiles",
@@ -319,6 +325,8 @@ const toolNames = [
   "set_device_parameter_display",
   "get_device_ab_context",
   "rename_arrangement_clip",
+  "reverse_audio_clip",
+  "get_device_activation_context",
   "copy_device_ab_slot",
   "select_device_ab_slot",
   "create_clip_parameter_envelope",
@@ -488,7 +496,8 @@ export async function runStdio({ service, toolProfile = "all", input = process.s
         pending.delete(request.id);
       }
     };
-    if (request.method === "tools/call" && request.params?.name === "run_production_task") {
+    if (request.method === "tools/call" && (request.params?.name === "run_production_task" ||
+        (request.params?.name === "advance_production_session" && request.params?.arguments?.action === "propose"))) {
       // Proposal work cannot mutate Live and must not hold the control queue.
       const task = dispatch();
       specialistTasks.add(task);

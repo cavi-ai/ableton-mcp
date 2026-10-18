@@ -38,7 +38,7 @@ Each runtime accepts `timeoutMs` from 1,000 to 180,000; the default is 60,000. A
 
 ## Keep the main tool catalog small
 
-Set `ABLETON_MCP_TOOL_PROFILE=producer` in the MCP server environment. This profile advertises six workflow tools plus `get_live_state`, `transport_stop` and `panic`. Existing `core` and `all` profiles remain available. The CLI's `call` command is independent of discovery profiles.
+Set `ABLETON_MCP_TOOL_PROFILE=producer` in the MCP server environment. This profile advertises nine workflow tools plus `get_live_state`, `transport_stop` and `panic`. Existing `core` and `all` profiles remain available. The CLI's `call` command is independent of discovery profiles.
 
 1. `get_production_context` captures consistent Live selection and musical context, returning a bounded preview and `contextRef`. It does not call a model.
 2. `record_production_note` stores explicit intent or feedback. Pass its `noteRef` in a later task's `contextRefs` to reuse it.
@@ -121,7 +121,26 @@ For subsequent operations, supply the preceding successful `receiptId` as `previ
 
 Receipts distinguish applied operations, known rejections, pending user action or playback, failed declared postconditions and unknown outcomes. Final-operation checks compare explicit fields from read-only tools; state readback alone does not establish musical quality. An execution error or unavailable readback is never automatically retried. Inspect Live and the receipt before continuing. Successful earlier operations are not rolled back if a later operation fails; multi-operation proposals are not transactions.
 
-## Private context
+## Continue a production session
+
+`start_production_session` saves a brief (`goal`, optional exact `scope`, `constraints`, `workflow` and caller `postconditions`) and the observed Set identity. Save the Set first: durable sessions use its file path to distinguish documents, so an unsaved Set or Save As requires a new session. `get_production_session` reads its bounded summary; omit `sessionId` to list twenty sessions in a project, following `nextOffset` for more. Full session revisions and their `previousRef` history are available through `read_production_artifact`.
+
+Call `advance_production_session` with `projectId`, `sessionId`, the latest `expectedRevision`, and one `action`:
+
+1. `propose` at `inspect` runs the creative specialist and saves alternatives. No Live operation executes.
+2. `choose` at `choose` requires an `alternativeIndex` from that saved proposal. It records an explicit selection.
+3. `propose` at `propose` runs the functional specialist with that selection and the saved brief. Its proposal determines the guarded operations.
+4. `apply` at `apply` plans the next operation with `expectedStateVersion`. After reviewing the plan, repeat with `dryRun: false`, its `confirmationToken` and `planHash`. Each operation retains the original tool's checks. The coordinator advances its operation cursor only for an applied receipt; it does not roll back earlier changes.
+5. At `audition`, use the existing playback/capture tools or listen in Live. `feedback` requires explicit user listening feedback in `text` and moves to `evaluate`. The session tool itself does not start playback or claim to hear audio.
+6. `evaluate` requires a `decision` of `accept` or `revise`. Acceptance records the user's decision separately from operation receipts and field checks. Revision returns to `inspect`, preserving feedback as selected context. `audibleQualityVerified` remains false.
+
+Use `resume` at the start of another conversation. It captures fresh Live context. A changed observed state discards the executable proposal and operation cursor; a different document path fails closed. Scoped observations compare the track mixer and device inventory, the exact clip's timing and MIDI notes or audio state, and the exact device's parameters. Clip and device scopes require their owning `trackId`. These observations detect relevant manual edits even when the bridge version is unchanged. They do not cover all possible Live properties or hidden plug-in state; native mutation guards still apply. Playback and selection alone do not define target content. Old artifacts remain available for inspection, but are never replayed automatically. A session stores exact scope IDs; it does not guess replacement targets after tracks or clips change.
+
+Every update requires the latest session revision. Publishing a revision uses an exclusive filesystem link so competing processes cannot both advance the same revision. Before execution, a pending revision is saved. If the process exits during execution or the outcome is uncertain, resume requires inspection and a new proposal. It cannot infer whether an interrupted operation ran from the missing reply.
+
+Session history stays in immutable private artifacts. Model requests select the current observation, chosen alternative and latest relevant feedback; they do not load the session's full history. The existing per-task model, read and byte limits also apply to session proposals. Both roles must be configured for this creative-then-functional flow; direct functional tasks remain available separately.
+
+## Artifact storage
 
 `ABLETON_MCP_PRODUCER_DIR` defaults to `~/.cavi/ableton-mcp/producer`. Each `projectId` has immutable, content-addressed JSON artifacts. Project IDs are namespaces, not authentication boundaries. Artifact files are created with owner-only permissions and checked against their SHA-256 IDs on read.
 

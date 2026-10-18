@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { constants, closeSync, fstatSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
+import { constants, closeSync, fstatSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const MAX_BYTES = 2_000_000;
@@ -60,5 +60,60 @@ export class ProducerArtifacts {
     const end = Math.min(offset + limit, text.length);
     return { artifactId, text: text.slice(offset, end), offset, totalCharacters: text.length,
       truncated: end < text.length, nextOffset: end < text.length ? end : null };
+  }
+
+  #sessionId(sessionId) {
+    if (typeof sessionId !== "string" || !/^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(sessionId)) throw new Error("invalid sessionId");
+    return sessionId;
+  }
+
+  createSession(projectId, value) {
+    return this.#sessionRevision(projectId, randomUUID(), 1, value);
+  }
+
+  session(projectId, sessionId) {
+    this.#sessionId(sessionId);
+    const prefix = `session-${sessionId}-`;
+    const revisions = readdirSync(this.#project(projectId)).filter(name => name.startsWith(prefix) && /^\d+\.json$/.test(name.slice(prefix.length)))
+      .map(name => Number(name.slice(prefix.length, -5)));
+    if (!revisions.length) throw new Error("session not found in project");
+    const revision = revisions.reduce((highest, item) => Math.max(highest, item), 0);
+    const path = join(this.#project(projectId), `${prefix}${revision}.json`);
+    let fd;
+    try {
+      fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+      const info = fstatSync(fd);
+      if (!info.isFile() || info.size > MAX_BYTES) throw new Error("invalid session revision");
+      const sessionRef = digest(readFileSync(fd, "utf8"));
+      const record = this.get(projectId, sessionRef);
+      if (record.kind !== "session" || record.value.sessionId !== sessionId || record.value.revision !== revision) throw new Error("session integrity check failed");
+      return { sessionId, sessionRef, value: record.value };
+    } finally { if (fd !== undefined) closeSync(fd); }
+  }
+
+  advanceSession(projectId, sessionId, expectedRevision, value) {
+    const current = this.session(projectId, sessionId);
+    if (current.value.revision !== expectedRevision) throw new Error("session revision conflict; read the current session");
+    return this.#sessionRevision(projectId, sessionId, expectedRevision + 1, { ...value, previousRef: current.sessionRef });
+  }
+
+  #sessionRevision(projectId, sessionId, revision, value) {
+    const saved = { ...value, sessionId, revision, updatedAt: new Date().toISOString() };
+    const sessionRef = this.put(projectId, "session", saved);
+    const directory = this.#project(projectId);
+    try { linkSync(join(directory, `${sessionRef}.json`), join(directory, `session-${sessionId}-${revision}.json`)); }
+    catch (error) {
+      if (error.code === "EEXIST") throw new Error("session revision conflict; read the current session");
+      throw error;
+    }
+    return { sessionId, sessionRef, value: saved };
+  }
+
+  sessions(projectId, offset = 0) {
+    const ids = [...new Set(readdirSync(this.#project(projectId)).map(name => /^session-([a-f0-9-]{36})-\d+\.json$/.exec(name)?.[1]).filter(Boolean))].sort();
+    return { sessions: ids.slice(offset, offset + 20).map(sessionId => {
+      const { value, sessionRef } = this.session(projectId, sessionId);
+      return { sessionId, sessionRef, revision: value.revision, phase: value.phase, goal: value.goal.slice(0, 200) };
+    }), nextOffset: offset + 20 < ids.length ? offset + 20 : null };
   }
 }
