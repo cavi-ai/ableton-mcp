@@ -66,6 +66,7 @@ It publishes 318 tools, 9 concrete resources, 13 resource templates and 69 promp
 - [Guarded mutations](docs/ableton-mcp/source/pages/guides/guarded-mutations.md) and [MIDI clip variations](docs/ableton-mcp/source/pages/guides/midi-clip-variations.md)
 - [Cancel agent work](docs/ableton-mcp/source/pages/guides/request-cancellation.md)
 - [Resume work after an interruption](docs/ableton-mcp/source/pages/guides/resume-session-work.md)
+- [Crop a MIDI phrase](docs/ableton-mcp/source/pages/guides/midi-crop.md)
 - [Create a playable musical sketch](docs/ableton-mcp/source/pages/guides/musical-sketch.md)
 - [Reverse a MIDI phrase](docs/ableton-mcp/source/pages/guides/midi-retrograde.md)
 - [Organize names and colors](docs/ableton-mcp/source/pages/guides/session-organization.md)

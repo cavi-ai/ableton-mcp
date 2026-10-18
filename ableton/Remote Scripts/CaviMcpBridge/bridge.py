@@ -4356,6 +4356,12 @@ def dispatch_request(song, request, state_version, application=None):
                     raise RuntimeError(f"audio clip edit failed: {error}; rollback failed: {rollback_error}; use Live undo") from error
                 raise
         return _audio_clip_state(song, track_id, clip_id, state_version + 1)
+    if method in ('get_midi_crop_context', 'crop_midi_clip'):
+        try:
+            from . import midi_crop
+        except ImportError:
+            import midi_crop
+        return (midi_crop.context if method == 'get_midi_crop_context' else midi_crop.apply)(song, params, state_version)
     if method == "crop_audio_clip":
         track_id, clip_id = params["trackId"], params["clipId"]
         clip, _ = _audio_clip(song, track_id, clip_id)

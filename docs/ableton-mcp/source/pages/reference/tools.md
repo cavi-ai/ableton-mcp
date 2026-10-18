@@ -307,7 +307,7 @@ The server publishes 318 tools. Mutations of the Live Set require `expectedState
 | `transport_stop` | Plan or stop Ableton transport playback. | `expectedStateVersion` |
 | `undo` | Plan or apply one guarded Ableton undo operation. | `expectedStateVersion` |
 
-## Destructive mutations (31)
+## Destructive mutations (32)
 
 | Tool | Description | Required arguments |
 |---|---|---|
