@@ -63,6 +63,7 @@ It publishes 318 tools, 9 concrete resources, 13 resource templates and 69 promp
 ## Documentation
 
 - [Overview](docs/ableton-mcp/source/pages/introduction/overview.md), [Installation](docs/ableton-mcp/source/pages/introduction/installation.md), [Quickstart](docs/ableton-mcp/source/pages/introduction/quickstart.md)
+- [Develop a Session scene](docs/ableton-mcp/source/pages/guides/session-scene-development.md)
 - [Guarded mutations](docs/ableton-mcp/source/pages/guides/guarded-mutations.md) and [MIDI clip variations](docs/ableton-mcp/source/pages/guides/midi-clip-variations.md)
 - [Repeat a phrase or play it once](docs/ableton-mcp/source/pages/guides/clip-phrase-loop.md)
 - [Cancel agent work](docs/ableton-mcp/source/pages/guides/request-cancellation.md)

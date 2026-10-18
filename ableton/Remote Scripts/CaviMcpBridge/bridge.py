@@ -5260,6 +5260,12 @@ def dispatch_request(song, request, state_version, application=None):
             return result
         else:
             raise ValueError("unsupported rename targetType")
+    if method == 'get_scene_duplication_context' or method == 'duplicate_session_object' and params.get('target',{}).get('targetType') == 'scene':
+        try:
+            from . import scene_duplication
+        except ImportError:
+            import scene_duplication
+        return scene_duplication.context(song,params,state_version) if method == 'get_scene_duplication_context' else scene_duplication.duplicate(song,params,state_version)
     if method == "duplicate_session_object":
         target = params["target"]
         if target["targetType"] == "clip":
@@ -5283,10 +5289,6 @@ def dispatch_request(song, request, state_version, application=None):
             song.duplicate_track(source_index)
             item = song.tracks[source_index + 1]
             item.name = target["name"]
-        elif target["targetType"] == "scene":
-            source_index = int(target["targetId"].removeprefix("scene-"))
-            song.duplicate_scene(source_index)
-            item = song.scenes[source_index + 1]
         else:
             raise ValueError("unsupported duplication targetType")
         return {"stateVersion": state_version + 1, "target": {
@@ -7373,7 +7375,8 @@ class SocketBridge:
                     self._defer_instrument_comparison(client, request, song, record)
                     return
                 if (request.get("method") == "set_transport_recording_context" and "currentSongTime" in request.get("params", {}).get("changes", {})) or request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state", "re_enable_parameter_automation", "override_parameter_automation", "set_mixer_panning", "jump_to_arrangement_cue_point") or (
-                        request.get("method") == "set_clip_timing" and "loop" in request.get("params", {}).get("changes", {})):
+                        request.get("method") == "set_clip_timing" and "loop" in request.get("params", {}).get("changes", {})) or (
+                        request.get("method") == "duplicate_session_object" and request.get("params", {}).get("target", {}).get("targetType") == "scene"):
                     self._defer_observed_mutation(client, request, song, record)
                     return
                 result = dispatch_request(
@@ -7436,9 +7439,9 @@ class SocketBridge:
     def _defer_observed_mutation(self, client, request, song, record=None):
         try:
             try:
-                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit
+                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication
             except ImportError:
-                import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit
+                import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication
             module, success_key = {
                 'return_tracks_to_arrangement': (arrangement_return, 'returned'),
                 'audition_arrangement_passage': (arrangement_audition, 'started'),
@@ -7449,6 +7452,7 @@ class SocketBridge:
                 'jump_to_arrangement_cue_point': (cue_jump, 'positionVerified'),
                 'set_transport_recording_context': (transport_seek, 'nativeReturned'),
                 'set_clip_timing': (clip_loop_edit, 'requestedChangesVerified'),
+                'duplicate_session_object': (scene_duplication, 'copyVerified'),
             }[request['method']]
             operation = module.begin(song, request.get("params", {}), self.state_version)
             self.state_version += 1
@@ -7466,7 +7470,7 @@ class SocketBridge:
                     result = module.complete(self.control_surface.song(), operation, self.state_version)
                 response = {"id": request.get("id"), "result": result}
             except Exception as failure:
-                if request['method'] == 'set_clip_timing':
+                if request['method'] in ('set_clip_timing', 'duplicate_session_object'):
                     result = module.unobserved(operation, self.state_version, failure)
                     response = {"id": request.get("id"), "result": result}
                 else:

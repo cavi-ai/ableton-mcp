@@ -3419,8 +3419,13 @@ export class ToolService {
     const index = observed.scenes.findIndex(({ id }) => id === args.targetId);
     if (index === -1) throw new Error(`unknown scene ${args.targetId}`);
     const source = observed.scenes[index];
+    const sceneCopyContext = await this.bridge.request('get_scene_duplication_context',{sceneId:source.id});
+    assertExpectedState(args,sceneCopyContext);
+    if(sceneCopyContext.sceneId!==source.id || sceneCopyContext.destinationId!==`scene-${index+1}` ||
+       !sceneCopyContext.identityToken || sceneCopyContext.scenes?.[index]?.name!==source.name || !Array.isArray(sceneCopyContext.tracks))
+      throw Error('updated native scene copy identity and complete Session material context required');
     return this.#confirmedMutation({
-      method: "duplicate_session_object", expectedStateVersion: args.expectedStateVersion,
+      method: "duplicate_session_object", expectedStateVersion: args.expectedStateVersion, sceneCopyContext,
       target: { targetType: "scene", targetId: source.id, name: source.name,
         destinationId: `scene-${index + 1}`, displaced: observed.scenes[index + 1] || null }
     }, args);
