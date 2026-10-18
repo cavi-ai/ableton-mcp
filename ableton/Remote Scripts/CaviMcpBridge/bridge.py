@@ -456,6 +456,23 @@ _arrangement_source_song = None
 _arrangement_source_identities = {}
 
 
+def _session_arrangement_placement(timing):
+    markers, loop = timing['markers'], timing['loop']
+    if not markers.get('supported') or markers.get('unit') != 'beats':
+        raise ValueError('Arrangement placement requires native beat markers')
+    start, end = markers['startBeats'], markers['endBeats']
+    if not all(math.isfinite(value) for value in (start, end, loop['startBeats'], loop['endBeats'])) or end <= start:
+        raise ValueError('Arrangement placement marker range is invalid')
+    period = loop['endBeats'] - loop['startBeats']
+    lead_in = max(0.0, loop['startBeats'] - start) if loop['enabled'] else 0.0
+    length = period + lead_in if loop['enabled'] else end - start
+    if not math.isfinite(length) or length <= 0 or (loop['enabled'] and period <= 0):
+        raise ValueError('Arrangement placement range must be finite and positive')
+    return {'unit': 'beats', 'lengthBeats': length, 'leadInBeats': lead_in,
+            'loopLengthBeats': period if loop['enabled'] else None,
+            'basis': 'loop-plus-lead-in' if loop['enabled'] else 'markers'}
+
+
 def _session_clip_arrangement_source(song, params, state_version):
     global _arrangement_source_song
     track_id, clip_id = params["trackId"], params["clipId"]
@@ -474,7 +491,8 @@ def _session_clip_arrangement_source(song, params, state_version):
     timing = _clip_timing(song, track_id, clip_id, state_version)
     for key in ("stateVersion", "trackId", "clipId", "location", "timeline"):
         timing.pop(key, None)
-    content = {"source": source, "timing": timing,
+    placement = _session_arrangement_placement(timing)
+    content = {"source": source, "timing": timing, 'placement': placement,
                "startMarker": float(getattr(clip, "start_marker", clip.loop_start)),
                "endMarker": float(getattr(clip, "end_marker", clip.loop_end)),
                "color": getattr(clip, "color", None)}
@@ -504,7 +522,7 @@ def _session_clip_arrangement_source(song, params, state_version):
         _arrangement_source_identities[key] = cached
     digest = hashlib.sha256(json.dumps(content, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
     return {"stateVersion": state_version, "trackId": track_id, "clipId": clip_id,
-            "source": source, "beforeArrangement": _arrangement_clips(song, track_id, state_version)["clips"],
+            "source": source, 'placement': placement, "beforeArrangement": _arrangement_clips(song, track_id, state_version)["clips"],
             "sourceGuard": {"identityToken": cached[1], "contentSha256": digest,
                             "type": "audio" if audio else "midi", "noteCount": note_count}}
 
@@ -5200,52 +5218,68 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "get_session_clip_arrangement_source":
         return _session_clip_arrangement_source(song, params, state_version)
     if method == "place_session_clip_in_arrangement":
+        before = _session_clip_arrangement_source(song, params, state_version)
+        if len(before['beforeArrangement']) >= 4096:
+            raise ValueError('Arrangement placement needs capacity below 4096 clips')
         if "sourceGuard" in params:
             if params.get("expectedStateVersion") != state_version:
                 raise ValueError("Arrangement placement state version changed")
-            if _session_clip_arrangement_source(song, params, state_version)["sourceGuard"] != params["sourceGuard"]:
+            if before["sourceGuard"] != params["sourceGuard"]:
                 raise ValueError("Arrangement placement source context changed after planning")
         track, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
-        if not slot.has_clip:
-            raise ValueError("source clip is empty")
-        current_source = next(clip for clip in _clip_list(song, params["trackId"], state_version)["clips"]
-                              if clip["id"] == params["clipId"])
-        if params.get("source") != current_source:
+        if params.get("source") != before["source"]:
             raise ValueError("source clip changed after planning")
-        if params.get("beforeArrangement") != _arrangement_clips(song, params["trackId"], state_version)["clips"]:
+        if params.get("beforeArrangement") != before["beforeArrangement"]:
             raise ValueError("Arrangement changed after planning")
-        if getattr(slot.clip, "is_audio_clip", False) and not slot.clip.warping:
-            raise ValueError("unwarped placement requires tempo-map duration conversion")
+        if "placement" in params and params["placement"] != before["placement"]:
+            raise ValueError("Arrangement placement range changed after planning")
         start = float(params["startBeats"])
-        end = start + float(slot.clip.length)
+        end = start + before["placement"]["lengthBeats"]
         if not math.isfinite(start) or start < 0 or not math.isfinite(end) or end <= start:
-            raise ValueError("startBeats and source length must define a finite positive interval")
+            raise ValueError("startBeats and source range must define a finite positive interval")
         if params.get("endBeats") != end:
             raise ValueError("placement end changed after planning")
         if any(start < clip.end_time and end > clip.start_time for clip in track.arrangement_clips):
             raise ValueError("placement would overlap existing Arrangement clips")
-        placed = None
-        song.begin_undo_step()
+        old_clips = tuple(track.arrangement_clips)
+        placed, attempted, returned, error = None, False, False, None
         try:
-            placed = track.duplicate_clip_to_arrangement(slot.clip, start)
-            if not (math.isclose(float(placed.start_time), start, rel_tol=0.0, abs_tol=1e-8)
-                    and math.isclose(float(placed.end_time), end, rel_tol=0.0, abs_tol=1e-8)):
-                raise ValueError("Live changed the placed clip interval")
-            if any(other != placed and start < other.end_time and end > other.start_time
-                   for other in track.arrangement_clips):
-                raise ValueError("placed clip overlaps another Arrangement clip")
-        except Exception as error:
-            if placed is not None:
-                try:
-                    track.delete_clip(placed)
-                except Exception as rollback_error:
-                    raise RuntimeError(f"placement failed: {error}; rollback failed: {rollback_error}; use Live undo") from error
-            raise
-        finally:
-            song.end_undo_step()
-        result = _arrangement_clips(song, params["trackId"], state_version + 1)
-        index = next(index for index, clip in enumerate(track.arrangement_clips) if clip == placed)
-        result["placedClip"] = _arrangement_clip_record(placed, params["trackId"], index)
+            with _undo_step(song):
+                if (_session_clip_arrangement_source(song, params, state_version) != before
+                        or tuple(track.arrangement_clips) != old_clips):
+                    raise ValueError("Arrangement placement context changed before copy")
+                attempted = True
+                placed = track.duplicate_clip_to_arrangement(slot.clip, start)
+                returned = True
+        except Exception as failure:
+            if not attempted: raise
+            error = str(failure)
+        result = {"stateVersion": state_version + 1, "trackId": params["trackId"], "clips": None}
+        placed_record, source_unchanged, retained_intervals, span_matches = None, None, None, False
+        try:
+            result = _arrangement_clips(song, params["trackId"], state_version + 1)
+            after = tuple(track.arrangement_clips)
+            index = next((i for i, clip in enumerate(after) if placed is not None and clip == placed), None)
+            if index is not None:
+                placed_record = _arrangement_clip_record(placed, params["trackId"], index)
+                span_matches = (math.isclose(placed_record["startBeats"], start, rel_tol=0.0, abs_tol=1e-8)
+                                and math.isclose(placed_record["endBeats"], end, rel_tol=0.0, abs_tol=1e-8))
+                retained = tuple(clip for clip in after if clip != placed)
+                retained_intervals = (retained == old_clips and
+                    [_arrangement_clip_record(clip, params["trackId"], i) for i, clip in enumerate(retained)]
+                    == before["beforeArrangement"])
+                if not span_matches and error is None:
+                    error = "Live changed the placed clip interval: expected [%s, %s], observed [%s, %s]" % (
+                        start, end, placed_record["startBeats"], placed_record["endBeats"])
+            current = _session_clip_arrangement_source(song, params, state_version + 1)
+            source_unchanged = current["sourceGuard"] == before["sourceGuard"]
+        except Exception as failure:
+            error = f"{error}; readback: {failure}" if error else f"readback: {failure}"
+        verified = returned and error is None and span_matches and retained_intervals is True and source_unchanged is True
+        if not verified and error is None: error = "native Arrangement placement readback differs from the plan"
+        result.update(placedClip=placed_record, copyRequested=attempted, nativeReturned=returned,
+                      placementVerified=verified, sourceContextUnchanged=source_unchanged,
+                      existingIntervalsPreserved=retained_intervals, placement=before["placement"], error=error)
         return result
     if method == "duplicate_clip":
         try:
