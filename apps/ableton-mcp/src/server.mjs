@@ -274,6 +274,7 @@ const toolNames = [
   "set_looper_state",
   "set_beat_repeat_enabled",
   "perform_beat_repeat_fill", "get_beat_repeat_fill", "finish_beat_repeat_fill",
+  'get_session_midi_overdub_context', 'set_session_midi_overdub',
   "hold_session_clip", "get_session_clip_hold", "finish_session_clip_hold",
   "set_beat_repeat_grid",
   "set_beat_repeat_interval",

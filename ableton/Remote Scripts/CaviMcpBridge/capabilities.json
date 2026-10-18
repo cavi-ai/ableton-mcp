@@ -63,6 +63,8 @@
   "get_track_volume_edit_context", "set_track_volume_db",
   "get_track_send_edit_context", "set_track_send_db",
   "get_session_recording_source",
+  "get_session_midi_overdub_context",
+  "set_session_midi_overdub",
   "get_clip_duplication_source",
   "get_session_clip_arrangement_source",
   "get_audio_capture_source", "capture_live_audio", "get_live_audio_capture", "finish_live_audio_capture",

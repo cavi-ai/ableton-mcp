@@ -3153,6 +3153,12 @@ def _clip_hold_module():
 
 
 def dispatch_request(song, request, state_version, application=None):
+    if request.get("method") in ("get_session_midi_overdub_context", "set_session_midi_overdub"):
+        try:
+            from .session_overdub import context, change
+        except ImportError:
+            from session_overdub import context, change
+        return (context if request["method"] == "get_session_midi_overdub_context" else change)(song, request.get("params", {}), state_version)
     if request.get("method") in ("get_arrangement_audio_import_target", "create_arrangement_audio_clip"):
         try:
             from .arrangement_audio import target, create
