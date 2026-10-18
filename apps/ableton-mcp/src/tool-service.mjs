@@ -23,6 +23,7 @@ import {browserPreview} from './browser-preview.mjs';
 import {selectedControl} from './selected-control.mjs';
 import {midiNoteRemoval} from './midi-note-removal.mjs';
 import {midiInsertion} from './midi-insertion.mjs';
+import {scaleMidiTime} from './midi-time-scaling.mjs';
 import {overrideParameterAutomation} from './parameter-override.mjs';
 import {setTrackSendDb} from "./track-send.mjs";
 import {setDeviceParameterDisplay} from "./parameter-display.mjs";
@@ -3983,6 +3984,7 @@ export class ToolService {
 
   async #transformMidiNotes(args) {
     requireExpectedState(args);
+    if (args.operation?.type === 'scaleTime') return scaleMidiTime(this.bridge, this.confirmations, args);
     const observed = await this.bridge.request("get_midi_clip_notes_extended", {
       trackId: args.trackId, clipId: args.clipId
     });

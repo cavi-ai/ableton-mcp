@@ -95,7 +95,8 @@
     "ableton/Remote Scripts/CaviMcpBridge/signal_activity.py",
     "ableton/Remote Scripts/CaviMcpBridge/selected_control.py",
     "ableton/Remote Scripts/CaviMcpBridge/midi_note_removal.py",
-    "ableton/Remote Scripts/CaviMcpBridge/midi_insertion.py"
+    "ableton/Remote Scripts/CaviMcpBridge/midi_insertion.py",
+    "ableton/Remote Scripts/CaviMcpBridge/midi_time_scaling.py"
   ],
   "workspaces": [
     "apps/*",
