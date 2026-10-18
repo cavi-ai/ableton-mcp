@@ -137,6 +137,7 @@ const toolNames = [
   "list_clips",
   "get_midi_clip_notes",
   "get_midi_clip_notes_extended",
+  "get_midi_note_selection",
   "analyze_midi_clip_scale",
   "analyze_midi_clip_chords",
   "plan_scale_chord_progression",
@@ -207,6 +208,8 @@ const toolNames = [
   "delete_arrangement_clip",
   "move_arrangement_clip",
   "duplicate_arrangement_clip",
+  "copy_arrangement_clip_to_track",
+  "capture_session_scene",
   "create_audio_clip",
   "set_return_mixer",
   "list_factory_device_profiles",
@@ -488,7 +491,8 @@ export async function runStdio({ service, toolProfile = "all", input = process.s
         pending.delete(request.id);
       }
     };
-    if (request.method === "tools/call" && request.params?.name === "run_production_task") {
+    if (request.method === "tools/call" && (request.params?.name === "run_production_task" ||
+        (request.params?.name === "advance_production_session" && request.params?.arguments?.action === "propose"))) {
       // Proposal work cannot mutate Live and must not hold the control queue.
       const task = dispatch();
       specialistTasks.add(task);

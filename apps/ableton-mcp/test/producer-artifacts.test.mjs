@@ -51,3 +51,19 @@ test("artifact reads and writes reject symlinked project directories and files",
   await symlink(join(outside, "data"), path);
   assert.throws(() => artifacts.get("song", id), /symlink|symbolic|ELOOP/);
 });
+
+
+test("session revisions survive reopening and reject concurrent stale writers", async t => {
+  const { artifacts, directory } = await store(t);
+  const created = artifacts.createSession("song", { goal: "Preserve the bass", phase: "inspect" });
+  const reopened = new ProducerArtifacts(directory);
+  assert.equal(reopened.session("song", created.sessionId).value.goal, "Preserve the bass");
+  const updated = reopened.advanceSession("song", created.sessionId, 1, { goal: "Preserve the bass", phase: "choose" });
+  assert.equal(updated.value.revision, 2);
+  assert.equal(updated.value.previousRef, created.sessionRef);
+  assert.throws(() => artifacts.advanceSession("song", created.sessionId, 1, { phase: "apply" }), /revision/);
+  assert.equal(artifacts.session("song", created.sessionId).value.phase, "choose");
+  assert.throws(() => reopened.session("other", created.sessionId), /not found/);
+  assert.equal(reopened.sessions("song").sessions[0].sessionId, created.sessionId);
+  assert.equal(artifacts.get("song", created.sessionRef).value.phase, "inspect");
+});
