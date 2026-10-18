@@ -4441,7 +4441,10 @@ class DispatchTest(unittest.TestCase):
         }}, 2)
         self.assertEqual(duplicated_track["target"]["destinationId"], "track-1")
         self.assertEqual(song.tracks[1].name, "Synth Layer")
+        copy_ids = {"trackId":"track-0","sourceClipId":"track-0:clip-0","targetClipId":"track-0:clip-1","expectedStateVersion":3}
+        copy_before = dispatch_request(song, {"method":"get_clip_duplication_source","params":copy_ids}, 3)
         duplicated = dispatch_request(song, {"method": "duplicate_session_object", "params": {
+            **copy_ids, "before":copy_before,
             "target": {"targetType": "clip", "trackId": "track-0", "targetId": "track-0:clip-0",
                        "destinationId": "track-0:clip-1", "name": "Loop"}
         }}, 3)

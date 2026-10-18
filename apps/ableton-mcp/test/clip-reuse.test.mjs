@@ -8,7 +8,7 @@ const args={trackId:'track-0',clipId:'track-0:clip-0',destinationTrackId:'track-
 function fixture(){
   let identity='pair-a',targetName='Piano',receiptTrack='track-1',verified=true,writes=0;
   const service=new ToolService({bridge:{request:async(method,params)=>{
-    if(method==='get_clip_duplication_source')return {stateVersion:4,trackId:'track-0',sourceClipId:'track-0:clip-0',targetTrackId:'track-1',targetClipId:'track-1:clip-2',
+    if(method==='get_clip_duplication_source')return {stateVersion:4,copyGuardVersion:2,trackId:'track-0',sourceClipId:'track-0:clip-0',targetTrackId:'track-1',targetClipId:'track-1:clip-2',
       sourceTrackName:'Strings',targetTrackName:targetName,identityToken:identity,source:{name:'Chords'},target:{id:'track-1:clip-2',hasClip:false}};
     assert.equal(method,'duplicate_clip');assert.equal(params.targetTrackId,'track-1');writes++;
     return {stateVersion:5,trackId:receiptTrack,sourceTrackId:'track-0',sourceClipId:'track-0:clip-0',copiedClipId:'track-1:clip-2',copyVerified:verified,clips:[]};
@@ -26,10 +26,16 @@ test('cross-track copy confirmation binds both exact owners and the destination 
   await assert.rejects(f.service.call('duplicate_clip',input));assert.equal(f.writes(),1);
 });
 
-test('copy receipts for another destination or unverified content are never accepted',async()=>{
-  for(const alter of [f=>f.receiptTrack('track-0'),f=>f.verified(false)]){
+test('copy receipts for another destination are refused',async()=>{
+  for(const alter of [f=>f.receiptTrack('track-0')]){
     const f=fixture(),plan=await f.service.call('duplicate_clip',args);alter(f);
     await assert.rejects(f.service.call('duplicate_clip',{...args,dryRun:false,confirmationToken:plan.confirmation.token,planHash:plan.confirmation.planHash}),/readback mismatch/);
     assert.equal(f.writes(),1);
   }
+});
+
+test('unverified copy observations remain available for reconciliation',async()=>{
+  const f=fixture(),plan=await f.service.call('duplicate_clip',args);f.verified(false);
+  const result=await f.service.call('duplicate_clip',{...args,dryRun:false,confirmationToken:plan.confirmation.token,planHash:plan.confirmation.planHash});
+  assert.equal(result.observed.copyVerified,false);assert.equal(f.writes(),1);
 });
