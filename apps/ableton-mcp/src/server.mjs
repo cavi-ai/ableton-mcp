@@ -88,6 +88,7 @@ const toolNames = [
   "open_live_set",
   "save_live_set",
   "export_audio_mix",
+  "export_audio_track",
   "export_midi_clip",
   "bounce_track_in_place",
   "save_native_device_preset",

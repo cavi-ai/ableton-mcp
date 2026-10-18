@@ -50,7 +50,7 @@ import {inspectProducerAudioBus} from "./producer-audio-bus.mjs";
 import {removeClipGroove, MacClipGrooveHost} from "./clip-groove-removal.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { MacLiveSetHost } from "./live-set-host.mjs";
-import {MacAudioExportHost,exportAudioMix} from "./audio-export.mjs";
+import {MacAudioExportHost,exportAudioMix,exportAudioTrack} from "./audio-export.mjs";
 import { CatalogService } from "./catalog-service.mjs";
 import { discoverExamples } from "./discovery-examples.mjs";
 import { LIVE_BROWSER_ROOTS } from "./browser-roots.mjs";
@@ -529,6 +529,7 @@ export class ToolService {
     if(name==='get_project_media')return projectMediaInventory(this.bridge,this.projectMediaHost);
     if(name==='collect_project_media')return collectProjectMedia(this.bridge,this.confirmations,this.projectMediaHost,args);
     if(name === "export_audio_mix")return exportAudioMix(this.bridge,this.confirmations,this.audioExportHost,args);
+    if(name === "export_audio_track")return exportAudioTrack(this.bridge,this.confirmations,this.audioExportHost,args);
     if(name === "group_tracks")return groupTracks(this.bridge,this.confirmations,this.trackGroupingHost,args);
     if(name === "get_track_grouping_status")return getTrackGroupingStatus(this.bridge,args);
     if(name === "ungroup_tracks")return ungroupTracks(this.bridge,this.confirmations,this.trackGroupingHost,args);

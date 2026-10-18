@@ -1,6 +1,6 @@
 import {execFile} from "node:child_process";
 import {promisify} from "node:util";
-import {realpath,lstat} from "node:fs/promises";
+import {realpath,lstat,mkdtemp,readdir,link,unlink,rmdir} from "node:fs/promises";
 import {createReadStream} from "node:fs";
 import {createHash} from "node:crypto";
 import {isAbsolute,dirname,basename,join} from "node:path";
@@ -27,8 +27,33 @@ export function exportSettings(args){
   return {start:coordinate(args.start,true),length:coordinate(args.length,false),sampleRate,bitDepth};
 }
 
-export async function exportAudioMix(bridge,confirmations,host,args){
+export function exportAudioMix(bridge,confirmations,host,args){
+  return exportAudio(bridge,confirmations,host,args,false);
+}
+
+export function exportAudioTrack(bridge,confirmations,host,args){
+  return exportAudio(bridge,confirmations,host,args,true);
+}
+
+function renderTarget(before,trackId){
+  const targets=before.renderTargets;
+  if(!Array.isArray(targets)||targets.length>512||!targets.length)throw Error('updated bridge audio output inventory required');
+  const ids=new Set();
+  for(const target of targets){
+    if(!target||typeof target.trackId!=='string'||!/^(track|return)-(0|[1-9]\d*)$/u.test(target.trackId)||
+       ids.has(target.trackId)||typeof target.name!=='string'||!target.name||typeof target.hasAudioOutput!=='boolean')
+      throw Error('duplicate, unknown or invalid audio output inventory');
+    ids.add(target.trackId);
+  }
+  const eligible=targets.filter(t=>t.hasAudioOutput),index=eligible.findIndex(t=>t.trackId===trackId);
+  if(index<0)throw Error('target must be an observed track or Return with audio output; use export_audio_mix for Main');
+  return {trackId,name:eligible[index].name,menuIndex:index+3,
+    menuTitles:['Main','All Individual Tracks','Selected Tracks Only',...eligible.map(t=>t.name)]};
+}
+
+async function exportAudio(bridge,confirmations,host,args,trackMode){
   if(!Number.isInteger(args.expectedStateVersion))throw Error("expectedStateVersion is required");
+  if(trackMode&&args.includeReturnMainEffects!==undefined&&typeof args.includeReturnMainEffects!=='boolean')throw Error('includeReturnMainEffects must be boolean');
   const readSource=async()=>{
     for(let attempt=0;;attempt++){
       try{return await bridge.request("get_audio_export_source",{});}
@@ -42,9 +67,10 @@ export async function exportAudioMix(bridge,confirmations,host,args){
   const settings=exportSettings(args),before=await readSource();
   if(!before.identityToken)throw Error("updated bridge audio export context required");
   if(before.stateVersion!==args.expectedStateVersion||before.setFingerprint!==args.expectedSetFingerprint)throw Error("audio export document or state version changed");
+  if(trackMode){settings.renderTarget=renderTarget(before,args.trackId);settings.includeReturnMainEffects=args.includeReturnMainEffects??false;}
   const appPath=host.appPathFor(before),destination=await host.destination(args.path);
-  const plan={method:"export_audio_mix",appPath,settings,destination,before,
-    warning:"Exports Main as stereo WAV through Live's native dialog. Includes current Session overrides and Main processing. Export preferences are updated. Note, device and automation contents are not bound; the mix controls and document are rechecked. No normalization, loop rendering, MP3, video or analysis file is requested. Existing files are never overwritten."};
+  const plan={method:trackMode?'export_audio_track':"export_audio_mix",appPath,settings,destination,before,
+    warning:(trackMode?`Exports the selected native track output as stereo WAV without solo or mute changes. Include Return and Main Effects: ${settings.includeReturnMainEffects}. Group output can overlap child exports; effects-inclusive files need not sum to the mix. `:"Exports Main as stereo WAV through Live's native dialog. Includes current Session overrides and Main processing. ")+"Current Session overrides and mute/solo state apply. Export preferences are updated. Note, device and automation contents are not bound; the mix controls and document are rechecked. No normalization, loop rendering, MP3, video or analysis file is requested. Existing files are never overwritten."};
   if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan)};
   if(args.planHash!==hashPlan(plan))throw Error("confirmation plan hash mismatch: export context changed");
   confirmations.consume(args.confirmationToken,args.planHash);
@@ -56,11 +82,13 @@ export async function exportAudioMix(bridge,confirmations,host,args){
   let observed;
   try{observed=await host.render(appPath,settings,destination,{beforeExport:recheck,beforeSave:recheck,signal:requestSignal()});}
   catch(error){return {dryRun:false,requested:plan,exportRequested:error.exportRequested??null,exportVerified:false,
-    dialogCleanup:error.dialogCleanup,limitation:`Native export did not verify completion; never replay blindly: ${error.message}`,
+    dialogCleanup:error.dialogCleanup,...(error.stagingDirectory?{stagingDirectory:error.stagingDirectory}:{}),limitation:`Native export did not verify completion; never replay blindly: ${error.message}`,
     pendingUserAction:error.dialogCleanup?.cancelled!==true};}
   if(!observed.uiComplete)return {dryRun:false,requested:plan,...observed,exportVerified:false,pendingUserAction:true};
+  if(trackMode&&observed.publicationVerified!==true)return {dryRun:false,requested:plan,...observed,artifactVerified:false,exportVerified:false,pendingUserAction:false};
   try{
     const evidence=await host.verify(destination,settings);
+    if(trackMode&&observed.stagingEvidence&&['sha256','size','dev','ino'].some(key=>evidence[key]!==observed.stagingEvidence[key]))throw Error('published track file differs from the verified native artifact');
     const contextUnchanged=hashPlan(await readSource())===hashPlan(before);
     return {dryRun:false,requested:plan,...observed,evidence,contextUnchanged,
       artifactVerified:evidence.verified===true,
@@ -99,8 +127,51 @@ export class MacAudioExportHost{
   async render(appPath,settings,destination,{beforeExport,beforeSave,signal}={}){
     if(this.busy)throw Object.assign(Error("another native audio export is active"),{exportRequested:false});
     this.busy=true;
-    try{return await this.renderOwned(appPath,settings,destination,{beforeExport,beforeSave,signal});}
+    try{return settings.renderTarget?await this.renderTrack(appPath,settings,destination,{beforeExport,beforeSave,signal}):await this.renderOwned(appPath,settings,destination,{beforeExport,beforeSave,signal});}
     finally{this.busy=false;}
+  }
+  async renderTrack(appPath,settings,destination,{beforeExport,beforeSave,signal}={}){
+    // Live appends the track name after the Save panel filename. Keep that
+    // output in an exclusive directory, then publish with a no-clobber link.
+    const directory=await mkdtemp(join(destination.parent.path,'.ableton-export-'));
+    const staged=await this.destination(join(directory,'audio.wav'));
+    const checkDirectory=async(empty=false)=>{
+      const info=await lstat(directory,{bigint:true});
+      if(!info.isDirectory()||await realpath(directory)!==directory||String(info.dev)!==staged.parent.dev||String(info.ino)!==staged.parent.ino)throw Error('native export staging directory changed');
+      const files=await readdir(directory,{withFileTypes:true});
+      if(empty&&files.length)throw Error('native export staging directory is no longer empty');
+      return files;
+    };
+    let observed;
+    try{
+      observed=await this.renderOwned(appPath,settings,staged,{
+        beforeExport:async()=>{await beforeExport();await checkDirectory(true);},
+        beforeSave:async()=>{await beforeSave();await checkDirectory(true);},signal});
+    }catch(error){error.stagingDirectory=directory;throw error;}
+    if(!observed.uiComplete)return {...observed,publicationVerified:false,stagingDirectory:directory};
+    try{
+      signal?.throwIfAborted();
+      const files=await checkDirectory();
+      if(files.length!==1||!files[0].isFile()||!files[0].name.toLowerCase().endsWith('.wav'))throw Error('expected exactly one native track WAV in staging');
+      const nativePath=join(directory,files[0].name),evidence=await this.verify({path:nativePath},settings);
+      if(hashPlan(await this.destination(destination.path))!==hashPlan(destination))throw Error('track export destination changed before publication');
+      await checkDirectory();
+      signal?.throwIfAborted();
+      await link(nativePath,destination.path);
+      const published=await lstat(destination.path,{bigint:true});
+      const parent=await lstat(destination.parent.path,{bigint:true});
+      if(!parent.isDirectory()||await realpath(destination.parent.path)!==destination.parent.path||String(parent.dev)!==destination.parent.dev||String(parent.ino)!==destination.parent.ino)throw Error('track export parent changed during publication');
+      if(!published.isFile()||String(published.dev)!==evidence.dev||String(published.ino)!==evidence.ino||String(published.size)!==evidence.size)throw Error('track export publication identity changed');
+      let stagingCleanup;
+      try{
+        const retained=await checkDirectory();
+        if(retained.length!==1||retained[0].name!==files[0].name)throw Error('staging contents changed');
+        const current=await lstat(nativePath,{bigint:true});
+        if(!current.isFile()||String(current.dev)!==evidence.dev||String(current.ino)!==evidence.ino)throw Error('staging file identity changed');
+        await unlink(nativePath);await rmdir(directory);stagingCleanup={removed:true};
+      }catch(error){stagingCleanup={removed:false,error:error.message,directory};}
+      return {...observed,publicationVerified:true,nativeFileName:files[0].name,stagingEvidence:evidence,stagingCleanup};
+    }catch(error){return {...observed,publicationVerified:false,stagingDirectory:directory,publicationError:error.message};}
   }
   async renderOwned(appPath,settings,destination,{beforeExport,beforeSave,signal}={}){
     const canonicalApp=await realpath(appPath),executable=await realpath(`${canonicalApp}/Contents/MacOS/Live`),processes=await this.liveSetHost.runningProcesses();
@@ -123,10 +194,11 @@ export class MacAudioExportHost{
       if(!prepared.prepared)throw Error(prepared.error??"native export preparation failed");
       await beforeExport();
       const opened=await dialog(exportScript,{...prepared,action:"commit"},signal);
-      if(!opened.exportPressed)throw Error(opened.error??"native Export button was not pressed");
+      if(!opened.exportPressed)throw Object.assign(Error(opened.error??"native Export button was not pressed"),{preserveDialog:opened.preserveDialog===true});
       exportPressed=true;
       save=await dialog(saveScript,{action:"adoptAudioExport",windowId:opened.saveWindowId,parent:destination.parent.path},signal);
       if(!save.prepared||save.purpose!=="Save Audio File As:")throw Error("native audio Save panel could not be identified");
+      if(settings.renderTarget&&(opened.trackSelectionVerified!==true||hashPlan(opened.renderedTarget)!==hashPlan(settings.renderTarget)))throw Error('native rendered-track selection was not verified');
       await beforeSave();
       saveAttempted=true;
       const committed=await dialog(saveScript,{...save,action:"commit",parent:destination.parent.path,parentIdentity:destination.parent,name:destination.name},signal);
@@ -136,12 +208,12 @@ export class MacAudioExportHost{
       while(Date.now()<deadline){
         signal?.throwIfAborted();
         const status=await dialog(exportScript,{action:"status"},signal);
-        if(status.uiComplete)return {exportRequested:true,uiComplete:true};
+        if(status.uiComplete)return {exportRequested:true,uiComplete:true,...(settings.renderTarget?{trackSelectionVerified:opened.trackSelectionVerified===true,renderedTarget:opened.renderedTarget,includeReturnMainEffects:settings.includeReturnMainEffects}:{})};
         await pause(500,undefined,{signal});
       }
       return {exportRequested:true,uiComplete:false,limitation:"Native rendering or a dialog remains unresolved; inspect Live and the destination before retrying."};
     }catch(error){
-      if(!saveAttempted){
+      if(!saveAttempted&&!error.preserveDialog){
         try{
           if(save?.prepared&&!saveClosed)await dialog(saveScript,{...save,action:"cancel"});
           if(!exportPressed||save?.prepared)await dialog(exportScript,{...prepared,action:"cancel"});
