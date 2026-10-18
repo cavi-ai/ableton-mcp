@@ -1350,7 +1350,7 @@ def _drum_random(seed):
     while True:
         state = (state + 0x6D2B79F5) & 0xffffffff
         value = ((state ^ (state >> 15)) * (1 | state)) & 0xffffffff
-        value = (value + (((value ^ (value >> 7)) * (61 | value)) & 0xffffffff)) ^ value
+        value = ((value + (((value ^ (value >> 7)) * (61 | value)) & 0xffffffff)) ^ value) & 0xffffffff
         yield ((value ^ (value >> 14)) & 0xffffffff) / 4294967296.0
 
 
@@ -5889,6 +5889,7 @@ def dispatch_request(song, request, state_version, application=None):
         if params.get("before") != current:
             raise ValueError("MIDI clip changed since observation")
         guarded_ratchet = params.get("operation") == "apply_midi_ratchet_pattern"
+        guarded_drum_edit = params.get("operation") == "edit_drum_pattern_clip"
         guarded_doubling = params.get("operation") == "apply_midi_chord_doubling"
         guarded_harmony = params.get("operation") == "apply_midi_diatonic_harmony"
         guarded_quality = params.get("operation") == "apply_midi_diatonic_chord_quality"
@@ -5967,14 +5968,31 @@ def dispatch_request(song, request, state_version, application=None):
                     "clipId": params["clipId"], "location": location, "timeline": timeline,
                     "lengthBeats": float(clip.length),
                     "removedNoteIds": remove_note_ids, "addedNoteIds": added_note_ids, "notes": readback}
-        if guarded_ratchet:
+        if guarded_ratchet or guarded_drum_edit:
             selected_ids = set(remove_note_ids)
             original_specs = tuple(_new_midi_note(note) for note in current["notes"] if note["noteId"] in selected_ids)
+            expected_replacement = expected_ratchet if guarded_ratchet else (
+                [note for note in current["notes"] if note["noteId"] not in selected_ids],
+                [{"velocityDeviation": 0, "releaseVelocity": 0, "probability": 1, **note} for note in new_notes])
+            operation_label = "ratchet" if guarded_ratchet else "drum edit"
             added_note_ids = []
             with _undo_step(song):
+                if guarded_drum_edit:
+                    resolved_clip, resolved_timeline = _midi_clip(song, params["trackId"], params["clipId"])
+                    if resolved_clip != clip or resolved_timeline != timeline:
+                        raise ValueError("drum edit target changed at undo entry")
+                    immediate = {**current, "lengthBeats": float(clip.length),
+                                 "notes": [_midi_note_record(note) for note in clip.get_all_notes_extended()]}
+                    if immediate != current or params["clipTiming"] != _clip_timing(
+                            song, params["trackId"], params["clipId"], state_version):
+                        raise ValueError("drum edit content or timing changed at undo entry")
+                    if planned_song_grid != {"tempoBpm": float(song.tempo), "timeSignature": {
+                            "numerator": int(song.signature_numerator), "denominator": int(song.signature_denominator)}}:
+                        raise ValueError("drum edit song grid changed at undo entry")
                 try:
-                    clip.remove_notes_by_id(tuple(remove_note_ids))
-                    added_note_ids = list(clip.add_new_notes(new_note_specs))
+                    if remove_note_ids:
+                        clip.remove_notes_by_id(tuple(remove_note_ids))
+                    added_note_ids = list(clip.add_new_notes(new_note_specs)) if new_note_specs else []
                     readback = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
                     by_readback_id = {note["noteId"]: note for note in readback}
                     exact = ("pitch", "velocity", "velocityDeviation", "releaseVelocity", "probability", "mute")
@@ -5983,25 +6001,26 @@ def dispatch_request(song, request, state_version, application=None):
                         all(by_readback_id[expected["noteId"]][field] == expected[field] for field in exact) and
                         abs(by_readback_id[expected["noteId"]]["start"] - expected["start"]) <= 2e-7 and
                         abs(by_readback_id[expected["noteId"]]["duration"] - expected["duration"]) <= 2e-7
-                        for expected in expected_ratchet[0])
+                        for expected in expected_replacement[0])
                     added = [by_readback_id.get(note_id) for note_id in added_note_ids]
-                    additions_match = len(added_note_ids) == len(expected_ratchet[1]) and \
+                    additions_match = len(added_note_ids) == len(expected_replacement[1]) and \
                         len(set(added_note_ids)) == len(added_note_ids) and not any(note is None for note in added) and all(
                             all(actual[field] == expected[field] for field in exact) and
                             abs(actual["start"] - expected["start"]) <= 2e-7 and
                             abs(actual["duration"] - expected["duration"]) <= 2e-7
-                            for actual, expected in zip(added, expected_ratchet[1]))
+                            for actual, expected in zip(added, expected_replacement[1]))
                     if not preserved_match or not additions_match or \
-                            len(readback) != len(expected_ratchet[0]) + len(expected_ratchet[1]):
-                        raise ValueError("native MIDI ratchet readback does not match the signed plan")
+                            len(readback) != len(expected_replacement[0]) + len(expected_replacement[1]):
+                        raise ValueError("native MIDI %s readback does not match the signed plan" % operation_label)
                 except Exception as mutation_error:
                     try:
                         if added_note_ids:
                             clip.remove_notes_by_id(tuple(added_note_ids))
-                        clip.add_new_notes(original_specs)
+                        if original_specs:
+                            clip.add_new_notes(original_specs)
                     except Exception as rollback_error:
-                        raise RuntimeError("MIDI ratchet failed and rollback was incomplete (%s); original error: %s" %
-                                           (rollback_error, mutation_error))
+                        raise RuntimeError("MIDI %s failed and rollback was incomplete (%s); original error: %s" %
+                                           (operation_label, rollback_error, mutation_error))
                     raise mutation_error
             return {
                 "stateVersion": state_version + 1, "trackId": params["trackId"],
