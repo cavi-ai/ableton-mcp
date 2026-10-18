@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 303 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 304 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (130)
 
@@ -139,7 +139,7 @@ The server publishes 303 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (143)
+## Mutations (144)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -167,6 +167,7 @@ The server publishes 303 tools. Mutations of the Live Set require `expectedState
 | `capture_live_audio` | Plan or start a bounded Live Resampling recording of current playback into a new muted, monitor-off audio track. Requires playback, recording off and no armed tracks. Only its capture is stopped/disarmed automatically, even after client disconnect. No isolated-stem, hardware or listener proof. | `expectedStateVersion`, `beats`, `name` |
 | `capture_midi_session` | Capture Live's hidden recent MIDI input into Session globally. Rechecks native identities, existing note/timing, routing, arms, monitoring and musical/recording state. May start playback/add scenes/change tempo. Known playing-clip changes require explicit allowExistingClipChanges. Read changedSlots and captureVerified; no exact buffer preview or automatic rollback. | `expectedStateVersion` |
 | `claim_nks_generation_job` | Atomically lease one pending NKS generation job for a worker. Returns its catalog preset without loading the plugin or saving a file. | `workerId`, `productSlug` |
+| `copy_arrangement_clip_to_track` | Copy one exact Arrangement MIDI or audio clip onto another compatible ordinary track at an explicit empty interval and name. Binds native owners, layouts and exposed source content, rechecks at undo entry and verifies actual copy readback. Retains partial work without rollback or replay. Does not copy devices, routing or hidden/envelope state; audio shares its source file. Updated bridge; all profile. | `expectedStateVersion`, `trackId`, `clipId`, `destinationTrackId`, `startBeats`, `name` |
 | `copy_device_ab_slot` | Request native copying of current device state over the other A/B slot. Requires explicit overwriteOtherSlot true; previous other-slot contents are not backed up. Binds native identity/current controls and refuses recording, frozen owner or active/unknown automation. Copy request is not hidden-state verification. No automatic rollback. | `expectedStateVersion`, `trackId`, `deviceId`, `overwriteOtherSlot` |
 | `correct_midi_clip_to_scale` | Plan or apply guarded pitch correction of exact chromatic MIDI notes into the current Live scale. Direction is explicit; equal nearest choices require an explicit tie break. Existing in-scale notes are never changed. | `expectedStateVersion`, `trackId`, `clipId`, `direction` |
 | `create_arrangement_cue_point` | Plan or create an Arrangement cue point at an exact beat position. | `expectedStateVersion`, `name`, `timeBeats` |

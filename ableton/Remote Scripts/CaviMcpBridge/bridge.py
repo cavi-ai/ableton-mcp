@@ -3145,6 +3145,12 @@ def _clip_hold_module():
 
 
 def dispatch_request(song, request, state_version, application=None):
+    if request.get("method") in ("get_arrangement_copy_source", "copy_arrangement_clip_to_track"):
+        try:
+            from .arrangement_copy import source, duplicate
+        except ImportError:
+            from arrangement_copy import source, duplicate
+        return (source if request["method"] == "get_arrangement_copy_source" else duplicate)(song, request.get("params", {}), state_version)
     if request.get('method') in ('get_device_preset_source', 'select_device_preset_source'):
         try:
             from .device_preset import source, select
@@ -5046,7 +5052,7 @@ def dispatch_request(song, request, state_version, application=None):
                 ):
                     raise ValueError("Live changed the duplicated clip interval")
                 if any(
-                    other is not duplicate
+                    other != duplicate
                     and float(duplicate.start_time) < float(other.end_time)
                     and float(duplicate.end_time) > float(other.start_time)
                     for other in track.arrangement_clips

@@ -206,6 +206,7 @@ const toolNames = [
   "delete_arrangement_clip",
   "move_arrangement_clip",
   "duplicate_arrangement_clip",
+  "copy_arrangement_clip_to_track",
   "create_audio_clip",
   "set_return_mixer",
   "list_factory_device_profiles",

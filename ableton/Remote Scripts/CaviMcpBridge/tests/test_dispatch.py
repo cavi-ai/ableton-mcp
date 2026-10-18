@@ -1854,6 +1854,57 @@ class DispatchTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "overlap"):
             dispatch_request(song, {"method": "duplicate_arrangement_clip", "params": {**params, "startBeats": 2.0}}, 4)
 
+    def test_arrangement_duplication_compares_native_clip_identity_across_wrappers(self):
+        class ClipProxy:
+            def __init__(self, native_id, start):
+                self.native_id = native_id
+                self.name = "Verse"
+                self.start_time, self.end_time = start, start + 4
+                self.is_audio_clip = False
+
+            def __eq__(self, other):
+                return isinstance(other, ClipProxy) and self.native_id == other.native_id
+
+        for real_collision in (False, True):
+            with self.subTest(real_collision=real_collision):
+                song = Song()
+                track = song.tracks[0]
+                source = ClipProxy("source", 0)
+                track.arrangement_clips = [source]
+                removed = []
+
+                def duplicate(clip, start):
+                    track.arrangement_clips.append(ClipProxy("copy", start))
+                    if real_collision:
+                        track.arrangement_clips.append(ClipProxy("other", start))
+                    return ClipProxy("copy", start)
+
+                def delete(clip):
+                    removed.append(clip.native_id)
+                    track.arrangement_clips.remove(clip)
+
+                track.duplicate_clip_to_arrangement = duplicate
+                track.delete_clip = delete
+                before = {"id": "track-0:arrangement-clip-0", "name": "Verse", "startBeats": 0.0,
+                          "endBeats": 4.0, "lengthBeats": 4.0, "type": "midi"}
+                request = {"method": "duplicate_arrangement_clip", "params": {
+                    "trackId": "track-0", "clipId": before["id"], "before": before, "startBeats": 8.0}}
+                if real_collision:
+                    with self.assertRaisesRegex(ValueError, "overlaps another Arrangement clip"):
+                        dispatch_request(song, request, 3)
+                    self.assertEqual(removed, ["copy"])
+                    self.assertEqual([clip.native_id for clip in track.arrangement_clips], ["source", "other"])
+                else:
+                    result = dispatch_request(song, request, 3)
+                    self.assertEqual(result["duplicatedClip"], {**before,
+                        "id": "track-0:arrangement-clip-1", "startBeats": 8.0, "endBeats": 12.0})
+                    self.assertEqual(result["sourceClip"], before)
+                    self.assertEqual(removed, [])
+                    self.assertEqual([clip.native_id for clip in track.arrangement_clips], ["source", "copy"])
+                self.assertIs(track.arrangement_clips[0], source)
+                self.assertEqual((source.start_time, source.end_time), (0, 4))
+                self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
     def test_arrangement_duplication_rejects_shifted_native_copy_and_reports_failed_cleanup(self):
         for cleanup_fails in (False, True):
             song = Song()

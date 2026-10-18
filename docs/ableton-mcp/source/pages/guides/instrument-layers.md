@@ -6,7 +6,7 @@ Ask for a direction such as “Keep this bass part and build sub, body and textu
 
 Resolve the exact requested track, clip and location before using selection as a fallback. Read complete MIDI notes, timing, source devices, mixer and routing. For Session material, append new ordinary MIDI tracks and copy the source with `duplicate_clip` into verified empty slots. Keep the original instrument and track intact. Re-read each copy's note IDs, and compare its stored notes and timing while allowing newly assigned IDs.
 
-An Arrangement passage cannot be copied directly onto a different track with these tools. Track duplication through `duplicate_session_object` copies all Session and Arrangement material and devices, and shifts later IDs. Use it only with explicit full-track scope, then re-resolve every reference and replace devices only on the owned alternative. Report that boundary when the user wants only one passage; do not silently duplicate the entire track.
+For an Arrangement passage, use `copy_arrangement_clip_to_track` with the exact source ID, compatible layer track, explicit name and a nonoverlapping destination interval. It preserves the source and leaves destination processing intact; verify `copyVerified`, `sourcePreserved`, `destinationRetained` and actual notes/timing. See [clip reuse](clip-reuse.md). Do not duplicate the whole track or convert to Session when only the passage is requested.
 
 ## Build a shared audio bus
 
