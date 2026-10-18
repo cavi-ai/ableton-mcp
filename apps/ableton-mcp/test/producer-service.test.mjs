@@ -578,3 +578,133 @@ test("listening feedback informs both specialists when the user requests another
     { action: "propose" }, { action: "choose", alternativeIndex: 0 }, { action: "propose" }]) session = await advance(args);
   for (const packet of packets.slice(-2)) assert.ok(packet.context.some(item => item.kind === "feedback" && item.text.includes("Keep the syncopation")));
 });
+
+test('durable Return and Main sessions capture the exact bus and resume after owned edits',async t=>{
+ for(const owner of ['return-0','master']){
+  const {service,base,artifacts,packets}=await setup(t,()=>response({alternatives:[{name:'Keep',description:'Preserve this bus.'}]}));
+  let own=.8,other=.7;
+  const original=base.call.bind(base);
+  base.call=async(name,args)=>{
+   if(name==='get_track_mixer')throw Error('ordinary mixer read must not target a bus');
+   if(name==='get_set_mixer')return {stateVersion:1,master:{volume:{value:owner==='master'?own:.9}},
+    returns:[{id:'return-0',name:'Reverb',volume:{value:owner==='return-0'?own:.8}},{id:'return-1',name:'Delay',volume:{value:other}}]};
+   if(name==='get_return_routing')return {returnTrackId:args.returnTrackId,output:{channel:{id:'1/2'}}};
+   if(name==='list_devices')return {trackId:args.trackId,devices:[{id:args.trackId+':device-0',name:'Effect'}]};
+   return original(name,args);
+  };
+  let session=await service.call('start_production_session',{projectId:'song',goal:'Refine this bus',scope:{trackId:owner,deviceId:owner+':device-0'}});
+  const observed=artifacts.get('song',session.targetRef).value.observations;
+  assert.equal(observed.mixer.volume.value,.8);assert.equal(observed.devices.trackId,owner);
+  if(owner==='return-0')assert.equal(observed.routing.returnTrackId,owner);
+  const advance=args=>service.call('advance_production_session',{projectId:'song',sessionId:session.sessionId,expectedRevision:session.revision,...args});
+  session=await advance({action:'propose'});assert.equal(session.phase,'choose');
+  const count=packets.length;other=.2;
+  session=await advance({action:'resume'});assert.equal(session.stateChanged,false);assert.equal(session.phase,'choose');
+  own=.4;session=await advance({action:'resume'});
+  assert.equal(session.stateChanged,true);assert.equal(session.phase,'inspect');assert.equal(session.taskId,undefined);
+  assert.equal(packets.length,count);
+ }
+});
+
+test('durable session routing edits invalidate proposals even at the same state version',async t=>{
+ for(const owner of ['track-0','return-0','master']){
+  const {service,base}=await setup(t,()=>response({alternatives:[{name:'Keep',description:'Retain the selected path.'}]}));
+  let output='1/2';const original=base.call.bind(base);
+  base.call=async(name,args)=>{
+   if(name==='get_set_mixer')return {master:{outputRouting:{channel:{id:output}}},returns:[{id:'return-0',volume:{value:.8}}]};
+   if(name==='get_track_routing'||name==='get_return_routing')return {output:{channel:{id:output}}};
+   return original(name,args);
+  };
+  let session=await service.call('start_production_session',{projectId:'song',goal:'Refine routing',scope:{trackId:owner}});
+  session=await service.call('advance_production_session',{projectId:'song',sessionId:session.sessionId,expectedRevision:session.revision,action:'propose'});
+  output='3/4';session=await service.call('advance_production_session',{projectId:'song',sessionId:session.sessionId,expectedRevision:session.revision,action:'resume'});
+  assert.equal(session.phase,'inspect');assert.equal(session.stateChanged,true);assert.equal(session.taskId,undefined);
+ }
+});
+
+test('invalid durable owners and bus clip scopes fail before observations or model calls',async t=>{
+ for(const scope of [{trackId:'track-00'},{trackId:'return--1'},{trackId:'all'},
+  {trackId:'master',clipId:'master:clip-0'},{trackId:'return-0',clipId:'return-0:clip-0'}]){
+  const {service,calls,packets}=await setup(t,()=>response());
+  await assert.rejects(service.call('start_production_session',{projectId:'song',goal:'Inspect',scope}),/scope|owner|ordinary/);
+  assert.equal(calls.length,0);assert.equal(packets.length,0);
+ }
+});
+
+test('missing or changing bus observations cannot create a durable target',async t=>{
+ for(const mode of ['missing','changing']){
+  const {service,base}=await setup(t,()=>response());const original=base.call.bind(base);let reads=0;
+  base.call=async(name,args)=>name==='get_set_mixer'?{master:{},returns:mode==='missing'?[]:[{id:'return-0',volume:{value:++reads}}]}:original(name,args);
+  await assert.rejects(service.call('start_production_session',{projectId:'song',goal:'Inspect',scope:{trackId:'return-0'}}),/Return|changed/);
+ }
+});
+
+test('discovered shared mixer proposals retain the exact declared owner scope',async t=>{
+ for(const [owner,tool,args,allowed] of [
+  ['return-0','set_return_mixer',{returnTrackId:'return-0',mute:true},true],
+  ['return-0','set_return_mixer',{returnTrackId:'return-1',mute:true},false],
+  ['return-0','set_master_mixer',{pan:.2},false],
+  ['master','set_master_mixer',{pan:.2},true],
+  ['master','set_return_mixer',{returnTrackId:'return-0',mute:true},false],
+  ['track-0','set_master_mixer',{pan:.2},false]]){
+  const {service,calls}=await setup(t,packet=>packet.progress.turn===1?
+   response({reads:[{tool:'discover_production_tools',args:{query:tool,kind:'operation'}}]}):response({operations:[{tool,args}]}));
+  const request=service.call('run_production_task',{projectId:'song',goal:'Propose one explicitly scoped mixer change',roles:'functional',scope:{trackId:owner}});
+  if(allowed)assert.equal((await request).operationCount,1);else await assert.rejects(request,/scope/);
+  assert.equal(calls.some(call=>call.name===tool),false);
+ }
+});
+
+test('explicit native verification failures stop durable execution despite passing field checks',async t=>{
+ const {service,base,artifacts}=await setup(t,packet=>response(packet.role==='creative'?
+  {alternatives:[{name:'Try',description:'Apply one guarded change.'}]}:{operations:[{tool:'set_tempo',args:{tempo:100}}]}));
+ const original=base.call.bind(base);
+ base.call=async(name,args)=>{
+  const result=await original(name,args);
+  return name==='set_tempo'&&args.dryRun===false?{...result,observed:{verified:false,writeRequested:true,nativeReturned:true,
+   targetRetained:true,contextPreserved:false,error:'unrequested context changed'}}:result;
+ };
+ let session=await service.call('start_production_session',{projectId:'song',goal:'Apply one guarded change',
+  postconditions:[{tool:'get_live_state',args:{},path:['tempo'],expected:100}]});
+ const advance=args=>service.call('advance_production_session',{projectId:'song',sessionId:session.sessionId,expectedRevision:session.revision,...args});
+ for(const args of [{action:'propose'},{action:'choose',alternativeIndex:0},{action:'propose'}])session=await advance(args);
+ const plan=await advance({action:'apply',expectedStateVersion:1});
+ session=await advance({action:'apply',expectedStateVersion:1,dryRun:false,confirmationToken:plan.operation.confirmationToken,planHash:plan.operation.planHash});
+ assert.equal(session.operation.checks[0].matches,true);assert.equal(session.operation.status,'outcome_unknown');
+ assert.equal(session.operation.nativeVerificationFailed,true);assert.equal(session.phase,'needs_inspection');
+ assert.equal(session.operationIndex,0);
+ assert.equal(artifacts.get('song',session.receiptId).value.nativeVerificationFailed,true);
+ await assert.rejects(advance({action:'apply',expectedStateVersion:2}),/phase/);
+});
+
+test('raw and wrapped explicit native failures cannot become applied receipts',async t=>{
+ for(const wrapped of [false,true])for(const failure of [{verified:false},{targetRetained:false},{contextPreserved:false},{writeRequested:true,nativeReturned:false}]){
+  const {service,base,artifacts}=await setup(t,()=>response({operations:[{tool:'set_tempo',args:{tempo:100}}]}));
+  const original=base.call.bind(base);
+  base.call=async(name,args)=>{
+   const result=await original(name,args);
+   return name==='set_tempo'&&args.dryRun===false?(wrapped?{...result,observed:failure}:{...result,...failure}):result;
+  };
+  const task=await service.call('run_production_task',{projectId:'song',goal:'Apply one guarded change',roles:'functional'});
+  const args={projectId:'song',taskId:task.taskId,operationIndex:0,expectedStateVersion:1};
+  const plan=await service.call('apply_production_operation',args);
+  const result=await service.call('apply_production_operation',{...args,dryRun:false,confirmationToken:plan.confirmationToken,planHash:plan.planHash});
+  assert.equal(result.status,'outcome_unknown');assert.equal(result.nativeVerificationFailed,true);
+  const saved=artifacts.get('song',result.resultRef).value;
+  assert.deepEqual(wrapped?saved.observed:Object.fromEntries(Object.keys(failure).map(key=>[key,saved[key]])),failure);
+ }
+});
+
+test('an outer failure cannot be hidden by a positive observed native receipt',async t=>{
+ const {service,base}=await setup(t,()=>response({operations:[{tool:'set_tempo',args:{tempo:100}}]}));
+ const original=base.call.bind(base);
+ base.call=async(name,args)=>{
+  const result=await original(name,args);
+  return name==='set_tempo'&&args.dryRun===false?{...result,verified:false,observed:{verified:true}}:result;
+ };
+ const task=await service.call('run_production_task',{projectId:'song',goal:'Apply one guarded change',roles:'functional'});
+ const args={projectId:'song',taskId:task.taskId,operationIndex:0,expectedStateVersion:1};
+ const plan=await service.call('apply_production_operation',args);
+ const result=await service.call('apply_production_operation',{...args,dryRun:false,confirmationToken:plan.confirmationToken,planHash:plan.planHash});
+ assert.equal(result.status,'outcome_unknown');assert.equal(result.nativeVerificationFailed,true);
+});

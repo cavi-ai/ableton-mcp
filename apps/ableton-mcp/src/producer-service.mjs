@@ -24,6 +24,12 @@ const identity = value => ({ stateVersion: value.stateVersion, setFingerprint: v
 const sameState = (left, right) => left.stateVersion === right.stateVersion && left.setFingerprint === right.setFingerprint;
 const eligibleOperation = name => !Object.hasOwn(producerToolContracts, name) &&
   Boolean(toolContracts[name]?.inputSchema.properties.expectedStateVersion && toolContracts[name]?.inputSchema.properties.dryRun);
+function validateSessionScope(scope = {}) {
+  if (scope.trackId !== undefined && !/^(?:master|(?:track|return)-(?:0|[1-9][0-9]*))$/.test(scope.trackId))
+    throw new Error("session scope requires a canonical ordinary, Group, Return or Main owner");
+  if ((scope.clipId || scope.deviceId) && !scope.trackId) throw new Error("clip and device session scopes require trackId");
+  if (scope.clipId && !scope.trackId.startsWith("track-")) throw new Error("clip session scope requires an ordinary track owner");
+}
 function operationSchema(name) {
   const schema = structuredClone(toolContracts[name].inputSchema);
   for (const key of executionFields) delete schema.properties[key];
@@ -56,7 +62,7 @@ export class ProducerService {
     if (name === "get_production_session") return this.sessions.get(args);
     if (name === "advance_production_session") return this.sessions.advance(args);
     if (name === "start_production_session") {
-      if ((args.scope?.clipId || args.scope?.deviceId) && !args.scope.trackId) throw new Error("clip and device session scopes require trackId");
+      validateSessionScope(args.scope);
       if (args.postconditions) this.#validatePostconditions(args.postconditions, args.scope || {});
       if (args.workflow) getProducerWorkflow({ workflow: args.workflow.name, arguments: args.workflow.arguments });
       return this.sessions.start(args);
@@ -96,13 +102,22 @@ export class ProducerService {
   }
 
   async #sessionContext(projectId, scope = {}) {
+    validateSessionScope(scope);
     const observed = await this.#context(projectId);
     const live = this.artifacts.get(projectId, observed.contextRef).value.live;
     if (!live.filePath) throw new Error("Save the Live Set before starting or resuming a durable production session");
     const snapshot = async () => {
       const values = {};
       if (scope.trackId) {
-        values.mixer = await this.service.call("get_track_mixer", { trackId: scope.trackId });
+        if (scope.trackId === "master" || scope.trackId.startsWith("return-")) {
+          const buses = await this.service.call("get_set_mixer", {});
+          values.mixer = scope.trackId === "master" ? buses.master : buses.returns?.find(row => row.id === scope.trackId);
+          if (!values.mixer) throw new Error(`session Main or Return owner is unavailable: ${scope.trackId}`);
+          if (scope.trackId !== "master") values.routing = await this.service.call("get_return_routing", {returnTrackId:scope.trackId});
+        } else {
+          values.mixer = await this.service.call("get_track_mixer", { trackId: scope.trackId });
+          values.routing = await this.service.call("get_track_routing", { trackId: scope.trackId });
+        }
         values.devices = await this.service.call("list_devices", { trackId: scope.trackId });
       }
       if (scope.clipId) {
@@ -164,9 +179,13 @@ export class ProducerService {
     }
   }
 
-  #scope(args, scope) {
+  #scope(args, scope, tool) {
     for (const key of ["trackId", "clipId", "deviceId"])
       if (scope[key] && args[key] && args[key] !== scope[key]) throw new Error(`specialist ${key} is outside task scope`);
+    if (scope.trackId && args.returnTrackId && args.returnTrackId !== scope.trackId)
+      throw new Error("specialist Return owner is outside task scope");
+    if (scope.trackId && tool === "set_master_mixer" && scope.trackId !== "master")
+      throw new Error("specialist Main mixer is outside task scope");
   }
 
   #validateProposal(result, role, scope, allowedReads = readNames, allowedOperations = operationNames) {
@@ -181,7 +200,7 @@ export class ProducerService {
     for (const operation of result.operations) {
       if (!allowedOperations.includes(operation.tool) || !eligibleOperation(operation.tool))
         throw new Error(`specialist operation is not allowed: ${operation.tool}`);
-      this.#scope(operation.args, scope);
+      this.#scope(operation.args, scope, operation.tool);
       validateToolArguments(operation.tool, { ...operation.args, expectedStateVersion: 1 });
     }
     for (const check of result.checks) this.#validateRead(check, scope, allowedReads);
@@ -380,11 +399,14 @@ export class ProducerService {
       }
       after = await this.#live();
     } catch (error) { observationError = error.message; }
-    const status = observationError ? "outcome_unknown" : value.pendingUserAction ? "pending_user_action"
+    const nativeVerificationFailed = [value,value?.observed].some(native=>native?.verified === false || native?.targetRetained === false ||
+      native?.contextPreserved === false || (native?.writeRequested === true && native?.nativeReturned === false));
+    const nativeMetadata = nativeVerificationFailed ? {nativeVerificationFailed:true} : {};
+    const status = observationError || nativeVerificationFailed ? "outcome_unknown" : value.pendingUserAction ? "pending_user_action"
       : value.playbackVerified === false ? "pending_postconditions"
       : checks.some(check => !check.matches) || value.saved === false || value.opened === false ? "postconditions_failed" : "applied";
-    const receiptId = this.artifacts.put(projectId, "receipt", { taskId, operationIndex, status, ...checkMetadata, after, checks, resultRef, observationError });
-    return { taskId, operationIndex, status, ...checkMetadata, receiptId, resultRef, ...(after ? identity(after) : {}), checks,
+    const receiptId = this.artifacts.put(projectId, "receipt", { taskId, operationIndex, status, ...checkMetadata, ...nativeMetadata, after, checks, resultRef, observationError });
+    return { taskId, operationIndex, status, ...checkMetadata, ...nativeMetadata, receiptId, resultRef, ...(after ? identity(after) : {}), checks,
       verification: checks.length ? "declared_field_checks" : "operation_response_and_state_readback", audibleQualityVerified: false };
   }
 }
