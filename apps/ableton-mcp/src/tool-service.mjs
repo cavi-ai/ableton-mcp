@@ -2535,6 +2535,7 @@ export class ToolService {
     assertExpectedState(args, observed);
     const changes = {};
     let launchEditContext;
+    let muteEditContext;
     if (args.launchMode !== undefined) {
       if (observed.location !== "session" || observed.launchMode?.supported !== true) throw new Error("Session clip launch mode is unavailable");
       changes.launchMode = normalizeChoice(args.launchMode, "launchMode", observed.launchMode.choices);
@@ -2577,6 +2578,11 @@ export class ToolService {
       if (typeof args.mute !== "boolean") throw new Error("mute must be boolean");
       if (observed.mute?.supported !== true) throw new Error("clip mute is unavailable");
       changes.mute = args.mute;
+      muteEditContext = await this.bridge.request("get_clip_mute_edit_context", {trackId:args.trackId,clipId:args.clipId});
+      assertExpectedState(args, muteEditContext);
+      if (typeof muteEditContext.identityToken !== 'string' || !muteEditContext.identityToken ||
+          muteEditContext.trackId !== args.trackId || muteEditContext.clipId !== args.clipId ||
+          muteEditContext.muted !== observed.mute.enabled) throw new Error('updated native clip mute context required');
     }
     if (args.editorGrid !== undefined) {
       if (!args.editorGrid || typeof args.editorGrid !== "object" || Array.isArray(args.editorGrid)) throw new Error("editorGrid must be an object");
@@ -2600,7 +2606,8 @@ export class ToolService {
     return this.#confirmedMutation({
       method: "set_clip_timing", trackId: args.trackId, clipId: args.clipId,
       expectedStateVersion: args.expectedStateVersion, before: observed, changes,
-      ...(launchEditContext ? {launchEditContext} : {})
+      ...(launchEditContext ? {launchEditContext} : {}),
+      ...(muteEditContext ? {muteEditContext} : {})
     }, args);
   }
 
