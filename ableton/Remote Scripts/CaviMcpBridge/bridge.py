@@ -335,8 +335,8 @@ def _clip_timing(song, track_id, clip_id, state_version):
         "location": "arrangement" if timeline is not None else "session", "timeline": timeline,
         "loop": loop,
         "markers": {"supported": True, "unit": "seconds" if unwarped_audio else "beats",
-                    "startSeconds" if unwarped_audio else "startBeats": float(clip.start_marker),
-                    "endSeconds" if unwarped_audio else "endBeats": float(clip.end_marker)}
+                    "startSeconds" if unwarped_audio else "startBeats": float(clip.loop_start if unwarped_audio else clip.start_marker),
+                    "endSeconds" if unwarped_audio else "endBeats": float(clip.loop_end if unwarped_audio else clip.end_marker)}
         if hasattr(clip, "start_marker") and hasattr(clip, "end_marker") else {"supported": False},
         "timeSignature": {"numerator": int(clip.signature_numerator), "denominator": int(clip.signature_denominator)},
         "launchQuantization": _enum_record(clip.launch_quantization, CLIP_QUANTIZATION_NAMES),
@@ -403,8 +403,8 @@ def _audio_clip_state(song, track_id, clip_id, state_version):
             for marker in getattr(clip, "warp_markers", ())
         ]},
         "markers": {"unit": "beats" if clip.warping else "seconds",
-                    "startBeats" if clip.warping else "startSeconds": float(clip.start_marker),
-                    "endBeats" if clip.warping else "endSeconds": float(clip.end_marker)},
+                    "startBeats" if clip.warping else "startSeconds": float(clip.start_marker if clip.warping else clip.loop_start),
+                    "endBeats" if clip.warping else "endSeconds": float(clip.end_marker if clip.warping else clip.loop_end)},
         "loop": {"enabled": bool(clip.looping), "unit": "beats" if clip.warping else "seconds",
                  "startBeats" if clip.warping else "startSeconds": float(clip.loop_start),
                  "endBeats" if clip.warping else "endSeconds": float(clip.loop_end)},
@@ -4252,8 +4252,8 @@ def dispatch_request(song, request, state_version, application=None):
         if requested_markers:
             if "warping" in changes or not requested_markers.issubset({"startMarker" + suffix, "endMarker" + suffix}):
                 raise ValueError("marker units must match current warping; change warping separately")
-            start = _change_value(changes["startMarker" + suffix]) if "startMarker" + suffix in changes else clip.start_marker
-            end = _change_value(changes["endMarker" + suffix]) if "endMarker" + suffix in changes else clip.end_marker
+            start = _change_value(changes["startMarker" + suffix]) if "startMarker" + suffix in changes else (clip.start_marker if clip.warping else clip.loop_start)
+            end = _change_value(changes["endMarker" + suffix]) if "endMarker" + suffix in changes else (clip.end_marker if clip.warping else clip.loop_end)
             if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start:
                 raise ValueError("invalid audio marker interval")
         writes = []
@@ -4277,12 +4277,13 @@ def dispatch_request(song, request, state_version, application=None):
                         else:
                             write("loop_start", start)
                             write("loop_end", end)
-                    if start >= clip.end_marker:
-                        write("end_marker", end)
-                        write("start_marker", start)
-                    else:
-                        write("start_marker", start)
-                        write("end_marker", end)
+                    if clip.warping:
+                        if start >= clip.end_marker:
+                            write("end_marker", end)
+                            write("start_marker", start)
+                        else:
+                            write("start_marker", start)
+                            write("end_marker", end)
             except Exception as error:
                 try:
                     for attribute, previous in reversed(writes):
@@ -4298,7 +4299,7 @@ def dispatch_request(song, request, state_version, application=None):
             raise ValueError("audio clip identity or state changed")
         if not callable(getattr(clip, "crop", None)):
             raise ValueError("native audio crop API required")
-        start, end = (clip.loop_start, clip.loop_end) if clip.looping else (clip.start_marker, clip.end_marker)
+        start, end = (clip.loop_start, clip.loop_end) if clip.looping or not clip.warping else (clip.start_marker, clip.end_marker)
         if not math.isfinite(start) or not math.isfinite(end) or end <= start:
             raise ValueError("invalid audio crop interval")
         with _undo_step(song):

@@ -2296,8 +2296,10 @@ test("audio clip state exposes warp pitch gain and markers with guarded changes"
   assert.equal(dry.plan.changes.warpMode.value, 6);
   assert.equal(dry.plan.changes.pitchCoarse.value, -12);
   const live = await service.call("set_audio_clip_state", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
-  assert.equal(live.observed.stateVersion, 5);
-  assert.equal(calls.at(-1).method, "set_audio_clip_state");
+  assert.equal(live.immediateObserved.stateVersion, 5);
+  assert.equal(live.verification.markerBoundsConfirmed, false);
+  assert.ok(live.verification.mismatches.includes('stateVersion'));
+  assert.equal(calls.at(-1).method, "get_audio_clip_state");
 });
 
 test("audio clip mutation rejects invalid pitch markers and empty changes", async () => {

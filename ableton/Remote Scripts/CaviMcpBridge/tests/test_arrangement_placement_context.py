@@ -99,9 +99,10 @@ class ArrangementPlacementContextTests(unittest.TestCase):
         self.track.arrangement_clips = [placed]
         self.assertEqual(self.call("get_clip_timing", clip_id="track-0:arrangement-clip-0")["markers"], timing["markers"])
         audio = self.track.clip_slots[2].clip
-        audio.warping = False
+        audio.warping = audio.looping = False
+        audio.loop_start, audio.loop_end = .25, 2.
         self.assertEqual(self.call("get_clip_timing", clip_id="track-0:clip-2")["markers"],
-                         {"supported": True, "unit": "seconds", "startSeconds": 0.0, "endSeconds": 8.0})
+                         {"supported": True, "unit": "seconds", "startSeconds": .25, "endSeconds": 2.})
         del clip.start_marker
         del clip.end_marker
         self.assertEqual(self.call("get_clip_timing")["markers"], {"supported": False})
