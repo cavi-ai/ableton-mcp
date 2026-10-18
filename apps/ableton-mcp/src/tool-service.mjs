@@ -2650,23 +2650,47 @@ export class ToolService {
     };
     const markerKeys = ["startMarkerBeats", "endMarkerBeats", "startMarkerSeconds", "endMarkerSeconds"];
     const requested = markerKeys.filter((key) => args[key] !== undefined);
+    let markerBounds;
     if (requested.length) {
       const suffix = observed.warping ? "Beats" : "Seconds";
       const startKey = `startMarker${suffix}`, endKey = `endMarker${suffix}`;
       if (args.warping !== undefined || requested.some((key) => key !== startKey && key !== endKey)) {
         throw new Error("marker units must match current warping; change warping separately");
       }
+      if (!observed.warping && (observed.loop?.enabled !== false || observed.loop.unit !== 'seconds' ||
+          observed.markers?.unit !== 'seconds' || observed.markers.startSeconds !== observed.loop.startSeconds ||
+          observed.markers.endSeconds !== observed.loop.endSeconds)) throw new Error('updated native unwarped playback range required; reload the packaged bridge');
       const start = args[startKey] === undefined ? observed.markers[`start${suffix}`] : finiteRange(args[startKey], startKey, 0, Number.MAX_SAFE_INTEGER);
       const end = args[endKey] === undefined ? observed.markers[`end${suffix}`] : finiteRange(args[endKey], endKey, 0, Number.MAX_SAFE_INTEGER);
       if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) throw new Error(`${endKey} must be greater than ${startKey}`);
       if (args[startKey] !== undefined) changes[startKey] = { previous: observed.markers[`start${suffix}`], value: start };
       if (args[endKey] !== undefined) changes[endKey] = { previous: observed.markers[`end${suffix}`], value: end };
+      markerBounds = {suffix,start,end,warping:observed.warping};
     }
     if (!Object.keys(changes).length) throw new Error("at least one audio clip change is required");
-    return this.#confirmedMutation({
+    const result = await this.#confirmedMutation({
       method: "set_audio_clip_state", trackId: args.trackId, clipId: args.clipId,
       expectedStateVersion: args.expectedStateVersion, before: observed, changes
     }, args);
+    if (!markerBounds || result.dryRun) return result;
+    const scope = 'separate native playback bounds readback; other edits, file bytes and hidden state are not verified';
+    try {
+      const readback = await this.bridge.request('get_audio_clip_state',{trackId:args.trackId,clipId:args.clipId}),mismatches=[];
+      for (const [key,value] of [['trackId',args.trackId],['clipId',args.clipId],['stateVersion',args.expectedStateVersion+1],['warping',markerBounds.warping]])
+        if (readback[key] !== value) mismatches.push(key);
+      for (const [edge,value] of [['start',markerBounds.start],['end',markerBounds.end]]) {
+        if (readback.markers?.[`${edge}${markerBounds.suffix}`] !== value ||
+            (!markerBounds.warping && (readback.loop?.enabled !== false || readback.loop.unit !== 'seconds' || readback.loop[`${edge}Seconds`] !== value)))
+          mismatches.push(`${edge}Marker${markerBounds.suffix}`);
+      }
+      if (readback.markers?.unit !== (markerBounds.warping?'beats':'seconds')) mismatches.push('markerUnits');
+      return {...result,immediateObserved:result.observed,observed:readback,
+        verification:{markerBoundsConfirmed:mismatches.length===0,mismatches,
+          warpMarkersChanged:JSON.stringify(readback.warpMarkers)!==JSON.stringify(observed.warpMarkers),
+          arrangementContextChanged:JSON.stringify(readback.timeline)!==JSON.stringify(observed.timeline),scope}};
+    } catch (error) {
+      return {...result,verification:{markerBoundsConfirmed:false,mismatches:['readback'],error:String(error.message||error).slice(0,600),scope}};
+    }
   }
 
   async #applyMonophonicAudioTuning(args) {
