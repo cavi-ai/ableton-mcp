@@ -1,6 +1,6 @@
 import copy
 import unittest
-from test_dispatch import Song, Clip
+from test_dispatch import Song, Clip, prepare_loop_target, loop_plan
 from bridge import dispatch_request
 
 
@@ -99,11 +99,13 @@ class ClipLaunchModeTests(unittest.TestCase):
                     song.tracks[0].clip_slots[0].clip = replacement
         original = ReplacingClip()
         song.tracks[0].clip_slots[0].clip = original
+        prepare_loop_target(song)
         before, context = self.read('get_clip_timing'), self.read('get_clip_launch_edit_context')
-        with self.assertRaisesRegex(RuntimeError, 'identity|ownership'):
-            dispatch_request(song, {'method': 'set_clip_timing', 'params': {
-                **self.params, 'before': before, 'launchEditContext': context,
+        result = dispatch_request(song, {'method': 'set_clip_timing', 'params': {
+                **loop_plan(song,self.params,4), 'before': before, 'launchEditContext': context,
                 'changes': {'loop': {'endBeats': 8}, 'launchMode': 2}}}, 4)
+        self.assertFalse(result['requestedChangesVerified'])
+        self.assertTrue(result['error'])
         self.assertEqual(original.launch_mode, 0)
         self.assertEqual(replacement.launch_mode, 0)
 

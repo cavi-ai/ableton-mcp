@@ -2,6 +2,7 @@ import {setSessionClipEntry} from './clip-entry.mjs';
 import {jumpToCuePoint} from './cue-jump.mjs';
 import {seekTransport} from './transport-seek.mjs';
 import {reverseMidiPhrase} from './midi-retrograde.mjs';
+import {isDeepStrictEqual} from 'node:util';
 import {captureSessionScene} from './scene-capture.mjs';
 import {planArrangementRepeat} from './arrangement-repeat.mjs';
 import {copyArrangementClip} from './arrangement-copy.mjs';
@@ -2604,6 +2605,7 @@ export class ToolService {
       const loop = {};
       if (args.loop.enabled !== undefined) {
         if (typeof args.loop.enabled !== "boolean") throw new Error("loop.enabled must be boolean");
+        if(observed.loop.unit==='seconds'&&args.loop.enabled)throw Error('unwarped audio cannot loop; do not enable warping implicitly');
         loop.enabled = args.loop.enabled;
       }
       const seconds = observed.loop.unit === "seconds";
@@ -2615,6 +2617,7 @@ export class ToolService {
       if (end <= start) throw new Error(`loop.${endKey} must be greater than loop.${startKey}`);
       if (args.loop[startKey] !== undefined) loop[startKey] = start;
       if (args.loop[endKey] !== undefined) loop[endKey] = end;
+      if(loop.enabled!==undefined&&loop.enabled!==observed.loop.enabled){loop[startKey]=start;loop[endKey]=end;}
       if (Object.keys(loop).length) changes.loop = loop;
     }
     const signature = normalizeSignature(args.timeSignature, "timeSignature");
@@ -2656,11 +2659,21 @@ export class ToolService {
       changes.grooveId = args.grooveId;
     }
     if (!Object.keys(changes).length) throw new Error("at least one clip timing change is required");
+    let loopEditContext;
+    if (changes.loop) {
+      loopEditContext=await this.bridge.request('get_clip_loop_edit_context',{trackId:args.trackId,clipId:args.clipId,changes});
+      assertExpectedState(args,loopEditContext);
+      if(loopEditContext.trackId!==args.trackId||loopEditContext.clipId!==args.clipId||!loopEditContext.identityToken||
+         !isDeepStrictEqual(loopEditContext.clipTiming,observed)||!loopEditContext.material||
+         ['frozen','clipRecording','clipOverdubbing','pendingLaunch','arrangementRecord','sessionRecord','countingIn'].some(k=>loopEditContext.editContext?.[k]!==false))
+        throw Error('updated native clip loop identity, material and safe recording/frozen/pending-launch context required');
+    }
     return this.#confirmedMutation({
       method: "set_clip_timing", trackId: args.trackId, clipId: args.clipId,
       expectedStateVersion: args.expectedStateVersion, before: observed, changes,
       ...(launchEditContext ? {launchEditContext} : {}),
-      ...(muteEditContext ? {muteEditContext} : {})
+      ...(muteEditContext ? {muteEditContext} : {}),
+      ...(loopEditContext ? {loopEditContext,warning:'Loop edits can change playback markers; nonlooped Arrangement bounds can resize the occurrence. Unsafe intermediate overlap refuses. Inspect requestedChangesVerified, markersChanged, arrangementSpanChanged, actual timing and partial results. No automatic rollback or replay; stored notes do not prove audible equivalence.'} : {})
     }, args);
   }
 
