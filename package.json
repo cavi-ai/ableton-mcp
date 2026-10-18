@@ -60,6 +60,7 @@
     "ableton/Remote Scripts/CaviMcpBridge/crossfader.py",
     "ableton/Remote Scripts/CaviMcpBridge/panning.py",
     "ableton/Remote Scripts/CaviMcpBridge/track_send.py",
+    "ableton/Remote Scripts/CaviMcpBridge/session_names.py",
     "ableton/Remote Scripts/CaviMcpBridge/session_recording.py",
     "ableton/Remote Scripts/CaviMcpBridge/session_overdub.py",
     "ableton/Remote Scripts/CaviMcpBridge/session_arrangement.py",

@@ -88,9 +88,9 @@ test("return track creation binds the current bus list and requires a nonempty n
 });
 
 test("return track rename binds the exact current bus identity", async () => {
-  const before = { stateVersion: 4, returns: [{ id: "return-0", name: "A-Reverb" }] };
+  const before = { stateVersion:4,targetType:"return",targetId:"return-0",identityToken:"native-bus",object:{id:"return-0",name:"A-Reverb"} };
   const service = new ToolService({ bridge: { async request(method, params) {
-    if (method === "get_set_mixer") return before;
+    if (method === "get_session_object_name_context") { if(params.targetId!=="return-0")throw Error("unknown return");return before; }
     if (method === "rename_session_object") return { stateVersion: 5,
       target: { ...params.target, name: "A-Short Verb" } };
     throw new Error(method);
@@ -196,6 +196,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
       if (method === "get_clip_removal_source") {
         if (params.clipId === "track-0:clip-1") throw new Error("clip is empty");
         return {stateVersion:4,trackId:params.trackId,clipId:params.clipId,location:params.location,identityToken:"native-removal",source:{name:"Loop",notes:[]},scope:{wholeClip:true,includesClipEnvelopesAndNoteExpression:true,restorableSnapshot:false}};
+      }
       if (method === "get_session_clip_name_context") {
         if(params.clipId === "track-0:clip-1")throw Error("empty clip slot");
         return {stateVersion:4,trackId:params.trackId,clipId:params.clipId,identityToken:"native-label",clip:{id:params.clipId,name:"Loop",hasClip:true}};

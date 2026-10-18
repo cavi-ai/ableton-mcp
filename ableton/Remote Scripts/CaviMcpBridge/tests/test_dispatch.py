@@ -2002,11 +2002,13 @@ class DispatchTest(unittest.TestCase):
         song = Song()
         target = {"targetType": "return", "targetId": "return-0",
                   "previousName": "Reverb", "name": "Short Verb"}
-        result = dispatch_request(song, {"method": "rename_session_object", "params": {"target": target}}, 3)
+        label_before = dispatch_request(song, {"method":"get_session_object_name_context", "params":target}, 3)
+        label_params = {"target":target,"before":label_before,"expectedStateVersion":3}
+        result = dispatch_request(song, {"method": "rename_session_object", "params": label_params}, 3)
         self.assertEqual(result["target"]["name"], "Short Verb")
         self.assertEqual(song.return_tracks[0].name, "Short Verb")
-        with self.assertRaisesRegex(ValueError, "return track identity changed"):
-            dispatch_request(song, {"method": "rename_session_object", "params": {"target": target}}, 4)
+        with self.assertRaisesRegex(ValueError, "identity or label changed"):
+            dispatch_request(song, {"method": "rename_session_object", "params": label_params}, 4)
 
     def test_delete_return_track_requires_exact_snapshot_and_uses_native_undo(self):
         song = Song()

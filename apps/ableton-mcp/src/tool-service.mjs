@@ -6,6 +6,7 @@ import {moveArrangementClip} from './arrangement-move.mjs';
 import {removeClip} from './clip-removal.mjs';
 import {saveMidiClip,MacMidiExportHost} from './midi-export.mjs';
 import {renameArrangementClip,renameSessionClip} from './clip-names.mjs';
+import {renameSessionObject} from './session-names.mjs';
 import {reverseAudioClip,MacAudioReverseHost} from './audio-reverse.mjs';
 import {trackBounce,MacTrackBounceHost} from "./track-bounce.mjs";
 import {trackFreeze,MacTrackFreezeHost} from "./track-freeze.mjs";
@@ -3330,27 +3331,7 @@ export class ToolService {
     requireExpectedState(args);
     const name = sessionName(args.name);
     if (args.targetType === "clip") return renameSessionClip(this.bridge,this.confirmations,{...args,name});
-    if (args.targetType === "return") {
-      const observed = await this.bridge.request("get_set_mixer", {});
-      assertExpectedState(args, observed);
-      const target = observed.returns.find(({ id }) => id === args.targetId);
-      if (!target) throw new Error(`unknown return ${args.targetId}`);
-      return this.#confirmedMutation({
-        method: "rename_session_object", expectedStateVersion: args.expectedStateVersion,
-        target: { targetType: "return", targetId: target.id, previousName: target.name, name }
-      }, args);
-    }
-    if (!["track", "scene"].includes(args.targetType)) throw new Error("targetType must be track, return, scene, or clip");
-    const observed = args.targetType === "track" ? await this.bridge.request("list_tracks", {})
-      : await this.bridge.request("list_scenes", {});
-    assertExpectedState(args, observed);
-    const items = args.targetType === "track" ? observed.tracks : observed.scenes;
-    const target = items.find(({ id }) => id === args.targetId);
-    if (!target) throw new Error(`unknown ${args.targetType} ${args.targetId}`);
-    return this.#confirmedMutation({
-      method: "rename_session_object", expectedStateVersion: args.expectedStateVersion,
-      target: { targetType: args.targetType, targetId: args.targetId, previousName: target.name, name }
-    }, args);
+    if (args.targetType !== "clip") return renameSessionObject(this.bridge,this.confirmations,{...args,name});
   }
 
   async #duplicateSessionObject(args) {
