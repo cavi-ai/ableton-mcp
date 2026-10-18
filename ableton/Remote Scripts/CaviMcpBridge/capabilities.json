@@ -1,4 +1,6 @@
 [
+  "get_arrangement_audio_import_target",
+  "create_arrangement_audio_clip",
   "get_recording_setup_source",
   "get_arrangement_recording_source",
   "record_arrangement_take",
