@@ -183,6 +183,8 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         stateVersion: 5, trackId: params.trackId,
         loadedItem: params.item
       };
+      if (method === "get_device_activation_edit_context") return {stateVersion:4,trackId:params.trackId,deviceId:params.deviceId,supported:true,
+        device:{id:params.deviceId,name:"EQ Eight",className:"Eq8",active:true}};
       if (method === "set_device_active") return { stateVersion: 5, trackId: params.trackId, device: { ...params.beforeDevice, active: params.active } };
       if (method === "delete_device") return { stateVersion: 5, trackId: params.trackId, deletedDevice: params.beforeDevice, devices: [] };
       if (method === "get_session_recording_source") return {
@@ -825,6 +827,7 @@ test("nested rack devices support factory context and guarded activation", async
     if (method === "get_device_hierarchy") return { stateVersion: 4, trackId: "track-0", device };
     if (method === "list_devices") return { stateVersion: 4, devices: [] };
     if (["list_device_parameters", "get_device_parameter_edit_context"].includes(method)) return { stateVersion: 4, parameters: [] };
+    if (method === "get_device_activation_edit_context") return {stateVersion:4,trackId:"track-0",deviceId,supported:true,device};
     if (method === "set_device_active") return { stateVersion: 5, device: { ...device, active: args.active } };
     throw new Error(`unexpected method ${method}`);
   } } });

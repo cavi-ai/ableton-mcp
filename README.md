@@ -50,7 +50,7 @@ For a smaller initial tool catalog, set `ABLETON_MCP_TOOL_PROFILE=core` in the M
 
 ## What it does
 
-For separate creative and functional model contexts, configure optional [production specialists](docs/ableton-mcp/source/pages/guides/production-specialists.md). `ABLETON_MCP_TOOL_PROFILE=producer` exposes nine tools, with detailed context stored in private artifacts. Each role can use an installed Ollama model or a configured ACP agent; Live changes retain their existing confirmation guards.
+For separate creative and functional model contexts, configure optional [production specialists](docs/ableton-mcp/source/pages/guides/production-specialists.md). `ABLETON_MCP_TOOL_PROFILE=producer` exposes twelve tools, with detailed context and durable session history stored in private artifacts. Each role can use an installed Ollama model or a configured ACP agent; Live changes retain their existing confirmation guards.
 
 - **Reads**: transport, tempo, key and scale, quantization, grooves, cue points, tracks, scenes, clips, notes, clip envelopes, devices and parameters, mixer and routing, rack hierarchies, and the Live browser.
 - **Guarded mutations**: track, scene and clip lifecycle, device loading and parameters, MIDI note editing, mixing and routing, undo and redo, and panic.
@@ -58,7 +58,7 @@ For separate creative and functional model contexts, configure optional [product
 - **Audio analysis**: loudness, true peak, spectrum, pitch, transients and tuning of local audio files.
 - **Optional NKS preset catalog**: search, tags and favorites for presets discovered from your plug-in libraries.
 
-It publishes 301 tools, 9 concrete resources, 13 resource templates and 60 prompt templates. When Live's Remote Script API doesn't expose something, such as Arrangement automation, the tool reports that boundary and fails closed.
+It publishes 317 tools, 9 concrete resources, 13 resource templates and 68 prompt templates. When Live's Remote Script API doesn't expose something, such as Arrangement automation, the tool reports that boundary and fails closed.
 
 ## Documentation
 

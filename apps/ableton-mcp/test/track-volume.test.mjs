@@ -37,3 +37,33 @@ test("dB level tool is callable in all and excluded from core",async()=>{
   assert.equal((await core({id:4,method:"tools/call",params:{name:"set_track_volume_db",arguments:args}})).error.code,-32601);
   assert.equal(calls.length,1);
 });
+
+test('Return and Main dB plans require exact owners and warn about their scope',async()=>{
+ for(const trackId of ['return-0','master']){
+  let token='original',writes=0;
+  const service=new ToolService({bridge:{request:async(method,args)=>{
+   if(method==='get_track_volume_edit_context')return {stateVersion:3,trackId:args.trackId,identityToken:token,target:{value:.5}};
+   writes++;return {verified:true};
+  }}});
+  const args={trackId,volumeDb:-12,expectedStateVersion:3};
+  assert.equal(validateToolArguments('set_track_volume_db',args).trackId,trackId);
+  const plan=await service.call('set_track_volume_db',args);
+  assert.match(plan.warning,trackId==='master'?/Main.*entire mix/:/Return.*routed/);
+  token='replacement';
+  await assert.rejects(()=>service.call('set_track_volume_db',{...args,dryRun:false,confirmationToken:plan.confirmation.token,planHash:plan.confirmation.planHash}),/hash mismatch/);
+  assert.equal(writes,0);
+  const fresh=await service.call('set_track_volume_db',args);
+  assert.equal((await service.call('set_track_volume_db',{...args,dryRun:false,confirmationToken:fresh.confirmation.token,planHash:fresh.confirmation.planHash})).observed.verified,true);
+  assert.equal(writes,1);
+ }
+});
+
+test('dB plans reject another owner in native readback',async()=>{
+ const service=new ToolService({bridge:{request:async()=>({stateVersion:3,trackId:'return-1',identityToken:'native',target:{value:.5}})}});
+ await assert.rejects(()=>service.call('set_track_volume_db',{trackId:'return-0',volumeDb:-12,expectedStateVersion:3}),/trackId mismatch/);
+});
+
+test('bus balance workflow selects native bus dB readback without widening a track brief',()=>{
+ const text=getPrompt('balance-mix',{request:'Lower the reverb Return by 2 dB'}).messages[0].content.text;
+ for(const phrase of ['return-N','master','get_set_mixer','entire mix','explicit scope'])assert.ok(text.includes(phrase),phrase);
+});

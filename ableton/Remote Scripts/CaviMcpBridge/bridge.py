@@ -879,9 +879,13 @@ def _restore_mixer_journal_entry(entry):
 
 
 def _return_mixer_record(track, index):
+    try:
+        from .track_volume import volume_record
+    except ImportError:
+        from track_volume import volume_record
     return {
         "id": f"return-{index}", "name": track.name,
-        "volume": _value_record(track.mixer_device.volume),
+        "volume": volume_record(track.mixer_device.volume),
         "pan": _pan_record(track.mixer_device),
         "mute": bool(track.mute), "solo": bool(track.solo),
         "devices": [_device_tree(device, f"return-{index}:device-{device_index}")
@@ -913,13 +917,17 @@ def _return_routing(song, return_id, state_version):
 
 
 def _set_mixer(song, state_version):
+    try:
+        from .track_volume import volume_record
+    except ImportError:
+        from track_volume import volume_record
     mixer = song.master_track.mixer_device
     master = song.master_track
     output_supported = hasattr(master, "current_output_sub_routing") and hasattr(master, "available_output_routing_channels")
     return {
         "stateVersion": state_version,
         "master": {
-            "volume": _value_record(mixer.volume), "pan": _pan_record(mixer),
+            "volume": volume_record(mixer.volume), "pan": _pan_record(mixer),
             "cueVolume": _value_record(mixer.cue_volume), "crossfader": _value_record(mixer.crossfader),
             "outputRouting": {
                 "supported": output_supported,
@@ -3151,6 +3159,24 @@ def dispatch_request(song, request, state_version, application=None):
         except ImportError:
             from arrangement_audio import target, create
         return (target if request["method"] == "get_arrangement_audio_import_target" else create)(song, request.get("params", {}), state_version)
+    if request.get("method") in ("get_arrangement_creation_target", "create_arrangement_midi_clip"):
+        try:
+            from .arrangement_creation import target, create
+        except ImportError:
+            from arrangement_creation import target, create
+        return (target if request["method"] == "get_arrangement_creation_target" else create)(song, request.get("params", {}), state_version)
+    if request.get("method") in ("get_session_scene_capture_context", "capture_session_scene"):
+        try:
+            from .scene_capture import context, capture
+        except ImportError:
+            from scene_capture import context, capture
+        return (context if request["method"] == "get_session_scene_capture_context" else capture)(song, request.get("params", {}), state_version)
+    if request.get("method") in ("get_arrangement_copy_source", "copy_arrangement_clip_to_track"):
+        try:
+            from .arrangement_copy import source, duplicate
+        except ImportError:
+            from arrangement_copy import source, duplicate
+        return (source if request["method"] == "get_arrangement_copy_source" else duplicate)(song, request.get("params", {}), state_version)
     if request.get('method') in ('get_device_preset_source', 'select_device_preset_source'):
         try:
             from .device_preset import source, select
@@ -3825,6 +3851,32 @@ def dispatch_request(song, request, state_version, application=None):
         return {"stateVersion": state_version, "query": query, "searchedRoots": searched,
                 "unavailableRoots": unavailable, "results": results[:limit],
                 "visitedItems": visited, "truncated": reason is not None, "truncationReason": reason}
+    if method in ("get_selected_parameter_context", "get_selected_parameter_edit_context", "set_selected_parameter"):
+        try:
+            from . import selected_control
+        except ImportError:
+            import selected_control
+        if method == "get_selected_parameter_context":
+            return selected_control.context(song, state_version)
+        if method == "get_selected_parameter_edit_context":
+            return selected_control.prepare(song, params, state_version)
+        return selected_control.apply(song, params, state_version)
+    if method in ("get_midi_note_removal_context", "remove_midi_notes"):
+        try:
+            from . import midi_note_removal
+        except ImportError:
+            import midi_note_removal
+        if method == "get_midi_note_removal_context":
+            return midi_note_removal.context(song, params, state_version)
+        return midi_note_removal.apply(song, params, state_version)
+    if method in ("get_midi_note_insertion_context", "insert_midi_notes"):
+        try:
+            from . import midi_insertion
+        except ImportError:
+            import midi_insertion
+        if method == "get_midi_note_insertion_context":
+            return midi_insertion.context(song, params, state_version)
+        return midi_insertion.apply(song, params, state_version)
     if method in ("get_browser_preview_context", "set_browser_preview"):
         try:
             from . import browser_preview
@@ -4156,6 +4208,13 @@ def dispatch_request(song, request, state_version, application=None):
         return source(song, params, state_version)
     if method == "get_audio_clip_state":
         return _audio_clip_state(song, params["trackId"], params["clipId"], state_version)
+    if method in ("get_audio_clip_reverse_source", "select_audio_clip_reverse_source"):
+        try:
+            from . import audio_reverse
+        except ImportError:
+            import audio_reverse
+        return (audio_reverse.source(song, params, state_version) if method == "get_audio_clip_reverse_source" else
+                audio_reverse.select(song, params, state_version, application))
     if method == "get_audio_source_beat_times":
         track_id, clip_id = params["trackId"], params["clipId"]
         clip, _ = _audio_clip(song, track_id, clip_id)
@@ -5052,7 +5111,7 @@ def dispatch_request(song, request, state_version, application=None):
                 ):
                     raise ValueError("Live changed the duplicated clip interval")
                 if any(
-                    other is not duplicate
+                    other != duplicate
                     and float(duplicate.start_time) < float(other.end_time)
                     and float(duplicate.end_time) > float(other.start_time)
                     for other in track.arrangement_clips
@@ -5353,6 +5412,12 @@ def dispatch_request(song, request, state_version, application=None):
                 "velocity": int(note[3]), "mute": bool(note[4]),
             } for note in notes],
         }
+    if method == "get_midi_note_selection":
+        try:
+            from .midi_note_selection import context
+        except ImportError:
+            from midi_note_selection import context
+        return context(song, params, state_version)
     if method in ("get_midi_clip_notes_extended", "set_midi_note_properties", "transform_midi_notes"):
         clip, timeline = _midi_clip(song, params["trackId"], params["clipId"])
         location = "arrangement" if timeline is not None else "session"
@@ -5735,7 +5800,15 @@ def dispatch_request(song, request, state_version, application=None):
                                                (rollback_error, mutation_error))
                         raise mutation_error
             if guarded_properties:
+                if 'expectedNoteSelectionToken' in params:
+                    try:
+                        from .midi_note_selection import validate
+                    except ImportError:
+                        from midi_note_selection import validate
+                    validate(song, params, state_version)
                 with _undo_step(song):
+                    if 'expectedNoteSelectionToken' in params:
+                        validate(song, params, state_version)
                     try:
                         for change in params["changes"]:
                             note = by_id[int(change["noteId"])]
@@ -6107,7 +6180,24 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "list_devices":
         owner_id, track = _device_owner(song, params["trackId"])
         return {"stateVersion": state_version, "trackId": owner_id, "devices": [_device_tree(device, f"{owner_id}:device-{i}") for i, device in enumerate(track.devices)]}
-    if method in ("set_device_active", "delete_device", "move_device"):
+    if method in ("get_arrangement_clip_name_context", "rename_arrangement_clip"):
+        try:
+            from . import clip_names
+        except ImportError:
+            import clip_names
+        return (clip_names.context(song, params, state_version) if method == "get_arrangement_clip_name_context" else
+                clip_names.rename(song, params, state_version))
+    if method in ("get_device_activation_context", "get_device_activation_edit_context", "set_device_active"):
+        try:
+            from . import device_bypass
+        except ImportError:
+            import device_bypass
+        if method != "set_device_active":
+            result = device_bypass.context(song, params, state_version)
+            if method == "get_device_activation_edit_context": device_bypass._safe(result)
+            return result
+        return device_bypass.apply(song, params, state_version)
+    if method in ("delete_device", "move_device"):
         track, index, device = _device(song, params["trackId"], params["deviceId"])
         before = params["beforeDevice"]
         if device.name != before["name"] or device.class_name != before["className"]:
@@ -6125,16 +6215,6 @@ def dispatch_request(song, request, state_version, application=None):
             return {"stateVersion": state_version + 1, "trackId": params["trackId"],
                     "requestedPosition": position, "actualPosition": actual,
                     "device": _device_record(device, new_id)}
-        if method == "set_device_active":
-            on_parameter = next((parameter for parameter in device.parameters
-                                 if getattr(parameter, "original_name", parameter.name) == "Device On"), None)
-            if on_parameter is None or not on_parameter.is_enabled:
-                raise ValueError("device has no writable Device On parameter")
-            on_parameter.value = on_parameter.max if params["active"] else on_parameter.min
-            return {
-                "stateVersion": state_version + 1, "trackId": params["trackId"],
-                "device": _device_record(device, params["deviceId"]),
-            }
         if not callable(getattr(track, "delete_device", None)):
             raise ValueError("device owner has no native deletion API")
         track.delete_device(index)
