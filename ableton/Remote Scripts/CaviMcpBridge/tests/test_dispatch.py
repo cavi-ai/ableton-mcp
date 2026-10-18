@@ -1170,7 +1170,13 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(song.current_song_time, 4.0)
         dispatch_request(song, {"method": "rename_arrangement_cue_point", "params": {"cuePointId": "cue-0", "name": "Intro"}}, 4)
         self.assertEqual(song.cue_points[0].name, "Intro")
-        dispatch_request(song, {"method": "jump_to_arrangement_cue_point", "params": {"cuePointId": "cue-0"}}, 5)
+        song.is_counting_in = False
+        for track in song.tracks:
+            for slot in track.clip_slots:
+                if slot.has_clip: slot.clip.is_recording = False
+            track.arrangement_clips = []
+        before = dispatch_request(song, {"method":"get_arrangement_cue_jump_context", "params":{"cuePointId":"cue-0"}}, 5)
+        dispatch_request(song, {"method": "jump_to_arrangement_cue_point", "params": {"cuePointId": "cue-0", "before":before,"expectedStateVersion":5}}, 5)
         self.assertTrue(song.cue_points[0].jumped)
         dispatch_request(song, {"method": "delete_arrangement_cue_point", "params": {"cuePointId": "cue-1"}}, 6)
         self.assertEqual(len(song.cue_points), 1)

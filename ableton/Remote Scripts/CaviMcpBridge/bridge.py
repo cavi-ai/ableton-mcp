@@ -3592,7 +3592,13 @@ def dispatch_request(song, request, state_version, application=None):
         result = _arrangement_cue_points(song, state_version + 1)
         result["cuePoint"] = next(record for record in result["cuePoints"] if record["timeBeats"] == time_beats)
         return result
-    if method in ("rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point"):
+    if method in ("get_arrangement_cue_jump_context", "jump_to_arrangement_cue_point"):
+        try:
+            from . import cue_jump
+        except ImportError:
+            import cue_jump
+        return (cue_jump.context if method == "get_arrangement_cue_jump_context" else cue_jump.jump)(song, params, state_version)
+    if method in ("rename_arrangement_cue_point", "delete_arrangement_cue_point"):
         prefix, raw_index = params["cuePointId"].split("-", 1)
         if prefix != "cue" or not raw_index.isdigit():
             raise ValueError("unknown cue point")
@@ -3609,8 +3615,6 @@ def dispatch_request(song, request, state_version, application=None):
                 song.set_or_delete_cue()
             finally:
                 song.current_song_time = previous_time
-        else:
-            cue.jump()
         return _arrangement_cue_points(song, state_version + 1)
     if method == "get_track_routing":
         return _track_routing(song, params["trackId"], state_version)
@@ -7090,7 +7094,7 @@ class SocketBridge:
                 if request.get("method") == "prepare_instrument_comparison":
                     self._defer_instrument_comparison(client, request, song, record)
                     return
-                if request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state", "re_enable_parameter_automation", "override_parameter_automation", "set_mixer_panning"):
+                if request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state", "re_enable_parameter_automation", "override_parameter_automation", "set_mixer_panning", "jump_to_arrangement_cue_point"):
                     self._defer_observed_mutation(client, request, song, record)
                     return
                 result = dispatch_request(
@@ -7153,9 +7157,9 @@ class SocketBridge:
     def _defer_observed_mutation(self, client, request, song, record=None):
         try:
             try:
-                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning
+                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump
             except ImportError:
-                import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning
+                import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump
             module, success_key = {
                 'return_tracks_to_arrangement': (arrangement_return, 'returned'),
                 'audition_arrangement_passage': (arrangement_audition, 'started'),
@@ -7163,6 +7167,7 @@ class SocketBridge:
                 're_enable_parameter_automation': (parameter_automation, 'verified'),
                 'override_parameter_automation': (manual_override, 'verified'),
                 'set_mixer_panning': (panning, 'verified'),
+                'jump_to_arrangement_cue_point': (cue_jump, 'positionVerified'),
             }[request['method']]
             operation = module.begin(song, request.get("params", {}), self.state_version)
             self.state_version += 1
@@ -7172,9 +7177,12 @@ class SocketBridge:
         self.deferred_request = True
 
         def reply_unverified(error):
-            operation["error"] = f"Native readback failed: {error}"[:600]
             try:
-                result = module.complete(self.control_surface.song(), operation, self.state_version)
+                if request["method"] == "jump_to_arrangement_cue_point":
+                    result = module.unobserved(operation, self.state_version, error)
+                else:
+                    operation["error"] = f"Native readback failed: {error}"[:600]
+                    result = module.complete(self.control_surface.song(), operation, self.state_version)
                 response = {"id": request.get("id"), "result": result}
             except Exception as failure:
                 response = {"id": request.get("id"), "error": {"message": str(failure) or failure.__class__.__name__}}
