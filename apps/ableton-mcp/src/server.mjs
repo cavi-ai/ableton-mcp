@@ -136,6 +136,7 @@ const toolNames = [
   "list_clips",
   "get_midi_clip_notes",
   "get_midi_clip_notes_extended",
+  "get_midi_note_selection",
   "analyze_midi_clip_scale",
   "analyze_midi_clip_chords",
   "plan_scale_chord_progression",
