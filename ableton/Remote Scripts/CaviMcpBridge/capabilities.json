@@ -41,6 +41,7 @@
   "get_session_clip_name_context",
   "get_session_object_name_context",
   "get_arrangement_cue_jump_context",
+  "get_transport_seek_context",
   "rename_arrangement_clip",
   "get_audio_clip_reverse_source",
   "select_audio_clip_reverse_source",

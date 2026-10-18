@@ -152,6 +152,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
       if (method === "list_devices" && params.trackId === "track-1") return {
         stateVersion: 4, trackId: params.trackId, devices: []
       };
+      if (method === "get_transport_seek_context") return {stateVersion:4,identityToken:'song',transport:{isPlaying:false}};
       if (method === "get_transport_recording_context") return {
         stateVersion: 4, currentSongTime: 16.5, isPlaying: false, metronome: true,
         arrangement: { record: false, overdub: false, punchIn: true, punchOut: false, backToArranger: false },
@@ -1079,29 +1080,26 @@ test("transport recording context mutation validates and signs exact changes", a
   const dry = await service.call("set_transport_recording_context", args);
   assert.equal(dry.dryRun, true);
   assert.deepEqual(dry.plan.changes.arrangement, args.arrangement);
-  assert.equal(calls.at(-1).method, "get_transport_recording_context");
+  assert.equal(calls.at(-1).method, "get_transport_seek_context");
   await assert.rejects(() => service.call("set_transport_recording_context", {
     expectedStateVersion: 4, currentSongTime: -1
   }), /currentSongTime/);
 });
 
-test("transport mutation verifies a separate settled native control readback", async () => {
-  const before = { stateVersion: 4, currentSongTime: 0, arrangement: { punchIn: false } };
-  const after = { stateVersion: 5, currentSongTime: 8, arrangement: { punchIn: true } };
-  let reads = 0;
-  const service = new ToolService({ bridge: { async request(method) {
-    if (method === "get_transport_recording_context") return ++reads === 3 ? after : before;
-    if (method === "set_transport_recording_context") return { ...before, stateVersion: 5 };
-    throw new Error(method);
-  } } });
-  const args = { expectedStateVersion: 4, currentSongTime: 8, arrangement: { punchIn: true } };
-  const dry = await service.call("set_transport_recording_context", args);
-  const result = await service.call("set_transport_recording_context", { ...args, dryRun: false,
-    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
-  assert.equal(reads, 3);
-  assert.deepEqual(result.observed, after);
-  assert.equal(result.verification.controlsConfirmed, true);
-  assert.deepEqual(result.verification.mismatches, []);
+test("seek mutation preserves settled native control verification", async () => {
+  const before = { stateVersion:4,identityToken:'song',transport:{isPlaying:false,currentSongTime:0} };
+  const after = { stateVersion:5,currentSongTime:8,arrangement:{punchIn:true} };
+  const receipt = {stateVersion:5,observed:after,verification:{controlsConfirmed:true,controlFieldsConfirmed:true,positionVerified:true,mismatches:[]}};
+  let reads=0;
+  const service=new ToolService({bridge:{async request(method){
+    if(method==='get_transport_seek_context'){reads++;return before;}
+    if(method==='set_transport_recording_context')return receipt;
+    throw Error(method);
+  }}});
+  const args={expectedStateVersion:4,currentSongTime:8,arrangement:{punchIn:true}};
+  const dry=await service.call('set_transport_recording_context',args);
+  const result=await service.call('set_transport_recording_context',{...args,dryRun:false,confirmationToken:dry.confirmation.token,planHash:dry.confirmation.planHash});
+  assert.equal(reads,2);assert.deepEqual(result.observed,after);assert.equal(result.verification.controlsConfirmed,true);
 });
 
 test("recording flag confirmation tolerates a playing clock and retains mode guards", async () => {
@@ -1130,7 +1128,7 @@ test("recording flag confirmation tolerates a playing clock and retains mode gua
   assert.equal(result.observed.currentSongTime, 16);
 });
 
-for (const change of ["seek", "stopped clock", "playback", "recording", "automation", "version"]) {
+for (const change of ["stopped clock", "playback", "recording", "automation", "version"]) {
   test(`recording confirmation rejects a changed ${change} before writing`, async () => {
     const observed = { stateVersion: 4, currentSongTime: 4, isPlaying: change !== "stopped clock",
       automationArm: false, arrangement: { record: false }, session: { record: false } };
@@ -1140,10 +1138,9 @@ for (const change of ["seek", "stopped clock", "playback", "recording", "automat
       writes++;
       throw new Error("must not write");
     } } });
-    const args = { expectedStateVersion: 4, arrangement: { overdub: true },
-      ...(change === "seek" ? { currentSongTime: 32 } : {}) };
+    const args = { expectedStateVersion: 4, arrangement: { overdub: true } };
     const plan = await service.call("set_transport_recording_context", args);
-    if (["seek", "stopped clock"].includes(change)) observed.currentSongTime++;
+    if (change === "stopped clock") observed.currentSongTime++;
     if (change === "playback") observed.isPlaying = false;
     if (change === "recording") observed.session.record = true;
     if (change === "automation") observed.automationArm = true;
@@ -1154,23 +1151,16 @@ for (const change of ["seek", "stopped clock", "playback", "recording", "automat
   });
 }
 
-test("transport mutation reports an unconfirmed control instead of claiming success", async () => {
-  const before = { stateVersion: 4, currentSongTime: 0, arrangement: { punchIn: false } };
-  let reads = 0;
-  const service = new ToolService({ bridge: { async request(method) {
-    if (method === "get_transport_recording_context") {
-      reads++;
-      return reads < 3 ? before : { ...before, stateVersion: 5 };
-    }
-    if (method === "set_transport_recording_context") return { ...before, stateVersion: 5 };
-    throw new Error(method);
-  } } });
-  const args = { expectedStateVersion: 4, currentSongTime: 8 };
-  const dry = await service.call("set_transport_recording_context", args);
-  const result = await service.call("set_transport_recording_context", { ...args, dryRun: false,
-    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
-  assert.equal(result.verification.controlsConfirmed, false);
-  assert.deepEqual(result.verification.mismatches, ["currentSongTime"]);
+test("seek mutation retains an unverified native position receipt", async () => {
+  const before={stateVersion:4,identityToken:'song',transport:{isPlaying:false,currentSongTime:0}};
+  const service=new ToolService({bridge:{async request(method){
+    if(method==='get_transport_seek_context')return before;
+    if(method==='set_transport_recording_context')return {stateVersion:5,observed:{stateVersion:5,currentSongTime:0},verification:{controlsConfirmed:false,positionVerified:false,mismatches:['currentSongTime']}};
+    throw Error(method);
+  }}});
+  const args={expectedStateVersion:4,currentSongTime:8},dry=await service.call('set_transport_recording_context',args);
+  const result=await service.call('set_transport_recording_context',{...args,dryRun:false,confirmationToken:dry.confirmation.token,planHash:dry.confirmation.planHash});
+  assert.equal(result.verification.controlsConfirmed,false);assert.deepEqual(result.verification.mismatches,['currentSongTime']);
 });
 
 test("Capture MIDI signs session scope and refuses an empty native capture buffer", async () => {
