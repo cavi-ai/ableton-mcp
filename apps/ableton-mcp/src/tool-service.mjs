@@ -1,6 +1,8 @@
 import {captureSessionScene} from './scene-capture.mjs';
 import {copyArrangementClip} from './arrangement-copy.mjs';
 import {saveMidiClip,MacMidiExportHost} from './midi-export.mjs';
+import {renameArrangementClip} from './clip-names.mjs';
+import {reverseAudioClip,MacAudioReverseHost} from './audio-reverse.mjs';
 import {trackBounce,MacTrackBounceHost} from "./track-bounce.mjs";
 import {trackFreeze,MacTrackFreezeHost} from "./track-freeze.mjs";
 import {recordingSetup,MacRecordingSetupHost} from "./recording-setup.mjs";
@@ -315,6 +317,13 @@ function resolveParameterValue(parameter, requested) {
   return matches[0].value;
 }
 
+async function audioImportSource(path) {
+  if(typeof path!=='string'||!isAbsolute(path))throw Error('sourcePath must be an absolute local audio-file path');
+  const sourcePath=await realpath(path),source=await stat(sourcePath,{bigint:true});
+  if(!source.isFile())throw Error('sourcePath must reference a regular file');
+  return {sourcePath,sourceFile:{size:String(source.size),mtimeNs:String(source.mtimeNs),device:String(source.dev),inode:String(source.ino)}};
+}
+
 function normalizeMidiNote(note, index, lengthBeats) {
   const pitch = Number(note.pitch);
   const start = Number(note.start);
@@ -473,7 +482,7 @@ function normalizeBrowserSearch(args) {
 
 export class ToolService {
   constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, deviceChainLibrary, groupSystemLibrary, midiFeelLibrary, browserMetadata, spliceRoots = [], generationQueuePath,
-    liveSetHost = new MacLiveSetHost(), audioExportHost, projectMediaHost, devicePresetHost, trackGroupingHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000, midiExportHost, trackFreezeHost, trackBounceHost, recordingSetupHost, midiImportHost, takeLaneAuditionHost, grooveRemovalHost }) {
+    liveSetHost = new MacLiveSetHost(), audioExportHost, projectMediaHost, devicePresetHost, trackGroupingHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000, midiExportHost, trackFreezeHost, trackBounceHost, recordingSetupHost, midiImportHost, takeLaneAuditionHost, grooveRemovalHost, audioReverseHost }) {
     this.bridge = bridge;
     this.catalog = new CatalogService(catalog);
     this.confirmations = confirmations;
@@ -486,6 +495,7 @@ export class ToolService {
     this.generationQueuePath = generationQueuePath;
     this.liveSetHost = liveSetHost;
     this.midiExportHost=midiExportHost??new MacMidiExportHost({liveSetHost});
+    this.audioReverseHost=audioReverseHost??new MacAudioReverseHost({liveSetHost});
     this.trackBounceHost=trackBounceHost??new MacTrackBounceHost({liveSetHost});
     this.trackFreezeHost=trackFreezeHost??new MacTrackFreezeHost({liveSetHost});
     this.recordingSetupHost=recordingSetupHost??new MacRecordingSetupHost({liveSetHost});
@@ -510,6 +520,8 @@ export class ToolService {
     requestSignal()?.throwIfAborted();
     if (name === 'show_live_object') return showLiveObject(this.bridge, this.confirmations, args);
     if(name === "export_midi_clip")return saveMidiClip(this.bridge,this.confirmations,this.midiExportHost,args);
+    if(name === "rename_arrangement_clip")return renameArrangementClip(this.bridge,this.confirmations,args);
+    if(name === "reverse_audio_clip")return reverseAudioClip(this.bridge,this.confirmations,this.audioReverseHost,args);
     if(name === "bounce_track_in_place")return trackBounce(this.bridge,this.confirmations,this.trackBounceHost,args);
     if(name==='import_midi_file')return importMidiFile(this.bridge,this.confirmations,this.midiImportHost,args);
     if(name==='save_native_device_preset')return saveNativeDevicePreset(this.bridge,this.confirmations,this.devicePresetHost,args);
@@ -1662,6 +1674,7 @@ export class ToolService {
     if (name === "duplicate_clip") return this.#duplicateClip(args);
     if (name === "delete_clip") return this.#deleteClip(args);
     if (name === "duplicate_clip_loop") return this.#duplicateClipLoop(args);
+    if (name === "create_arrangement_midi_clip") return this.#createArrangementMidiClip(args);
     if (name === "create_midi_clip") return this.#createMidiClip(args);
     if (name === "create_scale_chord_progression_clip") return this.#createScaleChordProgressionClip(args);
     if (name === "create_scale_bassline_clip") return this.#createScaleBasslineClip(args);
@@ -1685,6 +1698,7 @@ export class ToolService {
     if (name === "apply_midi_diatonic_harmony") return this.#applyMidiDiatonicHarmony(args);
     if (name === "apply_midi_scale_chord_remapping") return this.#applyMidiScaleChordRemapping(args);
     if (name === "apply_midi_diatonic_chord_quality") return this.#applyMidiDiatonicChordQuality(args);
+    if (name === "create_arrangement_audio_clip") return this.#createArrangementAudioClip(args);
     if (name === "create_audio_clip") return this.#createAudioClip(args);
     if (name === "set_clip_parameter_envelope") return replaceClipParameterEnvelope(this.bridge,this.confirmations,args);
     if (name === "create_clip_parameter_envelope") return createClipParameterEnvelope(this.bridge,this.confirmations,args);
@@ -3426,6 +3440,19 @@ export class ToolService {
     }, args);
   }
 
+  async #createArrangementMidiClip(args) {
+    requireExpectedState(args);
+    const startBeats=finiteRange(args.startBeats,'startBeats',0,1576800),lengthBeats=finiteRange(args.lengthBeats,'lengthBeats',Number.MIN_VALUE,1576800);
+    if(startBeats+lengthBeats>1576800||startBeats+lengthBeats<=startBeats)throw Error('Arrangement interval exceeds supported range');
+    if(typeof args.name!=='string'||!args.name.trim()||args.name.length>128||/[\x00-\x1f\x7f]/u.test(args.name))throw Error('explicit name of 1 to 128 characters without controls required');
+    if(!Array.isArray(args.notes)||args.notes.length>4096)throw Error('at most 4096 MIDI notes required');
+    const notes=args.notes.map((note,index)=>normalizeMidiNote(note,index,lengthBeats));
+    const ids={trackId:args.trackId,startBeats,lengthBeats},before=await this.bridge.request('get_arrangement_creation_target',ids);
+    assertExpectedState(args,before);
+    if(!before.identityToken||before.startBeats!==startBeats||before.lengthBeats!==lengthBeats)throw Error('updated native Arrangement creation context required');
+    return this.#confirmedMutation({method:'create_arrangement_midi_clip',...ids,name:args.name,notes,expectedStateVersion:args.expectedStateVersion,before},args);
+  }
+
   async #createMidiClip(args) {
     requireExpectedState(args);
     const lengthBeats = Number(args.lengthBeats);
@@ -3834,13 +3861,19 @@ export class ToolService {
     return result;
   }
 
+  async #createArrangementAudioClip(args) {
+    requireExpectedState(args);
+    const startBeats=finiteRange(args.startBeats,'startBeats',0,1576800);
+    if(typeof args.name!=='string'||!args.name.trim()||args.name.length>128||/[\x00-\x1f\x7f]/u.test(args.name))throw Error('explicit name of 1 to 128 characters without controls required');
+    const source=await audioImportSource(args.sourcePath),ids={trackId:args.trackId,startBeats};
+    const before=await this.bridge.request('get_arrangement_audio_import_target',ids);assertExpectedState(args,before);
+    if(!before.identityToken||before.startBeats!==startBeats)throw Error('updated native Arrangement audio import context required');
+    return this.#confirmedMutation({method:'create_arrangement_audio_clip',...ids,...source,name:args.name,expectedStateVersion:args.expectedStateVersion,before},args);
+  }
+
   async #createAudioClip(args) {
     requireExpectedState(args);
-    if (typeof args.sourcePath !== "string" || !isAbsolute(args.sourcePath)) throw new Error("sourcePath must be an absolute local audio-file path");
-    const sourcePath = await realpath(args.sourcePath);
-    const source = await stat(sourcePath, { bigint: true });
-    if (!source.isFile()) throw new Error("sourcePath must reference a regular file");
-    const sourceFile = { size: String(source.size), mtimeNs: String(source.mtimeNs), device: String(source.dev), inode: String(source.ino) };
+    const {sourcePath,sourceFile}=await audioImportSource(args.sourcePath);
     const observed = await this.bridge.request("list_clips", { trackId: args.trackId });
     assertExpectedState(args, observed);
     const slot = observed.clips.find(({ id }) => id === args.clipId);

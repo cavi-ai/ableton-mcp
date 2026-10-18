@@ -3153,6 +3153,18 @@ def _clip_hold_module():
 
 
 def dispatch_request(song, request, state_version, application=None):
+    if request.get("method") in ("get_arrangement_audio_import_target", "create_arrangement_audio_clip"):
+        try:
+            from .arrangement_audio import target, create
+        except ImportError:
+            from arrangement_audio import target, create
+        return (target if request["method"] == "get_arrangement_audio_import_target" else create)(song, request.get("params", {}), state_version)
+    if request.get("method") in ("get_arrangement_creation_target", "create_arrangement_midi_clip"):
+        try:
+            from .arrangement_creation import target, create
+        except ImportError:
+            from arrangement_creation import target, create
+        return (target if request["method"] == "get_arrangement_creation_target" else create)(song, request.get("params", {}), state_version)
     if request.get("method") in ("get_session_scene_capture_context", "capture_session_scene"):
         try:
             from .scene_capture import context, capture
@@ -4196,6 +4208,13 @@ def dispatch_request(song, request, state_version, application=None):
         return source(song, params, state_version)
     if method == "get_audio_clip_state":
         return _audio_clip_state(song, params["trackId"], params["clipId"], state_version)
+    if method in ("get_audio_clip_reverse_source", "select_audio_clip_reverse_source"):
+        try:
+            from . import audio_reverse
+        except ImportError:
+            import audio_reverse
+        return (audio_reverse.source(song, params, state_version) if method == "get_audio_clip_reverse_source" else
+                audio_reverse.select(song, params, state_version, application))
     if method == "get_audio_source_beat_times":
         track_id, clip_id = params["trackId"], params["clipId"]
         clip, _ = _audio_clip(song, track_id, clip_id)
@@ -6161,6 +6180,13 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "list_devices":
         owner_id, track = _device_owner(song, params["trackId"])
         return {"stateVersion": state_version, "trackId": owner_id, "devices": [_device_tree(device, f"{owner_id}:device-{i}") for i, device in enumerate(track.devices)]}
+    if method in ("get_arrangement_clip_name_context", "rename_arrangement_clip"):
+        try:
+            from . import clip_names
+        except ImportError:
+            import clip_names
+        return (clip_names.context(song, params, state_version) if method == "get_arrangement_clip_name_context" else
+                clip_names.rename(song, params, state_version))
     if method in ("get_device_activation_context", "get_device_activation_edit_context", "set_device_active"):
         try:
             from . import device_bypass
