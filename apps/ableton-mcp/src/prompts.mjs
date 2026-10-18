@@ -1,3 +1,5 @@
+import {searchWorkflows} from './workflow-search.mjs';
+
 const confirmWorkflow = [
   "Treat every mutation as two steps: first call the tool without dryRun to receive its dry-run plan and a single-use confirmationToken, review the plan hash, then repeat the call with dryRun: false plus that confirmationToken and planHash to execute.",
   "Reuse the stateVersion reported by the immediately preceding read for expectedStateVersion; retry from fresh reads whenever a stale-state error occurs."
@@ -1228,11 +1230,14 @@ export function getPrompt(name, args = {}) {
   return contract.build(args ?? {});
 }
 
-export function getProducerWorkflow({workflow,arguments:args}={}) {
+export function getProducerWorkflow({workflow,arguments:args,query,limit}={}) {
   if (workflow === undefined) {
     if (args !== undefined) throw new Error("arguments require a workflow");
+    if (query !== undefined) return searchWorkflows(listPrompts(),query,limit);
+    if (limit !== undefined) throw new Error("workflow search limit requires a query");
     return {workflows:listPrompts()};
   }
+  if (query !== undefined || limit !== undefined) throw new Error("search query and limit cannot be combined with a workflow");
   const descriptor=listPrompts().find(prompt=>prompt.name===workflow);
   if (!descriptor) throw new Error(`unknown workflow ${workflow}`);
   const input=args===undefined?{}:args;

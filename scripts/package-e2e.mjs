@@ -69,13 +69,19 @@ const listing = await exchange(bin, ["serve"], { ABLETON_MCP_BRIDGE_SOCKET: path
   { id: 2, method: "tools/list" },
   { id: 3, method: "resources/list" },
   { id: 4, method: "resources/templates/list" },
-  { id: 5, method: "prompts/list" }
+  { id: 5, method: "prompts/list" },
+  { id: 6, method: "tools/call", params: {name:"get_producer_workflow",arguments:{query:"silent part",limit:2}} },
+  { id: 7, method: "tools/call", params: {name:"get_producer_workflow",arguments:{workflow:"diagnose-silent-part",arguments:{request:"Inspect the named part without changing it."}}} }
 ]);
 assert.equal(listing[0].result.serverInfo.name, "ableton-mcp");
 assert.equal(listing[1].result.tools.length, Object.keys(toolContracts).length);
 assert.equal(listing[2].result.resources.length, 9);
 assert.equal(listing[3].result.resourceTemplates.length, 13);
 assert.ok(listing[4].result.prompts.length > 0);
+assert.equal(listing[5].result.structuredContent.workflows[0].name,"diagnose-silent-part");
+assert.ok(listing[5].result.structuredContent.workflows.length<=2);
+assert.equal(listing[6].result.structuredContent.workflow,"diagnose-silent-part");
+assert.match(listing[6].result.structuredContent.messages[0].content.text,/Inspect the named part without changing it/);
 
 const fixture = await exchange(process.execPath, [path.join(installed, "apps/ableton-mcp/src/server.mjs")], { ABLETON_MCP_FIXTURE: "1" }, [
   { id: 1, method: "tools/call", params: { name: "search_presets", arguments: { query: "Deep" } } }
@@ -87,9 +93,11 @@ const producerEnvironment = { ABLETON_MCP_TOOL_PROFILE: "producer", ABLETON_MCP_
 const producer = await exchange(bin, ["serve"], producerEnvironment, [
   { id: 1, method: "tools/list" },
   { id: 2, method: "tools/call", params: { name: "record_production_note", arguments: {
-    projectId: "song", kind: "intent", text: "Preserve the original bass." } } }
+    projectId: "song", kind: "intent", text: "Preserve the original bass." } } },
+  { id: 3, method: "tools/call", params: {name:"get_producer_workflow",arguments:{query:"record Session take",limit:1}} }
 ]);
 assert.equal(producer[0].result.tools.length, 12);
+assert.equal(producer[2].result.structuredContent.workflows[0].name,"record-session-take");
 const noteRef = producer[1].result.structuredContent.noteRef;
 assert.match(noteRef, /^[a-f0-9]{64}$/);
 const note = JSON.parse(execFileSync(bin, ["call", "read_production_artifact", "--args",
@@ -124,6 +132,7 @@ process.stdout.write(`${JSON.stringify({
   resources: listing[2].result.resources.length,
   resourceTemplates: listing[3].result.resourceTemplates.length,
   prompts: listing[4].result.prompts.length,
+  workflowSearchProfiles:["all","producer"],
   bridgeFiles
 })}\n`);
 rmSync(work, { recursive: true, force: true });

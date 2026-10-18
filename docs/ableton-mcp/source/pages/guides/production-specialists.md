@@ -45,7 +45,7 @@ Set `ABLETON_MCP_TOOL_PROFILE=producer` in the MCP server environment. This prof
 3. `run_production_task` accepts `projectId`, `goal`, optional exact `scope` IDs, `constraints`, `contextRefs`, and `roles` (`creative`, `functional`, or `both`; default `functional`). It returns a `taskId`, short summary, result references and operation count.
 4. `read_production_artifact` pages through detailed context, proposals and evidence. Its default page is 4,000 characters, with an 8,000-character maximum. Follow `nextOffset`; a truncated preview is not complete evidence.
 5. `apply_production_operation` plans or executes one exact operation from a task.
-6. `get_producer_workflow` lists the shared workflow names/arguments or renders one selected reference. It does not observe Live, invoke a model or execute the workflow.
+6. `get_producer_workflow` finds workflow references with an optional `query`, lists all names/arguments when no selector is supplied, or renders one exact `workflow` with named string `arguments`. It does not observe Live, invoke a model or execute the workflow.
 
 For example:
 
@@ -67,6 +67,12 @@ The initial functional toolkit includes native `set_track_volume_db` and `set_tr
 The returned `turnRefs` link each validated intermediate or final reply to its exact input artifact, including replies from tasks that exhausted a budget. Specialists may page their own previous replies as well as supplied context artifacts. Final role proposals remain in `resultRefs`. An exhausted task reports `stopReason` as `input_limit`, `read_limit` or `model_turn_limit`, with no executable operations. These references explain what was observed and proposed; they do not prove musical quality or guarantee that a configured model completes a workflow.
 
 ## Select workflow guidance for a task
+
+Start with `get_producer_workflow` and a short keyword `query`, such as `"silent part"` or `"record Session take"`. Search is available in the `all` and `producer` profiles. It returns up to five candidates by default; `limit` accepts 1–20, and a query accepts 1–200 characters. Workflow names, descriptions and argument descriptions are the only matching sources. Matching ignores case and accents, skips common request words, and accepts word prefixes. It does not interpret intent, search full instructions or establish that a capability is available in the current Set.
+
+Results retain the exact reference names, descriptions and argument definitions, adding `matchedTerms` to each candidate. More matched query terms rank ahead of fewer; name matches break coverage ties, and an exact workflow-name query ranks first. `totalMatches` counts metadata matches and `truncated` reports whether the result limit omitted any. Partial matches are possible: inspect `terms` and each candidate’s `matchedTerms`, then refine the query when the reference does not cover the brief. An empty list means no metadata matched, not that Ableton cannot perform the task. Search does not choose or execute a workflow.
+
+Retrieve the selected exact name with its required string arguments before using its guidance. Search `query`/`limit` cannot be combined with `workflow`/`arguments`; `limit` requires a query. Omitting both search and retrieval selectors preserves the full listing.
 
 An optional `workflow` on `run_production_task` supplies one bundled reference before either specialist's first model request. Use an exact `name` from `get_producer_workflow` and its named string `arguments`. For example, a bounded phase of `balance-mix` can use:
 
