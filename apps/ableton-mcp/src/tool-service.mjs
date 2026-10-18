@@ -2788,7 +2788,7 @@ export class ToolService {
       expectedStateVersion: args.expectedStateVersion, before, beatTime, targetBeatTime }, args);
   }
 
-  async #duplicateClip(args) {
+  async #duplicateClip(args, method = "duplicate_clip") {
     requireExpectedState(args);
     const sourceClipId = args.clipId ?? args.sourceClipId;
     const targetClipId = args.destinationClipId ?? args.targetClipId;
@@ -2796,13 +2796,14 @@ export class ToolService {
     if (args.name !== undefined && (typeof args.name !== "string" || !args.name.trim() || args.name.length > 128)) throw new Error("name must contain 1 to 128 characters");
     const observed = await this.bridge.request("get_clip_duplication_source", { trackId: args.trackId, sourceClipId, targetTrackId, targetClipId });
     assertExpectedState({ expectedStateVersion: args.expectedStateVersion, trackId: args.trackId }, observed);
-    if (!observed.identityToken || observed.sourceClipId !== sourceClipId || observed.targetClipId !== targetClipId || observed.targetTrackId !== targetTrackId) throw new Error("updated bridge clip duplication context required");
+    if (observed.copyGuardVersion !== 2 || !observed.identityToken || observed.sourceClipId !== sourceClipId || observed.targetClipId !== targetClipId || observed.targetTrackId !== targetTrackId) throw new Error("updated bridge clip duplication context required");
     const result = await this.#confirmedMutation({
-      method: "duplicate_clip", trackId: args.trackId,
+      method, trackId: args.trackId,
       sourceClipId, targetTrackId, targetClipId, ...(args.name !== undefined ? { name: args.name } : {}),
+      ...(method === "duplicate_session_object" ? {target:{targetType:"clip",trackId:args.trackId,targetId:sourceClipId,destinationId:targetClipId,name:observed.source.name}} : {}),
       expectedStateVersion: args.expectedStateVersion, before: observed
     }, args);
-    if (!result.dryRun && (result.observed.stateVersion !== args.expectedStateVersion + 1 || result.observed.copyVerified !== true ||
+    if (!result.dryRun && (result.observed.stateVersion !== args.expectedStateVersion + 1 || typeof result.observed.copyVerified !== "boolean" ||
       result.observed.trackId !== targetTrackId || result.observed.sourceTrackId !== args.trackId || result.observed.sourceClipId !== sourceClipId || result.observed.copiedClipId !== targetClipId)) {
       throw new Error("clip copy readback mismatch; inspect both tracks before retrying");
     }
@@ -3347,11 +3348,8 @@ export class ToolService {
       const destination = observed.clips[index + 1];
       if (!destination) throw new Error("clip duplication requires a following clip slot");
       if (destination.hasClip) throw new Error(`destination clip slot ${destination.id} is occupied`);
-      return this.#confirmedMutation({
-        method: "duplicate_session_object", expectedStateVersion: args.expectedStateVersion,
-        target: { targetType: "clip", trackId: args.trackId, targetId: source.id,
-          name: source.name, destinationId: destination.id }
-      }, args);
+      return this.#duplicateClip({trackId:args.trackId,clipId:source.id,destinationClipId:destination.id,
+        expectedStateVersion:args.expectedStateVersion,dryRun:args.dryRun,confirmationToken:args.confirmationToken,planHash:args.planHash}, "duplicate_session_object");
     }
     if (args.targetType !== "scene") throw new Error("targetType must be track, scene, or clip");
     const observed = await this.bridge.request("list_scenes", {});

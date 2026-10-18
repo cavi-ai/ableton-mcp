@@ -48,7 +48,7 @@ class ClipDuplicationTests(unittest.TestCase):
         self.duplicate(before)
         self.assertFalse(self.track.clip_slots[1].clip.warping)
 
-    def test_incomplete_native_copy_is_cleaned_up(self):
+    def test_incomplete_native_copy_is_retained_without_naming(self):
         before = self.source()
         original = self.track.clip_slots[0].duplicate_clip_to
 
@@ -57,9 +57,10 @@ class ClipDuplicationTests(unittest.TestCase):
             target.clip.pitch_coarse = 12
 
         self.track.clip_slots[0].duplicate_clip_to = broken
-        with self.assertRaisesRegex(RuntimeError, "readback mismatch"):
-            self.duplicate(before)
-        self.assertFalse(self.track.clip_slots[1].has_clip)
+        result = self.duplicate(before)
+        self.assertFalse(result["copyVerified"])
+        self.assertFalse(result["nameWriteRequested"])
+        self.assertTrue(self.track.clip_slots[1].has_clip)
         self.assertEqual(self.track.clip_slots[0].clip.pitch_coarse, 0)
 
     def test_recording_pending_launches_and_missing_guard_refuse(self):
@@ -90,11 +91,13 @@ class ClipDuplicationTests(unittest.TestCase):
             raise RuntimeError("native copy failed")
 
         self.track.clip_slots[0].duplicate_clip_to = broken
-        with self.assertRaisesRegex(RuntimeError, "native copy failed.*cleanup skipped.*ownership"):
-            self.duplicate(before)
+        result = self.duplicate(before)
+        self.assertFalse(result["nativeReturned"])
+        self.assertFalse(result["copyVerified"])
+        self.assertIn("native copy failed", result["error"])
         self.assertTrue(self.track.clip_slots[1].has_clip)
 
-    def test_failed_copy_verification_reports_cleanup_failure(self):
+    def test_failed_copy_verification_never_requests_cleanup(self):
         before = self.source()
         original = self.track.clip_slots[0].duplicate_clip_to
 
@@ -108,8 +111,9 @@ class ClipDuplicationTests(unittest.TestCase):
             raise RuntimeError("cannot remove copy")
 
         self.track.clip_slots[1].delete_clip = failed_cleanup
-        with self.assertRaisesRegex(RuntimeError, "cleanup failed: cannot remove copy"):
-            self.duplicate(before)
+        result = self.duplicate(before)
+        self.assertFalse(result["copyVerified"])
+        self.assertNotIn("cannot remove copy", result["error"])
         self.assertTrue(self.track.clip_slots[1].has_clip)
 
     def test_midi_manual_note_edit_invalidates_without_state_version_change(self):
@@ -198,12 +202,14 @@ class CrossTrackClipDuplicationTests(unittest.TestCase):
             self.song.tracks[1] = replacement
 
         self.track.clip_slots[0].duplicate_clip_to = replacing
-        with self.assertRaisesRegex(RuntimeError, "ownership.*unconfirmed|topology.*changed"):
-            self.duplicate(before)
+        result = self.duplicate(before)
+        self.assertFalse(result["copyVerified"])
+        self.assertFalse(result["targetRetained"])
+        self.assertFalse(result["nameWriteRequested"])
         self.assertEqual(replacement.clip_slots[1].clip.name, "Manual content")
         self.assertTrue(replacement.clip_slots[1].has_clip)
 
-    def test_copy_readback_failure_removes_only_the_confirmed_destination_copy(self):
+    def test_copy_readback_failure_retains_the_partial_destination_copy(self):
         before = self.source()
         original = self.track.clip_slots[0].duplicate_clip_to
 
@@ -212,9 +218,9 @@ class CrossTrackClipDuplicationTests(unittest.TestCase):
             target.clip.pitch_coarse = 12
 
         self.track.clip_slots[0].duplicate_clip_to = broken
-        with self.assertRaisesRegex(RuntimeError, "readback mismatch"):
-            self.duplicate(before)
-        self.assertFalse(self.destination.clip_slots[1].has_clip)
+        result = self.duplicate(before)
+        self.assertFalse(result["copyVerified"])
+        self.assertTrue(self.destination.clip_slots[1].has_clip)
         self.assertEqual(self.track.clip_slots[0].clip.pitch_coarse, 0)
 
 

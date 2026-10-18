@@ -197,7 +197,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         if (params.sourceClipId === "track-0:clip-1") throw new Error("source clip is empty");
         if (params.targetClipId === "track-0:clip-0") throw new Error("target clip must be empty");
         return {stateVersion:4,trackId:params.trackId,sourceClipId:params.sourceClipId,targetClipId:params.targetClipId,targetTrackId:params.targetTrackId,
-          identityToken:"native-copy-pair",source:{name:"Loop"},target:{hasClip:false}};
+          copyGuardVersion:2,identityToken:"native-copy-pair",source:{name:"Loop"},target:{hasClip:false}};
       }
       if (method === "list_clips") return {
         stateVersion: 4,

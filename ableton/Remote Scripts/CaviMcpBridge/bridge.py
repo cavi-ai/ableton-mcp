@@ -5033,6 +5033,22 @@ def dispatch_request(song, request, state_version, application=None):
         }}
     if method == "duplicate_session_object":
         target = params["target"]
+        if target["targetType"] == "clip":
+            try:
+                from .clip_duplication import duplicate
+            except ImportError:
+                from clip_duplication import duplicate
+            if not params.get("before"):
+                raise ValueError("guarded clip duplication context required")
+            expected = {"targetType": "clip", "trackId": params.get("trackId"), "targetId": params.get("sourceClipId"),
+                        "destinationId": params.get("targetClipId"), "name": params["before"].get("source", {}).get("name")}
+            if target != expected or params.get("targetTrackId", params.get("trackId")) != params.get("trackId") or "name" in params:
+                raise ValueError("clip duplication target changed")
+            prefix = str(params.get("trackId")) + ":clip-"
+            source_id = params.get("sourceClipId", "")
+            if not source_id.startswith(prefix) or not source_id[len(prefix):].isdigit() or params.get("targetClipId") != prefix + str(int(source_id[len(prefix):]) + 1):
+                raise ValueError("clip duplication requires the following empty slot")
+            return duplicate(song, params, state_version)
         if target["targetType"] == "track":
             source_index = int(target["targetId"].removeprefix("track-"))
             song.duplicate_track(source_index)
@@ -5043,9 +5059,7 @@ def dispatch_request(song, request, state_version, application=None):
             song.duplicate_scene(source_index)
             item = song.scenes[source_index + 1]
         else:
-            track, source_index, _ = _clip_slot(song, target["trackId"], target["targetId"])
-            track.duplicate_clip_slot(source_index)
-            item = track.clip_slots[source_index + 1].clip
+            raise ValueError("unsupported duplication targetType")
         return {"stateVersion": state_version + 1, "target": {
             **target, "name": item.name,
         }}
