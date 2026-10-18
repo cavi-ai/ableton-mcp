@@ -1,4 +1,5 @@
 import {saveMidiClip,MacMidiExportHost} from './midi-export.mjs';
+import {renameArrangementClip} from './clip-names.mjs';
 import {trackBounce,MacTrackBounceHost} from "./track-bounce.mjs";
 import {trackFreeze,MacTrackFreezeHost} from "./track-freeze.mjs";
 import {recordingSetup,MacRecordingSetupHost} from "./recording-setup.mjs";
@@ -505,6 +506,7 @@ export class ToolService {
     requestSignal()?.throwIfAborted();
     if (name === 'show_live_object') return showLiveObject(this.bridge, this.confirmations, args);
     if(name === "export_midi_clip")return saveMidiClip(this.bridge,this.confirmations,this.midiExportHost,args);
+    if(name === "rename_arrangement_clip")return renameArrangementClip(this.bridge,this.confirmations,args);
     if(name === "bounce_track_in_place")return trackBounce(this.bridge,this.confirmations,this.trackBounceHost,args);
     if(name==='import_midi_file')return importMidiFile(this.bridge,this.confirmations,this.midiImportHost,args);
     if(name==='save_native_device_preset')return saveNativeDevicePreset(this.bridge,this.confirmations,this.devicePresetHost,args);

@@ -24,6 +24,8 @@
   "get_live_navigation_context",
   "show_live_object",
   "get_midi_export_source",
+  "get_arrangement_clip_name_context",
+  "rename_arrangement_clip",
   "select_midi_export_source",
   "get_device_ab_context",
   "copy_device_ab_slot",
