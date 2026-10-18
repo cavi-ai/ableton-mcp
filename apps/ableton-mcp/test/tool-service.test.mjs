@@ -196,6 +196,9 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
       if (method === "get_clip_removal_source") {
         if (params.clipId === "track-0:clip-1") throw new Error("clip is empty");
         return {stateVersion:4,trackId:params.trackId,clipId:params.clipId,location:params.location,identityToken:"native-removal",source:{name:"Loop",notes:[]},scope:{wholeClip:true,includesClipEnvelopesAndNoteExpression:true,restorableSnapshot:false}};
+      if (method === "get_session_clip_name_context") {
+        if(params.clipId === "track-0:clip-1")throw Error("empty clip slot");
+        return {stateVersion:4,trackId:params.trackId,clipId:params.clipId,identityToken:"native-label",clip:{id:params.clipId,name:"Loop",hasClip:true}};
       }
       if (method === "get_clip_duplication_source") {
         if (params.sourceClipId === "track-0:clip-1") throw new Error("source clip is empty");

@@ -4390,7 +4390,10 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(created_scene["scene"]["name"], "Intro")
         self.assertEqual(created_scene["scene"]["launchQuantization"]["value"], 0)
         self.assertEqual(song.undo_boundaries, ["begin", "end", "begin", "end"])
+        label_ids = {"trackId":"track-0","clipId":"track-0:clip-0"}
+        label_before = dispatch_request(song, {"method":"get_session_clip_name_context","params":label_ids}, 5)
         renamed = dispatch_request(song, {"method": "rename_session_object", "params": {
+            **label_ids, "expectedStateVersion":5, "before":label_before, "name":"Hook",
             "target": {"targetType": "clip", "trackId": "track-0", "targetId": "track-0:clip-0",
                        "previousName": "Loop", "name": "Hook"}
         }}, 5)
