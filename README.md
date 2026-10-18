@@ -62,6 +62,8 @@ It publishes 318 tools, 9 concrete resources, 13 resource templates and 69 promp
 
 ## Documentation
 
+- [Remove a Return effect](docs/ableton-mcp/source/pages/guides/return-removal.md)
+
 - [Overview](docs/ableton-mcp/source/pages/introduction/overview.md), [Installation](docs/ableton-mcp/source/pages/introduction/installation.md), [Quickstart](docs/ableton-mcp/source/pages/introduction/quickstart.md)
 - [Develop a Session scene](docs/ableton-mcp/source/pages/guides/session-scene-development.md)
 - [Remove a Session scene](docs/ableton-mcp/source/pages/guides/session-scene-removal.md)

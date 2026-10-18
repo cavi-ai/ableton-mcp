@@ -3434,24 +3434,14 @@ export class ToolService {
   async #deleteSessionObject(args) {
     requireExpectedState(args);
     if (args.targetType === "return") {
-      const observed = await this.bridge.request("get_set_mixer", {});
-      assertExpectedState(args, observed);
-      const target = observed.returns.find(({ id }) => id === args.targetId);
-      if (!target) throw new Error(`unknown return ${args.targetId}`);
-      if (args.allowContent !== true) {
-        throw new Error("allowContent: true is required to delete a Return Track, its devices, and its send lane");
-      }
-      const tracks = (await this.bridge.request("list_tracks", {})).tracks;
-      const affectedTrackSends = [];
-      for (const track of tracks) {
-        const mixer = await this.bridge.request("get_track_mixer", { trackId: track.id });
-        const send = mixer.sends.find(({ returnTrackId }) => returnTrackId === target.id);
-        if (send) affectedTrackSends.push({ trackId: track.id, trackName: track.name, send });
-      }
-      return this.#confirmedMutation({ method: "delete_session_object",
-        expectedStateVersion: args.expectedStateVersion,
-        target: { targetType: "return", targetId: target.id, ...target, affectedTrackSends }
-      }, args);
+      const returnRemovalContext=await this.bridge.request("get_return_removal_context",{returnTrackId:args.targetId});
+      assertExpectedState(args,returnRemovalContext);
+      if(returnRemovalContext.returnTrackId!==args.targetId || !returnRemovalContext.identityToken || !Array.isArray(returnRemovalContext.target?.devices) || !Array.isArray(returnRemovalContext.affectedSends))
+        throw Error("updated native Return removal identity, devices and complete send context required");
+      if(args.allowContent!==true)throw Error("allowContent: true is required to delete a Return, its devices and every affected send lane");
+      return this.#confirmedMutation({method:"delete_session_object",expectedStateVersion:args.expectedStateVersion,allowContent:true,returnRemovalContext,
+        target:{targetType:"return",targetId:args.targetId,...returnRemovalContext.target,
+          affectedTrackSends:returnRemovalContext.affectedSends.filter(row=>row.ownerId.startsWith("track-")).map(row=>({trackId:row.ownerId,trackName:row.ownerName,send:{id:row.sendId,returnTrackId:row.returnTrackId,name:row.returnName,...row.send}}))}},args);
     }
     if (args.targetType === "clip") {
       return removeClip(this.bridge, this.confirmations, "delete_session_object", args);
