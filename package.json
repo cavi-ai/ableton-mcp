@@ -60,6 +60,7 @@
     "ableton/Remote Scripts/CaviMcpBridge/session_recording.py",
     "ableton/Remote Scripts/CaviMcpBridge/simpler_sample.py",
     "ableton/Remote Scripts/CaviMcpBridge/clip_duplication.py",
+    "ableton/Remote Scripts/CaviMcpBridge/clip_entry.py",
     "ableton/Remote Scripts/CaviMcpBridge/clip_envelope.py",
     "packages/nks-pipeline/src/catalog.mjs",
     "packages/nks-pipeline/src/generation-queue.mjs",

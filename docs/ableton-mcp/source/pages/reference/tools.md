@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 317 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 318 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (135)
 
@@ -144,7 +144,7 @@ The server publishes 317 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (151)
+## Mutations (152)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -280,6 +280,7 @@ The server publishes 317 tools. Mutations of the Live Set require `expectedState
 | `set_scene_launch_quantization` | Plan or apply a guarded per-scene clip-launch quantization override from list_scenes. The global setting stays in song musical context; only the selected scene changes. | `expectedStateVersion`, `sceneId`, `launchQuantization` |
 | `set_scene_musical_context` | Plan or set an exact Session scene tempo and/or time-signature override. Disabled overrides inherit the song context; enabled overrides take effect when the scene is launched. | `expectedStateVersion`, `sceneId` |
 | `set_selected_parameter` | Edit the exact currently selected native control at one absolute value or finite unit display. Requires fresh selection token and unchanged identity/value/context; rejects active/unknown automation, recording/count-in and unsafe owners. Preserves focus/playback; partial work retained without rollback/replay. All profile. | `expectedStateVersion`, `expectedSelectionToken` |
+| `set_session_clip_entry` | Set one inactive Session launch entry in explicit units: separate MIDI/warped marker, or unwarped nonlooped range start. Retains the end, repeating loop and exposed material. Binds native identity/content/controls; refuses recording, arms, frozen targets and pending launches. Reports partial work without rollback or replay. Does not launch or rewrite notes/files. Updated bridge; all profile. | `expectedStateVersion`, `trackId`, `clipId`, `unit`, `start` |
 | `set_song_musical_context` | Plan or apply guarded song key, scale, timing, quantization, groove, swing, or loop changes. | `expectedStateVersion` |
 | `set_tempo` | Plan or set song tempo within Live's accepted range. | `expectedStateVersion`, `tempo` |
 | `set_track_midi_routing` | Plan or apply guarded changes to one track's native MIDI input/output note and scale transposition. Affects every clip launched on the track; does not change device-level or rack-chain note routing. | `expectedStateVersion`, `trackId` |

@@ -16,7 +16,7 @@ const readNames = ["get_live_state", "get_selection_context", "get_song_musical_
   "get_factory_device_context", "get_plugin_integration_context", "analyze_midi_clip_scale", "analyze_midi_clip_chords"];
 const operationNames = ["set_tempo", "set_song_musical_context", "set_device_parameters", "set_track_mixer", "set_track_volume_db", "set_track_send_db",
   "set_clip_timing", "set_audio_clip_state", "set_midi_note_properties", "transform_midi_notes",
-  "duplicate_midi_clip_variations", "create_midi_clip", "set_device_active"];
+  "duplicate_midi_clip_variations", "create_midi_clip", "set_device_active", "set_session_clip_entry"];
 const executionFields = ["dryRun", "confirmationToken", "planHash", "expectedStateVersion"];
 const roles = ["creative", "functional"];
 const checkSignal = () => requestSignal()?.throwIfAborted();

@@ -1,3 +1,4 @@
+import {setSessionClipEntry} from './clip-entry.mjs';
 import {captureSessionScene} from './scene-capture.mjs';
 import {copyArrangementClip} from './arrangement-copy.mjs';
 import {saveMidiClip,MacMidiExportHost} from './midi-export.mjs';
@@ -517,6 +518,7 @@ export class ToolService {
   }
 
   async call(name, args = {}) {
+    if (name === 'set_session_clip_entry') return setSessionClipEntry(this.bridge,this.confirmations,args);
     requestSignal()?.throwIfAborted();
     if (name === 'show_live_object') return showLiveObject(this.bridge, this.confirmations, args);
     if(name === "export_midi_clip")return saveMidiClip(this.bridge,this.confirmations,this.midiExportHost,args);

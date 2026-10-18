@@ -99,7 +99,7 @@
   "get_song_musical_context", "set_song_musical_context", "set_groove", "create_groove", "get_transport_recording_context", "set_transport_recording_context", "get_midi_capture_context", "capture_midi_session",
   "list_arrangement_cue_points", "create_arrangement_cue_point", "rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point",
   "get_browser_preview_context", "set_browser_preview", "list_browser_roots", "get_browser_items", "load_browser_item", "search_browser_items", "search_browser_roots", "get_factory_browser_items", "load_factory_browser_item",
-  "list_tracks", "list_scenes", "set_scene_launch_quantization", "set_scene_musical_context", "list_clips", "get_clip_timing",
+  "list_tracks", "list_scenes", "set_scene_launch_quantization", "set_scene_musical_context", "list_clips", "get_clip_timing", "get_session_clip_entry_context", "set_session_clip_entry",
   "get_session_clip_hold_source", "hold_session_clip", "get_session_clip_hold", "finish_session_clip_hold",
   "get_clip_launch_edit_context", "set_clip_timing", "duplicate_clip_loop", "duplicate_clip", "delete_clip",
   "get_audio_clip_state",
