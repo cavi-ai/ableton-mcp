@@ -7,6 +7,10 @@ import { ToolService } from "../src/tool-service.mjs";
 import { SnapshotLibrary } from "../src/snapshot-library.mjs";
 import { validateToolArguments } from "../src/tool-validation.mjs";
 
+function loopContext(timing) {
+ return {stateVersion:timing.stateVersion,trackId:timing.trackId,clipId:timing.clipId,identityToken:'native',clipTiming:timing,material:{kind:'midi',notes:[]},editContext:Object.fromEntries(['frozen','clipRecording','clipOverdubbing','pendingLaunch','arrangementRecord','sessionRecord','countingIn'].map(k=>[k,false]))};
+}
+
 test("unwarped loop plans preserve seconds and reject incompatible units", async () => {
   const observed = {
     stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-0",
@@ -14,6 +18,7 @@ test("unwarped loop plans preserve seconds and reject incompatible units", async
   };
   const service = new ToolService({ bridge: { async request(method, params) {
     if (method === "get_clip_timing") return observed;
+    if (method === "get_clip_loop_edit_context") return loopContext(observed);
     if (method === "set_clip_timing") return { ...observed, stateVersion: 5, loop: { ...observed.loop, ...params.changes.loop } };
     throw new Error(method);
   } } });
@@ -347,6 +352,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         exists: true,
         samples: (params.sampleTimes || []).map((time) => ({ time, value: time / 4 }))
       };
+      if (method === "get_clip_loop_edit_context") return loopContext(await this.request("get_clip_timing", params));
       if (method === "get_clip_timing") return {
         stateVersion: 4, trackId: params.trackId, clipId: params.clipId,
         loop: { enabled: true, startBeats: 0, endBeats: 4 },

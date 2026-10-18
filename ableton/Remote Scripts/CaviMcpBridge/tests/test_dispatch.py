@@ -11,6 +11,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from bridge import SocketBridge, dispatch_request, _device_type, _new_midi_note, _persisted_device_chain, _persisted_track_state, _set_fingerprint, _track_topology_signature
 
 
+def prepare_loop_target(song):
+    song.is_counting_in = False
+    clip = song.tracks[0].clip_slots[0].clip
+    if not hasattr(clip, 'is_audio_clip'): clip.is_audio_clip = False
+    clip.is_recording = clip.is_overdubbing = clip.is_triggered = False
+
+
+def loop_plan(song, params, version=3):
+    context = dispatch_request(song, {'method':'get_clip_loop_edit_context','params':params}, version)
+    return {**params, 'expectedStateVersion':version, 'before':context['clipTiming'], 'loopEditContext':context}
+
+
 class Parameter:
     def __init__(self):
         self.name = "Cutoff"
@@ -2768,7 +2780,9 @@ class DispatchTest(unittest.TestCase):
 
     def test_unwarped_audio_clip_timing_reports_seconds_not_beats(self):
         song = Song()
-        clip = song.tracks[0].clip_slots[0].clip
+        clip = AudioClip()
+        song.tracks[0].clip_slots[0].clip = clip
+        prepare_loop_target(song)
         clip.is_audio_clip = True
         clip.warping = False
         clip.loop_start = 0.25
@@ -2787,7 +2801,7 @@ class DispatchTest(unittest.TestCase):
         self.assertTrue(clip.looping)
         self.assertEqual(clip.loop_start, 0.25)
         changed = dispatch_request(song, {"method": "set_clip_timing", "params": {
-            "trackId": "track-0", "clipId": "track-0:clip-0",
+            **loop_plan(song, {"trackId":"track-0", "clipId":"track-0:clip-0"}),
             "changes": {"loop": {"startSeconds": 0.5, "endSeconds": 2.0}}
         }}, 3)
         self.assertEqual(changed["loop"]["startSeconds"], 0.5)
@@ -2795,6 +2809,7 @@ class DispatchTest(unittest.TestCase):
 
     def test_clip_timing_reads_and_writes_loop_signature_quantization_and_groove(self):
         song = Song()
+        prepare_loop_target(song)
         params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
         observed = dispatch_request(song, {"method": "get_clip_timing", "params": params}, 3)
         self.assertEqual(observed["loop"], {"enabled": True, "startBeats": 0.0, "endBeats": 4.0})
@@ -2807,7 +2822,7 @@ class DispatchTest(unittest.TestCase):
         self.assertIn({"value": 12, "name": "1_16"}, observed["launchQuantization"]["choices"])
         self.assertIsNone(observed["grooveId"])
 
-        changed = dispatch_request(song, {"method": "set_clip_timing", "params": {**params, "changes": {
+        changed = dispatch_request(song, {"method": "set_clip_timing", "params": {**loop_plan(song, params), "changes": {
             "loop": {"enabled": True, "startBeats": 1.0, "endBeats": 5.0},
             "timeSignature": {"numerator": 3, "denominator": 4},
             "launchQuantization": 12, "launchLegato": True, "grooveId": "groove-0",
@@ -2902,7 +2917,7 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual((clip.loop_start, clip.loop_end), (0.0, 4.0))
         self.assertIsNone(clip.groove)
 
-    def test_clip_timing_restores_earlier_writes_when_native_groove_write_fails(self):
+    def test_clip_timing_preserves_partial_writes_when_native_groove_write_fails(self):
         class GrooveWriteFails(Clip):
             def __setattr__(self, name, value):
                 if name == "groove" and getattr(self, "fail_groove", False):
@@ -2914,13 +2929,15 @@ class DispatchTest(unittest.TestCase):
         clip.fail_groove = True
         song.tracks[0].clip_slots[0].clip = clip
         params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        prepare_loop_target(song)
         before = dispatch_request(song, {"method": "get_clip_timing", "params": params}, 3)
-        with self.assertRaisesRegex(RuntimeError, "native groove write failed"):
-            dispatch_request(song, {"method": "set_clip_timing", "params": {
-                **params, "before": before,
-                "changes": {"loop": {"startBeats": 1, "endBeats": 5}, "grooveId": "groove-0"}
-            }}, 3)
-        self.assertEqual((clip.loop_start, clip.loop_end), (0.0, 4.0))
+        result = dispatch_request(song, {"method": "set_clip_timing", "params": {
+            **loop_plan(song, params), "before": before,
+            "changes": {"loop": {"startBeats": 1, "endBeats": 5}, "grooveId": "groove-0"}
+        }}, 3)
+        self.assertFalse(result['requestedChangesVerified'])
+        self.assertIn('native groove write failed', result['error'])
+        self.assertEqual((clip.loop_start, clip.loop_end), (1.0, 5.0))
 
     def test_clip_timing_native_mute_is_guarded_and_rejects_stale_state(self):
         song = Song()
