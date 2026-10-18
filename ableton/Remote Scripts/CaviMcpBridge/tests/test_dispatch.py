@@ -4633,13 +4633,10 @@ class DispatchTest(unittest.TestCase):
         }}, 4)
         self.assertFalse(song.tracks[0].clip_slots[1].has_clip)
         self.assertEqual(deleted_clip["deleted"]["targetId"], "track-0:clip-1")
-        dispatch_request(song, {"method": "duplicate_session_object", "params": {
-            "target": {"targetType": "scene", "targetId": "scene-0", "destinationId": "scene-1", "name": "Verse"}
-        }}, 5)
-        self.assertEqual(len(song.scenes), 3)
-        dispatch_request(song, {"method": "delete_session_object", "params": {
-            "target": {"targetType": "scene", "targetId": "scene-1", "name": "Verse", "occupiedClips": []}
-        }}, 6)
+        with self.assertRaises(ValueError):
+            dispatch_request(song, {"method": "duplicate_session_object", "params": {
+                "target": {"targetType": "scene", "targetId": "scene-0", "destinationId": "scene-1", "name": "Verse"}
+            }}, 5)
         self.assertEqual(len(song.scenes), 2)
         dispatch_request(song, {"method": "delete_session_object", "params": {
             "target": {"targetType": "track", "targetId": "track-1", "name": "Synth", "clipCount": 0, "deviceCount": 0}

@@ -164,6 +164,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         { id: "device-0", name: "Serum 2", className: "PluginDevice", type: "instrument", active: true },
         { id: "track-0:device-1", name: "EQ Eight", className: "Eq8", type: "audio_effect", active: true }
       ] };
+      if (method === 'get_scene_duplication_context') return {stateVersion:4,sceneId:params.sceneId,destinationId:'scene-1',identityToken:'scene-copy',scenes:[{name:'Verse'},{name:'Chorus'}],tracks:[]};
       if (method === "list_scenes") return { stateVersion: 4, scenes: [
         { id: "scene-0", name: "Verse" }, { id: "scene-1", name: "Chorus" }
       ] };
