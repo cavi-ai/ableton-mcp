@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from test_dispatch import Song, Parameter
 from test_track_routing import ready_song
 from test_track_mixer import prepare_mixers,mixer_plan
+from test_return_mixer import return_plan
 from bridge import dispatch_request, SocketBridge, _persisted_track_state, _persisted_device_chain
 
 
@@ -171,8 +172,8 @@ class PanningTests(unittest.TestCase):
             params = {'trackId': owner_id, 'changes': changes}
             if owner_id == 'master': params['beforeMaster'] = source['master']
             if owner_id == 'return-0': params.update(returnTrackId=owner_id, beforeReturn=source['returns'][0])
-            if owner_id == 'track-0':
-                result = self.call('set_track_mixer',mixer_plan(self.song,{owner_id:{'volume':.5,'pan':.5}}))
+            if owner_id != 'master':
+                result = self.call('set_track_mixer',mixer_plan(self.song,{owner_id:{'volume':.5,'pan':.5}})) if owner_id == 'track-0' else self.call('set_return_mixer',return_plan(self.song,{'volume':.5,'pan':.5}))
                 self.assertFalse(result['verified'])
                 self.assertEqual([row['field'] for row in result['writes']],['volume'])
                 self.assertEqual(result['observedContext']['tracks'][0]['pan']['panningMode']['name'],'splitStereo')
@@ -193,17 +194,16 @@ class PanningTests(unittest.TestCase):
         self.assertEqual(second.volume.value, second_volume)
         self.assertEqual(second.panning.writes, [])
 
-    def test_legacy_journalled_pan_refuses_replaced_mixer_after_an_earlier_setter(self):
+    def test_return_pan_refuses_replaced_mixer_after_an_earlier_setter(self):
+        self.song = prepare(prepare_mixers(ready_song()))
         track = self.song.return_tracks[0]
         original = track.mixer_device
         original.volume = Pan(.75)
         replacement = copy.deepcopy(original)
         original.volume.callback = lambda: setattr(track, 'mixer_device', replacement)
-        before = self.call('get_set_mixer')['returns'][0]
-        with self.assertRaisesRegex(ValueError, 'owner|mixer'):
-            self.call('set_return_mixer', {'returnTrackId': 'return-0', 'beforeReturn': before, 'changes': {
-                'volume': {'previousValue': .75, 'requestedValue': .5, 'value': .5},
-                'pan': {'previousValue': 0, 'requestedValue': .5, 'value': .5}}})
+        result = self.call('set_return_mixer',return_plan(self.song,{'volume':.5,'pan':.5}))
+        self.assertFalse(result['verified']);self.assertFalse(result['targetRetained'])
+        self.assertEqual([row['field'] for row in result['writes']],['volume'])
         self.assertEqual(original.panning.writes, [])
         self.assertEqual(replacement.panning.writes, [])
 
@@ -228,7 +228,7 @@ class PanningTests(unittest.TestCase):
             self.assertEqual(mixer.panning.writes, [])
 
     def test_pan_rollback_preserves_partial_state_after_mode_or_owner_changes(self):
-        for operation in ['return', 'master', 'trackSnapshot', 'returnSnapshot', 'replacedReturn']:
+        for operation in ['master', 'trackSnapshot', 'returnSnapshot']:
             self.song = prepare(Song())
             native = self.song.tracks[0] if operation == 'trackSnapshot' else self.song.return_tracks[0]
             if operation == 'master': native = self.song.master_track
@@ -240,10 +240,7 @@ class PanningTests(unittest.TestCase):
             elif owner_id == 'master': self.song.master_track = owner
             else: self.song.return_tracks[0] = owner
             mixer = owner.mixer_device
-            if operation == 'replacedReturn':
-                replacement = copy.deepcopy(native)
-                mixer.panning.callback = lambda: self.song.return_tracks.__setitem__(0, replacement)
-            else: mixer.panning.callback = lambda m=mixer: setattr(m, 'panning_mode', 1)
+            mixer.panning.callback = lambda m=mixer: setattr(m, 'panning_mode', 1)
             if operation == 'master':
                 mixer.cue_volume = Pan(.7); mixer.cue_volume.fail = True
                 before = self.call('get_set_mixer')['master']
@@ -251,11 +248,6 @@ class PanningTests(unittest.TestCase):
                     'pan': {'previousValue': 0, 'requestedValue': .5, 'value': .5},
                     'cueVolume': {'previousValue': .7, 'requestedValue': .5, 'value': .5}}}
                 method = 'set_master_mixer'
-            elif operation in ['return', 'replacedReturn']:
-                before = self.call('get_set_mixer')['returns'][0]
-                args = {'returnTrackId': 'return-0', 'beforeReturn': before, 'changes': {
-                    'pan': {'previousValue': 0, 'requestedValue': .5, 'value': .5}, 'mute': {'previousValue': False, 'value': True}}}
-                method = 'set_return_mixer'
             else:
                 before = self.call('get_track_state_snapshot' if owner_id == 'track-0' else 'get_device_chain_snapshot', {'trackId': owner_id})
                 target = _persisted_track_state(before) if owner_id == 'track-0' else _persisted_device_chain(before, 'cavi-device-chain-v5')
@@ -278,6 +270,7 @@ class PanningTests(unittest.TestCase):
         self.assertEqual(self.song.tracks[0].mixer_device.panning.writes, [])
 
     def test_bus_pan_setters_and_snapshot_recalls_refuse_inactive_pan_before_other_writes(self):
+        self.song = prepare(prepare_mixers(ready_song()))
         for owner in ['master', 'return-0']:
             native = self.song.master_track if owner == 'master' else self.song.return_tracks[0]
             native.mixer_device.panning_mode = 1
@@ -287,7 +280,7 @@ class PanningTests(unittest.TestCase):
             changes = {key: {'previousValue': row[key]['value'], 'requestedValue': .5, 'value': .5} for key in ['volume', 'pan']}
             params = {'beforeMaster': row} if owner == 'master' else {'beforeReturn': row, 'returnTrackId': owner}
             with self.assertRaisesRegex(ValueError, 'Stereo'):
-                self.call('set_master_mixer' if owner == 'master' else 'set_return_mixer', {**params, 'changes': changes})
+                self.call('set_master_mixer', {**params,'changes':changes}) if owner == 'master' else self.call('set_return_mixer',return_plan(self.song,{'volume':.5,'pan':.5}))
             self.assertEqual(native.mixer_device.volume.value, row['volume']['value'])
             current = self.call('get_device_chain_snapshot', {'trackId': owner})
             target = _persisted_device_chain(current, 'cavi-device-chain-v6' if owner == 'master' else 'cavi-device-chain-v5')

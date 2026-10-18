@@ -5010,19 +5010,36 @@ export class ToolService {
 
   async #setBusMixer(method, args) {
     requireExpectedState(args);
+    if (method === "set_return_mixer") {
+      if (typeof args.returnTrackId !== "string" || !/^return-(0|[1-9][0-9]*)$/.test(args.returnTrackId)) throw new Error("canonical Return Track ID required");
+      const fields = this.#mixerFields(args, false);
+      if (!fields.length) throw new Error("at least one return mixer change is required");
+      const before = await this.bridge.request("get_return_mixer_edit_context", {returnTrackId: args.returnTrackId, fields});
+      assertExpectedState({expectedStateVersion:args.expectedStateVersion}, before);
+      if (typeof before.identityToken !== "string" || !before.identityToken ||
+          JSON.stringify(before.trackIds) !== JSON.stringify([args.returnTrackId]) ||
+          before.tracks?.length !== 1 || before.tracks[0].trackId !== args.returnTrackId) throw new Error("native Return mixer context required; update the Live bridge");
+      if (before.readyToChange !== true) throw new Error(`Return mixer changes refused: ${(before.reasons ?? []).join(", ")}`);
+      const target = before.tracks[0], changes = {};
+      if (args.pan !== undefined) assertStereoPan(target.pan);
+      for (const key of fields) {
+        if (key === "mute" || key === "solo") changes[key] = {previousValue: target[key], value: args[key]};
+        else {
+          const requestedValue = Number(args[key]);
+          if (!Number.isFinite(requestedValue)) throw new Error(`${key} must be finite`);
+          changes[key] = {previousValue: target[key].value, requestedValue,
+            value: Math.max(target[key].min, Math.min(target[key].max, requestedValue))};
+        }
+      }
+      return this.#confirmedMutation({method,returnTrackId:args.returnTrackId,expectedStateVersion:args.expectedStateVersion,before,changes},args);
+    }
     const observed = await this.bridge.request("get_set_mixer", {});
     assertExpectedState({ expectedStateVersion: args.expectedStateVersion }, observed);
-    const target = method === "set_master_mixer"
-      ? observed.master
-      : observed.returns.find(({ id }) => id === args.returnTrackId);
-    if (!target) throw new Error(`unknown return track ${args.returnTrackId}`);
+    const target = observed.master;
     if (args.pan !== undefined) assertStereoPan(target.pan);
-    const numericKeys = method === "set_master_mixer"
-      ? ["volume", "pan", "cueVolume", "crossfader"]
-      : ["volume", "pan"];
-    const booleanKeys = method === "set_return_mixer" ? ["mute", "solo"] : [];
+    const numericKeys = ["volume", "pan", "cueVolume", "crossfader"];
     const changes = {};
-    if (method === "set_master_mixer" && args.outputChannelId !== undefined) {
+    if (args.outputChannelId !== undefined) {
       const routing = target.outputRouting;
       const selected = routing?.availableChannels.find(({ id }) => id === args.outputChannelId);
       if (!routing?.supported || !selected) throw new Error("master output channel is unavailable");
@@ -5037,20 +5054,10 @@ export class ToolService {
         value: Math.max(target[key].min, Math.min(target[key].max, requestedValue))
       };
     }
-    for (const key of booleanKeys) {
-      if (args[key] === undefined) continue;
-      if (typeof args[key] !== "boolean") throw new Error(`${key} must be boolean`);
-      changes[key] = { previousValue: target[key], value: args[key] };
-    }
     if (!Object.keys(changes).length) {
-      throw new Error(`at least one ${method === "set_master_mixer" ? "master" : "return"} mixer change is required`);
+      throw new Error("at least one master mixer change is required");
     }
-    const plan = { method, expectedStateVersion: args.expectedStateVersion, changes };
-    if (method === "set_master_mixer") plan.beforeMaster = target;
-    else {
-      plan.returnTrackId = args.returnTrackId;
-      plan.beforeReturn = target;
-    }
+    const plan = { method, expectedStateVersion: args.expectedStateVersion, changes, beforeMaster: target };
     return this.#confirmedMutation(plan, args);
   }
 

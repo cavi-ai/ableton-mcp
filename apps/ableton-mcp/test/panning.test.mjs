@@ -61,7 +61,7 @@ test('pan tools are all-profile only and workflow distinguishes mode setup from 
 test('legacy single-pan planning requires observed Stereo mode for tracks, bulk, Return and Main',async()=>{
  for(const name of ['set_track_mixer','set_bulk_track_mixer','set_return_mixer','set_master_mixer']){
   const pan={value:0,min:-1,max:1,panningMode:{supported:true,value:1,name:'splitStereo'}},row={trackId:'track-0',stateVersion:4,pan,sends:[]};
-  const service=new ToolService({bridge:{request:async()=>name==='set_return_mixer'||name==='set_master_mixer'?{stateVersion:4,master:row,returns:[{...row,id:'return-0'}]}:{stateVersion:4,identityToken:"mixer",trackIds:["track-0"],readyToChange:true,reasons:[],tracks:[row]}}});
+  const service=new ToolService({bridge:{request:async()=>name==='set_master_mixer'?{stateVersion:4,master:row,returns:[{...row,id:'return-0'}]}:{stateVersion:4,identityToken:"mixer",trackIds:[name==='set_return_mixer'?'return-0':'track-0'],readyToChange:true,reasons:[],tracks:[{...row,trackId:name==='set_return_mixer'?'return-0':'track-0'}]}}});
   await assert.rejects(()=>service.call(name,{trackId:'track-0',trackIds:['track-0'],returnTrackId:'return-0',pan:.5,expectedStateVersion:4}),/Stereo/);
  }
 });

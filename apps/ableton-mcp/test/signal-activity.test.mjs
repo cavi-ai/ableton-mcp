@@ -68,4 +68,5 @@ test("silent-part workflow resolves actual signal evidence and preserves the per
   assert.match(text, /Never.*unmute/i);
   assert.match(text, /fresh.*plan/i);
   for(const term of ['groupContext','soloContext','groupMembershipOnly','status','unknownTrackIds','membership','routing']) assert.ok(text.includes(term),term);
+  for(const term of ['set_return_mixer','returnTrackId','shared Return']) assert.ok(text.includes(term),term);
 });

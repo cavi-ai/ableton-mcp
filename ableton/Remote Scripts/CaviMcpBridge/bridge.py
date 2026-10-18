@@ -4389,65 +4389,12 @@ def dispatch_request(song, request, state_version, application=None):
         finally:
             song.end_undo_step()
         return result
-    if method == "set_return_mixer":
-        index = int(params["returnTrackId"].removeprefix("return-"))
-        track = song.return_tracks[index]
-        panning_mixer = track.mixer_device
-        if _return_mixer_record(track, index) != params.get("beforeReturn"):
-            raise ValueError("return track changed after planning")
-        changes = params["changes"]
-        if "pan" in changes:
-            _require_stereo_pan(track.mixer_device)
-        if not isinstance(changes, dict) or not changes or set(changes) - {"volume", "pan", "mute", "solo"}:
-            raise ValueError("invalid return mixer changes")
-        for key in ("volume", "pan"):
-            if key not in changes:
-                continue
-            change, bounds = changes[key], params["beforeReturn"][key]
-            requested, value = change.get("requestedValue"), change.get("value")
-            if change.get("previousValue") != bounds["value"] or \
-                    type(requested) not in (int, float) or not math.isfinite(requested) or \
-                    type(value) not in (int, float) or not math.isfinite(value) or \
-                    value != max(bounds["min"], min(bounds["max"], requested)):
-                raise ValueError(f"return {key} value outside signed native range")
-        for key in ("mute", "solo"):
-            if key in changes and (changes[key].get("previousValue") != params["beforeReturn"][key] or
-                                   type(changes[key].get("value")) is not bool):
-                raise ValueError(f"return {key} state is invalid")
-        writes = []
-        def write(target, attribute, value, pan_binding=None):
-            previous = getattr(target, attribute)
-            if previous != value:
-                writes.append((target, attribute, previous) + ((pan_binding,) if pan_binding is not None else ()))
-                setattr(target, attribute, value)
-        song.begin_undo_step()
+    if method in ("get_return_mixer_edit_context", "set_return_mixer"):
         try:
-            if "pan" in changes:
-                _require_stereo_pan(track.mixer_device)
-            if "volume" in changes:
-                write(track.mixer_device.volume, "value", changes["volume"]["value"])
-            if "pan" in changes:
-                _write_stereo_pan(panning_mixer, changes["pan"]["value"], write, (song, params["returnTrackId"], track))
-            for key in ("mute", "solo"):
-                if key in changes:
-                    write(track, key, changes[key]["value"])
-            observed = _return_mixer_record(track, index)
-            if any((observed[key]["value"] if key in ("volume", "pan") else observed[key]) != changes[key]["value"]
-                   for key in changes):
-                raise ValueError("Live did not apply the complete return mixer change")
-        except Exception as error:
-            rollback_errors = []
-            for entry in reversed(writes):
-                try:
-                    _restore_mixer_journal_entry(entry)
-                except Exception as rollback_error:
-                    rollback_errors.append(rollback_error)
-            if rollback_errors:
-                raise RuntimeError(f"return mixer change failed: {error}; rollback failed: {rollback_errors}; use Live undo") from error
-            raise
-        finally:
-            song.end_undo_step()
-        return {"stateVersion": state_version + 1, "return": observed}
+            from . import return_mixer
+        except ImportError:
+            import return_mixer
+        return (return_mixer.context if method == "get_return_mixer_edit_context" else return_mixer.apply)(song, params, state_version)
     if method == "get_device_sidechain_routing":
         return _device_sidechain_routing(song, params["trackId"], params["deviceId"], state_version)
     if method in ("get_device_sidechain_edit_context", "set_device_sidechain_routing"):
@@ -7180,7 +7127,7 @@ class SocketBridge:
                 if request.get("method") == "prepare_instrument_comparison":
                     self._defer_instrument_comparison(client, request, song, record)
                     return
-                if (request.get("method") == "set_transport_recording_context" and "currentSongTime" in request.get("params", {}).get("changes", {})) or request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state", "re_enable_parameter_automation", "override_parameter_automation", "set_mixer_panning", "jump_to_arrangement_cue_point", "arm_track", "set_track_routing", "set_device_sidechain_routing", "set_track_mixer", "set_bulk_track_mixer") or (
+                if (request.get("method") == "set_transport_recording_context" and "currentSongTime" in request.get("params", {}).get("changes", {})) or request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state", "re_enable_parameter_automation", "override_parameter_automation", "set_mixer_panning", "jump_to_arrangement_cue_point", "arm_track", "set_track_routing", "set_device_sidechain_routing", "set_track_mixer", "set_bulk_track_mixer", "set_return_mixer") or (
                         request.get("method") == "set_clip_timing" and "loop" in request.get("params", {}).get("changes", {})) or (
                         request.get("method") == "duplicate_session_object" and request.get("params", {}).get("target", {}).get("targetType") in ("scene", "track")) or (
                         request.get("method") == "delete_session_object" and request.get("params", {}).get("target", {}).get("targetType") in ("scene", "track", "return")):
@@ -7246,9 +7193,9 @@ class SocketBridge:
     def _defer_observed_mutation(self, client, request, song, record=None):
         try:
             try:
-                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication, scene_removal, track_removal, return_removal, track_copy, track_arming, track_routing, sidechain_routing, track_mixer
+                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication, scene_removal, track_removal, return_removal, track_copy, track_arming, track_routing, sidechain_routing, track_mixer, return_mixer
             except ImportError:
-                import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication, scene_removal, track_removal, return_removal, track_copy, track_arming, track_routing, sidechain_routing, track_mixer
+                import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication, scene_removal, track_removal, return_removal, track_copy, track_arming, track_routing, sidechain_routing, track_mixer, return_mixer
             module, success_key = {
                 'return_tracks_to_arrangement': (arrangement_return, 'returned'),
                 'audition_arrangement_passage': (arrangement_audition, 'started'),
@@ -7261,6 +7208,7 @@ class SocketBridge:
                 'set_device_sidechain_routing': (sidechain_routing, 'verified'),
                 'set_track_mixer': (track_mixer, 'verified'),
                 'set_bulk_track_mixer': (track_mixer, 'verified'),
+                'set_return_mixer': (return_mixer, 'verified'),
                 'jump_to_arrangement_cue_point': (cue_jump, 'positionVerified'),
                 'set_transport_recording_context': (transport_seek, 'nativeReturned'),
                 'set_clip_timing': (clip_loop_edit, 'requestedChangesVerified'),
@@ -7276,7 +7224,7 @@ class SocketBridge:
 
         def reply_unverified(error):
             try:
-                if request["method"] in ("jump_to_arrangement_cue_point", "set_transport_recording_context", "arm_track", "set_track_routing", "set_device_sidechain_routing", "set_track_mixer", "set_bulk_track_mixer"):
+                if request["method"] in ("jump_to_arrangement_cue_point", "set_transport_recording_context", "arm_track", "set_track_routing", "set_device_sidechain_routing", "set_track_mixer", "set_bulk_track_mixer", "set_return_mixer"):
                     result = module.unobserved(operation, self.state_version, error)
                 else:
                     operation["error"] = f"Native readback failed: {error}"[:600]

@@ -6,11 +6,11 @@ import uuid
 try:
     from . import track_arming,sidechain_routing,panning
     from .clip_mute import _flag
-    from .bridge import _track,_parameter_automation_state,_undo_step,dispatch_request
+    from .bridge import _device_owner,_return_mixer_record,_parameter_automation_state,_undo_step,dispatch_request
 except ImportError:
     import track_arming,sidechain_routing,panning
     from clip_mute import _flag
-    from bridge import _track,_parameter_automation_state,_undo_step,dispatch_request
+    from bridge import _device_owner,_return_mixer_record,_parameter_automation_state,_undo_step,dispatch_request
 
 _song = None
 _identities = {}
@@ -41,8 +41,8 @@ def context(song, params, version):
     global _song
     ids,fields = params.get('trackIds'),params.get('fields')
     if not isinstance(ids,list) or not 1 <= len(ids) <= 64 or len(set(ids)) != len(ids) or any(
-            not isinstance(key,str) or not re.fullmatch(r'track-(?:0|[1-9][0-9]*)',key) for key in ids):
-        raise ValueError('one to 64 unique canonical ordinary or Group track IDs required')
+            not isinstance(key,str) or not re.fullmatch(r'(?:track|return)-(?:0|[1-9][0-9]*)',key) for key in ids):
+        raise ValueError('one to 64 unique canonical track or Return IDs required')
     if not isinstance(fields,list) or not fields or len(fields) > 68 or len(set(fields)) != len(fields) or any(
             not isinstance(key,str) or not re.fullmatch(r'(?:volume|pan|mute|solo|send-(?:0|[1-9][0-9]*))',key) for key in fields):
         raise ValueError('explicit mixer fields required')
@@ -51,8 +51,8 @@ def context(song, params, version):
     inspection = track_arming._inspect(song,ids[0])
     rows,bindings = [],[]
     for track_id in ids:
-        _,track = _track(song,track_id)
-        row = {'trackId':track_id,'mute':_flag(track,'mute'),'solo':_flag(track,'solo'),
+        _,track = _device_owner(song,track_id)
+        row = {'trackId':track_id,'name':str(track.name),'mute':_flag(track,'mute'),'solo':_flag(track,'solo'),
                'frozen':_flag(track,'is_frozen'),'controls':{},'sends':[]}
         parameters = []
         for field in fields:
@@ -168,8 +168,10 @@ def _advance(before, after, track_id, field, value):
     return expected
 
 
-def begin(song, params, version):
+def begin(song, params, version, allow_returns=False):
     tracks,writes = _flatten(params)
+    if not allow_returns and any(not re.fullmatch(r'track-(?:0|[1-9][0-9]*)',row['trackId'] or '') for row in tracks):
+        raise ValueError('ordinary or Group track IDs required')
     query = {'trackIds':[row['trackId'] for row in tracks],'fields':sorted({field for _,field,_ in writes})}
     if type(params.get('expectedStateVersion')) is not int or not isinstance(params.get('before'),dict):raise ValueError('native mixer context and state version required')
     before = context(song,query,version)
@@ -187,9 +189,9 @@ def begin(song, params, version):
                 if current != operation['expected']:raise ValueError('native mixer context changed before write')
                 index = query['trackIds'].index(track_id)
                 if _near(_value(current['tracks'][index],field),change['value']):continue
-                track = _track(song,track_id)[1]
+                track = _device_owner(song,track_id)[1]
                 parameter = _control(track,field)
-                if _track(song,track_id)[1] != track or _control(track,field) != parameter or context(song,query,version) != operation['expected']:
+                if _device_owner(song,track_id)[1] != track or _control(track,field) != parameter or context(song,query,version) != operation['expected']:
                     raise ValueError('native mixer control changed during resolution')
                 write = {'trackId':track_id,'field':field,'value':change['value'],'writeRequested':True,'nativeReturned':False}
                 operation['writes'].append(write)
@@ -219,7 +221,8 @@ def unobserved(operation, version, error):
 def complete(song, operation, version):
     result = unobserved(operation,version,None)
     try:
-        observed = [dispatch_request(song,{'method':'get_track_mixer','params':{'trackId':key}},version) for key in operation['query']['trackIds']]
+        observed = [_return_mixer_record(_device_owner(song,key)[1],int(key[7:])) if key.startswith('return-') else
+                    dispatch_request(song,{'method':'get_track_mixer','params':{'trackId':key}},version) for key in operation['query']['trackIds']]
         after = context(song,operation['query'],version)
         expected = copy.deepcopy(operation['expected']);expected['stateVersion'] = version
         retained = song == operation['song'] and after['identityToken'] == operation['before']['identityToken']
@@ -227,7 +230,8 @@ def complete(song, operation, version):
         rows = {row['trackId']:row for row in after['tracks']}
         matched = all(_near(_value(rows[t],f),c['value']) for t,f,c in writes)
         if 'trackId' in operation['params']:
-            row = observed[0];result.update(volume=row['volume']['value'],pan=row['pan']['value'],mute=row['mute'],solo=row['solo'],sends=row['sends'])
+            row = observed[0];result.update(volume=row['volume']['value'],pan=row['pan']['value'],mute=row['mute'],solo=row['solo'],sends=row.get('sends',[]))
+            if operation['params']['trackId'].startswith('return-'):result['return'] = row
         else:result['tracks'] = observed
         result.update(targetRetained=retained,contextPreserved=retained and expected == after,requestedChangesVerified=retained and matched,
                       observedContext=after,verification={'topologyStable':retained,'recordingOff':after['recordingOff'] and after['launchesClear']})

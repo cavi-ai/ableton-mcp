@@ -16,6 +16,7 @@ def prepare_mixers(song):
         @property
         def value(self): return 0 if self.owner.mute else 1
     for track in [*song.tracks,*song.return_tracks]:
+        if not hasattr(track,'devices'):track.devices = []
         track.mixer_device.track_activator = Activator(track)
         for parameter in [track.mixer_device.volume,track.mixer_device.panning,*getattr(track.mixer_device,'sends',())]:
             parameter.is_enabled = True;parameter.is_quantized = False;parameter.automation_state = 0
