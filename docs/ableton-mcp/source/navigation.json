@@ -70,6 +70,7 @@
         { "title": "Add a shared send effect", "path": "guides/send-effects.md" },
         { "title": "Diagnose a silent part", "path": "guides/signal-diagnosis.md" },
         { "title": "Arrange Session ideas", "path": "guides/session-arrangement.md" },
+        { "title": "Record a Session performance", "path": "guides/session-performance-recording.md" },
         { "title": "MIDI clip variations", "path": "guides/midi-clip-variations.md" },
         { "title": "Match MIDI feel", "path": "guides/midi-feel.md" },
         { "title": "Reuse clips across tracks", "path": "guides/clip-reuse.md" },

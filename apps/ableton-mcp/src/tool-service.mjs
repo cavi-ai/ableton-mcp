@@ -7,6 +7,7 @@ import {trackBounce,MacTrackBounceHost} from "./track-bounce.mjs";
 import {trackFreeze,MacTrackFreezeHost} from "./track-freeze.mjs";
 import {recordingSetup,MacRecordingSetupHost} from "./recording-setup.mjs";
 import {arrangementRecording} from "./arrangement-recording.mjs";
+import {sessionArrangementRecording} from './session-arrangement.mjs';
 import {importMidiFile,MacMidiImportHost} from './midi-import.mjs';
 import {saveNativeDevicePreset,MacDevicePresetHost} from './device-preset.mjs';
 import {collectProjectMedia,projectMediaInventory,MacProjectMediaHost} from './project-media.mjs';
@@ -714,6 +715,8 @@ export class ToolService {
     }
     if (name === "analyze_midi_parts") return enrichMidiPartsContext(await this.bridge.request(name, args));
     if (["record_arrangement_take", "get_arrangement_take", "finish_arrangement_take"].includes(name)) return arrangementRecording(this.bridge,this.confirmations,name,args);
+    if (['record_session_arrangement','get_session_arrangement_recording','finish_session_arrangement_recording'].includes(name))
+      return sessionArrangementRecording(this.bridge,this.confirmations,name,args);
     if (["capture_live_audio", "get_live_audio_capture", "finish_live_audio_capture"].includes(name))
       return liveAudioCapture(this.bridge, this.confirmations, name, args);
     if (["perform_beat_repeat_fill", "get_beat_repeat_fill", "finish_beat_repeat_fill"].includes(name))

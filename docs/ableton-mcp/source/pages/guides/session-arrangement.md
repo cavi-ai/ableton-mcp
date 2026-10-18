@@ -1,5 +1,7 @@
 # Arrange Session ideas into sections
 
+To capture actual user or agent clip/scene launches instead of building a fixed section map, use [Record a Session performance](session-performance-recording.md).
+
 Retrieve `arrange-session-ideas` through `get_producer_workflow` in the `all` profile, or open its MCP prompt. Describe the Session parts, intended structure and whether playback or saving is wanted.
 
 ```json
