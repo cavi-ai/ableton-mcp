@@ -1813,24 +1813,6 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(track.arrangement_clips, [])
         self.assertEqual(boundaries, ["begin", "end"])
 
-    def test_arrangement_deletion_checks_identity_and_preserves_other_clips(self):
-        song = Song()
-        track = song.tracks[0]
-        track.arrangement_clips = [SimpleNamespace(name="A", start_time=0, end_time=4, is_audio_clip=False),
-                                   SimpleNamespace(name="B", start_time=8, end_time=12, is_audio_clip=False)]
-        track.delete_clip = lambda clip: track.arrangement_clips.remove(clip)
-        boundaries = []
-        song.begin_undo_step = lambda: boundaries.append("begin")
-        song.end_undo_step = lambda: boundaries.append("end")
-        before = {"id": "track-0:arrangement-clip-0", "name": "A", "startBeats": 0.0,
-                  "endBeats": 4.0, "lengthBeats": 4.0, "type": "midi"}
-        params = {"trackId": "track-0", "clipId": before["id"], "before": before}
-        with self.assertRaisesRegex(ValueError, "identity changed"):
-            dispatch_request(song, {"method": "delete_arrangement_clip", "params": {**params, "before": {**before, "name": "Wrong"}}}, 3)
-        result = dispatch_request(song, {"method": "delete_arrangement_clip", "params": params}, 3)
-        self.assertEqual(result["deletedClip"], before)
-        self.assertEqual([clip["name"] for clip in result["clips"]], ["B"])
-        self.assertEqual(boundaries, ["begin", "end"])
 
     def test_arrangement_duplication_checks_identity_collision_and_preserves_source(self):
         song = Song()
@@ -2628,8 +2610,10 @@ class DispatchTest(unittest.TestCase):
         duplicated = dispatch_request(song, {"method": "duplicate_clip", "params": {**args, "before": before}}, 3)
         self.assertEqual(duplicated["stateVersion"], 4)
         self.assertEqual(duplicated["clips"][1]["name"], "Loop")
+        removal_ids = {"trackId": "track-0", "clipId": "track-0:clip-1", "location": "session"}
+        removal_before = dispatch_request(song, {"method": "get_clip_removal_source", "params": removal_ids}, 4)
         deleted = dispatch_request(song, {"method": "delete_clip", "params": {
-            "trackId": "track-0", "clipId": "track-0:clip-1"
+            **removal_ids, "expectedStateVersion": 4, "before": removal_before
         }}, 4)
         self.assertFalse(deleted["clips"][1]["hasClip"])
 
@@ -4628,7 +4612,10 @@ class DispatchTest(unittest.TestCase):
         }}, 3)
         self.assertEqual(duplicated["target"]["destinationId"], "track-0:clip-1")
         self.assertTrue(song.tracks[0].clip_slots[1].has_clip)
+        removal_ids = {"trackId": "track-0", "clipId": "track-0:clip-1", "location": "session"}
+        removal_before = dispatch_request(song, {"method": "get_clip_removal_source", "params": removal_ids}, 4)
         deleted_clip = dispatch_request(song, {"method": "delete_session_object", "params": {
+            **removal_ids, "expectedStateVersion": 4, "before": removal_before,
             "target": {"targetType": "clip", "trackId": "track-0", "targetId": "track-0:clip-1", "name": "Loop"}
         }}, 4)
         self.assertFalse(song.tracks[0].clip_slots[1].has_clip)

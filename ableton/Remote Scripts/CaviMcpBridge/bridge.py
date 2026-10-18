@@ -3171,6 +3171,21 @@ def dispatch_request(song, request, state_version, application=None):
         except ImportError:
             from scene_capture import context, capture
         return (context if request["method"] == "get_session_scene_capture_context" else capture)(song, request.get("params", {}), state_version)
+    if request.get("method") in ("get_clip_removal_source", "delete_clip", "delete_arrangement_clip") or (request.get("method") == "delete_session_object" and request.get("params", {}).get("target", {}).get("targetType") == "clip"):
+        try:
+            from .clip_removal import source, remove
+        except ImportError:
+            from clip_removal import source, remove
+        method, params = request["method"], request.get("params", {})
+        if method == "get_clip_removal_source":
+            return source(song, params, state_version)
+        if method == "delete_session_object":
+            target = params["target"]
+            if params.get("trackId", target.get("trackId")) != target.get("trackId") or params.get("clipId", target.get("targetId")) != target.get("targetId"):
+                raise ValueError("clip removal target changed")
+            params = {**params, "trackId": target.get("trackId"), "clipId": target.get("targetId")}
+        params = {**params, "location": "arrangement" if method == "delete_arrangement_clip" else "session"}
+        return remove(song, params, state_version)
     if request.get("method") in ("get_arrangement_copy_source", "copy_arrangement_clip_to_track"):
         try:
             from .arrangement_copy import source, duplicate
@@ -5072,16 +5087,13 @@ def dispatch_request(song, request, state_version, application=None):
         elif target["targetType"] == "scene":
             song.delete_scene(int(target["targetId"].removeprefix("scene-")))
         else:
-            _, _, slot = _clip_slot(song, target["trackId"], target["targetId"])
-            if not slot.has_clip:
-                raise ValueError("clip slot is empty")
-            slot.delete_clip()
+            raise ValueError("unsupported deletion targetType")
         return {"stateVersion": state_version + 1, "deleted": target}
     if method == "list_clips":
         return _clip_list(song, params["trackId"], state_version)
     if method == "list_arrangement_clips":
         return _arrangement_clips(song, params["trackId"], state_version)
-    if method in ("delete_arrangement_clip", "move_arrangement_clip", "duplicate_arrangement_clip"):
+    if method in ("move_arrangement_clip", "duplicate_arrangement_clip"):
         track_id = params["trackId"]
         _, track = _track(song, track_id)
         prefix = f"{track_id}:arrangement-clip-"
@@ -5177,14 +5189,6 @@ def dispatch_request(song, request, state_version, application=None):
             result["movedClip"] = _arrangement_clip_record(moved, track_id, moved_index)
             result["previousClip"] = before
             return result
-        song.begin_undo_step()
-        try:
-            track.delete_clip(clip)
-        finally:
-            song.end_undo_step()
-        result = _arrangement_clips(song, track_id, state_version + 1)
-        result["deletedClip"] = before
-        return result
     if method == "get_session_clip_arrangement_source":
         return _session_clip_arrangement_source(song, params, state_version)
     if method == "place_session_clip_in_arrangement":
@@ -5247,13 +5251,6 @@ def dispatch_request(song, request, state_version, application=None):
         except ImportError:
             from clip_duplication import source
         return source(song, params, state_version)
-    if method == "delete_clip":
-        track_id = params["trackId"]
-        _, _, slot = _clip_slot(song, track_id, params["clipId"])
-        if not slot.has_clip:
-            raise ValueError("clip is empty")
-        slot.delete_clip()
-        return _clip_list(song, track_id, state_version + 1)
     if method == "get_clip_timing":
         return _clip_timing(song, params["trackId"], params["clipId"], state_version)
     if method == "get_clip_launch_edit_context":

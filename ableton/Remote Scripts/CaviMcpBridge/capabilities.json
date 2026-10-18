@@ -64,6 +64,7 @@
   "get_track_send_edit_context", "set_track_send_db",
   "get_session_recording_source",
   "get_clip_duplication_source",
+  "get_clip_removal_source",
   "get_session_clip_arrangement_source",
   "get_audio_capture_source", "capture_live_audio", "get_live_audio_capture", "finish_live_audio_capture",
   "get_audio_export_source",

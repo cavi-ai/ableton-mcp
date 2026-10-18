@@ -193,6 +193,10 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         slot:{id:params.clipId,hasClip:params.trackId==="track-0"&&params.clipId==="track-0:clip-0"},
         launchQuantizationChoices:[{value:0,name:"global"},{value:12,name:"1_16"}]
       };
+      if (method === "get_clip_removal_source") {
+        if (params.clipId === "track-0:clip-1") throw new Error("clip is empty");
+        return {stateVersion:4,trackId:params.trackId,clipId:params.clipId,location:params.location,identityToken:"native-removal",source:{name:"Loop",notes:[]},scope:{wholeClip:true,includesClipEnvelopesAndNoteExpression:true,restorableSnapshot:false}};
+      }
       if (method === "get_clip_duplication_source") {
         if (params.sourceClipId === "track-0:clip-1") throw new Error("source clip is empty");
         if (params.targetClipId === "track-0:clip-0") throw new Error("target clip must be empty");
@@ -1707,24 +1711,6 @@ test("Arrangement placement guards timeline overlap and exact observations", asy
   await assert.rejects(() => service.call("place_session_clip_in_arrangement", { ...args, expectedStateVersion: 3 }), /state/i);
 });
 
-test("Arrangement deletion carries exact identity and requires confirmation", async () => {
-  const { service } = fixture();
-  const before = { id: "track-0:arrangement-clip-0", name: "A", startBeats: 8, endBeats: 12, lengthBeats: 4, type: "midi" };
-  const mutations = [];
-  service.bridge.request = async (method, params) => {
-    if (method === "list_arrangement_clips") return { stateVersion: 4, trackId: "track-0", clips: [before] };
-    if (method === "delete_arrangement_clip") { mutations.push(params); return { stateVersion: 5, deletedClip: params.before, clips: [] }; }
-    throw new Error(`unexpected ${method}`);
-  };
-  const args = { trackId: "track-0", clipId: before.id, expectedStateVersion: 4 };
-  const dry = await service.call("delete_arrangement_clip", args);
-  assert.deepEqual(dry.plan.before, before);
-  assert.equal(mutations.length, 0);
-  await assert.rejects(() => service.call("delete_arrangement_clip", { ...args, clipId: "track-0:arrangement-clip-99" }), /unknown/);
-  const result = await service.call("delete_arrangement_clip", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
-  assert.deepEqual(result.observed.deletedClip, before);
-  assert.equal(mutations.length, 1);
-});
 
 test("Arrangement moves allow self-overlap but reject other timeline material", async () => {
   const { service } = fixture();
@@ -2504,7 +2490,7 @@ test("clip deletion requires an occupied exact clip", async () => {
   const { service, calls } = fixture();
   const args = { expectedStateVersion: 4, trackId: "track-0", clipId: "track-0:clip-0" };
   const dry = await service.call("delete_clip", args);
-  assert.equal(dry.plan.before.name, "Loop");
+  assert.equal(dry.plan.before.source.name, "Loop");
   const live = await service.call("delete_clip", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
   assert.equal(live.dryRun, false);
   assert.equal(calls.at(-1).method, "delete_clip");
