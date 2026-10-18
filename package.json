@@ -74,6 +74,7 @@
     "ableton/Remote Scripts/CaviMcpBridge/browser_load.py",
     "ableton/Remote Scripts/CaviMcpBridge/browser_preview.py",
     "ableton/Remote Scripts/CaviMcpBridge/midi_import.py",
+    "ableton/Remote Scripts/CaviMcpBridge/midi_note_selection.py",
     "ableton/Remote Scripts/CaviMcpBridge/rack_performance.py",
     "ableton/Remote Scripts/CaviMcpBridge/looper_export.py",
     "ableton/Remote Scripts/CaviMcpBridge/device_ab.py",
