@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 314 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 315 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (135)
 
@@ -144,7 +144,7 @@ The server publishes 314 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (148)
+## Mutations (149)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -233,6 +233,7 @@ The server publishes 314 tools. Mutations of the Live Set require `expectedState
 | `record_arrangement_take` | Record one armed unfrozen ordinary track into an empty Arrangement beat range. Requires stopped playback/recording, no other arms, Session playback/overrides or pending launches. Uses native punch-in/out, disables loop/overdub/Automation Arm, changes loop bounds/playhead, and stops owned record/playback at the end without a client. Leaves target armed and setup controls in place. Partial material retained; all profile. | `expectedStateVersion`, `trackId`, `startBeats`, `endBeats` |
 | `record_production_note` | Store explicit user intent or feedback as a private immutable artifact. Supply its noteRef in later task contextRefs to reuse it. | `projectId`, `kind`, `text` |
 | `redo` | Plan or apply one guarded Ableton redo operation. | `expectedStateVersion` |
+| `rename_arrangement_clip` | Rename one exact Arrangement MIDI or audio clip without changing selection, playback or musical controls. Binds native ownership, clip layout, interval and prior name, then rechecks at undo entry. Reports actual name and retained identity; no-op writes are skipped. Partial work remains without rollback or replay. All profile; updated bridge. | `expectedStateVersion`, `trackId`, `clipId`, `name` |
 | `rename_arrangement_cue_point` | Plan or rename one exact Arrangement cue point. | `expectedStateVersion`, `cuePointId`, `name` |
 | `rename_rack_chain` | Plan or rename an exact rack chain with a guarded hierarchy snapshot. For return chains, name is a raw label; Live adds the return letter prefix. Use observed name for display, not verbatim restoration. | `expectedStateVersion`, `trackId`, `deviceId`, `chainId`, `name` |
 | `rename_rack_macro` | Plan or rename one exact rack macro when Live exposes an unambiguous macro parameter layout and name readback. Rechecks the full rack snapshot and confirms the observed name after the native write. | `expectedStateVersion`, `trackId`, `deviceId`, `macroIndex`, `name` |

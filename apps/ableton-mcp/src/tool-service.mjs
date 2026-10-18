@@ -1,6 +1,7 @@
 import {captureSessionScene} from './scene-capture.mjs';
 import {copyArrangementClip} from './arrangement-copy.mjs';
 import {saveMidiClip,MacMidiExportHost} from './midi-export.mjs';
+import {renameArrangementClip} from './clip-names.mjs';
 import {reverseAudioClip,MacAudioReverseHost} from './audio-reverse.mjs';
 import {trackBounce,MacTrackBounceHost} from "./track-bounce.mjs";
 import {trackFreeze,MacTrackFreezeHost} from "./track-freeze.mjs";
@@ -512,6 +513,7 @@ export class ToolService {
     requestSignal()?.throwIfAborted();
     if (name === 'show_live_object') return showLiveObject(this.bridge, this.confirmations, args);
     if(name === "export_midi_clip")return saveMidiClip(this.bridge,this.confirmations,this.midiExportHost,args);
+    if(name === "rename_arrangement_clip")return renameArrangementClip(this.bridge,this.confirmations,args);
     if(name === "reverse_audio_clip")return reverseAudioClip(this.bridge,this.confirmations,this.audioReverseHost,args);
     if(name === "bounce_track_in_place")return trackBounce(this.bridge,this.confirmations,this.trackBounceHost,args);
     if(name==='import_midi_file')return importMidiFile(this.bridge,this.confirmations,this.midiImportHost,args);

@@ -6168,6 +6168,13 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "list_devices":
         owner_id, track = _device_owner(song, params["trackId"])
         return {"stateVersion": state_version, "trackId": owner_id, "devices": [_device_tree(device, f"{owner_id}:device-{i}") for i, device in enumerate(track.devices)]}
+    if method in ("get_arrangement_clip_name_context", "rename_arrangement_clip"):
+        try:
+            from . import clip_names
+        except ImportError:
+            import clip_names
+        return (clip_names.context(song, params, state_version) if method == "get_arrangement_clip_name_context" else
+                clip_names.rename(song, params, state_version))
     if method in ("get_device_activation_context", "get_device_activation_edit_context", "set_device_active"):
         try:
             from . import device_bypass
