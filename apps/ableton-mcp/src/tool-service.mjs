@@ -3,6 +3,7 @@ import {captureSessionScene} from './scene-capture.mjs';
 import {planArrangementRepeat} from './arrangement-repeat.mjs';
 import {copyArrangementClip} from './arrangement-copy.mjs';
 import {moveArrangementClip} from './arrangement-move.mjs';
+import {removeClip} from './clip-removal.mjs';
 import {saveMidiClip,MacMidiExportHost} from './midi-export.mjs';
 import {renameArrangementClip} from './clip-names.mjs';
 import {reverseAudioClip,MacAudioReverseHost} from './audio-reverse.mjs';
@@ -2876,19 +2877,11 @@ export class ToolService {
   }
 
   async #deleteClip(args) {
-    requireExpectedState(args);
-    const observed = await this.bridge.request("list_clips", { trackId: args.trackId });
-    assertExpectedState(args, observed);
-    const clip = observed.clips.find(({ id }) => id === args.clipId);
-    if (!clip) throw new Error(`unknown clipId ${args.clipId}`);
-    if (!clip.hasClip) throw new Error("clip is empty");
-    return this.#confirmedMutation({
-      method: "delete_clip", trackId: args.trackId, clipId: clip.id,
-      expectedStateVersion: args.expectedStateVersion, before: clip
-    }, args);
+    return removeClip(this.bridge, this.confirmations, "delete_clip", args);
   }
 
   async #mutateArrangementClip(method, args) {
+    if (method === "delete_arrangement_clip") return removeClip(this.bridge, this.confirmations, method, args);
     requireExpectedState(args);
     const observed = await this.bridge.request("list_arrangement_clips", { trackId: args.trackId });
     assertExpectedState(args, observed);
@@ -3438,15 +3431,7 @@ export class ToolService {
       }, args);
     }
     if (args.targetType === "clip") {
-      const observed = await this.bridge.request("list_clips", { trackId: args.trackId });
-      assertExpectedState(args, observed);
-      const clip = observed.clips.find(({ id }) => id === args.targetId);
-      if (!clip) throw new Error(`unknown clip slot ${args.targetId}`);
-      if (!clip.hasClip) throw new Error(`empty clip slot ${args.targetId}`);
-      return this.#confirmedMutation({ method: "delete_session_object",
-        expectedStateVersion: args.expectedStateVersion,
-        target: { targetType: "clip", trackId: args.trackId, targetId: clip.id, name: clip.name }
-      }, args);
+      return removeClip(this.bridge, this.confirmations, "delete_session_object", args);
     }
     if (args.targetType === "track") {
       const observed = await this.bridge.request("list_tracks", {});
