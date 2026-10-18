@@ -247,6 +247,14 @@ class AutomationEnvelope:
         return value
 
 
+def property_edit_context(song, target, version):
+    clip = (song.tracks[0].arrangement_clips[0] if ':arrangement-clip-' in target['clipId'] else song.tracks[0].clip_slots[0].clip)
+    song.is_counting_in = False
+    clip.is_recording = clip.is_overdubbing = clip.is_triggered = False
+    clip.get_notes_by_id = lambda ids: copy.deepcopy([n for n in clip.extended_notes if n.note_id in ids])
+    return dispatch_request(song, {'method':'get_midi_note_edit_context', 'params':target}, version)
+
+
 class MidiNote:
     def __init__(self, note_id=7):
         self.note_id = note_id
@@ -1256,9 +1264,10 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(extended["location"], "arrangement")
         self.assertEqual(extended["timeline"]["endBeats"], 16.0)
         self.assertEqual(extended["notes"][0]["noteId"], 7)
+        edit_context = property_edit_context(song, {'trackId':'track-0','clipId':clip_id}, 3)
         changed = dispatch_request(song, {"method": "set_midi_note_properties", "params": {
             "trackId": "track-0", "clipId": clip_id, "expectedStateVersion": 3,
-            "before": extended, "clipTiming": timing,
+            "before": extended, "clipTiming": timing, "propertyEditContext": edit_context,
             "changes": [{"noteId": 7, "previous": extended["notes"][0], "velocity": 42}]
         }}, 3)
         self.assertEqual(changed["stateVersion"], 4)
@@ -4708,11 +4717,12 @@ class DispatchTest(unittest.TestCase):
         clip.extended_notes = [MidiNote()]
         params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
         observed = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": params}, 3)
+        edit_context = property_edit_context(song, params, 3)
         timing = dispatch_request(song, {"method": "get_clip_timing", "params": params}, 3)
         self.assertEqual(observed["notes"][0]["noteId"], 7)
         self.assertEqual(observed["notes"][0]["releaseVelocity"], 64)
         changed = dispatch_request(song, {"method": "set_midi_note_properties", "params": {
-            **params, "expectedStateVersion": 3, "before": observed, "clipTiming": timing,
+            **params, "expectedStateVersion": 3, "before": observed, "clipTiming": timing, "propertyEditContext": edit_context,
             "changes": [{"noteId": 7, "previous": observed["notes"][0],
                                     "probability": 0.25, "releaseVelocity": 92,
                                     "velocityDeviation": -12}]
@@ -4727,22 +4737,24 @@ class DispatchTest(unittest.TestCase):
         clip.extended_notes = [MidiNote()]
         target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
         before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        edit_context = property_edit_context(song, target, 3)
         timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
         clip.extended_notes[0].pitch = 62
-        with self.assertRaisesRegex(ValueError, "MIDI clip changed"):
+        with self.assertRaisesRegex(ValueError, "changed"):
             dispatch_request(song, {"method": "set_midi_note_properties", "params": {
-                **target, "expectedStateVersion": 3, "before": before, "clipTiming": timing,
+                **target, "expectedStateVersion": 3, "before": before, "clipTiming": timing, "propertyEditContext": edit_context,
                 "changes": [{"noteId": 7, "previous": before["notes"][0], "probability": 0.25}]
             }}, 3)
         self.assertEqual(clip.extended_notes[0].probability, 1.0)
         self.assertEqual(song.undo_boundaries, [])
 
-    def test_per_note_properties_restore_clip_after_native_apply_failure(self):
+    def test_per_note_properties_retain_partial_native_write_without_replay(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip
         clip.extended_notes = [MidiNote()]
         target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
         before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        edit_context = property_edit_context(song, target, 3)
         timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
         original_apply = clip.apply_note_modifications
         attempts = [0]
@@ -4754,13 +4766,15 @@ class DispatchTest(unittest.TestCase):
                 raise RuntimeError("native apply failed after write")
 
         clip.apply_note_modifications = apply_then_fail_once
-        with self.assertRaisesRegex(RuntimeError, "native apply failed"):
-            dispatch_request(song, {"method": "set_midi_note_properties", "params": {
-                **target, "expectedStateVersion": 3, "before": before, "clipTiming": timing,
+        result = dispatch_request(song, {"method": "set_midi_note_properties", "params": {
+                **target, "expectedStateVersion": 3, "before": before, "clipTiming": timing, "propertyEditContext": edit_context,
                 "changes": [{"noteId": 7, "previous": before["notes"][0], "probability": 0.25,
                              "releaseVelocity": 92}]
             }}, 3)
-        self.assertEqual(dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3), before)
+        self.assertFalse(result["editVerified"])
+        self.assertIn("native apply failed", result["error"])
+        self.assertEqual(clip.extended_notes[0].probability, 0.25)
+        self.assertEqual(attempts[0], 1)
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
     def test_transform_midi_notes_updates_existing_notes_and_adds_duplicates(self):

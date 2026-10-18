@@ -94,6 +94,7 @@
     "ableton/Remote Scripts/CaviMcpBridge/recording_setup.py",
     "ableton/Remote Scripts/CaviMcpBridge/signal_activity.py",
     "ableton/Remote Scripts/CaviMcpBridge/selected_control.py",
+    "ableton/Remote Scripts/CaviMcpBridge/midi_note_edit.py",
     "ableton/Remote Scripts/CaviMcpBridge/midi_note_removal.py",
     "ableton/Remote Scripts/CaviMcpBridge/midi_insertion.py"
   ],
