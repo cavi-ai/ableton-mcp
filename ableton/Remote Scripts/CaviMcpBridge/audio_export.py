@@ -41,7 +41,14 @@ def source(song, version):
     if _identity != identity:
         _identity, _token = identity, str(uuid.uuid4())
     live = dispatch_request(song, {"method": "get_live_state", "params": {}}, version)
+    render_targets = []
+    for track_id, track in [*[(f'track-{i}', track) for i, track in enumerate(song.tracks)],
+                            *[(f'return-{i}', track) for i, track in enumerate(song.return_tracks)]]:
+        available = getattr(track, 'has_audio_output', None)
+        render_targets.append({'trackId': track_id, 'name': track.name,
+                               'hasAudioOutput': bool(available) if type(available) in (int, bool) and available in (0, 1) else None})
     return {"stateVersion": version, "setFingerprint": live["setFingerprint"], "identityToken": _token,
+            "renderTargets": render_targets,
             "filePath": live["filePath"], "scriptDirectory": live["scriptDirectory"],
             "tempo": float(song.tempo), "numerator": int(song.signature_numerator),
             "denominator": int(song.signature_denominator), "tracks": tracks,

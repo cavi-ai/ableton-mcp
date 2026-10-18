@@ -1,4 +1,17 @@
 // JavaScript for Automation. Retained native AX elements survive chooser-window insertions.
+function resolveRenderedTrackMenu(menu,target,requireSelected){
+  if(!Array.isArray(menu)||!target||!Array.isArray(target.menuTitles)||menu.length!==target.menuTitles.length||
+     !Number.isInteger(target.menuIndex)||target.menuIndex<3||target.menuIndex>=menu.length)throw Error('Native rendered-track inventory changed');
+  var titles=menu.map(function(item){
+    if(!item||typeof item.title!=='string'||typeof item.selected!=='boolean')throw Error('Native rendered-track inventory is unavailable');
+    return item.selected?item.title.replace(/^✔\s*/,''):item.title;
+  });
+  if(JSON.stringify(titles)!==JSON.stringify(target.menuTitles))throw Error('Native rendered-track inventory changed');
+  if(titles[target.menuIndex]!==target.name||menu[target.menuIndex].enabled!==true)throw Error('Native rendered-track target is unavailable');
+  if(requireSelected&&(!menu[target.menuIndex].selected||menu.filter(function(item){return item.selected;}).length!==1))throw Error('Native rendered-track selection changed');
+  return target.menuIndex;
+}
+
 function run(argv){
   ObjC.import("CoreGraphics");ObjC.import("ApplicationServices");ObjC.import("AppKit");
   var input=JSON.parse(argv[0]),events=Application("System Events");
@@ -41,6 +54,23 @@ function run(argv){
   function state(){var result={};Object.keys(ids).forEach(function(key){var c=control(ids[key]);result[key]={value:value(c,"AXValue"),enabled:value(c,"AXEnabled")};});return result;}
   function sameState(expected){if(JSON.stringify(state())!==JSON.stringify(expected))throw Error("Native export settings changed; preserve current input");}
   function sameWindow(){foreground();if(windowId(window)!==input.windowId)throw Error("Native Export window changed");}
+  function choiceMenus(){
+    var menus=[];windows().filter(function(w){return value(w,"AXSubrole")==="AXUnknown";}).forEach(function(w){function walk(e,d){if(d>3)return;if(value(e,"AXIdentifier")==="ChooserPopUp")menus.push(e);else children(e).forEach(function(c){walk(c,d+1);});}walk(w,0);});
+    return menus;
+  }
+  function selectRenderedTrack(target,requireSelected){
+    sameWindow();press(control(ids.track));var menus=choiceMenus();
+    if(menus.length!==1)throw Error('Native rendered-track chooser is ambiguous');
+    var menu=menus[0],entries=children(menu).filter(function(e){return value(e,'AXRole')==='AXMenuItem';});
+    try{
+      var index=resolveRenderedTrackMenu(entries.map(function(e){return {title:value(e,'AXTitle'),selected:value(e,'AXValue'),enabled:value(e,'AXEnabled')};}),target,requireSelected);
+      sameWindow();press(entries[index]);
+      wait(function(){cache();return String(value(control(ids.track),'AXValue'))===target.name;},'Native rendered-track readback changed');
+    }catch(error){
+      var current=choiceMenus();if(current.length===1&&$.CFEqual(current[0],menu)){sameWindow();events.keyCode(53);}
+      throw error;
+    }
+  }
   var owned=null;
   if(input.action==="prepare"){
     $.NSRunningApplication.runningApplicationWithProcessIdentifier(input.pid).activateWithOptions(3);
@@ -67,13 +97,21 @@ function run(argv){
     }
     try{
       var settings=input.settings;
-      toggle("pcm","On");toggle("mp3","Off");toggle("analysis","Off");toggle("mono","Off");toggle("normalize","Off");toggle("loop","Off");toggle("returns","Off");toggle("video","Off");
-      choose("track","Main");choose("type","WAV");choose("rate",String(settings.sampleRate));choose("bits",String(settings.bitDepth));
+      toggle("pcm","On");toggle("mp3","Off");toggle("analysis","Off");toggle("mono","Off");toggle("normalize","Off");toggle("loop","Off");toggle("video","Off");
+      if(settings.renderTarget){
+        ready();selectRenderedTrack(settings.renderTarget,false);changed();
+        toggle("returns",settings.includeReturnMainEffects===true?"On":"Off");
+      }else{
+        toggle("returns","Off");choose("track","Main");
+      }
+      choose("type","WAV");choose("rate",String(settings.sampleRate));choose("bits",String(settings.bitDepth));
       if(value(control(ids.dither),"AXEnabled")===true)choose("dither","No Dither");else if(settings.bitDepth!==32)throw Error("Native dither state is unavailable");
       settings.start.forEach(function(n,i){number("start"+i,n);});settings.length.forEach(function(n,i){number("length"+i,n);});
       settings.start.forEach(function(n,i){if(Number(owned["start"+i].value)!==n)throw Error("Native render start changed");});
       settings.length.forEach(function(n,i){if(Number(owned["length"+i].value)!==n)throw Error("Native render length changed");});
-      return JSON.stringify({prepared:true,windowId:input.windowId,panelState:owned});
+      var prepared={prepared:true,windowId:input.windowId,panelState:owned};
+      if(settings.renderTarget)prepared.renderTarget=settings.renderTarget;
+      return JSON.stringify(prepared);
     }catch(error){return JSON.stringify({prepared:false,error:String(error.message||error),windowId:input.windowId,panelState:owned});}
   }
   if(input.action==="cancel"&&!windows().some(function(w){return value(w,"AXTitle")==="Export Audio/Video";})){
@@ -90,11 +128,17 @@ function run(argv){
   }
   if(input.action!=="commit")throw Error("Unknown native audio export action");
   sameWindow();sameState(input.panelState);if(savePanels().length||items(read(window,"AXSheets")).length)throw Error("Unexpected export sheet");
+  if(input.renderTarget){
+    try{selectRenderedTrack(input.renderTarget,true);sameState(input.panelState);}
+    catch(error){return JSON.stringify({exportPressed:false,preserveDialog:true,error:String(error.message||error)});}
+  }
   // AXPress enters Live's synchronous native Save panel and blocks subsequent
   // accessibility requests. Activate the exact focused button through the keyboard.
   var exportButton=control("Base.FinalButtonsBox.ExportButton");
   if(value(exportButton,"AXEnabled")!==true||$.AXUIElementSetAttributeValue(exportButton,$("AXFocused"),$(true))!==0||value(exportButton,"AXFocused")!==true)throw Error("Native Export button is not focused");
   sameWindow();sameState(input.panelState);events.keyCode(36);
   var save=wait(function(){var panels=savePanels();return panels.length===1&&panels[0];},"Native audio Save panel did not appear");
-  return JSON.stringify({exportPressed:true,saveWindowId:windowId(save)});
+  var result={exportPressed:true,saveWindowId:windowId(save)};
+  if(input.renderTarget){result.trackSelectionVerified=true;result.renderedTarget=input.renderTarget;}
+  return JSON.stringify(result);
 }

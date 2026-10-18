@@ -34,3 +34,22 @@ test('Arrangement copying stays outside core discovery',async()=>{
  assert.ok((await all({id:1,method:'tools/list'})).result.tools.some(t=>t.name==='copy_arrangement_clip_to_track'));
  assert.equal((await core({id:2,method:'tools/call',params:{name:'copy_arrangement_clip_to_track',arguments:args}})).error.code,-32601);
 });
+
+test("same-track Arrangement duplicate binds musical content and native identity",async()=>{
+ const input={trackId:args.trackId,clipId:args.clipId,startBeats:0,expectedStateVersion:4};
+ let identity="original",velocity=90,writes=0;
+ const before=()=>({stateVersion:4,trackId:input.trackId,identityToken:identity,clipId:input.clipId,destinationTrackId:input.trackId,startBeats:0,source:{name:"Original",notes:[{noteId:3,pitch:60,velocity}]}});
+ const receipt={copyRequested:true,nativeReturned:true,copyVerified:false,sourcePreserved:true,error:"copy mismatch"};
+ const service=new ToolService({bridge:{request:async(method,params)=>{
+  if(method==="get_arrangement_duplicate_source")return before();
+  assert.equal(method,"duplicate_arrangement_clip");assert.deepEqual(params.before,before());writes++;return receipt;
+ }}});
+ validateToolArguments("duplicate_arrangement_clip",input);
+ const dry=await service.call("duplicate_arrangement_clip",input);
+ assert.deepEqual(dry.plan.before,before());assert.equal(writes,0);
+ const confirmed={...input,dryRun:false,confirmationToken:dry.confirmation.token,planHash:dry.confirmation.planHash};
+ identity="replacement";await assert.rejects(service.call("duplicate_arrangement_clip",confirmed),/changed/);identity="original";
+ velocity=42;await assert.rejects(service.call("duplicate_arrangement_clip",confirmed),/changed/);velocity=90;
+ assert.deepEqual((await service.call("duplicate_arrangement_clip",confirmed)).observed,receipt);
+ await assert.rejects(service.call("duplicate_arrangement_clip",confirmed));assert.equal(writes,1);
+});

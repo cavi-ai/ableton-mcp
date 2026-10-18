@@ -8,7 +8,8 @@ function fixture(){
  const selection={stateVersion:4,...target,status:'selected',selectionToken:'selection',noteIds:[7],notes:[note],editContext:{frozen:false,clipRecording:false,arrangementRecord:false,sessionRecord:false,countingIn:false}};
  const calls=[],service=new ToolService({bridge:{async request(method,args){calls.push({method,args});
   if(method==='get_midi_note_selection')return structuredClone(selection);
-  if(method==='get_midi_clip_notes_extended')return {stateVersion:4,...target,lengthBeats:4,notes:[note]};
+  if(method==='get_midi_note_edit_context')return {...await this.request('get_midi_clip_notes_extended',args),identityToken:'native',modifySupported:true,clipTiming:await this.request('get_clip_timing',args),editContext:Object.fromEntries(['frozen','clipRecording','clipOverdubbing','pendingLaunch','arrangementRecord','sessionRecord','countingIn'].map(k=>[k,false]))};
+      if(method==='get_midi_clip_notes_extended')return {stateVersion:4,...target,lengthBeats:4,notes:[note]};
   if(method==='get_clip_timing')return {stateVersion:4,...target};
   if(method==='set_midi_note_properties')return {stateVersion:5,...target,notes:[{...note,velocity:70}]};throw Error(method);}}});
  return {selection,calls,service,args:{...target,expectedStateVersion:4,expectedNoteSelectionToken:'selection',changes:[{noteId:7,velocity:70}]}};

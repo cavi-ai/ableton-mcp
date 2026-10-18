@@ -7,7 +7,7 @@ import {getPrompt} from "../src/prompts.mjs";
 test("public clip duplication binds native source edits and carries a copy name",async()=>{
   let pitch=0,writes=0;
   const service=new ToolService({bridge:{async request(method,params){
-    if(method==="get_clip_duplication_source")return {stateVersion:3,trackId:params.trackId,
+    if(method==="get_clip_duplication_source")return {stateVersion:3,copyGuardVersion:2,trackId:params.trackId,
       sourceClipId:params.sourceClipId,targetClipId:params.targetClipId,targetTrackId:params.targetTrackId,identityToken:"pair",
       source:{name:"Vocal",audio:{pitch}},target:{hasClip:false}};
     if(method==="list_clips")return {stateVersion:3,trackId:params.trackId,clips:[]};

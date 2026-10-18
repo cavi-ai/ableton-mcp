@@ -11,6 +11,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from bridge import SocketBridge, dispatch_request, _device_type, _new_midi_note, _persisted_device_chain, _persisted_track_state, _set_fingerprint, _track_topology_signature
 
 
+def prepare_loop_target(song):
+    song.is_counting_in = False
+    clip = song.tracks[0].clip_slots[0].clip
+    if not hasattr(clip, 'is_audio_clip'): clip.is_audio_clip = False
+    clip.is_recording = clip.is_overdubbing = clip.is_triggered = False
+
+
+def loop_plan(song, params, version=3):
+    context = dispatch_request(song, {'method':'get_clip_loop_edit_context','params':params}, version)
+    return {**params, 'expectedStateVersion':version, 'before':context['clipTiming'], 'loopEditContext':context}
+
+
 class Parameter:
     def __init__(self):
         self.name = "Cutoff"
@@ -245,6 +257,14 @@ class AutomationEnvelope:
             if step_time <= time:
                 value = step_value
         return value
+
+
+def property_edit_context(song, target, version):
+    clip = (song.tracks[0].arrangement_clips[0] if ':arrangement-clip-' in target['clipId'] else song.tracks[0].clip_slots[0].clip)
+    song.is_counting_in = False
+    clip.is_recording = clip.is_overdubbing = clip.is_triggered = False
+    clip.get_notes_by_id = lambda ids: copy.deepcopy([n for n in clip.extended_notes if n.note_id in ids])
+    return dispatch_request(song, {'method':'get_midi_note_edit_context', 'params':target}, version)
 
 
 class MidiNote:
@@ -854,7 +874,13 @@ class DispatchTest(unittest.TestCase):
         self.assertTrue(observed["session"]["overdub"])
         self.assertTrue(observed["midiCapture"]["available"])
         self.assertEqual(observed["midiCapture"]["midiTrackIds"], ["track-0", "track-1"])
-        changed = dispatch_request(song, {"method": "set_transport_recording_context", "params": {"before": observed, "changes": {
+        song.is_counting_in = False
+        for track in song.tracks:
+            track.arrangement_clips = []
+            for slot in track.clip_slots:
+                if slot.has_clip: slot.clip.is_recording = False
+        observed = dispatch_request(song, {"method":"get_transport_seek_context"}, 3)
+        changed = dispatch_request(song, {"method": "set_transport_recording_context", "params": {"expectedStateVersion":3,"before": observed, "changes": {
             "currentSongTime": 32.0, "metronome": False,
             "arrangement": {"record": True, "overdub": True, "punchIn": False, "punchOut": True, "backToArranger": True},
             "session": {"record": True, "overdub": False}, "automationArm": True,
@@ -867,7 +893,7 @@ class DispatchTest(unittest.TestCase):
         self.assertTrue(song.session_automation_record)
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
-    def test_transport_recording_context_rolls_back_before_record_if_setter_fails(self):
+    def test_transport_recording_context_keeps_seek_after_later_setter_failure(self):
         class RejectingSong(Song):
             @property
             def metronome(self):
@@ -881,13 +907,19 @@ class DispatchTest(unittest.TestCase):
 
         song = RejectingSong()
         song._reject_metronome = True
-        before = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
-        with self.assertRaisesRegex(ValueError, "metronome rejected"):
-            dispatch_request(song, {"method": "set_transport_recording_context", "params": {
-                "before": before, "changes": {"currentSongTime": 32.0, "metronome": True,
-                                               "arrangement": {"record": True}},
-            }}, 3)
-        self.assertEqual(song.current_song_time, 4.0)
+        song.is_counting_in = False
+        for track in song.tracks:
+            track.arrangement_clips = []
+            for slot in track.clip_slots:
+                if slot.has_clip: slot.clip.is_recording = False
+        before = dispatch_request(song, {"method":"get_transport_seek_context"}, 3)
+        result = dispatch_request(song, {"method": "set_transport_recording_context", "params": {
+            "expectedStateVersion":3,"before": before, "changes": {"currentSongTime": 32.0, "metronome": True,
+                                           "arrangement": {"record": True}},
+        }}, 3)
+        self.assertIn("metronome rejected", result["error"])
+        self.assertFalse(result["nativeReturned"])
+        self.assertEqual(song.current_song_time, 32.0)
         self.assertFalse(song.record_mode)
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
@@ -908,17 +940,15 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
     def test_transport_binding_keeps_seek_stopped_position_and_mode_guards(self):
-        for change in ("seek", "stopped", "playback", "record", "automation", "version"):
+        for change in ("stopped", "playback", "record", "automation", "version"):
             with self.subTest(change=change):
                 song = Song()
                 song.is_playing = change != "stopped"
                 before = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
                 changes = {"arrangement": {"overdub": True}}
-                if change == "seek":
-                    changes["currentSongTime"] = 32.0
-                elif song.is_playing:
+                if song.is_playing:
                     del before["currentSongTime"]
-                if change in ("seek", "stopped"):
+                if change == "stopped":
                     song.current_song_time += 1
                 if change == "playback":
                     song.is_playing = False
@@ -934,11 +964,16 @@ class DispatchTest(unittest.TestCase):
 
     def test_transport_recording_context_rejects_external_change_at_native_boundary(self):
         song = Song()
-        before = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
+        song.is_counting_in = False
+        for track in song.tracks:
+            track.arrangement_clips = []
+            for slot in track.clip_slots:
+                if slot.has_clip: slot.clip.is_recording = False
+        before = dispatch_request(song, {"method": "get_transport_seek_context"}, 3)
         song.metronome = True
         with self.assertRaisesRegex(ValueError, "changed after planning"):
             dispatch_request(song, {"method": "set_transport_recording_context", "params": {
-                "before": before, "changes": {"currentSongTime": 32.0, "arrangement": {"record": True}},
+                "expectedStateVersion":3, "before": before, "changes": {"currentSongTime": 32.0, "arrangement": {"record": True}},
             }}, 3)
         self.assertEqual(song.current_song_time, 4.0)
         self.assertFalse(song.record_mode)
@@ -1170,7 +1205,13 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(song.current_song_time, 4.0)
         dispatch_request(song, {"method": "rename_arrangement_cue_point", "params": {"cuePointId": "cue-0", "name": "Intro"}}, 4)
         self.assertEqual(song.cue_points[0].name, "Intro")
-        dispatch_request(song, {"method": "jump_to_arrangement_cue_point", "params": {"cuePointId": "cue-0"}}, 5)
+        song.is_counting_in = False
+        for track in song.tracks:
+            for slot in track.clip_slots:
+                if slot.has_clip: slot.clip.is_recording = False
+            track.arrangement_clips = []
+        before = dispatch_request(song, {"method":"get_arrangement_cue_jump_context", "params":{"cuePointId":"cue-0"}}, 5)
+        dispatch_request(song, {"method": "jump_to_arrangement_cue_point", "params": {"cuePointId": "cue-0", "before":before,"expectedStateVersion":5}}, 5)
         self.assertTrue(song.cue_points[0].jumped)
         dispatch_request(song, {"method": "delete_arrangement_cue_point", "params": {"cuePointId": "cue-1"}}, 6)
         self.assertEqual(len(song.cue_points), 1)
@@ -1256,9 +1297,10 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(extended["location"], "arrangement")
         self.assertEqual(extended["timeline"]["endBeats"], 16.0)
         self.assertEqual(extended["notes"][0]["noteId"], 7)
+        edit_context = property_edit_context(song, {'trackId':'track-0','clipId':clip_id}, 3)
         changed = dispatch_request(song, {"method": "set_midi_note_properties", "params": {
             "trackId": "track-0", "clipId": clip_id, "expectedStateVersion": 3,
-            "before": extended, "clipTiming": timing,
+            "before": extended, "clipTiming": timing, "propertyEditContext": edit_context,
             "changes": [{"noteId": 7, "previous": extended["notes"][0], "velocity": 42}]
         }}, 3)
         self.assertEqual(changed["stateVersion"], 4)
@@ -1708,6 +1750,7 @@ class DispatchTest(unittest.TestCase):
     def test_session_clip_placement_lists_timeline_and_rejects_overlap(self):
         song = Song()
         track = song.tracks[0]
+        track.clip_slots[0].clip.start_marker, track.clip_slots[0].clip.end_marker = 0, 4
         track.arrangement_clips = []
         def duplicate(clip, time):
             result = copy.deepcopy(clip)
@@ -1735,6 +1778,7 @@ class DispatchTest(unittest.TestCase):
     def test_session_clip_placement_accepts_equal_native_wrappers(self):
         song = Song()
         track = song.tracks[0]
+        track.clip_slots[0].clip.start_marker, track.clip_slots[0].clip.end_marker = 0, 4
         track.arrangement_clips = []
 
         class NativeClipProxy:
@@ -1768,6 +1812,7 @@ class DispatchTest(unittest.TestCase):
     def test_session_clip_placement_rechecks_signed_source_and_timeline_before_copy(self):
         song = Song()
         track = song.tracks[0]
+        track.clip_slots[0].clip.start_marker, track.clip_slots[0].clip.end_marker = 0, 4
         track.arrangement_clips = []
         copies = []
         def duplicate(clip, start):
@@ -1791,9 +1836,10 @@ class DispatchTest(unittest.TestCase):
             dispatch_request(song, {"method": "place_session_clip_in_arrangement", "params": params}, 3)
         self.assertEqual(copies, [])
 
-    def test_session_clip_placement_rolls_back_wrong_native_interval(self):
+    def test_session_clip_placement_retains_wrong_native_interval(self):
         song = Song()
         track = song.tracks[0]
+        track.clip_slots[0].clip.start_marker, track.clip_slots[0].clip.end_marker = 0, 4
         track.arrangement_clips = []
         boundaries = []
         song.begin_undo_step = lambda: boundaries.append("begin")
@@ -1806,181 +1852,15 @@ class DispatchTest(unittest.TestCase):
         track.duplicate_clip_to_arrangement = duplicate
         track.delete_clip = lambda clip: track.arrangement_clips.remove(clip)
         source = dispatch_request(song, {"method": "list_clips", "params": {"trackId": "track-0"}}, 3)["clips"][0]
-        with self.assertRaisesRegex(ValueError, "placed clip interval"):
-            dispatch_request(song, {"method": "place_session_clip_in_arrangement", "params": {
+        result = dispatch_request(song, {"method": "place_session_clip_in_arrangement", "params": {
                 "trackId": "track-0", "clipId": source["id"], "startBeats": 8.0, "endBeats": 12.0,
                 "source": source, "beforeArrangement": []}}, 3)
-        self.assertEqual(track.arrangement_clips, [])
-        self.assertEqual(boundaries, ["begin", "end"])
-
-    def test_arrangement_deletion_checks_identity_and_preserves_other_clips(self):
-        song = Song()
-        track = song.tracks[0]
-        track.arrangement_clips = [SimpleNamespace(name="A", start_time=0, end_time=4, is_audio_clip=False),
-                                   SimpleNamespace(name="B", start_time=8, end_time=12, is_audio_clip=False)]
-        track.delete_clip = lambda clip: track.arrangement_clips.remove(clip)
-        boundaries = []
-        song.begin_undo_step = lambda: boundaries.append("begin")
-        song.end_undo_step = lambda: boundaries.append("end")
-        before = {"id": "track-0:arrangement-clip-0", "name": "A", "startBeats": 0.0,
-                  "endBeats": 4.0, "lengthBeats": 4.0, "type": "midi"}
-        params = {"trackId": "track-0", "clipId": before["id"], "before": before}
-        with self.assertRaisesRegex(ValueError, "identity changed"):
-            dispatch_request(song, {"method": "delete_arrangement_clip", "params": {**params, "before": {**before, "name": "Wrong"}}}, 3)
-        result = dispatch_request(song, {"method": "delete_arrangement_clip", "params": params}, 3)
-        self.assertEqual(result["deletedClip"], before)
-        self.assertEqual([clip["name"] for clip in result["clips"]], ["B"])
-        self.assertEqual(boundaries, ["begin", "end"])
-
-    def test_arrangement_duplication_checks_identity_collision_and_preserves_source(self):
-        song = Song()
-        boundaries = []
-        song.begin_undo_step = lambda: boundaries.append("begin")
-        song.end_undo_step = lambda: boundaries.append("end")
-        track = song.tracks[0]
-        source = SimpleNamespace(name="Verse", start_time=0, end_time=4, length=4, is_audio_clip=False)
-        track.arrangement_clips = [source]
-        def duplicate(clip, start):
-            result = copy.deepcopy(clip)
-            result.start_time, result.end_time = start, start + 4
-            track.arrangement_clips.append(result)
-            return result
-        track.duplicate_clip_to_arrangement = duplicate
-        before = {"id": "track-0:arrangement-clip-0", "name": "Verse", "startBeats": 0.0,
-                  "endBeats": 4.0, "lengthBeats": 4.0, "type": "midi"}
-        params = {"trackId": "track-0", "clipId": before["id"], "before": before, "startBeats": 4.0}
-        result = dispatch_request(song, {"method": "duplicate_arrangement_clip", "params": params}, 3)
-        self.assertEqual(result["duplicatedClip"]["startBeats"], 4.0)
-        self.assertIs(track.arrangement_clips[0], source)
-        self.assertEqual(boundaries, ["begin", "end"])
-        with self.assertRaisesRegex(ValueError, "identity changed"):
-            dispatch_request(song, {"method": "duplicate_arrangement_clip", "params": {**params, "before": {**before, "name": "Wrong"}}}, 4)
-        with self.assertRaisesRegex(ValueError, "overlap"):
-            dispatch_request(song, {"method": "duplicate_arrangement_clip", "params": {**params, "startBeats": 2.0}}, 4)
-
-    def test_arrangement_duplication_compares_native_clip_identity_across_wrappers(self):
-        class ClipProxy:
-            def __init__(self, native_id, start):
-                self.native_id = native_id
-                self.name = "Verse"
-                self.start_time, self.end_time = start, start + 4
-                self.is_audio_clip = False
-
-            def __eq__(self, other):
-                return isinstance(other, ClipProxy) and self.native_id == other.native_id
-
-        for real_collision in (False, True):
-            with self.subTest(real_collision=real_collision):
-                song = Song()
-                track = song.tracks[0]
-                source = ClipProxy("source", 0)
-                track.arrangement_clips = [source]
-                removed = []
-
-                def duplicate(clip, start):
-                    track.arrangement_clips.append(ClipProxy("copy", start))
-                    if real_collision:
-                        track.arrangement_clips.append(ClipProxy("other", start))
-                    return ClipProxy("copy", start)
-
-                def delete(clip):
-                    removed.append(clip.native_id)
-                    track.arrangement_clips.remove(clip)
-
-                track.duplicate_clip_to_arrangement = duplicate
-                track.delete_clip = delete
-                before = {"id": "track-0:arrangement-clip-0", "name": "Verse", "startBeats": 0.0,
-                          "endBeats": 4.0, "lengthBeats": 4.0, "type": "midi"}
-                request = {"method": "duplicate_arrangement_clip", "params": {
-                    "trackId": "track-0", "clipId": before["id"], "before": before, "startBeats": 8.0}}
-                if real_collision:
-                    with self.assertRaisesRegex(ValueError, "overlaps another Arrangement clip"):
-                        dispatch_request(song, request, 3)
-                    self.assertEqual(removed, ["copy"])
-                    self.assertEqual([clip.native_id for clip in track.arrangement_clips], ["source", "other"])
-                else:
-                    result = dispatch_request(song, request, 3)
-                    self.assertEqual(result["duplicatedClip"], {**before,
-                        "id": "track-0:arrangement-clip-1", "startBeats": 8.0, "endBeats": 12.0})
-                    self.assertEqual(result["sourceClip"], before)
-                    self.assertEqual(removed, [])
-                    self.assertEqual([clip.native_id for clip in track.arrangement_clips], ["source", "copy"])
-                self.assertIs(track.arrangement_clips[0], source)
-                self.assertEqual((source.start_time, source.end_time), (0, 4))
-                self.assertEqual(song.undo_boundaries, ["begin", "end"])
-
-    def test_arrangement_duplication_rejects_shifted_native_copy_and_reports_failed_cleanup(self):
-        for cleanup_fails in (False, True):
-            song = Song()
-            track = song.tracks[0]
-            source = SimpleNamespace(name="Verse", start_time=0, end_time=4, length=4, is_audio_clip=False)
-            track.arrangement_clips = [source]
-            def duplicate(clip, start):
-                result = copy.deepcopy(clip)
-                result.start_time, result.end_time = start + 1, start + 5
-                track.arrangement_clips.append(result)
-                return result
-            track.duplicate_clip_to_arrangement = duplicate
-            def delete(clip):
-                if cleanup_fails:
-                    raise RuntimeError("cleanup exploded")
-                track.arrangement_clips.remove(clip)
-            track.delete_clip = delete
-            before = {"id": "track-0:arrangement-clip-0", "name": "Verse", "startBeats": 0.0,
-                      "endBeats": 4.0, "lengthBeats": 4.0, "type": "midi"}
-            message = "rollback failed.*cleanup exploded" if cleanup_fails else "changed the duplicated clip interval"
-            with self.assertRaisesRegex((RuntimeError if cleanup_fails else ValueError), message):
-                dispatch_request(song, {"method": "duplicate_arrangement_clip", "params": {
-                    "trackId": "track-0", "clipId": before["id"], "before": before, "startBeats": 8.0}}, 3)
-            self.assertEqual(len(track.arrangement_clips), 2 if cleanup_fails else 1)
-            self.assertEqual(song.undo_boundaries, ["begin", "end"])
-
-    def test_arrangement_duplication_rejects_large_position_relative_drift(self):
-        song = Song()
-        track = song.tracks[0]
-        source = SimpleNamespace(name="Verse", start_time=0, end_time=4, length=4, is_audio_clip=False)
-        track.arrangement_clips = [source]
-        def duplicate(clip, start):
-            result = copy.deepcopy(clip)
-            result.start_time, result.end_time = start + 1_000_000, start + 1_000_004
-            track.arrangement_clips.append(result)
-            return result
-        track.duplicate_clip_to_arrangement = duplicate
-        track.delete_clip = lambda clip: track.arrangement_clips.remove(clip)
-        before = {"id": "track-0:arrangement-clip-0", "name": "Verse", "startBeats": 0.0,
-                  "endBeats": 4.0, "lengthBeats": 4.0, "type": "midi"}
-        with self.assertRaisesRegex(ValueError, "changed the duplicated clip interval"):
-            dispatch_request(song, {"method": "duplicate_arrangement_clip", "params": {
-                "trackId": "track-0", "clipId": before["id"], "before": before,
-                "startBeats": 9_000_000_000_000_000.0}}, 3)
-        self.assertEqual(track.arrangement_clips, [source])
-
-    def test_arrangement_move_rolls_back_failed_destination_copy(self):
-        song = Song()
-        track = song.tracks[0]
-        track.arrangement_clips = [SimpleNamespace(name="A", start_time=8.0, end_time=12.0, is_audio_clip=False, notes=[60])]
-        track.delete_clip = lambda clip: track.arrangement_clips.remove(clip)
-        copies = []
-        def duplicate(clip, time):
-            copies.append(time)
-            if len(copies) == 2:
-                raise RuntimeError("destination copy failed")
-            result = copy.deepcopy(clip)
-            result.start_time = time
-            result.end_time = time + clip.end_time - clip.start_time
-            track.arrangement_clips.append(result)
-            return result
-        track.duplicate_clip_to_arrangement = duplicate
-        song.begin_undo_step = lambda: None
-        song.end_undo_step = lambda: None
-        before = {"id": "track-0:arrangement-clip-0", "name": "A", "startBeats": 8.0, "endBeats": 12.0, "lengthBeats": 4.0, "type": "midi"}
-        with self.assertRaisesRegex(RuntimeError, "destination copy failed"):
-            dispatch_request(song, {"method": "move_arrangement_clip", "params": {
-                "trackId": "track-0", "clipId": before["id"], "before": before, "startBeats": 10.0,
-            }}, 3)
+        self.assertFalse(result["placementVerified"])
+        self.assertIn("placed clip interval", result["error"])
         self.assertEqual(len(track.arrangement_clips), 1)
-        self.assertEqual(track.arrangement_clips[0].start_time, 8.0)
-        self.assertEqual(track.arrangement_clips[0].notes, [60])
+        self.assertEqual(boundaries, ["begin", "end"])
+
+
 
     def test_audio_import_checks_file_identity_and_empty_audio_slot(self):
         song = Song()
@@ -2026,32 +1906,6 @@ class DispatchTest(unittest.TestCase):
         for invalid in ("track-0:arrangement-clip--1", "track-1:arrangement-clip-0", "track-0:arrangement-clip-99"):
             with self.assertRaises(ValueError):
                 dispatch_request(song, {"method": "get_audio_clip_state", "params": {**params, "clipId": invalid}}, 3)
-
-    def test_arrangement_move_supports_self_overlap_and_preserves_contents(self):
-        song = Song()
-        track = song.tracks[0]
-        original = SimpleNamespace(name="A", start_time=8.0, end_time=12.0, is_audio_clip=False, notes=[60, 64])
-        track.arrangement_clips = [original]
-        track.delete_clip = lambda clip: track.arrangement_clips.remove(clip)
-        def duplicate(clip, time):
-            result = copy.deepcopy(clip)
-            result.start_time = time
-            result.end_time = time + clip.end_time - clip.start_time
-            track.arrangement_clips.append(result)
-            return result
-        track.duplicate_clip_to_arrangement = duplicate
-        boundaries = []
-        song.begin_undo_step = lambda: boundaries.append("begin")
-        song.end_undo_step = lambda: boundaries.append("end")
-        before = {"id": "track-0:arrangement-clip-0", "name": "A", "startBeats": 8.0, "endBeats": 12.0, "lengthBeats": 4.0, "type": "midi"}
-        result = dispatch_request(song, {"method": "move_arrangement_clip", "params": {
-            "trackId": "track-0", "clipId": before["id"], "before": before, "startBeats": 10.0,
-        }}, 3)
-        self.assertEqual(result["movedClip"]["startBeats"], 10.0)
-        self.assertEqual(result["movedClip"]["endBeats"], 14.0)
-        self.assertEqual(len(track.arrangement_clips), 1)
-        self.assertEqual(track.arrangement_clips[0].notes, [60, 64])
-        self.assertEqual(boundaries, ["begin", "end"])
 
     def test_master_and_return_mixer_lifecycle(self):
         song = Song()
@@ -2190,13 +2044,15 @@ class DispatchTest(unittest.TestCase):
         song = Song()
         target = {"targetType": "return", "targetId": "return-0",
                   "previousName": "Reverb", "name": "Short Verb"}
-        result = dispatch_request(song, {"method": "rename_session_object", "params": {"target": target}}, 3)
+        label_before = dispatch_request(song, {"method":"get_session_object_name_context", "params":target}, 3)
+        label_params = {"target":target,"before":label_before,"expectedStateVersion":3}
+        result = dispatch_request(song, {"method": "rename_session_object", "params": label_params}, 3)
         self.assertEqual(result["target"]["name"], "Short Verb")
         self.assertEqual(song.return_tracks[0].name, "Short Verb")
-        with self.assertRaisesRegex(ValueError, "return track identity changed"):
-            dispatch_request(song, {"method": "rename_session_object", "params": {"target": target}}, 4)
+        with self.assertRaisesRegex(ValueError, "identity or label changed"):
+            dispatch_request(song, {"method": "rename_session_object", "params": label_params}, 4)
 
-    def test_delete_return_track_requires_exact_snapshot_and_uses_native_undo(self):
+    def test_legacy_unbound_return_deletion_refuses(self):
         song = Song()
         song.return_tracks[0].devices = [Device()]
         song.return_tracks[0].mixer_device.sends = []
@@ -2206,10 +2062,10 @@ class DispatchTest(unittest.TestCase):
         before = dispatch_request(song, {"method": "get_set_mixer"}, 3)["returns"][0]
         target = {"targetType": "return", "targetId": "return-0", **before,
                   "affectedTrackSends": []}
-        result = dispatch_request(song, {"method": "delete_session_object", "params": {"target": target}}, 3)
-        self.assertEqual(result["deleted"]["targetId"], "return-0")
-        self.assertEqual(song.undo_boundaries, ["begin", "end"])
-        self.assertEqual(len(song.return_tracks), 0)
+        with self.assertRaises(ValueError):
+            dispatch_request(song, {"method": "delete_session_object", "params": {"target": target}}, 3)
+        self.assertEqual(song.undo_boundaries, [])
+        self.assertEqual(len(song.return_tracks), 1)
 
     def test_audio_clip_state_reads_and_writes_warp_pitch_gain_and_markers(self):
         song = Song()
@@ -2628,8 +2484,10 @@ class DispatchTest(unittest.TestCase):
         duplicated = dispatch_request(song, {"method": "duplicate_clip", "params": {**args, "before": before}}, 3)
         self.assertEqual(duplicated["stateVersion"], 4)
         self.assertEqual(duplicated["clips"][1]["name"], "Loop")
+        removal_ids = {"trackId": "track-0", "clipId": "track-0:clip-1", "location": "session"}
+        removal_before = dispatch_request(song, {"method": "get_clip_removal_source", "params": removal_ids}, 4)
         deleted = dispatch_request(song, {"method": "delete_clip", "params": {
-            "trackId": "track-0", "clipId": "track-0:clip-1"
+            **removal_ids, "expectedStateVersion": 4, "before": removal_before
         }}, 4)
         self.assertFalse(deleted["clips"][1]["hasClip"])
 
@@ -2768,7 +2626,9 @@ class DispatchTest(unittest.TestCase):
 
     def test_unwarped_audio_clip_timing_reports_seconds_not_beats(self):
         song = Song()
-        clip = song.tracks[0].clip_slots[0].clip
+        clip = AudioClip()
+        song.tracks[0].clip_slots[0].clip = clip
+        prepare_loop_target(song)
         clip.is_audio_clip = True
         clip.warping = False
         clip.loop_start = 0.25
@@ -2787,7 +2647,7 @@ class DispatchTest(unittest.TestCase):
         self.assertTrue(clip.looping)
         self.assertEqual(clip.loop_start, 0.25)
         changed = dispatch_request(song, {"method": "set_clip_timing", "params": {
-            "trackId": "track-0", "clipId": "track-0:clip-0",
+            **loop_plan(song, {"trackId":"track-0", "clipId":"track-0:clip-0"}),
             "changes": {"loop": {"startSeconds": 0.5, "endSeconds": 2.0}}
         }}, 3)
         self.assertEqual(changed["loop"]["startSeconds"], 0.5)
@@ -2795,6 +2655,7 @@ class DispatchTest(unittest.TestCase):
 
     def test_clip_timing_reads_and_writes_loop_signature_quantization_and_groove(self):
         song = Song()
+        prepare_loop_target(song)
         params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
         observed = dispatch_request(song, {"method": "get_clip_timing", "params": params}, 3)
         self.assertEqual(observed["loop"], {"enabled": True, "startBeats": 0.0, "endBeats": 4.0})
@@ -2807,7 +2668,7 @@ class DispatchTest(unittest.TestCase):
         self.assertIn({"value": 12, "name": "1_16"}, observed["launchQuantization"]["choices"])
         self.assertIsNone(observed["grooveId"])
 
-        changed = dispatch_request(song, {"method": "set_clip_timing", "params": {**params, "changes": {
+        changed = dispatch_request(song, {"method": "set_clip_timing", "params": {**loop_plan(song, params), "changes": {
             "loop": {"enabled": True, "startBeats": 1.0, "endBeats": 5.0},
             "timeSignature": {"numerator": 3, "denominator": 4},
             "launchQuantization": 12, "launchLegato": True, "grooveId": "groove-0",
@@ -2902,7 +2763,7 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual((clip.loop_start, clip.loop_end), (0.0, 4.0))
         self.assertIsNone(clip.groove)
 
-    def test_clip_timing_restores_earlier_writes_when_native_groove_write_fails(self):
+    def test_clip_timing_preserves_partial_writes_when_native_groove_write_fails(self):
         class GrooveWriteFails(Clip):
             def __setattr__(self, name, value):
                 if name == "groove" and getattr(self, "fail_groove", False):
@@ -2914,23 +2775,30 @@ class DispatchTest(unittest.TestCase):
         clip.fail_groove = True
         song.tracks[0].clip_slots[0].clip = clip
         params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        prepare_loop_target(song)
         before = dispatch_request(song, {"method": "get_clip_timing", "params": params}, 3)
-        with self.assertRaisesRegex(RuntimeError, "native groove write failed"):
-            dispatch_request(song, {"method": "set_clip_timing", "params": {
-                **params, "before": before,
-                "changes": {"loop": {"startBeats": 1, "endBeats": 5}, "grooveId": "groove-0"}
-            }}, 3)
-        self.assertEqual((clip.loop_start, clip.loop_end), (0.0, 4.0))
+        result = dispatch_request(song, {"method": "set_clip_timing", "params": {
+            **loop_plan(song, params), "before": before,
+            "changes": {"loop": {"startBeats": 1, "endBeats": 5}, "grooveId": "groove-0"}
+        }}, 3)
+        self.assertFalse(result['requestedChangesVerified'])
+        self.assertIn('native groove write failed', result['error'])
+        self.assertEqual((clip.loop_start, clip.loop_end), (1.0, 5.0))
 
     def test_clip_timing_native_mute_is_guarded_and_rejects_stale_state(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip
+        song.is_counting_in = False
+        song.tracks[0].implicit_arm = False
+        song.tracks[0].clip_slots[0].is_triggered = False
+        clip.is_recording = clip.is_overdubbing = clip.is_triggered = False
         clip.muted = False
         params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
         before = dispatch_request(song, {"method": "get_clip_timing", "params": params}, 3)
         self.assertEqual(before["mute"], {"supported": True, "enabled": False})
         changed = dispatch_request(song, {"method": "set_clip_timing", "params": {
-            **params, "before": before, "changes": {"mute": True}
+            **params, "before": before, "changes": {"mute": True},
+            "muteEditContext": dispatch_request(song, {"method": "get_clip_mute_edit_context", "params": params}, 3)
         }}, 3)
         self.assertEqual(changed["mute"], {"supported": True, "enabled": True})
         with self.assertRaisesRegex(ValueError, "timing changed"):
@@ -4571,7 +4439,10 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(created_scene["scene"]["name"], "Intro")
         self.assertEqual(created_scene["scene"]["launchQuantization"]["value"], 0)
         self.assertEqual(song.undo_boundaries, ["begin", "end", "begin", "end"])
+        label_ids = {"trackId":"track-0","clipId":"track-0:clip-0"}
+        label_before = dispatch_request(song, {"method":"get_session_clip_name_context","params":label_ids}, 5)
         renamed = dispatch_request(song, {"method": "rename_session_object", "params": {
+            **label_ids, "expectedStateVersion":5, "before":label_before, "name":"Hook",
             "target": {"targetType": "clip", "trackId": "track-0", "targetId": "track-0:clip-0",
                        "previousName": "Loop", "name": "Hook"}
         }}, 5)
@@ -4616,34 +4487,42 @@ class DispatchTest(unittest.TestCase):
 
     def test_session_duplicate_and_delete_return_exact_observed_state(self):
         song = Song()
-        duplicated_track = dispatch_request(song, {"method": "duplicate_session_object", "params": {
-            "target": {"targetType": "track", "targetId": "track-0", "destinationId": "track-1",
-                       "sourceName": "Synth", "name": "Synth Layer"}
-        }}, 2)
-        self.assertEqual(duplicated_track["target"]["destinationId"], "track-1")
-        self.assertEqual(song.tracks[1].name, "Synth Layer")
+        with self.assertRaises(ValueError):
+            dispatch_request(song, {"method": "duplicate_session_object", "params": {
+                "target": {"targetType": "track", "targetId": "track-0", "destinationId": "track-1",
+                           "sourceName": "Synth", "name": "Synth Layer"}}}, 2)
+        self.assertEqual(len(song.tracks), 2)
+        copy_ids = {"trackId":"track-0","sourceClipId":"track-0:clip-0","targetClipId":"track-0:clip-1","expectedStateVersion":3}
+        copy_before = dispatch_request(song, {"method":"get_clip_duplication_source","params":copy_ids}, 3)
         duplicated = dispatch_request(song, {"method": "duplicate_session_object", "params": {
+            **copy_ids, "before":copy_before,
             "target": {"targetType": "clip", "trackId": "track-0", "targetId": "track-0:clip-0",
                        "destinationId": "track-0:clip-1", "name": "Loop"}
         }}, 3)
         self.assertEqual(duplicated["target"]["destinationId"], "track-0:clip-1")
         self.assertTrue(song.tracks[0].clip_slots[1].has_clip)
+        removal_ids = {"trackId": "track-0", "clipId": "track-0:clip-1", "location": "session"}
+        removal_before = dispatch_request(song, {"method": "get_clip_removal_source", "params": removal_ids}, 4)
         deleted_clip = dispatch_request(song, {"method": "delete_session_object", "params": {
+            **removal_ids, "expectedStateVersion": 4, "before": removal_before,
             "target": {"targetType": "clip", "trackId": "track-0", "targetId": "track-0:clip-1", "name": "Loop"}
         }}, 4)
         self.assertFalse(song.tracks[0].clip_slots[1].has_clip)
         self.assertEqual(deleted_clip["deleted"]["targetId"], "track-0:clip-1")
-        dispatch_request(song, {"method": "duplicate_session_object", "params": {
-            "target": {"targetType": "scene", "targetId": "scene-0", "destinationId": "scene-1", "name": "Verse"}
-        }}, 5)
-        self.assertEqual(len(song.scenes), 3)
-        dispatch_request(song, {"method": "delete_session_object", "params": {
-            "target": {"targetType": "scene", "targetId": "scene-1", "name": "Verse", "occupiedClips": []}
-        }}, 6)
+        with self.assertRaises(ValueError):
+            dispatch_request(song, {"method": "duplicate_session_object", "params": {
+                "target": {"targetType": "scene", "targetId": "scene-0", "destinationId": "scene-1", "name": "Verse"}
+            }}, 5)
         self.assertEqual(len(song.scenes), 2)
-        dispatch_request(song, {"method": "delete_session_object", "params": {
-            "target": {"targetType": "track", "targetId": "track-1", "name": "Synth", "clipCount": 0, "deviceCount": 0}
-        }}, 7)
+        with self.assertRaises(ValueError):
+            dispatch_request(song, {"method": "delete_session_object", "params": {
+                "target": {"targetType": "scene", "targetId": "scene-1", "name": "Verse", "occupiedClips": []}
+            }}, 6)
+        self.assertEqual(len(song.scenes), 2)
+        with self.assertRaises(ValueError):
+            dispatch_request(song, {"method": "delete_session_object", "params": {
+                "target": {"targetType": "track", "targetId": "track-1", "name": "Synth", "clipCount": 0, "deviceCount": 0}
+            }}, 7)
         self.assertEqual(len(song.tracks), 2)
 
     def test_track_mixer_read_and_write_include_named_return_sends(self):
@@ -4708,11 +4587,12 @@ class DispatchTest(unittest.TestCase):
         clip.extended_notes = [MidiNote()]
         params = {"trackId": "track-0", "clipId": "track-0:clip-0"}
         observed = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": params}, 3)
+        edit_context = property_edit_context(song, params, 3)
         timing = dispatch_request(song, {"method": "get_clip_timing", "params": params}, 3)
         self.assertEqual(observed["notes"][0]["noteId"], 7)
         self.assertEqual(observed["notes"][0]["releaseVelocity"], 64)
         changed = dispatch_request(song, {"method": "set_midi_note_properties", "params": {
-            **params, "expectedStateVersion": 3, "before": observed, "clipTiming": timing,
+            **params, "expectedStateVersion": 3, "before": observed, "clipTiming": timing, "propertyEditContext": edit_context,
             "changes": [{"noteId": 7, "previous": observed["notes"][0],
                                     "probability": 0.25, "releaseVelocity": 92,
                                     "velocityDeviation": -12}]
@@ -4727,22 +4607,24 @@ class DispatchTest(unittest.TestCase):
         clip.extended_notes = [MidiNote()]
         target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
         before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        edit_context = property_edit_context(song, target, 3)
         timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
         clip.extended_notes[0].pitch = 62
-        with self.assertRaisesRegex(ValueError, "MIDI clip changed"):
+        with self.assertRaisesRegex(ValueError, "changed"):
             dispatch_request(song, {"method": "set_midi_note_properties", "params": {
-                **target, "expectedStateVersion": 3, "before": before, "clipTiming": timing,
+                **target, "expectedStateVersion": 3, "before": before, "clipTiming": timing, "propertyEditContext": edit_context,
                 "changes": [{"noteId": 7, "previous": before["notes"][0], "probability": 0.25}]
             }}, 3)
         self.assertEqual(clip.extended_notes[0].probability, 1.0)
         self.assertEqual(song.undo_boundaries, [])
 
-    def test_per_note_properties_restore_clip_after_native_apply_failure(self):
+    def test_per_note_properties_retain_partial_native_write_without_replay(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip
         clip.extended_notes = [MidiNote()]
         target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
         before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        edit_context = property_edit_context(song, target, 3)
         timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
         original_apply = clip.apply_note_modifications
         attempts = [0]
@@ -4754,13 +4636,15 @@ class DispatchTest(unittest.TestCase):
                 raise RuntimeError("native apply failed after write")
 
         clip.apply_note_modifications = apply_then_fail_once
-        with self.assertRaisesRegex(RuntimeError, "native apply failed"):
-            dispatch_request(song, {"method": "set_midi_note_properties", "params": {
-                **target, "expectedStateVersion": 3, "before": before, "clipTiming": timing,
+        result = dispatch_request(song, {"method": "set_midi_note_properties", "params": {
+                **target, "expectedStateVersion": 3, "before": before, "clipTiming": timing, "propertyEditContext": edit_context,
                 "changes": [{"noteId": 7, "previous": before["notes"][0], "probability": 0.25,
                              "releaseVelocity": 92}]
             }}, 3)
-        self.assertEqual(dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3), before)
+        self.assertFalse(result["editVerified"])
+        self.assertIn("native apply failed", result["error"])
+        self.assertEqual(clip.extended_notes[0].probability, 0.25)
+        self.assertEqual(attempts[0], 1)
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
     def test_transform_midi_notes_updates_existing_notes_and_adds_duplicates(self):
@@ -5436,6 +5320,121 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(result["addedNoteIds"], [100])
         self.assertEqual([note["noteId"] for note in result["notes"]], [8, 100])
         self.assertEqual(result["stateVersion"], 4)
+
+    def test_drum_random_matches_javascript_unsigned_vectors(self):
+        from bridge import _drum_random
+        vectors = {
+            0: [1144304738, 1416247, 958946056, 627933444, 2007157716, 2340967985],
+            173: [217270111, 3836928167, 882014801, 2991425364, 326509601, 3361743521],
+            4294967295: [3850105811, 813802916, 3073704848, 4054706436, 3630262831, 2315588663],
+        }
+        for seed, expected in vectors.items():
+            with self.subTest(seed=seed):
+                values = _drum_random(seed)
+                self.assertEqual([int(next(values) * 4294967296) for _ in expected], expected)
+
+    def _drum_replacement(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        hit, retained = MidiNote(7), MidiNote(8)
+        hit.pitch, retained.pitch = 42, 36
+        hit.velocity_deviation, hit.release_velocity, hit.probability = -3, 62, 0.75
+        clip.extended_notes = [hit, retained]
+        target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+        params = {**target, "operation": "edit_drum_pattern_clip", "expectedStateVersion": 3,
+                  "before": before, "clipTiming": timing, "removeNoteIds": [7],
+                  "gridReference": {"tempoBpm": 120, "timeSignature": {"numerator": 4, "denominator": 4}},
+                  "newNotes": [{"pitch": 42, "start": 0.0, "duration": 0.125, "velocity": 74, "mute": False}]}
+        return song, clip, params
+
+    def test_drum_replacement_removes_hits_before_overlapping_native_additions(self):
+        song, clip, params = self._drum_replacement()
+        native_add, native_remove = clip.add_new_notes, clip.remove_notes_by_id
+        events = []
+        def live_add(specs):
+            events.append("add")
+            for spec in specs:
+                clip.extended_notes = [note for note in clip.extended_notes if not (
+                    note.pitch == spec["pitch"] and note.start_time < spec["start"] + spec["duration"] and
+                    spec["start"] < note.start_time + note.duration)]
+            return native_add(specs)
+        def live_remove(ids):
+            events.append("remove")
+            if not set(ids).issubset({note.note_id for note in clip.extended_notes}):
+                raise ValueError("All given IDs must be present in clip")
+            native_remove(ids)
+        clip.add_new_notes, clip.remove_notes_by_id = live_add, live_remove
+        result = dispatch_request(song, {"method": "replace_midi_notes", "params": params}, 3)
+        self.assertEqual(events[:2], ["remove", "add"])
+        self.assertEqual([note["noteId"] for note in result["notes"]], [8, 100])
+        self.assertEqual(result["notes"][0], params["before"]["notes"][1])
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
+    def test_drum_replacement_restores_removed_content_when_native_addition_fails(self):
+        song, clip, params = self._drum_replacement()
+        native_add, calls = clip.add_new_notes, []
+        def fail_once(specs):
+            calls.append(len(specs))
+            if len(calls) == 1:
+                raise ValueError("native addition failed")
+            return native_add(specs)
+        clip.add_new_notes = fail_once
+        with self.assertRaisesRegex(ValueError, "native addition failed"):
+            dispatch_request(song, {"method": "replace_midi_notes", "params": params}, 3)
+        observed = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": params}, 3)
+        project = lambda notes: sorted([{k: v for k, v in note.items() if k != "noteId"} for note in notes], key=lambda n: n["pitch"])
+        self.assertEqual(project(observed["notes"]), project(params["before"]["notes"]))
+        self.assertEqual(calls, [1, 1])
+
+    def test_drum_replacement_retains_an_undo_entry_manual_edit_without_rollback(self):
+        song, clip, params = self._drum_replacement()
+        begin = song.begin_undo_step
+        def changed_begin():
+            begin()
+            clip.extended_notes[0].velocity = 42
+        song.begin_undo_step = changed_begin
+        with self.assertRaisesRegex(ValueError, "changed.*undo"):
+            dispatch_request(song, {"method": "replace_midi_notes", "params": params}, 3)
+        self.assertEqual([note.note_id for note in clip.extended_notes], [7, 8])
+        self.assertEqual(clip.extended_notes[0].velocity, 42)
+        self.assertFalse(hasattr(clip, "added_notes"))
+
+    def test_drum_replacement_refuses_an_equal_content_native_clip_replacement_at_undo(self):
+        song, clip, params = self._drum_replacement()
+        replacement = copy.deepcopy(clip)
+        begin = song.begin_undo_step
+        def replaced_begin():
+            begin()
+            song.tracks[0].clip_slots[0].clip = replacement
+        song.begin_undo_step = replaced_begin
+        with self.assertRaisesRegex(ValueError, "changed.*undo"):
+            dispatch_request(song, {"method": "replace_midi_notes", "params": params}, 3)
+        self.assertEqual([note.note_id for note in replacement.extended_notes], [7, 8])
+        self.assertEqual([note.note_id for note in clip.extended_notes], [7, 8])
+        self.assertFalse(hasattr(clip, "added_notes"))
+
+    def test_drum_replacement_clears_a_lane_without_empty_native_additions(self):
+        song, clip, params = self._drum_replacement()
+        params["newNotes"] = []
+        def reject_add(specs):
+            raise AssertionError("clearing must not add notes")
+        clip.add_new_notes = reject_add
+        result = dispatch_request(song, {"method": "replace_midi_notes", "params": params}, 3)
+        self.assertEqual(result["addedNoteIds"], [])
+        self.assertEqual([note["noteId"] for note in result["notes"]], [8])
+
+    def test_drum_replacement_checks_native_additions_and_retained_note_readback(self):
+        song, clip, params = self._drum_replacement()
+        native_add = clip.add_new_notes
+        def altered_add(specs):
+            added = native_add(specs)
+            clip.extended_notes[-1].velocity = 12
+            return added
+        clip.add_new_notes = altered_add
+        with self.assertRaisesRegex(ValueError, "drum edit readback"):
+            dispatch_request(song, {"method": "replace_midi_notes", "params": params}, 3)
 
     def test_guarded_ratchet_replaces_exact_notes_and_preserves_extended_properties(self):
         song = Song()

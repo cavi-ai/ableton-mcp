@@ -42,6 +42,7 @@ const resourceTemplates = resourceUris.filter((uri) => uri.includes("{"))
   .map((uriTemplate) => ({ uriTemplate, name: uriTemplate, mimeType: "application/json" }));
 
 const toolNames = [
+  'set_session_clip_entry',
   'get_parameter_automation_context', 're_enable_parameter_automation',
   'get_browser_preview_context', 'set_browser_preview',
   'get_selected_parameter_context', 'set_selected_parameter',
@@ -80,6 +81,7 @@ const toolNames = [
   "get_session_orientation",
   "analyze_midi_parts",
   "analyze_arrangement_section",
+  "plan_arrangement_repeat",
   "record_arrangement_take", "get_arrangement_take", "finish_arrangement_take",
   "capture_live_audio", "get_live_audio_capture", "finish_live_audio_capture",
   "get_instrument_comparison", "prepare_instrument_comparison", "adopt_instrument_comparison", "select_instrument_comparison",
@@ -87,6 +89,7 @@ const toolNames = [
   "open_live_set",
   "save_live_set",
   "export_audio_mix",
+  "export_audio_track",
   "export_midi_clip",
   "bounce_track_in_place",
   "save_native_device_preset",
@@ -163,6 +166,7 @@ const toolNames = [
   "plan_midi_diatonic_chord_quality",
   "get_clip_timing",
   "set_clip_timing",
+  "set_midi_clip_markers",
   "create_track",
   "create_return_track",
   "create_scene",
@@ -184,6 +188,7 @@ const toolNames = [
   "remove_audio_warp_marker",
   "add_audio_warp_marker",
   "quantize_audio_clip",
+  "crop_midi_clip",
   "crop_audio_clip",
   "duplicate_clip",
   "delete_clip",
@@ -274,6 +279,8 @@ const toolNames = [
   "set_looper_state",
   "set_beat_repeat_enabled",
   "perform_beat_repeat_fill", "get_beat_repeat_fill", "finish_beat_repeat_fill",
+  'get_session_midi_overdub_context', 'set_session_midi_overdub',
+  'record_session_arrangement', 'get_session_arrangement_recording', 'finish_session_arrangement_recording',
   "hold_session_clip", "get_session_clip_hold", "finish_session_clip_hold",
   "set_beat_repeat_grid",
   "set_beat_repeat_interval",

@@ -1,6 +1,8 @@
 # Preset catalog
 
-The NKS preset catalog is optional. It is a local SQLite database of presets discovered in your plug-in libraries. It backs `search_presets`, `get_preset`, the preset metadata tools, and the `nks://catalog/*` resources. Without it, preset search returns an empty collection and everything else works.
+The NKS preset catalog is optional. It is a local SQLite database of presets discovered in your plug-in libraries. It backs `search_presets`, `get_preset`, the preset metadata tools, and the `nks://catalog/*` resources. Preset search and the products resource return a `catalog` status alongside their existing collections. `catalog.configured: false` means the optional database is not configured; the empty collection does not establish that plug-in presets are absent. The status names `ABLETON_MCP_CATALOG_PATH`, the required server restart and Live browser discovery tools. Preset and artwork lookups explain the same missing setup. Native Live operations remain available.
+
+With `catalog.configured: true`, an empty search result means no current inventory matches the query; the products resource lists the current inventory by product. Configuration does not prove source-file availability, a successful NKS conversion, native recall, audible output or controller mappings. Use IDs returned by search rather than guessed names. For immediate sound exploration, use `list_browser_roots` and `search_browser_items` to discover native browser candidates, then follow the guarded instrument-comparison workflow. Do not change server configuration or build an inventory merely to make a lookup succeed.
 
 ## Point the plug-in configs at your libraries
 

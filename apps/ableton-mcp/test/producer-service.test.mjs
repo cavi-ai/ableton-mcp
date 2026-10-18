@@ -71,6 +71,14 @@ test("an explicitly selected workflow reaches both specialists before their firs
   assert.equal(calls.some(call=>call.name==='set_track_mixer'),false);
 });
 
+test('entry workflow permits a scoped specialist proposal without executing it',async t=>{
+  const {service,packets,calls}=await setup(t,()=>response({operations:[{tool:'set_session_clip_entry',args:{trackId:'track-0',clipId:'track-0:clip-0',unit:'beats',start:2}}]}));
+  const result=await service.call('run_production_task',{projectId:'song',goal:'Compare the entry on a copy',roles:'functional',workflow:{name:'compare-clip-entry',arguments:{request:'Try the copied phrase from beat 2',mode:'autonomous'}}});
+  assert.equal(result.operationCount,1);
+  assert.equal(packets[0].workflow.workflow,'compare-clip-entry');
+  assert.equal(calls.some(c=>c.name==='set_session_clip_entry'),false);
+});
+
 test("invalid workflow choices fail before Live observation or a model request", async t => {
   for(const workflow of [{name:'missing'}, {name:'balance-mix'},
     {name:'balance-mix',arguments:{request:'Bass',mode:'guess'}},

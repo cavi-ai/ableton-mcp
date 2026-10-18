@@ -9,6 +9,23 @@ from test_dispatch import Song
 
 
 class AudioExportTests(unittest.TestCase):
+    def test_render_targets_keep_native_order_names_and_known_audio_output(self):
+        song = Song()
+        song.tracks[0].name = song.tracks[1].name = 'Same part'
+        song.tracks[0].has_audio_output = True
+        song.tracks[1].has_audio_output = False
+        song.return_tracks[0].has_audio_output = True
+        before = self.source(song)
+        self.assertEqual(before['renderTargets'], [
+            {'trackId': 'track-0', 'name': 'Same part', 'hasAudioOutput': True},
+            {'trackId': 'track-1', 'name': 'Same part', 'hasAudioOutput': False},
+            {'trackId': 'return-0', 'name': song.return_tracks[0].name, 'hasAudioOutput': True}])
+        song.tracks[1].has_audio_output = True
+        self.assertNotEqual(before, self.source(song))
+        song.tracks[1].has_audio_output = None
+        self.assertIsNone(self.source(song)['renderTargets'][1]['hasAudioOutput'])
+        self.assertEqual(song.undo_boundaries, [])
+
     def source(self, song):
         return dispatch_request(song, {"method": "get_audio_export_source", "params": {}}, 3)
 

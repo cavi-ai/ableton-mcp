@@ -7,6 +7,10 @@ import { ToolService } from "../src/tool-service.mjs";
 import { SnapshotLibrary } from "../src/snapshot-library.mjs";
 import { validateToolArguments } from "../src/tool-validation.mjs";
 
+function loopContext(timing) {
+ return {stateVersion:timing.stateVersion,trackId:timing.trackId,clipId:timing.clipId,identityToken:'native',clipTiming:timing,material:{kind:'midi',notes:[]},editContext:Object.fromEntries(['frozen','clipRecording','clipOverdubbing','pendingLaunch','arrangementRecord','sessionRecord','countingIn'].map(k=>[k,false]))};
+}
+
 test("unwarped loop plans preserve seconds and reject incompatible units", async () => {
   const observed = {
     stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-0",
@@ -14,6 +18,7 @@ test("unwarped loop plans preserve seconds and reject incompatible units", async
   };
   const service = new ToolService({ bridge: { async request(method, params) {
     if (method === "get_clip_timing") return observed;
+    if (method === "get_clip_loop_edit_context") return loopContext(observed);
     if (method === "set_clip_timing") return { ...observed, stateVersion: 5, loop: { ...observed.loop, ...params.changes.loop } };
     throw new Error(method);
   } } });
@@ -88,9 +93,9 @@ test("return track creation binds the current bus list and requires a nonempty n
 });
 
 test("return track rename binds the exact current bus identity", async () => {
-  const before = { stateVersion: 4, returns: [{ id: "return-0", name: "A-Reverb" }] };
+  const before = { stateVersion:4,targetType:"return",targetId:"return-0",identityToken:"native-bus",object:{id:"return-0",name:"A-Reverb"} };
   const service = new ToolService({ bridge: { async request(method, params) {
-    if (method === "get_set_mixer") return before;
+    if (method === "get_session_object_name_context") { if(params.targetId!=="return-0")throw Error("unknown return");return before; }
     if (method === "rename_session_object") return { stateVersion: 5,
       target: { ...params.target, name: "A-Short Verb" } };
     throw new Error(method);
@@ -107,6 +112,7 @@ test("return track rename binds the exact current bus identity", async () => {
 test("return track deletion discloses devices and affected send lanes", async () => {
   const target = { id: "return-0", name: "A-Reverb", devices: [{ id: "return-0:device-0", name: "Reverb" }] };
   const service = new ToolService({ bridge: { async request(method, params) {
+    if (method === "get_return_removal_context") return {stateVersion:4,returnTrackId:"return-0",identityToken:"return-owner",target,affectedSends:[{ownerId:"track-0",ownerName:"Synth",sendId:"send-0",returnTrackId:"return-0",returnName:"A-Reverb",send:{value:.25}}]};
     if (method === "get_set_mixer") return { stateVersion: 4, returns: [target] };
     if (method === "list_tracks") return { stateVersion: 4, tracks: [{ id: "track-0", name: "Synth" }] };
     if (method === "get_track_mixer") return { stateVersion: 4, trackId: params.trackId,
@@ -145,6 +151,8 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         groove: { amount: 1, swingAmount: 0, pool: [{ id: "groove-0", name: "Swing 16-65", baseGrid: { value: 3, name: "1_16", choices: [{ value: 14, name: "1_16_triplet" }] } }] },
         loop: { enabled: false, startBeats: 0, lengthBeats: 8 }
       };
+      if(method==='get_track_removal_context')return {stateVersion:4,trackId:params.trackId,identityToken:'track-removal',removedTracks:[{trackId:params.trackId,name:'Synth',sessionClipCount:1,arrangementClipCount:0,deviceCount:2,clips:[{clipId:'track-0:clip-0',name:'Loop'}],devices:[{id:'device-0',name:'Serum 2'},{id:'track-0:device-1',name:'EQ Eight'}]}]};
+      if (method === "get_track_copy_context") return {stateVersion:4,trackId:params.trackId,identityToken:"copy-owner",sourceTracks:[{trackId:"track-0",name:"Synth"}],destinationId:"track-1",displaced:{id:"track-1",name:"Empty MIDI",isGroup:true,isGrouped:false,groupTrackId:null,foldState:0}};
       if (method === "list_tracks") return { stateVersion: 4, tracks: [
         { id: "track-0", name: "Synth", isGroup: false, isGrouped: false, groupTrackId: null, foldState: null },
         { id: "track-1", name: "Empty MIDI", isGroup: true, isGrouped: false, groupTrackId: null, foldState: 0 }
@@ -152,6 +160,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
       if (method === "list_devices" && params.trackId === "track-1") return {
         stateVersion: 4, trackId: params.trackId, devices: []
       };
+      if (method === "get_transport_seek_context") return {stateVersion:4,identityToken:'song',transport:{isPlaying:false}};
       if (method === "get_transport_recording_context") return {
         stateVersion: 4, currentSongTime: 16.5, isPlaying: false, metronome: true,
         arrangement: { record: false, overdub: false, punchIn: true, punchOut: false, backToArranger: false },
@@ -164,6 +173,8 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         { id: "device-0", name: "Serum 2", className: "PluginDevice", type: "instrument", active: true },
         { id: "track-0:device-1", name: "EQ Eight", className: "Eq8", type: "audio_effect", active: true }
       ] };
+      if (method === 'get_scene_duplication_context') return {stateVersion:4,sceneId:params.sceneId,destinationId:'scene-1',identityToken:'scene-copy',scenes:[{name:'Verse'},{name:'Chorus'}],tracks:[]};
+      if(method==='get_scene_removal_context')return {stateVersion:4,sceneId:params.sceneId,identityToken:'scene-removal',scenes:[{name:'Verse'},{name:'Chorus'}],tracks:[],occupiedClips:[{trackId:'track-0',clipId:'track-0:clip-0',name:'Loop'}]};
       if (method === "list_scenes") return { stateVersion: 4, scenes: [
         { id: "scene-0", name: "Verse" }, { id: "scene-1", name: "Chorus" }
       ] };
@@ -193,11 +204,19 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         slot:{id:params.clipId,hasClip:params.trackId==="track-0"&&params.clipId==="track-0:clip-0"},
         launchQuantizationChoices:[{value:0,name:"global"},{value:12,name:"1_16"}]
       };
+      if (method === "get_clip_removal_source") {
+        if (params.clipId === "track-0:clip-1") throw new Error("clip is empty");
+        return {stateVersion:4,trackId:params.trackId,clipId:params.clipId,location:params.location,identityToken:"native-removal",source:{name:"Loop",notes:[]},scope:{wholeClip:true,includesClipEnvelopesAndNoteExpression:true,restorableSnapshot:false}};
+      }
+      if (method === "get_session_clip_name_context") {
+        if(params.clipId === "track-0:clip-1")throw Error("empty clip slot");
+        return {stateVersion:4,trackId:params.trackId,clipId:params.clipId,identityToken:"native-label",clip:{id:params.clipId,name:"Loop",hasClip:true}};
+      }
       if (method === "get_clip_duplication_source") {
         if (params.sourceClipId === "track-0:clip-1") throw new Error("source clip is empty");
         if (params.targetClipId === "track-0:clip-0") throw new Error("target clip must be empty");
         return {stateVersion:4,trackId:params.trackId,sourceClipId:params.sourceClipId,targetClipId:params.targetClipId,targetTrackId:params.targetTrackId,
-          identityToken:"native-copy-pair",source:{name:"Loop"},target:{hasClip:false}};
+          copyGuardVersion:2,identityToken:"native-copy-pair",source:{name:"Loop"},target:{hasClip:false}};
       }
       if (method === "list_clips") return {
         stateVersion: 4,
@@ -310,6 +329,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         lengthBeats: 4,
         notes: [{ pitch: 60, start: 0, duration: 1, velocity: 100, mute: false }]
       };
+      if(method==='get_midi_note_edit_context')return {...await this.request('get_midi_clip_notes_extended',params),identityToken:'native',modifySupported:true,clipTiming:await this.request('get_clip_timing',params),editContext:Object.fromEntries(['frozen','clipRecording','clipOverdubbing','pendingLaunch','arrangementRecord','sessionRecord','countingIn'].map(k=>[k,false]))};
       if (method === "get_midi_clip_notes_extended") return {
         stateVersion: 4, trackId: params.trackId, clipId: params.clipId, lengthBeats: 4,
         notes: extendedNotes
@@ -347,6 +367,7 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         exists: true,
         samples: (params.sampleTimes || []).map((time) => ({ time, value: time / 4 }))
       };
+      if (method === "get_clip_loop_edit_context") return loopContext(await this.request("get_clip_timing", params));
       if (method === "get_clip_timing") return {
         stateVersion: 4, trackId: params.trackId, clipId: params.clipId,
         loop: { enabled: true, startBeats: 0, endBeats: 4 },
@@ -356,6 +377,10 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         mute: { supported: true, enabled: false },
         editorGrid: { quantization: { value: 8, name: "1_16", choices: [{ value: 7, name: "1_8" }, { value: 8, name: "1_16" }] }, isTriplet: false },
         grooveId: null, availableGrooves: [{ id: "groove-0", name: "Swing 16-65" }]
+      };
+      if (method === "get_clip_mute_edit_context") return {
+        stateVersion: 4, trackId: params.trackId, clipId: params.clipId,
+        identityToken: 'clip-mute-identity', muted: false, controls: {playing: false}
       };
       if (method === "get_audio_clip_state") return {
         stateVersion: 4, trackId: params.trackId, clipId: params.clipId,
@@ -1067,29 +1092,26 @@ test("transport recording context mutation validates and signs exact changes", a
   const dry = await service.call("set_transport_recording_context", args);
   assert.equal(dry.dryRun, true);
   assert.deepEqual(dry.plan.changes.arrangement, args.arrangement);
-  assert.equal(calls.at(-1).method, "get_transport_recording_context");
+  assert.equal(calls.at(-1).method, "get_transport_seek_context");
   await assert.rejects(() => service.call("set_transport_recording_context", {
     expectedStateVersion: 4, currentSongTime: -1
   }), /currentSongTime/);
 });
 
-test("transport mutation verifies a separate settled native control readback", async () => {
-  const before = { stateVersion: 4, currentSongTime: 0, arrangement: { punchIn: false } };
-  const after = { stateVersion: 5, currentSongTime: 8, arrangement: { punchIn: true } };
-  let reads = 0;
-  const service = new ToolService({ bridge: { async request(method) {
-    if (method === "get_transport_recording_context") return ++reads === 3 ? after : before;
-    if (method === "set_transport_recording_context") return { ...before, stateVersion: 5 };
-    throw new Error(method);
-  } } });
-  const args = { expectedStateVersion: 4, currentSongTime: 8, arrangement: { punchIn: true } };
-  const dry = await service.call("set_transport_recording_context", args);
-  const result = await service.call("set_transport_recording_context", { ...args, dryRun: false,
-    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
-  assert.equal(reads, 3);
-  assert.deepEqual(result.observed, after);
-  assert.equal(result.verification.controlsConfirmed, true);
-  assert.deepEqual(result.verification.mismatches, []);
+test("seek mutation preserves settled native control verification", async () => {
+  const before = { stateVersion:4,identityToken:'song',transport:{isPlaying:false,currentSongTime:0} };
+  const after = { stateVersion:5,currentSongTime:8,arrangement:{punchIn:true} };
+  const receipt = {stateVersion:5,observed:after,verification:{controlsConfirmed:true,controlFieldsConfirmed:true,positionVerified:true,mismatches:[]}};
+  let reads=0;
+  const service=new ToolService({bridge:{async request(method){
+    if(method==='get_transport_seek_context'){reads++;return before;}
+    if(method==='set_transport_recording_context')return receipt;
+    throw Error(method);
+  }}});
+  const args={expectedStateVersion:4,currentSongTime:8,arrangement:{punchIn:true}};
+  const dry=await service.call('set_transport_recording_context',args);
+  const result=await service.call('set_transport_recording_context',{...args,dryRun:false,confirmationToken:dry.confirmation.token,planHash:dry.confirmation.planHash});
+  assert.equal(reads,2);assert.deepEqual(result.observed,after);assert.equal(result.verification.controlsConfirmed,true);
 });
 
 test("recording flag confirmation tolerates a playing clock and retains mode guards", async () => {
@@ -1118,7 +1140,7 @@ test("recording flag confirmation tolerates a playing clock and retains mode gua
   assert.equal(result.observed.currentSongTime, 16);
 });
 
-for (const change of ["seek", "stopped clock", "playback", "recording", "automation", "version"]) {
+for (const change of ["stopped clock", "playback", "recording", "automation", "version"]) {
   test(`recording confirmation rejects a changed ${change} before writing`, async () => {
     const observed = { stateVersion: 4, currentSongTime: 4, isPlaying: change !== "stopped clock",
       automationArm: false, arrangement: { record: false }, session: { record: false } };
@@ -1128,10 +1150,9 @@ for (const change of ["seek", "stopped clock", "playback", "recording", "automat
       writes++;
       throw new Error("must not write");
     } } });
-    const args = { expectedStateVersion: 4, arrangement: { overdub: true },
-      ...(change === "seek" ? { currentSongTime: 32 } : {}) };
+    const args = { expectedStateVersion: 4, arrangement: { overdub: true } };
     const plan = await service.call("set_transport_recording_context", args);
-    if (["seek", "stopped clock"].includes(change)) observed.currentSongTime++;
+    if (change === "stopped clock") observed.currentSongTime++;
     if (change === "playback") observed.isPlaying = false;
     if (change === "recording") observed.session.record = true;
     if (change === "automation") observed.automationArm = true;
@@ -1142,23 +1163,16 @@ for (const change of ["seek", "stopped clock", "playback", "recording", "automat
   });
 }
 
-test("transport mutation reports an unconfirmed control instead of claiming success", async () => {
-  const before = { stateVersion: 4, currentSongTime: 0, arrangement: { punchIn: false } };
-  let reads = 0;
-  const service = new ToolService({ bridge: { async request(method) {
-    if (method === "get_transport_recording_context") {
-      reads++;
-      return reads < 3 ? before : { ...before, stateVersion: 5 };
-    }
-    if (method === "set_transport_recording_context") return { ...before, stateVersion: 5 };
-    throw new Error(method);
-  } } });
-  const args = { expectedStateVersion: 4, currentSongTime: 8 };
-  const dry = await service.call("set_transport_recording_context", args);
-  const result = await service.call("set_transport_recording_context", { ...args, dryRun: false,
-    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
-  assert.equal(result.verification.controlsConfirmed, false);
-  assert.deepEqual(result.verification.mismatches, ["currentSongTime"]);
+test("seek mutation retains an unverified native position receipt", async () => {
+  const before={stateVersion:4,identityToken:'song',transport:{isPlaying:false,currentSongTime:0}};
+  const service=new ToolService({bridge:{async request(method){
+    if(method==='get_transport_seek_context')return before;
+    if(method==='set_transport_recording_context')return {stateVersion:5,observed:{stateVersion:5,currentSongTime:0},verification:{controlsConfirmed:false,positionVerified:false,mismatches:['currentSongTime']}};
+    throw Error(method);
+  }}});
+  const args={expectedStateVersion:4,currentSongTime:8},dry=await service.call('set_transport_recording_context',args);
+  const result=await service.call('set_transport_recording_context',{...args,dryRun:false,confirmationToken:dry.confirmation.token,planHash:dry.confirmation.planHash});
+  assert.equal(result.verification.controlsConfirmed,false);assert.deepEqual(result.verification.mismatches,['currentSongTime']);
 });
 
 test("Capture MIDI signs session scope and refuses an empty native capture buffer", async () => {
@@ -1185,8 +1199,7 @@ test("arrangement cue points are inspectable and exact mutations are guarded", a
   for (const [name, args] of [
     ["create_arrangement_cue_point", { timeBeats: 32, name: "Chorus" }],
     ["rename_arrangement_cue_point", { cuePointId: "cue-0", name: "Intro" }],
-    ["delete_arrangement_cue_point", { cuePointId: "cue-0" }],
-    ["jump_to_arrangement_cue_point", { cuePointId: "cue-0" }]
+    ["delete_arrangement_cue_point", { cuePointId: "cue-0" }]
   ]) {
     const dry = await service.call(name, { expectedStateVersion: 4, ...args });
     assert.equal(dry.dryRun, true);
@@ -1690,7 +1703,7 @@ test("Arrangement placement guards timeline overlap and exact observations", asy
   let timeline = [];
   service.bridge.request = async (method, params) => {
     calls.push(method);
-    if (method === "get_session_clip_arrangement_source") return {stateVersion:4,trackId:"track-0",clipId:"track-0:clip-0",source:{id:"track-0:clip-0",hasClip:true,lengthBeats:4},beforeArrangement:timeline,sourceGuard:{identityToken:"clip-a",contentSha256:"notes-a"}};
+    if (method === "get_session_clip_arrangement_source") return {stateVersion:4,trackId:"track-0",clipId:"track-0:clip-0",source:{id:"track-0:clip-0",hasClip:true,lengthBeats:4},beforeArrangement:timeline,placement:{unit:"beats",lengthBeats:4},sourceGuard:{identityToken:"clip-a",contentSha256:"notes-a"}};
     if (method === "list_clips") return { stateVersion: 4, trackId: "track-0", clips: [{ id: "track-0:clip-0", hasClip: true, lengthBeats: 4 }] };
     if (method === "list_arrangement_clips") return { stateVersion: 4, trackId: "track-0", clips: timeline };
     if (method === "place_session_clip_in_arrangement") return { stateVersion: 5, placedClip: { startBeats: params.startBeats, endBeats: params.endBeats } };
@@ -1707,62 +1720,8 @@ test("Arrangement placement guards timeline overlap and exact observations", asy
   await assert.rejects(() => service.call("place_session_clip_in_arrangement", { ...args, expectedStateVersion: 3 }), /state/i);
 });
 
-test("Arrangement deletion carries exact identity and requires confirmation", async () => {
-  const { service } = fixture();
-  const before = { id: "track-0:arrangement-clip-0", name: "A", startBeats: 8, endBeats: 12, lengthBeats: 4, type: "midi" };
-  const mutations = [];
-  service.bridge.request = async (method, params) => {
-    if (method === "list_arrangement_clips") return { stateVersion: 4, trackId: "track-0", clips: [before] };
-    if (method === "delete_arrangement_clip") { mutations.push(params); return { stateVersion: 5, deletedClip: params.before, clips: [] }; }
-    throw new Error(`unexpected ${method}`);
-  };
-  const args = { trackId: "track-0", clipId: before.id, expectedStateVersion: 4 };
-  const dry = await service.call("delete_arrangement_clip", args);
-  assert.deepEqual(dry.plan.before, before);
-  assert.equal(mutations.length, 0);
-  await assert.rejects(() => service.call("delete_arrangement_clip", { ...args, clipId: "track-0:arrangement-clip-99" }), /unknown/);
-  const result = await service.call("delete_arrangement_clip", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
-  assert.deepEqual(result.observed.deletedClip, before);
-  assert.equal(mutations.length, 1);
-});
 
-test("Arrangement moves allow self-overlap but reject other timeline material", async () => {
-  const { service } = fixture();
-  const clip = { id: "track-0:arrangement-clip-0", name: "A", startBeats: 8, endBeats: 12, lengthBeats: 4, type: "midi" };
-  let clips = [clip];
-  service.bridge.request = async (method, params) => {
-    if (method === "list_arrangement_clips") return { stateVersion: 4, trackId: "track-0", clips };
-    if (method === "move_arrangement_clip") return { stateVersion: 5, movedClip: { ...clip, startBeats: params.startBeats, endBeats: params.startBeats + 4 } };
-    throw new Error(`unexpected ${method}`);
-  };
-  const args = { trackId: "track-0", clipId: clip.id, expectedStateVersion: 4, startBeats: 10 };
-  const dry = await service.call("move_arrangement_clip", args);
-  assert.equal(dry.plan.startBeats, 10);
-  assert.deepEqual(dry.plan.before, clip);
-  const result = await service.call("move_arrangement_clip", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
-  assert.equal(result.observed.movedClip.startBeats, 10);
-  clips = [clip, { id: "track-0:arrangement-clip-1", startBeats: 13, endBeats: 17 }];
-  await assert.rejects(() => service.call("move_arrangement_clip", args), /overlap another/);
-});
 
-test("Arrangement duplication signs exact source and rejects destination collisions", async () => {
-  const { service } = fixture();
-  const source = { id: "track-0:arrangement-clip-0", name: "Verse", type: "midi", startBeats: 0, endBeats: 4, lengthBeats: 4 };
-  let clips = [source, { id: "track-0:arrangement-clip-1", startBeats: 8, endBeats: 12 }];
-  service.bridge.request = async (method, params) => {
-    if (method === "list_arrangement_clips") return { stateVersion: 4, trackId: "track-0", clips };
-    if (method === "duplicate_arrangement_clip") return { stateVersion: 5,
-      duplicatedClip: { ...source, id: "track-0:arrangement-clip-2", startBeats: params.startBeats, endBeats: params.startBeats + 4 } };
-    throw new Error(`unexpected ${method}`);
-  };
-  const args = { trackId: "track-0", clipId: source.id, startBeats: 4, expectedStateVersion: 4 };
-  const dry = await service.call("duplicate_arrangement_clip", args);
-  assert.deepEqual(dry.plan.before, source);
-  const result = await service.call("duplicate_arrangement_clip", { ...args, dryRun: false,
-    confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
-  assert.equal(result.observed.duplicatedClip.startBeats, 4);
-  await assert.rejects(() => service.call("duplicate_arrangement_clip", { ...args, startBeats: 9 }), /overlap another/);
-});
 
 test("audio import binds the source revision and an exact empty slot", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "cavi-audio-import-"));
@@ -2296,8 +2255,10 @@ test("audio clip state exposes warp pitch gain and markers with guarded changes"
   assert.equal(dry.plan.changes.warpMode.value, 6);
   assert.equal(dry.plan.changes.pitchCoarse.value, -12);
   const live = await service.call("set_audio_clip_state", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
-  assert.equal(live.observed.stateVersion, 5);
-  assert.equal(calls.at(-1).method, "set_audio_clip_state");
+  assert.equal(live.immediateObserved.stateVersion, 5);
+  assert.equal(live.verification.markerBoundsConfirmed, false);
+  assert.ok(live.verification.mismatches.includes('stateVersion'));
+  assert.equal(calls.at(-1).method, "get_audio_clip_state");
 });
 
 test("audio clip mutation rejects invalid pitch markers and empty changes", async () => {
@@ -2504,7 +2465,7 @@ test("clip deletion requires an occupied exact clip", async () => {
   const { service, calls } = fixture();
   const args = { expectedStateVersion: 4, trackId: "track-0", clipId: "track-0:clip-0" };
   const dry = await service.call("delete_clip", args);
-  assert.equal(dry.plan.before.name, "Loop");
+  assert.equal(dry.plan.before.source.name, "Loop");
   const live = await service.call("delete_clip", { ...args, dryRun: false, confirmationToken: dry.confirmation.token, planHash: dry.confirmation.planHash });
   assert.equal(live.dryRun, false);
   assert.equal(calls.at(-1).method, "delete_clip");

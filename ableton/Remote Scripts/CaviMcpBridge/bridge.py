@@ -335,8 +335,8 @@ def _clip_timing(song, track_id, clip_id, state_version):
         "location": "arrangement" if timeline is not None else "session", "timeline": timeline,
         "loop": loop,
         "markers": {"supported": True, "unit": "seconds" if unwarped_audio else "beats",
-                    "startSeconds" if unwarped_audio else "startBeats": float(clip.start_marker),
-                    "endSeconds" if unwarped_audio else "endBeats": float(clip.end_marker)}
+                    "startSeconds" if unwarped_audio else "startBeats": float(clip.loop_start if unwarped_audio else clip.start_marker),
+                    "endSeconds" if unwarped_audio else "endBeats": float(clip.loop_end if unwarped_audio else clip.end_marker)}
         if hasattr(clip, "start_marker") and hasattr(clip, "end_marker") else {"supported": False},
         "timeSignature": {"numerator": int(clip.signature_numerator), "denominator": int(clip.signature_denominator)},
         "launchQuantization": _enum_record(clip.launch_quantization, CLIP_QUANTIZATION_NAMES),
@@ -403,8 +403,8 @@ def _audio_clip_state(song, track_id, clip_id, state_version):
             for marker in getattr(clip, "warp_markers", ())
         ]},
         "markers": {"unit": "beats" if clip.warping else "seconds",
-                    "startBeats" if clip.warping else "startSeconds": float(clip.start_marker),
-                    "endBeats" if clip.warping else "endSeconds": float(clip.end_marker)},
+                    "startBeats" if clip.warping else "startSeconds": float(clip.start_marker if clip.warping else clip.loop_start),
+                    "endBeats" if clip.warping else "endSeconds": float(clip.end_marker if clip.warping else clip.loop_end)},
         "loop": {"enabled": bool(clip.looping), "unit": "beats" if clip.warping else "seconds",
                  "startBeats" if clip.warping else "startSeconds": float(clip.loop_start),
                  "endBeats" if clip.warping else "endSeconds": float(clip.loop_end)},
@@ -456,6 +456,23 @@ _arrangement_source_song = None
 _arrangement_source_identities = {}
 
 
+def _session_arrangement_placement(timing):
+    markers, loop = timing['markers'], timing['loop']
+    if not markers.get('supported') or markers.get('unit') != 'beats':
+        raise ValueError('Arrangement placement requires native beat markers')
+    start, end = markers['startBeats'], markers['endBeats']
+    if not all(math.isfinite(value) for value in (start, end, loop['startBeats'], loop['endBeats'])) or end <= start:
+        raise ValueError('Arrangement placement marker range is invalid')
+    period = loop['endBeats'] - loop['startBeats']
+    lead_in = max(0.0, loop['startBeats'] - start) if loop['enabled'] else 0.0
+    length = period + lead_in if loop['enabled'] else end - start
+    if not math.isfinite(length) or length <= 0 or (loop['enabled'] and period <= 0):
+        raise ValueError('Arrangement placement range must be finite and positive')
+    return {'unit': 'beats', 'lengthBeats': length, 'leadInBeats': lead_in,
+            'loopLengthBeats': period if loop['enabled'] else None,
+            'basis': 'loop-plus-lead-in' if loop['enabled'] else 'markers'}
+
+
 def _session_clip_arrangement_source(song, params, state_version):
     global _arrangement_source_song
     track_id, clip_id = params["trackId"], params["clipId"]
@@ -474,7 +491,8 @@ def _session_clip_arrangement_source(song, params, state_version):
     timing = _clip_timing(song, track_id, clip_id, state_version)
     for key in ("stateVersion", "trackId", "clipId", "location", "timeline"):
         timing.pop(key, None)
-    content = {"source": source, "timing": timing,
+    placement = _session_arrangement_placement(timing)
+    content = {"source": source, "timing": timing, 'placement': placement,
                "startMarker": float(getattr(clip, "start_marker", clip.loop_start)),
                "endMarker": float(getattr(clip, "end_marker", clip.loop_end)),
                "color": getattr(clip, "color", None)}
@@ -504,7 +522,7 @@ def _session_clip_arrangement_source(song, params, state_version):
         _arrangement_source_identities[key] = cached
     digest = hashlib.sha256(json.dumps(content, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
     return {"stateVersion": state_version, "trackId": track_id, "clipId": clip_id,
-            "source": source, "beforeArrangement": _arrangement_clips(song, track_id, state_version)["clips"],
+            "source": source, 'placement': placement, "beforeArrangement": _arrangement_clips(song, track_id, state_version)["clips"],
             "sourceGuard": {"identityToken": cached[1], "contentSha256": digest,
                             "type": "audio" if audio else "midi", "noteCount": note_count}}
 
@@ -1358,7 +1376,7 @@ def _drum_random(seed):
     while True:
         state = (state + 0x6D2B79F5) & 0xffffffff
         value = ((state ^ (state >> 15)) * (1 | state)) & 0xffffffff
-        value = (value + (((value ^ (value >> 7)) * (61 | value)) & 0xffffffff)) ^ value
+        value = ((value + (((value ^ (value >> 7)) * (61 | value)) & 0xffffffff)) ^ value) & 0xffffffff
         yield ((value ^ (value >> 14)) & 0xffffffff) / 4294967296.0
 
 
@@ -3152,7 +3170,239 @@ def _clip_hold_module():
     return clip_hold
 
 
+def _apply_clip_timing(song, params, state_version, deferred_loop=False):
+    if "before" in params and _clip_timing(song, params["trackId"], params["clipId"], state_version) != params["before"]:
+        raise ValueError("clip timing changed since observation")
+    clip, timeline = _clip_reference(song, params["trackId"], params["clipId"])
+    changes = params["changes"]
+    launch_identity = None
+    mute_identity = None
+    expected_mute = None
+    if "launchMode" in changes:
+        if timeline is not None:
+            raise ValueError("Session clip launch mode is unavailable in Arrangement")
+        if type(changes["launchMode"]) is not int or changes["launchMode"] not in range(4):
+            raise ValueError("launchMode must be an exact native launch mode")
+        try:
+            from . import clip_launch as launch_guard
+        except ImportError:
+            import clip_launch as launch_guard
+        if params.get("launchEditContext") != launch_guard.source(song, params, state_version):
+            raise ValueError("clip launch identity or context changed since planning")
+        launch_identity = launch_guard.objects(song, params)
+    if "launchLegato" in changes:
+        if timeline is not None or not hasattr(clip, "legato"):
+            raise ValueError("clip launch Legato is unavailable")
+        if type(changes["launchLegato"]) is not bool:
+            raise ValueError("launchLegato must be boolean")
+    if "mute" in changes:
+        if not hasattr(clip, "muted"):
+            raise ValueError("clip mute is unavailable")
+        if type(changes["mute"]) is not bool:
+            raise ValueError("mute must be boolean")
+        try:
+            from . import clip_mute as mute_guard
+        except ImportError:
+            import clip_mute as mute_guard
+        mute_context = mute_guard.source(song, params, state_version)
+        if params.get("muteEditContext") != mute_context:
+            raise ValueError("clip mute identity or context changed since planning")
+        mute_identity = mute_guard.objects(song, params)
+        expected_mute = mute_context['muted']
+        if set(changes) == {'mute'} and changes['mute'] == expected_mute:
+            return _clip_timing(song, params["trackId"], params["clipId"], state_version + 1)
+    editor_grid = changes.get("editorGrid", {})
+    if "quantization" in editor_grid:
+        grid_value = editor_grid["quantization"]
+        if type(grid_value) is not int or grid_value < 0 or grid_value >= len(CLIP_GRID_NAMES):
+            raise ValueError("invalid clip editor grid quantization")
+        if Live is not None and grid_value not in Live.Clip.GridQuantization.values:
+            raise ValueError("clip editor grid quantization is unavailable in this Live version")
+    if "isTriplet" in editor_grid and type(editor_grid["isTriplet"]) is not bool:
+        raise ValueError("clip editor grid isTriplet must be boolean")
+    loop = changes.get("loop", {})
+    if getattr(clip, "is_audio_clip", False) and not clip.warping and any(key in loop for key in ("startBeats", "endBeats")):
+        raise ValueError("beat-based loop positions cannot be applied to unwarped audio")
+    seconds = bool(getattr(clip, "is_audio_clip", False)) and not clip.warping
+    if not seconds and any(key in loop for key in ("startSeconds", "endSeconds")):
+        raise ValueError("seconds-based loop positions require unwarped audio")
+    start_key, end_key = ("startSeconds", "endSeconds") if seconds else ("startBeats", "endBeats")
+    start, end = float(loop.get(start_key, clip.loop_start)), float(loop.get(end_key, clip.loop_end))
+    if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start:
+        raise ValueError("loop positions must define a finite positive interval")
+    if "enabled" in loop and type(loop["enabled"]) is not bool:
+        raise ValueError("loop.enabled must be boolean")
+    if seconds and loop.get('enabled') is True:
+        raise ValueError('unwarped audio cannot loop')
+    if 'enabled' in loop and loop['enabled'] != bool(clip.looping) and not all(key in loop for key in (start_key,end_key)):
+        raise ValueError('mode changes require an explicit complete final loop interval')
+    selected_groove = None
+    if "grooveId" in changes:
+        matches = [groove for index, groove in enumerate(_grooves(song))
+                   if changes["grooveId"] == f"groove-{index}"]
+        if len(matches) != 1:
+            raise ValueError("unknown groove ID")
+        selected_groove = matches[0]
+    signature = changes.get("timeSignature", {})
+    loop_guard = None
+    if "loop" in changes:
+        try:
+            from .clip_loop_edit import Guard
+        except ImportError:
+            from clip_loop_edit import Guard
+        loop_guard = Guard(song, params, state_version)
+        if mute_identity is not None:
+            loop_guard.readback_check = lambda current_song: mute_guard.assert_owned(
+                current_song, params, mute_identity, mute_context['controls'], expected_mute)
+    editor_view = clip.view if editor_grid else None
+    mute_fields = []
+    if mute_identity is not None and loop_guard is None:
+        fields = []
+        if start_key in loop or end_key in loop:
+            fields.extend([(clip, 'loop_start'), (clip, 'loop_end')])
+        if 'enabled' in loop:
+            fields.append((clip, 'looping'))
+        for key, attribute in [('numerator', 'signature_numerator'), ('denominator', 'signature_denominator')]:
+            if key in signature:
+                fields.append((clip, attribute))
+        for key, attribute in [('launchQuantization', 'launch_quantization'), ('launchMode', 'launch_mode'),
+                               ('launchLegato', 'legato'), ('mute', 'muted'), ('grooveId', 'groove')]:
+            if key in changes:
+                fields.append((clip, attribute))
+        for key, attribute in [('quantization', 'grid_quantization'), ('isTriplet', 'grid_is_triplet')]:
+            if key in editor_grid:
+                fields.append((editor_view, attribute))
+        mute_fields = [[owner, attribute, getattr(owner, attribute)] for owner, attribute in fields]
+    def assert_mute_fields():
+        for owner, attribute, expected in mute_fields:
+            if getattr(owner, attribute) != expected:
+                raise ValueError('clip mute edit field changed; edit ownership lost')
+    writes = []
+    def write(owner, attribute, value):
+        nonlocal expected_mute
+        if launch_identity is not None:
+            launch_guard.assert_owned(song, params, launch_identity)
+        if mute_identity is not None:
+            mute_guard.assert_owned(song, params, mute_identity, mute_context['controls'], expected_mute)
+            assert_mute_fields()
+        previous = getattr(owner, attribute)
+        if previous != value:
+            field = loop_guard.before_write(owner, attribute, value) if loop_guard is not None else None
+            setattr(owner, attribute, value)
+            if loop_guard is not None:
+                loop_guard.after_write(field)
+            writes.append((owner, attribute, previous, value))
+            if mute_identity is not None:
+                for field in mute_fields:
+                    if field[0] is owner and field[1] == attribute:
+                        field[2] = value
+                if owner is clip and attribute == 'muted':
+                    expected_mute = value
+                mute_guard.assert_owned(song, params, mute_identity, mute_context['controls'], expected_mute)
+                assert_mute_fields()
+            if launch_identity is not None:
+                launch_guard.assert_owned(song, params, launch_identity)
+                if attribute == "launch_mode" and int(clip.launch_mode) != value:
+                    raise ValueError("native launch mode readback did not match requested value")
+    try:
+        from contextlib import nullcontext
+        with (_undo_step(song) if loop_guard is None or loop_guard.has_writes else nullcontext()):
+            try:
+                if mute_identity is not None and (mute_guard.source(song, params, state_version) != mute_context or
+                        _clip_timing(song, params["trackId"], params["clipId"], state_version) != params.get('before')):
+                    raise ValueError('clip mute context changed at undo entry')
+                if "enabled" in loop:
+                    write(clip, "looping", loop["enabled"])
+                if start_key in loop or end_key in loop:
+                    if start >= clip.loop_end:
+                        write(clip, "loop_end", end)
+                        write(clip, "loop_start", start)
+                    else:
+                        write(clip, "loop_start", start)
+                        write(clip, "loop_end", end)
+                if "numerator" in signature:
+                    write(clip, "signature_numerator", int(signature["numerator"]))
+                if "denominator" in signature:
+                    write(clip, "signature_denominator", int(signature["denominator"]))
+                if "launchQuantization" in changes:
+                    write(clip, "launch_quantization", int(changes["launchQuantization"]))
+                if "launchMode" in changes:
+                    write(clip, "launch_mode", changes["launchMode"])
+                if "launchLegato" in changes:
+                    write(clip, "legato", changes["launchLegato"])
+                if "mute" in changes:
+                    write(clip, "muted", changes["mute"])
+                if "quantization" in editor_grid:
+                    grid = Live.Clip.GridQuantization.values[editor_grid["quantization"]] if Live is not None else editor_grid["quantization"]
+                    write(editor_view, "grid_quantization", grid)
+                if "isTriplet" in editor_grid:
+                    write(editor_view, "grid_is_triplet", editor_grid["isTriplet"])
+                if "grooveId" in changes:
+                    write(clip, "groove", selected_groove)
+                if launch_identity is not None:
+                    launch_guard.assert_owned(song, params, launch_identity)
+                    if int(clip.launch_mode) != changes["launchMode"]:
+                        raise ValueError("native launch mode readback did not match requested value")
+                if loop_guard is not None:
+                    loop_guard.native_returned = True
+            except Exception as error:
+                if loop_guard is not None:
+                    raise
+                try:
+                    if launch_identity is not None:
+                        launch_guard.assert_owned(song, params, launch_identity)
+                    for owner, attribute, previous, applied in reversed(writes):
+                        if launch_identity is not None:
+                            launch_guard.assert_owned(song, params, launch_identity)
+                        if mute_identity is not None:
+                            mute_guard.assert_owned(song, params, mute_identity, mute_context['controls'], expected_mute)
+                        if launch_identity is not None or mute_identity is not None:
+                            current = getattr(owner, attribute)
+                            if current == previous:
+                                continue
+                            if current != applied:
+                                raise RuntimeError("later clip edit preserved; rollback ownership lost")
+                        setattr(owner, attribute, previous)
+                        if mute_identity is not None:
+                            if owner is clip and attribute == 'muted':
+                                expected_mute = previous
+                            mute_guard.assert_owned(song, params, mute_identity, mute_context['controls'], expected_mute)
+                        if launch_identity is not None:
+                            launch_guard.assert_owned(song, params, launch_identity)
+                except Exception as rollback_error:
+                    if launch_identity is not None or mute_identity is not None:
+                        scope = 'clip launch' if launch_identity is not None else 'clip mute'
+                        raise RuntimeError(f"partial {scope} edit: {error}; identity or edit ownership lost: {rollback_error}; inspect current clips before continuing") from error
+                    raise RuntimeError(f"clip timing failed: {error}; rollback failed: {rollback_error}; use Live undo") from error
+                raise
+    except Exception as error:
+        if loop_guard is None or not loop_guard.attempted:
+            raise
+        loop_guard.error = (str(error) or error.__class__.__name__)[:600]
+    if loop_guard is not None:
+        return loop_guard if deferred_loop else loop_guard.finish()
+    if launch_identity is not None:
+        launch_guard.assert_owned(song, params, launch_identity)
+    result = _clip_timing(song, params["trackId"], params["clipId"], state_version + 1)
+    if mute_identity is not None:
+        mute_guard.assert_owned(song, params, mute_identity, mute_context['controls'], expected_mute)
+    if launch_identity is not None:
+        launch_guard.assert_owned(song, params, launch_identity)
+    return result
+
+
 def dispatch_request(song, request, state_version, application=None):
+    if request.get("method") in ("get_session_midi_overdub_context", "set_session_midi_overdub"):
+        try:
+            from .session_overdub import context, change
+        except ImportError:
+            from session_overdub import context, change
+        return (context if request["method"] == "get_session_midi_overdub_context" else change)(song, request.get("params", {}), state_version)
+    if request.get('method') in ('get_session_arrangement_source', 'record_session_arrangement',
+                                 'get_session_arrangement_recording', 'finish_session_arrangement_recording'):
+        module = _session_arrangement_module()
+        return {'get_session_arrangement_source': module.source, 'record_session_arrangement': module.start,
+                'get_session_arrangement_recording': module.read, 'finish_session_arrangement_recording': module.finish}[request['method']](song, request.get('params', {}), state_version)
     if request.get("method") in ("get_arrangement_audio_import_target", "create_arrangement_audio_clip"):
         try:
             from .arrangement_audio import target, create
@@ -3171,12 +3421,37 @@ def dispatch_request(song, request, state_version, application=None):
         except ImportError:
             from scene_capture import context, capture
         return (context if request["method"] == "get_session_scene_capture_context" else capture)(song, request.get("params", {}), state_version)
-    if request.get("method") in ("get_arrangement_copy_source", "copy_arrangement_clip_to_track"):
+    if request.get("method") in ("get_arrangement_move_source", "move_arrangement_clip"):
+        try:
+            from .arrangement_move import source, move
+        except ImportError:
+            from arrangement_move import source, move
+        return (source if request["method"] == "get_arrangement_move_source" else move)(song, request.get("params", {}), state_version)
+    if request.get("method") in ("get_clip_removal_source", "delete_clip", "delete_arrangement_clip") or (request.get("method") == "delete_session_object" and request.get("params", {}).get("target", {}).get("targetType") == "clip"):
+        try:
+            from .clip_removal import source, remove
+        except ImportError:
+            from clip_removal import source, remove
+        method, params = request["method"], request.get("params", {})
+        if method == "get_clip_removal_source":
+            return source(song, params, state_version)
+        if method == "delete_session_object":
+            target = params["target"]
+            if params.get("trackId", target.get("trackId")) != target.get("trackId") or params.get("clipId", target.get("targetId")) != target.get("targetId"):
+                raise ValueError("clip removal target changed")
+            params = {**params, "trackId": target.get("trackId"), "clipId": target.get("targetId")}
+        params = {**params, "location": "arrangement" if method == "delete_arrangement_clip" else "session"}
+        return remove(song, params, state_version)
+    if request.get("method") in ("get_arrangement_copy_source", "copy_arrangement_clip_to_track", "get_arrangement_duplicate_source", "duplicate_arrangement_clip"):
         try:
             from .arrangement_copy import source, duplicate
         except ImportError:
             from arrangement_copy import source, duplicate
-        return (source if request["method"] == "get_arrangement_copy_source" else duplicate)(song, request.get("params", {}), state_version)
+        method, params = request["method"], request.get("params", {})
+        same_track = method in ("get_arrangement_duplicate_source", "duplicate_arrangement_clip")
+        if same_track:
+            params = {**params, "destinationTrackId": params.get("trackId")}
+        return (source if method.startswith("get_") else duplicate)(song, params, state_version, same_track=same_track)
     if request.get('method') in ('get_device_preset_source', 'select_device_preset_source'):
         try:
             from .device_preset import source, select
@@ -3533,6 +3808,12 @@ def dispatch_request(song, request, state_version, application=None):
         return _song_musical_context(song, state_version + 1)
     if method == "get_transport_recording_context":
         return _transport_recording_context(song, state_version)
+    if method == "get_transport_seek_context" or (method == "set_transport_recording_context" and "currentSongTime" in params.get("changes", {})):
+        try:
+            from . import transport_seek
+        except ImportError:
+            import transport_seek
+        return (transport_seek.context if method == "get_transport_seek_context" else transport_seek.seek)(song, params, state_version)
     if method == "set_transport_recording_context":
         changes = params["changes"]
         before = _transport_recording_context(song, state_version)
@@ -3592,7 +3873,13 @@ def dispatch_request(song, request, state_version, application=None):
         result = _arrangement_cue_points(song, state_version + 1)
         result["cuePoint"] = next(record for record in result["cuePoints"] if record["timeBeats"] == time_beats)
         return result
-    if method in ("rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point"):
+    if method in ("get_arrangement_cue_jump_context", "jump_to_arrangement_cue_point"):
+        try:
+            from . import cue_jump
+        except ImportError:
+            import cue_jump
+        return (cue_jump.context if method == "get_arrangement_cue_jump_context" else cue_jump.jump)(song, params, state_version)
+    if method in ("rename_arrangement_cue_point", "delete_arrangement_cue_point"):
         prefix, raw_index = params["cuePointId"].split("-", 1)
         if prefix != "cue" or not raw_index.isdigit():
             raise ValueError("unknown cue point")
@@ -3609,8 +3896,6 @@ def dispatch_request(song, request, state_version, application=None):
                 song.set_or_delete_cue()
             finally:
                 song.current_song_time = previous_time
-        else:
-            cue.jump()
         return _arrangement_cue_points(song, state_version + 1)
     if method == "get_track_routing":
         return _track_routing(song, params["trackId"], state_version)
@@ -4252,8 +4537,8 @@ def dispatch_request(song, request, state_version, application=None):
         if requested_markers:
             if "warping" in changes or not requested_markers.issubset({"startMarker" + suffix, "endMarker" + suffix}):
                 raise ValueError("marker units must match current warping; change warping separately")
-            start = _change_value(changes["startMarker" + suffix]) if "startMarker" + suffix in changes else clip.start_marker
-            end = _change_value(changes["endMarker" + suffix]) if "endMarker" + suffix in changes else clip.end_marker
+            start = _change_value(changes["startMarker" + suffix]) if "startMarker" + suffix in changes else (clip.start_marker if clip.warping else clip.loop_start)
+            end = _change_value(changes["endMarker" + suffix]) if "endMarker" + suffix in changes else (clip.end_marker if clip.warping else clip.loop_end)
             if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start:
                 raise ValueError("invalid audio marker interval")
         writes = []
@@ -4277,12 +4562,13 @@ def dispatch_request(song, request, state_version, application=None):
                         else:
                             write("loop_start", start)
                             write("loop_end", end)
-                    if start >= clip.end_marker:
-                        write("end_marker", end)
-                        write("start_marker", start)
-                    else:
-                        write("start_marker", start)
-                        write("end_marker", end)
+                    if clip.warping:
+                        if start >= clip.end_marker:
+                            write("end_marker", end)
+                            write("start_marker", start)
+                        else:
+                            write("start_marker", start)
+                            write("end_marker", end)
             except Exception as error:
                 try:
                     for attribute, previous in reversed(writes):
@@ -4291,6 +4577,12 @@ def dispatch_request(song, request, state_version, application=None):
                     raise RuntimeError(f"audio clip edit failed: {error}; rollback failed: {rollback_error}; use Live undo") from error
                 raise
         return _audio_clip_state(song, track_id, clip_id, state_version + 1)
+    if method in ('get_midi_crop_context', 'crop_midi_clip'):
+        try:
+            from . import midi_crop
+        except ImportError:
+            import midi_crop
+        return (midi_crop.context if method == 'get_midi_crop_context' else midi_crop.apply)(song, params, state_version)
     if method == "crop_audio_clip":
         track_id, clip_id = params["trackId"], params["clipId"]
         clip, _ = _audio_clip(song, track_id, clip_id)
@@ -4298,7 +4590,7 @@ def dispatch_request(song, request, state_version, application=None):
             raise ValueError("audio clip identity or state changed")
         if not callable(getattr(clip, "crop", None)):
             raise ValueError("native audio crop API required")
-        start, end = (clip.loop_start, clip.loop_end) if clip.looping else (clip.start_marker, clip.end_marker)
+        start, end = (clip.loop_start, clip.loop_end) if clip.looping or not clip.warping else (clip.start_marker, clip.end_marker)
         if not math.isfinite(start) or not math.isfinite(end) or end <= start:
             raise ValueError("invalid audio crop interval")
         with _undo_step(song):
@@ -5009,231 +5301,153 @@ def dispatch_request(song, request, state_version, application=None):
                     scene.time_signature_numerator = target["numerator"]
                     scene.time_signature_denominator = target["denominator"]
         return {"stateVersion": state_version + 1, "scene": _scene_record(scene, index)}
+    if method == "get_session_object_name_context" or (method == "rename_session_object" and params.get("target", {}).get("targetType") in ("track", "return", "scene")):
+        try:
+            from . import session_names
+        except ImportError:
+            import session_names
+        return (session_names.context if method == "get_session_object_name_context" else session_names.rename)(song, params, state_version)
     if method == "rename_session_object":
         target = params["target"]
-        if target["targetType"] == "track":
-            _, item = _track(song, target["targetId"])
-        elif target["targetType"] == "return":
-            suffix = target["targetId"].removeprefix("return-")
-            if not suffix.isascii() or not suffix.isdigit() or str(int(suffix)) != suffix or int(suffix) >= len(song.return_tracks):
-                raise ValueError("return track is unavailable")
-            item = song.return_tracks[int(suffix)]
-            if item.name != target["previousName"]:
-                raise ValueError("return track identity changed")
-        elif target["targetType"] == "scene":
-            item = song.scenes[int(target["targetId"].removeprefix("scene-"))]
+        if target["targetType"] == "clip":
+            try:
+                from . import clip_names
+            except ImportError:
+                import clip_names
+            before=params.get("before")
+            if not isinstance(before,dict):raise ValueError("guarded Session clip name context required")
+            expected={"targetType":"clip","trackId":params.get("trackId"),"targetId":params.get("clipId"),
+                      "previousName":before.get("clip",{}).get("name"),"name":params.get("name")}
+            if target!=expected:raise ValueError("Session clip name target changed")
+            result=clip_names.rename(song,{**params,"location":"session"},state_version)
+            if result["verified"]:result["target"]={**target,"name":result["observed"]["clip"]["name"]}
+            return result
         else:
-            _, _, slot = _clip_slot(song, target["trackId"], target["targetId"])
-            if not slot.has_clip:
-                raise ValueError("clip slot is empty")
-            item = slot.clip
-        item.name = target["name"]
-        return {"stateVersion": state_version + 1, "target": {
-            **target, "name": item.name,
-        }}
+            raise ValueError("unsupported rename targetType")
+    if method == 'get_scene_duplication_context' or method == 'duplicate_session_object' and params.get('target',{}).get('targetType') == 'scene':
+        try:
+            from . import scene_duplication
+        except ImportError:
+            import scene_duplication
+        return scene_duplication.context(song,params,state_version) if method == 'get_scene_duplication_context' else scene_duplication.duplicate(song,params,state_version)
+    if method == "get_track_copy_context" or method == "duplicate_session_object" and params.get("target",{}).get("targetType") == "track":
+        try:
+            from . import track_copy
+        except ImportError:
+            import track_copy
+        return track_copy.context(song,params,state_version) if method == "get_track_copy_context" else track_copy.duplicate(song,params,state_version)
     if method == "duplicate_session_object":
         target = params["target"]
-        if target["targetType"] == "track":
-            source_index = int(target["targetId"].removeprefix("track-"))
-            song.duplicate_track(source_index)
-            item = song.tracks[source_index + 1]
-            item.name = target["name"]
-        elif target["targetType"] == "scene":
-            source_index = int(target["targetId"].removeprefix("scene-"))
-            song.duplicate_scene(source_index)
-            item = song.scenes[source_index + 1]
+        if target["targetType"] == "clip":
+            try:
+                from .clip_duplication import duplicate
+            except ImportError:
+                from clip_duplication import duplicate
+            if not params.get("before"):
+                raise ValueError("guarded clip duplication context required")
+            expected = {"targetType": "clip", "trackId": params.get("trackId"), "targetId": params.get("sourceClipId"),
+                        "destinationId": params.get("targetClipId"), "name": params["before"].get("source", {}).get("name")}
+            if target != expected or params.get("targetTrackId", params.get("trackId")) != params.get("trackId") or "name" in params:
+                raise ValueError("clip duplication target changed")
+            prefix = str(params.get("trackId")) + ":clip-"
+            source_id = params.get("sourceClipId", "")
+            if not source_id.startswith(prefix) or not source_id[len(prefix):].isdigit() or params.get("targetClipId") != prefix + str(int(source_id[len(prefix):]) + 1):
+                raise ValueError("clip duplication requires the following empty slot")
+            return duplicate(song, params, state_version)
         else:
-            track, source_index, _ = _clip_slot(song, target["trackId"], target["targetId"])
-            track.duplicate_clip_slot(source_index)
-            item = track.clip_slots[source_index + 1].clip
+            raise ValueError("unsupported duplication targetType")
         return {"stateVersion": state_version + 1, "target": {
             **target, "name": item.name,
         }}
+    if method == 'get_scene_removal_context' or method == 'delete_session_object' and params.get('target',{}).get('targetType') == 'scene':
+        try:
+            from . import scene_removal
+        except ImportError:
+            import scene_removal
+        return scene_removal.context(song,params,state_version) if method == 'get_scene_removal_context' else scene_removal.remove(song,params,state_version)
+    if method == 'get_track_removal_context' or method == 'delete_session_object' and params.get('target',{}).get('targetType') == 'track':
+        try:
+            from . import track_removal
+        except ImportError:
+            import track_removal
+        return track_removal.context(song,params,state_version) if method == 'get_track_removal_context' else track_removal.remove(song,params,state_version)
+    if method == "get_return_removal_context" or method == "delete_session_object" and params.get("target",{}).get("targetType") == "return":
+        try:
+            from . import return_removal
+        except ImportError:
+            import return_removal
+        return return_removal.context(song,params,state_version) if method == "get_return_removal_context" else return_removal.remove(song,params,state_version)
     if method == "delete_session_object":
-        target = params["target"]
-        if target["targetType"] == "track":
-            song.delete_track(int(target["targetId"].removeprefix("track-")))
-        elif target["targetType"] == "return":
-            suffix = target["targetId"].removeprefix("return-")
-            if not suffix.isascii() or not suffix.isdigit() or str(int(suffix)) != suffix or int(suffix) >= len(song.return_tracks):
-                raise ValueError("return track is unavailable")
-            index = int(suffix)
-            current = _return_mixer_record(song.return_tracks[index], index)
-            expected = {key: target[key] for key in current}
-            if current != expected:
-                raise ValueError("return track state changed")
-            if not callable(getattr(song, "delete_return_track", None)):
-                raise ValueError("Live does not expose return track deletion")
-            song.begin_undo_step()
-            try:
-                song.delete_return_track(index)
-            finally:
-                song.end_undo_step()
-        elif target["targetType"] == "scene":
-            song.delete_scene(int(target["targetId"].removeprefix("scene-")))
-        else:
-            _, _, slot = _clip_slot(song, target["trackId"], target["targetId"])
-            if not slot.has_clip:
-                raise ValueError("clip slot is empty")
-            slot.delete_clip()
-        return {"stateVersion": state_version + 1, "deleted": target}
+        raise ValueError("unsupported deletion targetType")
     if method == "list_clips":
         return _clip_list(song, params["trackId"], state_version)
     if method == "list_arrangement_clips":
         return _arrangement_clips(song, params["trackId"], state_version)
-    if method in ("delete_arrangement_clip", "move_arrangement_clip", "duplicate_arrangement_clip"):
-        track_id = params["trackId"]
-        _, track = _track(song, track_id)
-        prefix = f"{track_id}:arrangement-clip-"
-        clip_id = params["clipId"]
-        suffix = clip_id[len(prefix):] if clip_id.startswith(prefix) else ""
-        if not suffix.isdigit() or int(suffix) >= len(track.arrangement_clips):
-            raise ValueError("unknown Arrangement clip ID")
-        index = int(suffix)
-        clip = track.arrangement_clips[index]
-        before = _arrangement_clip_record(clip, track_id, index)
-        if before != params["before"]:
-            raise ValueError("Arrangement clip identity changed")
-        if method == "duplicate_arrangement_clip":
-            start = float(params["startBeats"])
-            end = start + before["lengthBeats"]
-            if not math.isfinite(start) or start < 0 or not math.isfinite(end) or end <= start:
-                raise ValueError("duplication must define a finite positive interval")
-            if any(start < other.end_time and end > other.start_time for other in track.arrangement_clips):
-                raise ValueError("duplication would overlap another Arrangement clip")
-            duplicate = None
-            song.begin_undo_step()
-            try:
-                duplicate = track.duplicate_clip_to_arrangement(clip, start)
-                if not (
-                    math.isclose(float(duplicate.start_time), start, rel_tol=0.0, abs_tol=1e-8)
-                    and math.isclose(float(duplicate.end_time), end, rel_tol=0.0, abs_tol=1e-8)
-                ):
-                    raise ValueError("Live changed the duplicated clip interval")
-                if any(
-                    other != duplicate
-                    and float(duplicate.start_time) < float(other.end_time)
-                    and float(duplicate.end_time) > float(other.start_time)
-                    for other in track.arrangement_clips
-                ):
-                    raise ValueError("duplicated clip overlaps another Arrangement clip after the native copy")
-            except Exception as error:
-                if duplicate is not None:
-                    try:
-                        track.delete_clip(duplicate)
-                    except Exception as rollback_error:
-                        raise RuntimeError(
-                            f"duplication failed: {error}; rollback failed: {rollback_error}; use Live undo"
-                        ) from error
-                raise
-            finally:
-                song.end_undo_step()
-            result = _arrangement_clips(song, track_id, state_version + 1)
-            duplicate_index = next(i for i, item in enumerate(track.arrangement_clips) if item == duplicate)
-            result["duplicatedClip"] = _arrangement_clip_record(duplicate, track_id, duplicate_index)
-            result["sourceClip"] = before
-            return result
-        if method == "move_arrangement_clip":
-            start = float(params["startBeats"])
-            end = start + before["lengthBeats"]
-            if not math.isfinite(start) or start < 0 or not math.isfinite(end) or end <= start:
-                raise ValueError("move must define a finite positive interval")
-            if any(other != clip and start < other.end_time and end > other.start_time for other in track.arrangement_clips):
-                raise ValueError("move would overlap another Arrangement clip")
-            if start == before["startBeats"]:
-                result = _arrangement_clips(song, track_id, state_version)
-                result["movedClip"] = before
-                return result
-            staging_start = max(end, *(float(other.end_time) for other in track.arrangement_clips)) + 1.0
-            staged = moved = None
-            removed = False
-            song.begin_undo_step()
-            try:
-                staged = track.duplicate_clip_to_arrangement(clip, staging_start)
-                if not math.isclose(float(staged.end_time - staged.start_time), before["lengthBeats"], abs_tol=1e-8):
-                    raise ValueError("Live changed the copied clip span; source was not moved")
-                track.delete_clip(clip)
-                removed = True
-                moved = track.duplicate_clip_to_arrangement(staged, start)
-                if not math.isclose(float(moved.end_time - moved.start_time), before["lengthBeats"], abs_tol=1e-8):
-                    raise ValueError("Live changed the destination clip span")
-                track.delete_clip(staged)
-                staged = None
-            except Exception as error:
-                try:
-                    if moved is not None:
-                        track.delete_clip(moved)
-                    if removed:
-                        track.duplicate_clip_to_arrangement(staged, before["startBeats"])
-                    if staged is not None:
-                        track.delete_clip(staged)
-                except Exception as rollback_error:
-                    raise RuntimeError(f"move failed: {error}; rollback failed: {rollback_error}; use Live undo; staging starts at {staging_start}") from error
-                raise
-            finally:
-                song.end_undo_step()
-            result = _arrangement_clips(song, track_id, state_version + 1)
-            moved_index = next(i for i, item in enumerate(track.arrangement_clips) if item == moved)
-            result["movedClip"] = _arrangement_clip_record(moved, track_id, moved_index)
-            result["previousClip"] = before
-            return result
-        song.begin_undo_step()
-        try:
-            track.delete_clip(clip)
-        finally:
-            song.end_undo_step()
-        result = _arrangement_clips(song, track_id, state_version + 1)
-        result["deletedClip"] = before
-        return result
     if method == "get_session_clip_arrangement_source":
         return _session_clip_arrangement_source(song, params, state_version)
     if method == "place_session_clip_in_arrangement":
+        before = _session_clip_arrangement_source(song, params, state_version)
+        if len(before['beforeArrangement']) >= 4096:
+            raise ValueError('Arrangement placement needs capacity below 4096 clips')
         if "sourceGuard" in params:
             if params.get("expectedStateVersion") != state_version:
                 raise ValueError("Arrangement placement state version changed")
-            if _session_clip_arrangement_source(song, params, state_version)["sourceGuard"] != params["sourceGuard"]:
+            if before["sourceGuard"] != params["sourceGuard"]:
                 raise ValueError("Arrangement placement source context changed after planning")
         track, _, slot = _clip_slot(song, params["trackId"], params["clipId"])
-        if not slot.has_clip:
-            raise ValueError("source clip is empty")
-        current_source = next(clip for clip in _clip_list(song, params["trackId"], state_version)["clips"]
-                              if clip["id"] == params["clipId"])
-        if params.get("source") != current_source:
+        if params.get("source") != before["source"]:
             raise ValueError("source clip changed after planning")
-        if params.get("beforeArrangement") != _arrangement_clips(song, params["trackId"], state_version)["clips"]:
+        if params.get("beforeArrangement") != before["beforeArrangement"]:
             raise ValueError("Arrangement changed after planning")
-        if getattr(slot.clip, "is_audio_clip", False) and not slot.clip.warping:
-            raise ValueError("unwarped placement requires tempo-map duration conversion")
+        if "placement" in params and params["placement"] != before["placement"]:
+            raise ValueError("Arrangement placement range changed after planning")
         start = float(params["startBeats"])
-        end = start + float(slot.clip.length)
+        end = start + before["placement"]["lengthBeats"]
         if not math.isfinite(start) or start < 0 or not math.isfinite(end) or end <= start:
-            raise ValueError("startBeats and source length must define a finite positive interval")
+            raise ValueError("startBeats and source range must define a finite positive interval")
         if params.get("endBeats") != end:
             raise ValueError("placement end changed after planning")
         if any(start < clip.end_time and end > clip.start_time for clip in track.arrangement_clips):
             raise ValueError("placement would overlap existing Arrangement clips")
-        placed = None
-        song.begin_undo_step()
+        old_clips = tuple(track.arrangement_clips)
+        placed, attempted, returned, error = None, False, False, None
         try:
-            placed = track.duplicate_clip_to_arrangement(slot.clip, start)
-            if not (math.isclose(float(placed.start_time), start, rel_tol=0.0, abs_tol=1e-8)
-                    and math.isclose(float(placed.end_time), end, rel_tol=0.0, abs_tol=1e-8)):
-                raise ValueError("Live changed the placed clip interval")
-            if any(other != placed and start < other.end_time and end > other.start_time
-                   for other in track.arrangement_clips):
-                raise ValueError("placed clip overlaps another Arrangement clip")
-        except Exception as error:
-            if placed is not None:
-                try:
-                    track.delete_clip(placed)
-                except Exception as rollback_error:
-                    raise RuntimeError(f"placement failed: {error}; rollback failed: {rollback_error}; use Live undo") from error
-            raise
-        finally:
-            song.end_undo_step()
-        result = _arrangement_clips(song, params["trackId"], state_version + 1)
-        index = next(index for index, clip in enumerate(track.arrangement_clips) if clip == placed)
-        result["placedClip"] = _arrangement_clip_record(placed, params["trackId"], index)
+            with _undo_step(song):
+                if (_session_clip_arrangement_source(song, params, state_version) != before
+                        or tuple(track.arrangement_clips) != old_clips):
+                    raise ValueError("Arrangement placement context changed before copy")
+                attempted = True
+                placed = track.duplicate_clip_to_arrangement(slot.clip, start)
+                returned = True
+        except Exception as failure:
+            if not attempted: raise
+            error = str(failure)
+        result = {"stateVersion": state_version + 1, "trackId": params["trackId"], "clips": None}
+        placed_record, source_unchanged, retained_intervals, span_matches = None, None, None, False
+        try:
+            result = _arrangement_clips(song, params["trackId"], state_version + 1)
+            after = tuple(track.arrangement_clips)
+            index = next((i for i, clip in enumerate(after) if placed is not None and clip == placed), None)
+            if index is not None:
+                placed_record = _arrangement_clip_record(placed, params["trackId"], index)
+                span_matches = (math.isclose(placed_record["startBeats"], start, rel_tol=0.0, abs_tol=1e-8)
+                                and math.isclose(placed_record["endBeats"], end, rel_tol=0.0, abs_tol=1e-8))
+                retained = tuple(clip for clip in after if clip != placed)
+                retained_intervals = (retained == old_clips and
+                    [_arrangement_clip_record(clip, params["trackId"], i) for i, clip in enumerate(retained)]
+                    == before["beforeArrangement"])
+                if not span_matches and error is None:
+                    error = "Live changed the placed clip interval: expected [%s, %s], observed [%s, %s]" % (
+                        start, end, placed_record["startBeats"], placed_record["endBeats"])
+            current = _session_clip_arrangement_source(song, params, state_version + 1)
+            source_unchanged = current["sourceGuard"] == before["sourceGuard"]
+        except Exception as failure:
+            error = f"{error}; readback: {failure}" if error else f"readback: {failure}"
+        verified = returned and error is None and span_matches and retained_intervals is True and source_unchanged is True
+        if not verified and error is None: error = "native Arrangement placement readback differs from the plan"
+        result.update(placedClip=placed_record, copyRequested=attempted, nativeReturned=returned,
+                      placementVerified=verified, sourceContextUnchanged=source_unchanged,
+                      existingIntervalsPreserved=retained_intervals, placement=before["placement"], error=error)
         return result
     if method == "duplicate_clip":
         try:
@@ -5247,148 +5461,40 @@ def dispatch_request(song, request, state_version, application=None):
         except ImportError:
             from clip_duplication import source
         return source(song, params, state_version)
-    if method == "delete_clip":
-        track_id = params["trackId"]
-        _, _, slot = _clip_slot(song, track_id, params["clipId"])
-        if not slot.has_clip:
-            raise ValueError("clip is empty")
-        slot.delete_clip()
-        return _clip_list(song, track_id, state_version + 1)
     if method == "get_clip_timing":
         return _clip_timing(song, params["trackId"], params["clipId"], state_version)
+    if method == "get_clip_mute_edit_context":
+        try:
+            from .clip_mute import source
+        except ImportError:
+            from clip_mute import source
+        return source(song, params, state_version)
+    if method in ("get_session_clip_entry_context", "set_session_clip_entry"):
+        try:
+            from . import clip_entry
+        except ImportError:
+            import clip_entry
+        return (clip_entry.context if method == "get_session_clip_entry_context" else clip_entry.set_start)(song, params, state_version)
     if method == "get_clip_launch_edit_context":
         try:
             from .clip_launch import source
         except ImportError:
             from clip_launch import source
         return source(song, params, state_version)
+    if method in ('get_midi_clip_marker_context', 'set_midi_clip_markers'):
+        try:
+            from . import midi_clip_markers
+        except ImportError:
+            import midi_clip_markers
+        return (midi_clip_markers.context if method == 'get_midi_clip_marker_context' else midi_clip_markers.apply)(song, params, state_version)
+    if method == 'get_clip_loop_edit_context':
+        try:
+            from .clip_loop_edit import plan_context
+        except ImportError:
+            from clip_loop_edit import plan_context
+        return plan_context(song, params, state_version)
     if method == "set_clip_timing":
-        if "before" in params and _clip_timing(song, params["trackId"], params["clipId"], state_version) != params["before"]:
-            raise ValueError("clip timing changed since observation")
-        clip, timeline = _clip_reference(song, params["trackId"], params["clipId"])
-        changes = params["changes"]
-        launch_identity = None
-        if "launchMode" in changes:
-            if timeline is not None:
-                raise ValueError("Session clip launch mode is unavailable in Arrangement")
-            if type(changes["launchMode"]) is not int or changes["launchMode"] not in range(4):
-                raise ValueError("launchMode must be an exact native launch mode")
-            try:
-                from . import clip_launch as launch_guard
-            except ImportError:
-                import clip_launch as launch_guard
-            if params.get("launchEditContext") != launch_guard.source(song, params, state_version):
-                raise ValueError("clip launch identity or context changed since planning")
-            launch_identity = launch_guard.objects(song, params)
-        if "launchLegato" in changes:
-            if timeline is not None or not hasattr(clip, "legato"):
-                raise ValueError("clip launch Legato is unavailable")
-            if type(changes["launchLegato"]) is not bool:
-                raise ValueError("launchLegato must be boolean")
-        if "mute" in changes:
-            if not hasattr(clip, "muted"):
-                raise ValueError("clip mute is unavailable")
-            if type(changes["mute"]) is not bool:
-                raise ValueError("mute must be boolean")
-        editor_grid = changes.get("editorGrid", {})
-        if "quantization" in editor_grid:
-            grid_value = editor_grid["quantization"]
-            if type(grid_value) is not int or grid_value < 0 or grid_value >= len(CLIP_GRID_NAMES):
-                raise ValueError("invalid clip editor grid quantization")
-            if Live is not None and grid_value not in Live.Clip.GridQuantization.values:
-                raise ValueError("clip editor grid quantization is unavailable in this Live version")
-        if "isTriplet" in editor_grid and type(editor_grid["isTriplet"]) is not bool:
-            raise ValueError("clip editor grid isTriplet must be boolean")
-        loop = changes.get("loop", {})
-        if getattr(clip, "is_audio_clip", False) and not clip.warping and any(key in loop for key in ("startBeats", "endBeats")):
-            raise ValueError("beat-based loop positions cannot be applied to unwarped audio")
-        seconds = bool(getattr(clip, "is_audio_clip", False)) and not clip.warping
-        if not seconds and any(key in loop for key in ("startSeconds", "endSeconds")):
-            raise ValueError("seconds-based loop positions require unwarped audio")
-        start_key, end_key = ("startSeconds", "endSeconds") if seconds else ("startBeats", "endBeats")
-        start, end = float(loop.get(start_key, clip.loop_start)), float(loop.get(end_key, clip.loop_end))
-        if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start:
-            raise ValueError("loop positions must define a finite positive interval")
-        selected_groove = None
-        if "grooveId" in changes:
-            matches = [groove for index, groove in enumerate(_grooves(song))
-                       if changes["grooveId"] == f"groove-{index}"]
-            if len(matches) != 1:
-                raise ValueError("unknown groove ID")
-            selected_groove = matches[0]
-        signature = changes.get("timeSignature", {})
-        writes = []
-        def write(owner, attribute, value):
-            if launch_identity is not None:
-                launch_guard.assert_owned(song, params, launch_identity)
-            previous = getattr(owner, attribute)
-            if previous != value:
-                setattr(owner, attribute, value)
-                writes.append((owner, attribute, previous, value))
-                if launch_identity is not None:
-                    launch_guard.assert_owned(song, params, launch_identity)
-                    if attribute == "launch_mode" and int(clip.launch_mode) != value:
-                        raise ValueError("native launch mode readback did not match requested value")
-        with _undo_step(song):
-            try:
-                if start_key in loop or end_key in loop:
-                    if start >= clip.loop_end:
-                        write(clip, "loop_end", end)
-                        write(clip, "loop_start", start)
-                    else:
-                        write(clip, "loop_start", start)
-                        write(clip, "loop_end", end)
-                if "enabled" in loop:
-                    write(clip, "looping", loop["enabled"])
-                if "numerator" in signature:
-                    write(clip, "signature_numerator", int(signature["numerator"]))
-                if "denominator" in signature:
-                    write(clip, "signature_denominator", int(signature["denominator"]))
-                if "launchQuantization" in changes:
-                    write(clip, "launch_quantization", int(changes["launchQuantization"]))
-                if "launchMode" in changes:
-                    write(clip, "launch_mode", changes["launchMode"])
-                if "launchLegato" in changes:
-                    write(clip, "legato", changes["launchLegato"])
-                if "mute" in changes:
-                    write(clip, "muted", changes["mute"])
-                if "quantization" in editor_grid:
-                    grid = Live.Clip.GridQuantization.values[editor_grid["quantization"]] if Live is not None else editor_grid["quantization"]
-                    write(clip.view, "grid_quantization", grid)
-                if "isTriplet" in editor_grid:
-                    write(clip.view, "grid_is_triplet", editor_grid["isTriplet"])
-                if "grooveId" in changes:
-                    write(clip, "groove", selected_groove)
-                if launch_identity is not None:
-                    launch_guard.assert_owned(song, params, launch_identity)
-                    if int(clip.launch_mode) != changes["launchMode"]:
-                        raise ValueError("native launch mode readback did not match requested value")
-            except Exception as error:
-                try:
-                    if launch_identity is not None:
-                        launch_guard.assert_owned(song, params, launch_identity)
-                    for owner, attribute, previous, applied in reversed(writes):
-                        if launch_identity is not None:
-                            launch_guard.assert_owned(song, params, launch_identity)
-                            current = getattr(owner, attribute)
-                            if current == previous:
-                                continue
-                            if current != applied:
-                                raise RuntimeError("later clip edit preserved; rollback ownership lost")
-                        setattr(owner, attribute, previous)
-                        if launch_identity is not None:
-                            launch_guard.assert_owned(song, params, launch_identity)
-                except Exception as rollback_error:
-                    if launch_identity is not None:
-                        raise RuntimeError(f"partial clip launch edit: {error}; identity or edit ownership lost: {rollback_error}; inspect current clips before continuing") from error
-                    raise RuntimeError(f"clip timing failed: {error}; rollback failed: {rollback_error}; use Live undo") from error
-                raise
-        if launch_identity is not None:
-            launch_guard.assert_owned(song, params, launch_identity)
-        result = _clip_timing(song, params["trackId"], params["clipId"], state_version + 1)
-        if launch_identity is not None:
-            launch_guard.assert_owned(song, params, launch_identity)
-        return result
+        return _apply_clip_timing(song, params, state_version)
     if method == "duplicate_clip_loop":
         track_id, clip_id = params["trackId"], params["clipId"]
         _, _, slot = _clip_slot(song, track_id, clip_id)
@@ -5418,6 +5524,24 @@ def dispatch_request(song, request, state_version, application=None):
         except ImportError:
             from midi_note_selection import context
         return context(song, params, state_version)
+    if method == 'transform_midi_notes' and isinstance(params.get('operation'), dict) and params['operation'].get('type') == 'scaleTime':
+        try:
+            from .midi_time_scaling import apply
+        except ImportError:
+            from midi_time_scaling import apply
+        return apply(song, params, state_version)
+    if method == "get_midi_retrograde_context" or (method == "transform_midi_notes" and isinstance(params.get("operation"), dict) and params["operation"].get("type") == "reverseTime"):
+        try:
+            from . import midi_retrograde
+        except ImportError:
+            import midi_retrograde
+        return (midi_retrograde.context if method == "get_midi_retrograde_context" else midi_retrograde.apply)(song, params, state_version)
+    if method == 'get_midi_note_edit_context' or (method == 'set_midi_note_properties' and params.get('operation') is None):
+        try:
+            from . import midi_note_edit
+        except ImportError:
+            import midi_note_edit
+        return (midi_note_edit.context if method == 'get_midi_note_edit_context' else midi_note_edit.apply)(song, params, state_version)
     if method in ("get_midi_clip_notes_extended", "set_midi_note_properties", "transform_midi_notes"):
         clip, timeline = _midi_clip(song, params["trackId"], params["clipId"])
         location = "arrangement" if timeline is not None else "session"
@@ -5962,6 +6086,7 @@ def dispatch_request(song, request, state_version, application=None):
         if params.get("before") != current:
             raise ValueError("MIDI clip changed since observation")
         guarded_ratchet = params.get("operation") == "apply_midi_ratchet_pattern"
+        guarded_drum_edit = params.get("operation") == "edit_drum_pattern_clip"
         guarded_doubling = params.get("operation") == "apply_midi_chord_doubling"
         guarded_harmony = params.get("operation") == "apply_midi_diatonic_harmony"
         guarded_quality = params.get("operation") == "apply_midi_diatonic_chord_quality"
@@ -6040,14 +6165,31 @@ def dispatch_request(song, request, state_version, application=None):
                     "clipId": params["clipId"], "location": location, "timeline": timeline,
                     "lengthBeats": float(clip.length),
                     "removedNoteIds": remove_note_ids, "addedNoteIds": added_note_ids, "notes": readback}
-        if guarded_ratchet:
+        if guarded_ratchet or guarded_drum_edit:
             selected_ids = set(remove_note_ids)
             original_specs = tuple(_new_midi_note(note) for note in current["notes"] if note["noteId"] in selected_ids)
+            expected_replacement = expected_ratchet if guarded_ratchet else (
+                [note for note in current["notes"] if note["noteId"] not in selected_ids],
+                [{"velocityDeviation": 0, "releaseVelocity": 0, "probability": 1, **note} for note in new_notes])
+            operation_label = "ratchet" if guarded_ratchet else "drum edit"
             added_note_ids = []
             with _undo_step(song):
+                if guarded_drum_edit:
+                    resolved_clip, resolved_timeline = _midi_clip(song, params["trackId"], params["clipId"])
+                    if resolved_clip != clip or resolved_timeline != timeline:
+                        raise ValueError("drum edit target changed at undo entry")
+                    immediate = {**current, "lengthBeats": float(clip.length),
+                                 "notes": [_midi_note_record(note) for note in clip.get_all_notes_extended()]}
+                    if immediate != current or params["clipTiming"] != _clip_timing(
+                            song, params["trackId"], params["clipId"], state_version):
+                        raise ValueError("drum edit content or timing changed at undo entry")
+                    if planned_song_grid != {"tempoBpm": float(song.tempo), "timeSignature": {
+                            "numerator": int(song.signature_numerator), "denominator": int(song.signature_denominator)}}:
+                        raise ValueError("drum edit song grid changed at undo entry")
                 try:
-                    clip.remove_notes_by_id(tuple(remove_note_ids))
-                    added_note_ids = list(clip.add_new_notes(new_note_specs))
+                    if remove_note_ids:
+                        clip.remove_notes_by_id(tuple(remove_note_ids))
+                    added_note_ids = list(clip.add_new_notes(new_note_specs)) if new_note_specs else []
                     readback = [_midi_note_record(note) for note in clip.get_all_notes_extended()]
                     by_readback_id = {note["noteId"]: note for note in readback}
                     exact = ("pitch", "velocity", "velocityDeviation", "releaseVelocity", "probability", "mute")
@@ -6056,25 +6198,26 @@ def dispatch_request(song, request, state_version, application=None):
                         all(by_readback_id[expected["noteId"]][field] == expected[field] for field in exact) and
                         abs(by_readback_id[expected["noteId"]]["start"] - expected["start"]) <= 2e-7 and
                         abs(by_readback_id[expected["noteId"]]["duration"] - expected["duration"]) <= 2e-7
-                        for expected in expected_ratchet[0])
+                        for expected in expected_replacement[0])
                     added = [by_readback_id.get(note_id) for note_id in added_note_ids]
-                    additions_match = len(added_note_ids) == len(expected_ratchet[1]) and \
+                    additions_match = len(added_note_ids) == len(expected_replacement[1]) and \
                         len(set(added_note_ids)) == len(added_note_ids) and not any(note is None for note in added) and all(
                             all(actual[field] == expected[field] for field in exact) and
                             abs(actual["start"] - expected["start"]) <= 2e-7 and
                             abs(actual["duration"] - expected["duration"]) <= 2e-7
-                            for actual, expected in zip(added, expected_ratchet[1]))
+                            for actual, expected in zip(added, expected_replacement[1]))
                     if not preserved_match or not additions_match or \
-                            len(readback) != len(expected_ratchet[0]) + len(expected_ratchet[1]):
-                        raise ValueError("native MIDI ratchet readback does not match the signed plan")
+                            len(readback) != len(expected_replacement[0]) + len(expected_replacement[1]):
+                        raise ValueError("native MIDI %s readback does not match the signed plan" % operation_label)
                 except Exception as mutation_error:
                     try:
                         if added_note_ids:
                             clip.remove_notes_by_id(tuple(added_note_ids))
-                        clip.add_new_notes(original_specs)
+                        if original_specs:
+                            clip.add_new_notes(original_specs)
                     except Exception as rollback_error:
-                        raise RuntimeError("MIDI ratchet failed and rollback was incomplete (%s); original error: %s" %
-                                           (rollback_error, mutation_error))
+                        raise RuntimeError("MIDI %s failed and rollback was incomplete (%s); original error: %s" %
+                                           (operation_label, rollback_error, mutation_error))
                     raise mutation_error
             return {
                 "stateVersion": state_version + 1, "trackId": params["trackId"],
@@ -6180,13 +6323,14 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "list_devices":
         owner_id, track = _device_owner(song, params["trackId"])
         return {"stateVersion": state_version, "trackId": owner_id, "devices": [_device_tree(device, f"{owner_id}:device-{i}") for i, device in enumerate(track.devices)]}
-    if method in ("get_arrangement_clip_name_context", "rename_arrangement_clip"):
+    if method in ("get_arrangement_clip_name_context", "get_session_clip_name_context", "rename_arrangement_clip"):
         try:
             from . import clip_names
         except ImportError:
             import clip_names
-        return (clip_names.context(song, params, state_version) if method == "get_arrangement_clip_name_context" else
-                clip_names.rename(song, params, state_version))
+        params={**params,"location":"session" if method=="get_session_clip_name_context" else "arrangement"}
+        return (clip_names.rename(song, params, state_version) if method=="rename_arrangement_clip" else
+                clip_names.context(song, params, state_version))
     if method in ("get_device_activation_context", "get_device_activation_edit_context", "set_device_active"):
         try:
             from . import device_bypass
@@ -6937,6 +7081,14 @@ def dispatch_request(song, request, state_version, application=None):
     raise ValueError(f"unsupported method {method}")
 
 
+def _session_arrangement_module():
+    try:
+        from . import session_arrangement
+    except ImportError:
+        import session_arrangement
+    return session_arrangement
+
+
 def _track_topology_signature(song):
     return (
         tuple((track, bool(getattr(track, "is_foldable", False)),
@@ -6965,6 +7117,7 @@ class SocketBridge:
         try:
             _clip_hold_module().shutdown(self.control_surface.song())
             _arrangement_recording_module().shutdown(self.control_surface.song())
+            _session_arrangement_module().shutdown(self.control_surface.song())
             fill = _beat_repeat_fill_module()
             fill.shutdown(self.control_surface.song())
             capture = _audio_capture_module()
@@ -7058,6 +7211,9 @@ class SocketBridge:
         recording = _arrangement_recording_module()
         if recording.has_active():
             self.state_version += recording.advance(self.control_surface.song())
+        performance = _session_arrangement_module()
+        if performance.has_active():
+            self.state_version += performance.advance(self.control_surface.song())
         fill = _beat_repeat_fill_module()
         if fill.has_active():
             self.state_version += fill.advance(self.control_surface.song())
@@ -7090,7 +7246,10 @@ class SocketBridge:
                 if request.get("method") == "prepare_instrument_comparison":
                     self._defer_instrument_comparison(client, request, song, record)
                     return
-                if request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state", "re_enable_parameter_automation", "override_parameter_automation", "set_mixer_panning"):
+                if (request.get("method") == "set_transport_recording_context" and "currentSongTime" in request.get("params", {}).get("changes", {})) or request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state", "re_enable_parameter_automation", "override_parameter_automation", "set_mixer_panning", "jump_to_arrangement_cue_point") or (
+                        request.get("method") == "set_clip_timing" and "loop" in request.get("params", {}).get("changes", {})) or (
+                        request.get("method") == "duplicate_session_object" and request.get("params", {}).get("target", {}).get("targetType") in ("scene", "track")) or (
+                        request.get("method") == "delete_session_object" and request.get("params", {}).get("target", {}).get("targetType") in ("scene", "track", "return")):
                     self._defer_observed_mutation(client, request, song, record)
                     return
                 result = dispatch_request(
@@ -7153,9 +7312,9 @@ class SocketBridge:
     def _defer_observed_mutation(self, client, request, song, record=None):
         try:
             try:
-                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning
+                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication, scene_removal, track_removal, return_removal, track_copy
             except ImportError:
-                import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning
+                import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, cue_jump, transport_seek, clip_loop_edit, scene_duplication, scene_removal, track_removal, return_removal, track_copy
             module, success_key = {
                 'return_tracks_to_arrangement': (arrangement_return, 'returned'),
                 'audition_arrangement_passage': (arrangement_audition, 'started'),
@@ -7163,6 +7322,11 @@ class SocketBridge:
                 're_enable_parameter_automation': (parameter_automation, 'verified'),
                 'override_parameter_automation': (manual_override, 'verified'),
                 'set_mixer_panning': (panning, 'verified'),
+                'jump_to_arrangement_cue_point': (cue_jump, 'positionVerified'),
+                'set_transport_recording_context': (transport_seek, 'nativeReturned'),
+                'set_clip_timing': (clip_loop_edit, 'requestedChangesVerified'),
+                'duplicate_session_object': (track_copy if request.get('params', {}).get('target', {}).get('targetType') == 'track' else scene_duplication, 'copyVerified'),
+                'delete_session_object': (return_removal if request.get('params', {}).get('target', {}).get('targetType') == 'return' else track_removal if request.get('params', {}).get('target', {}).get('targetType') == 'track' else scene_removal, 'deletionVerified'),
             }[request['method']]
             operation = module.begin(song, request.get("params", {}), self.state_version)
             self.state_version += 1
@@ -7172,12 +7336,19 @@ class SocketBridge:
         self.deferred_request = True
 
         def reply_unverified(error):
-            operation["error"] = f"Native readback failed: {error}"[:600]
             try:
-                result = module.complete(self.control_surface.song(), operation, self.state_version)
+                if request["method"] in ("jump_to_arrangement_cue_point", "set_transport_recording_context"):
+                    result = module.unobserved(operation, self.state_version, error)
+                else:
+                    operation["error"] = f"Native readback failed: {error}"[:600]
+                    result = module.complete(self.control_surface.song(), operation, self.state_version)
                 response = {"id": request.get("id"), "result": result}
             except Exception as failure:
-                response = {"id": request.get("id"), "error": {"message": str(failure) or failure.__class__.__name__}}
+                if request['method'] in ('set_clip_timing', 'duplicate_session_object', 'delete_session_object'):
+                    result = module.unobserved(operation, self.state_version, failure)
+                    response = {"id": request.get("id"), "result": result}
+                else:
+                    response = {"id": request.get("id"), "error": {"message": str(failure) or failure.__class__.__name__}}
             self.deferred_request = False
             self._reply(client, response, record)
 
@@ -7191,7 +7362,7 @@ class SocketBridge:
                 result = module.complete(current, operation, self.state_version)
                 checks = result.get("verification", {})
                 if attempt < 2 and not result[success_key] and operation["error"] is None and \
-                        result.get("observed") is not None and checks.get("topologyStable") and checks.get("recordingOff"):
+                        (result.get("observed") is not None or result.get("observedContext") is not None) and checks.get("topologyStable") and checks.get("recordingOff"):
                     self.control_surface.schedule_message(1, lambda: observe(attempt + 1))
                     return
                 self.deferred_request = False

@@ -1,12 +1,22 @@
+import {setSessionClipEntry} from './clip-entry.mjs';
+import {jumpToCuePoint} from './cue-jump.mjs';
+import {seekTransport} from './transport-seek.mjs';
+import {reverseMidiPhrase} from './midi-retrograde.mjs';
+import {isDeepStrictEqual} from 'node:util';
 import {captureSessionScene} from './scene-capture.mjs';
+import {planArrangementRepeat} from './arrangement-repeat.mjs';
 import {copyArrangementClip} from './arrangement-copy.mjs';
+import {moveArrangementClip} from './arrangement-move.mjs';
+import {removeClip} from './clip-removal.mjs';
 import {saveMidiClip,MacMidiExportHost} from './midi-export.mjs';
-import {renameArrangementClip} from './clip-names.mjs';
+import {renameArrangementClip,renameSessionClip} from './clip-names.mjs';
+import {renameSessionObject} from './session-names.mjs';
 import {reverseAudioClip,MacAudioReverseHost} from './audio-reverse.mjs';
 import {trackBounce,MacTrackBounceHost} from "./track-bounce.mjs";
 import {trackFreeze,MacTrackFreezeHost} from "./track-freeze.mjs";
 import {recordingSetup,MacRecordingSetupHost} from "./recording-setup.mjs";
 import {arrangementRecording} from "./arrangement-recording.mjs";
+import {sessionArrangementRecording} from './session-arrangement.mjs';
 import {importMidiFile,MacMidiImportHost} from './midi-import.mjs';
 import {saveNativeDevicePreset,MacDevicePresetHost} from './device-preset.mjs';
 import {collectProjectMedia,projectMediaInventory,MacProjectMediaHost} from './project-media.mjs';
@@ -23,6 +33,7 @@ import {browserPreview} from './browser-preview.mjs';
 import {selectedControl} from './selected-control.mjs';
 import {midiNoteRemoval} from './midi-note-removal.mjs';
 import {midiInsertion} from './midi-insertion.mjs';
+import {scaleMidiTime} from './midi-time-scaling.mjs';
 import {overrideParameterAutomation} from './parameter-override.mjs';
 import {setTrackSendDb} from "./track-send.mjs";
 import {setDeviceParameterDisplay} from "./parameter-display.mjs";
@@ -43,13 +54,14 @@ import { buildSongGridReference, planGridEnvelopePattern } from "./song-grid-ref
 import { browseLocalSpliceDirectory, listConfiguredSpliceRoots, observeLocalSpliceSample, searchLocalSpliceSamples } from "./splice-local-search.mjs";
 import { inspectGroovePostconditions } from "./groove-workflow.mjs";
 import {beatRepeatFill} from "./beat-repeat-fill.mjs";
+import {sessionOverdub} from './session-overdub.mjs';
 import {sessionClipHold} from './session-clip-hold.mjs';
 import { analyzeMidiFeel, planMidiFeelTransfer, midiFeelClipEndBeats } from "./midi-feel-analysis.mjs";
 import {inspectProducerAudioBus} from "./producer-audio-bus.mjs";
 import {removeClipGroove, MacClipGrooveHost} from "./clip-groove-removal.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { MacLiveSetHost } from "./live-set-host.mjs";
-import {MacAudioExportHost,exportAudioMix} from "./audio-export.mjs";
+import {MacAudioExportHost,exportAudioMix,exportAudioTrack} from "./audio-export.mjs";
 import { CatalogService } from "./catalog-service.mjs";
 import { discoverExamples } from "./discovery-examples.mjs";
 import { LIVE_BROWSER_ROOTS } from "./browser-roots.mjs";
@@ -517,6 +529,7 @@ export class ToolService {
   }
 
   async call(name, args = {}) {
+    if (name === 'set_session_clip_entry') return setSessionClipEntry(this.bridge,this.confirmations,args);
     requestSignal()?.throwIfAborted();
     if (name === 'show_live_object') return showLiveObject(this.bridge, this.confirmations, args);
     if(name === "export_midi_clip")return saveMidiClip(this.bridge,this.confirmations,this.midiExportHost,args);
@@ -528,6 +541,7 @@ export class ToolService {
     if(name==='get_project_media')return projectMediaInventory(this.bridge,this.projectMediaHost);
     if(name==='collect_project_media')return collectProjectMedia(this.bridge,this.confirmations,this.projectMediaHost,args);
     if(name === "export_audio_mix")return exportAudioMix(this.bridge,this.confirmations,this.audioExportHost,args);
+    if(name === "export_audio_track")return exportAudioTrack(this.bridge,this.confirmations,this.audioExportHost,args);
     if(name === "group_tracks")return groupTracks(this.bridge,this.confirmations,this.trackGroupingHost,args);
     if(name === "get_track_grouping_status")return getTrackGroupingStatus(this.bridge,args);
     if(name === "ungroup_tracks")return ungroupTracks(this.bridge,this.confirmations,this.trackGroupingHost,args);
@@ -688,7 +702,7 @@ export class ToolService {
     }
     if (name === "recall_device_parameter_snapshot") return this.#setDeviceParameters(args, args.snapshot);
     if (name === "search_presets") {
-      return { presets: this.catalog.search(args) };
+      return { presets: this.catalog.search(args), catalog: this.catalog.status() };
     }
     if (name === "get_nks_generation_status") return this.#nksGenerationStatus(args);
     if (name === "get_nks_generation_job") {
@@ -707,6 +721,7 @@ export class ToolService {
       return { items: this.#browserMetadataLibrary().search(args), limitation: "Private MCP tags and favorites only; saved identities are not reverified against Live or the local filesystem in this search and do not change native collections." };
     }
     if (name === "get_live_state") return this.bridge.request("get_live_state", {});
+    if (name === "plan_arrangement_repeat") return planArrangementRepeat(this.bridge,args);
     if (name === "get_session_orientation") return enrichSessionOrientation(await this.bridge.request(name, {}));
     if (name === "analyze_arrangement_section") {
       assertArrangementRange(args);
@@ -714,10 +729,14 @@ export class ToolService {
     }
     if (name === "analyze_midi_parts") return enrichMidiPartsContext(await this.bridge.request(name, args));
     if (["record_arrangement_take", "get_arrangement_take", "finish_arrangement_take"].includes(name)) return arrangementRecording(this.bridge,this.confirmations,name,args);
+    if (['record_session_arrangement','get_session_arrangement_recording','finish_session_arrangement_recording'].includes(name))
+      return sessionArrangementRecording(this.bridge,this.confirmations,name,args);
     if (["capture_live_audio", "get_live_audio_capture", "finish_live_audio_capture"].includes(name))
       return liveAudioCapture(this.bridge, this.confirmations, name, args);
     if (["perform_beat_repeat_fill", "get_beat_repeat_fill", "finish_beat_repeat_fill"].includes(name))
       return beatRepeatFill(this.bridge,this.confirmations,name,args);
+    if (['get_session_midi_overdub_context','set_session_midi_overdub'].includes(name))
+      return sessionOverdub(this.bridge,this.confirmations,name,args);
     if (['hold_session_clip','get_session_clip_hold','finish_session_clip_hold'].includes(name))
       return sessionClipHold(this.bridge,this.confirmations,name,args);
     if (["get_instrument_comparison", "prepare_instrument_comparison", "adopt_instrument_comparison", "select_instrument_comparison"].includes(name))
@@ -786,7 +805,9 @@ export class ToolService {
     if (name === "list_clips") return this.bridge.request("list_clips", args);
     if (name === "list_arrangement_clips") return this.bridge.request(name, args);
     if (name === "place_session_clip_in_arrangement") return this.#placeSessionClipInArrangement(args);
-    if (["delete_arrangement_clip", "move_arrangement_clip", "duplicate_arrangement_clip"].includes(name)) return this.#mutateArrangementClip(name, args);
+    if (name === "duplicate_arrangement_clip") return copyArrangementClip(this.bridge, this.confirmations, args, {sameTrack: true});
+    if (name === "move_arrangement_clip") return moveArrangementClip(this.bridge, this.confirmations, args);
+    if (name === "delete_arrangement_clip") return this.#mutateArrangementClip(name, args);
     if (name === "get_midi_clip_notes") return this.bridge.request("get_midi_clip_notes", args);
     if (name === "get_midi_clip_notes_extended") return this.bridge.request("get_midi_clip_notes_extended", args);
     if (name === "get_midi_note_selection") return this.bridge.request("get_midi_note_selection", args);
@@ -1645,7 +1666,8 @@ export class ToolService {
     if (name === "set_transport_recording_context") return this.#setTransportRecordingContext(args);
     if (name === "get_midi_capture_context") return this.bridge.request(name, {});
     if (name === "capture_midi_session") return this.#captureMidiSession(args);
-    if (["create_arrangement_cue_point", "rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point"].includes(name)) {
+    if (name === "jump_to_arrangement_cue_point") return jumpToCuePoint(this.bridge, this.confirmations, args);
+    if (["create_arrangement_cue_point", "rename_arrangement_cue_point", "delete_arrangement_cue_point"].includes(name)) {
       return this.#arrangementCuePointMutation(name, args);
     }
     if (name === "set_transport_context") return this.#setTransportContext(args);
@@ -1667,6 +1689,36 @@ export class ToolService {
     if (name === "remove_audio_warp_marker") return this.#removeAudioWarpMarker(args);
     if (name === "add_audio_warp_marker") return this.#addAudioWarpMarker(args);
     if (name === "quantize_audio_clip") return this.#quantizeAudioClip(args);
+    if (name === 'crop_midi_clip') {
+      requireExpectedState(args);
+      const before = await this.bridge.request('get_midi_crop_context', {trackId:args.trackId,clipId:args.clipId});
+      assertExpectedState(args,before);
+      const region = before.selectedRegion;
+      if (before.trackId !== args.trackId || before.clipId !== args.clipId || typeof before.identityToken !== 'string' || !before.identityToken ||
+          before.cropSupported !== true || !Array.isArray(before.notes) || !before.clipTiming ||
+          !region || typeof region.fromLoop !== 'boolean' || !Number.isFinite(region.startBeats) || !Number.isFinite(region.endBeats) || region.startBeats < 0 || region.endBeats <= region.startBeats ||
+          ['frozen','clipRecording','clipOverdubbing','pendingLaunch','arrangementRecord','sessionRecord','countingIn'].some(k=>before.editContext?.[k]!==false))
+        throw Error('resolve native MIDI crop interval, identity, complete notes, modification support and edit context');
+      return this.#confirmedMutation({method:'crop_midi_clip',trackId:args.trackId,clipId:args.clipId,
+        expectedStateVersion:args.expectedStateVersion,before,
+        warning:'Native crop can retain pre-loop pickup material, shorten crossing notes, select the target clip, discard notes/expression/envelopes, shift clip-beat coordinates and change note IDs. It uses the observed loop or marker interval; it is not a note-selection crop. Preserve the original through a separate named copy by default. Inspect complete readback; no automatic rollback or replay.'},args);
+    }
+    if (name === 'set_midi_clip_markers') {
+      requireExpectedState(args);
+      const fields=['startBeats','endBeats'].filter(key=>args[key]!==undefined);
+      if(!fields.length)throw Error('at least one MIDI start/end marker required');
+      if(fields.some(key=>!Number.isFinite(args[key])||args[key]<0))throw Error('finite nonnegative clip-beat markers required');
+      const before=await this.bridge.request('get_midi_clip_marker_context',{trackId:args.trackId,clipId:args.clipId});
+      assertExpectedState(args,before);
+      if(before.trackId!==args.trackId||before.clipId!==args.clipId||typeof before.identityToken!=='string'||!before.identityToken||before.markersSupported!==true||!Array.isArray(before.notes)||
+        !before.clipTiming?.markers||['frozen','clipRecording','clipOverdubbing','pendingLaunch','arrangementRecord','sessionRecord','countingIn'].some(key=>before.editContext?.[key]!==false))
+        throw Error('resolve native MIDI markers, identity, complete notes and recording/frozen/pending-launch context');
+      if(before.clipTiming.loop?.enabled!==true)throw Error('MIDI marker edits require a loop-enabled clip; use separately scoped clip timing for finite phrases');
+      const markers={startBeats:args.startBeats??before.clipTiming.markers.startBeats,endBeats:args.endBeats??before.clipTiming.markers.endBeats};
+      if(!Number.isFinite(markers.startBeats)||!Number.isFinite(markers.endBeats)||markers.startBeats<0||markers.endBeats<=markers.startBeats)throw Error('increasing clip-beat marker range required');
+      return this.#confirmedMutation({method:'set_midi_clip_markers',trackId:args.trackId,clipId:args.clipId,expectedStateVersion:args.expectedStateVersion,before,markers,
+        warning:'Changes playback bounds only; stored notes remain, including material outside the markers. Loop settings are preserved. Partial writes require inspection without automatic rollback or replay; hidden expression is not verified. Continued playback does not prove a seamless or equivalent audible phrase.'},args);
+    }
     if (name === "crop_audio_clip") return this.#cropAudioClip(args);
     if (name === "capture_session_scene") return captureSessionScene(this.bridge,this.confirmations,args);
     if (name === "copy_arrangement_clip_to_track") return copyArrangementClip(this.bridge,this.confirmations,args);
@@ -1704,6 +1756,7 @@ export class ToolService {
     if (name === "create_clip_mixer_envelope") return createClipMixerEnvelope(this.bridge,this.confirmations,args);
     if (name === "set_midi_note_properties") return this.#setMidiNoteProperties(args);
     if (name === "correct_midi_clip_to_scale") return this.#correctMidiClipToScale(args);
+    if (name === "transform_midi_notes" && args.operation?.type === 'reverseTime') return reverseMidiPhrase(this.bridge,this.confirmations,args);
     if (name === "transform_midi_notes") return this.#transformMidiNotes(args);
     if (name === "set_track_mixer") return this.#setTrackMixer(args);
     if (['get_parameter_automation_context','re_enable_parameter_automation'].includes(name)) return parameterAutomation(this.bridge,this.confirmations,name,args);
@@ -2004,7 +2057,7 @@ export class ToolService {
   }
 
   async readResource(uri) {
-    if (uri === "nks://catalog/products") return { products: this.catalog.products() };
+    if (uri === "nks://catalog/products") return { products: this.catalog.products(), catalog: this.catalog.status() };
     if (uri.startsWith("nks://catalog/presets/")) {
       return { preset: this.catalog.get(decodeURIComponent(uri.slice("nks://catalog/presets/".length))) };
     }
@@ -2424,8 +2477,6 @@ export class ToolService {
 
   async #setTransportRecordingContext(args) {
     requireExpectedState(args);
-    const observed = await this.bridge.request("get_transport_recording_context", {});
-    assertExpectedState(args, observed);
     const changes = {};
     if (args.currentSongTime !== undefined) changes.currentSongTime = finiteRange(args.currentSongTime, "currentSongTime", 0, Number.MAX_SAFE_INTEGER);
     const metronome = optionalBoolean(args.metronome, "metronome");
@@ -2445,6 +2496,9 @@ export class ToolService {
       if (Object.keys(values).length) changes[group] = values;
     }
     if (!Object.keys(changes).length) throw new Error("at least one transport recording context change is required");
+    if (changes.currentSongTime !== undefined) return seekTransport(this.bridge,this.confirmations,args,changes);
+    const observed = await this.bridge.request("get_transport_recording_context", {});
+    assertExpectedState(args, observed);
     const before = { ...observed };
     // Playback advances between planning, confirmation and native execution.
     if (observed.isPlaying === true && changes.currentSongTime === undefined) delete before.currentSongTime;
@@ -2535,6 +2589,7 @@ export class ToolService {
     assertExpectedState(args, observed);
     const changes = {};
     let launchEditContext;
+    let muteEditContext;
     if (args.launchMode !== undefined) {
       if (observed.location !== "session" || observed.launchMode?.supported !== true) throw new Error("Session clip launch mode is unavailable");
       changes.launchMode = normalizeChoice(args.launchMode, "launchMode", observed.launchMode.choices);
@@ -2550,6 +2605,7 @@ export class ToolService {
       const loop = {};
       if (args.loop.enabled !== undefined) {
         if (typeof args.loop.enabled !== "boolean") throw new Error("loop.enabled must be boolean");
+        if(observed.loop.unit==='seconds'&&args.loop.enabled)throw Error('unwarped audio cannot loop; do not enable warping implicitly');
         loop.enabled = args.loop.enabled;
       }
       const seconds = observed.loop.unit === "seconds";
@@ -2561,6 +2617,7 @@ export class ToolService {
       if (end <= start) throw new Error(`loop.${endKey} must be greater than loop.${startKey}`);
       if (args.loop[startKey] !== undefined) loop[startKey] = start;
       if (args.loop[endKey] !== undefined) loop[endKey] = end;
+      if(loop.enabled!==undefined&&loop.enabled!==observed.loop.enabled){loop[startKey]=start;loop[endKey]=end;}
       if (Object.keys(loop).length) changes.loop = loop;
     }
     const signature = normalizeSignature(args.timeSignature, "timeSignature");
@@ -2577,6 +2634,11 @@ export class ToolService {
       if (typeof args.mute !== "boolean") throw new Error("mute must be boolean");
       if (observed.mute?.supported !== true) throw new Error("clip mute is unavailable");
       changes.mute = args.mute;
+      muteEditContext = await this.bridge.request("get_clip_mute_edit_context", {trackId:args.trackId,clipId:args.clipId});
+      assertExpectedState(args, muteEditContext);
+      if (typeof muteEditContext.identityToken !== 'string' || !muteEditContext.identityToken ||
+          muteEditContext.trackId !== args.trackId || muteEditContext.clipId !== args.clipId ||
+          muteEditContext.muted !== observed.mute.enabled) throw new Error('updated native clip mute context required');
     }
     if (args.editorGrid !== undefined) {
       if (!args.editorGrid || typeof args.editorGrid !== "object" || Array.isArray(args.editorGrid)) throw new Error("editorGrid must be an object");
@@ -2597,10 +2659,21 @@ export class ToolService {
       changes.grooveId = args.grooveId;
     }
     if (!Object.keys(changes).length) throw new Error("at least one clip timing change is required");
+    let loopEditContext;
+    if (changes.loop) {
+      loopEditContext=await this.bridge.request('get_clip_loop_edit_context',{trackId:args.trackId,clipId:args.clipId,changes});
+      assertExpectedState(args,loopEditContext);
+      if(loopEditContext.trackId!==args.trackId||loopEditContext.clipId!==args.clipId||!loopEditContext.identityToken||
+         !isDeepStrictEqual(loopEditContext.clipTiming,observed)||!loopEditContext.material||
+         ['frozen','clipRecording','clipOverdubbing','pendingLaunch','arrangementRecord','sessionRecord','countingIn'].some(k=>loopEditContext.editContext?.[k]!==false))
+        throw Error('updated native clip loop identity, material and safe recording/frozen/pending-launch context required');
+    }
     return this.#confirmedMutation({
       method: "set_clip_timing", trackId: args.trackId, clipId: args.clipId,
       expectedStateVersion: args.expectedStateVersion, before: observed, changes,
-      ...(launchEditContext ? {launchEditContext} : {})
+      ...(launchEditContext ? {launchEditContext} : {}),
+      ...(muteEditContext ? {muteEditContext} : {}),
+      ...(loopEditContext ? {loopEditContext,warning:'Loop edits can change playback markers; nonlooped Arrangement bounds can resize the occurrence. Unsafe intermediate overlap refuses. Inspect requestedChangesVerified, markersChanged, arrangementSpanChanged, actual timing and partial results. No automatic rollback or replay; stored notes do not prove audible equivalence.'} : {})
     }, args);
   }
 
@@ -2632,23 +2705,47 @@ export class ToolService {
     };
     const markerKeys = ["startMarkerBeats", "endMarkerBeats", "startMarkerSeconds", "endMarkerSeconds"];
     const requested = markerKeys.filter((key) => args[key] !== undefined);
+    let markerBounds;
     if (requested.length) {
       const suffix = observed.warping ? "Beats" : "Seconds";
       const startKey = `startMarker${suffix}`, endKey = `endMarker${suffix}`;
       if (args.warping !== undefined || requested.some((key) => key !== startKey && key !== endKey)) {
         throw new Error("marker units must match current warping; change warping separately");
       }
+      if (!observed.warping && (observed.loop?.enabled !== false || observed.loop.unit !== 'seconds' ||
+          observed.markers?.unit !== 'seconds' || observed.markers.startSeconds !== observed.loop.startSeconds ||
+          observed.markers.endSeconds !== observed.loop.endSeconds)) throw new Error('updated native unwarped playback range required; reload the packaged bridge');
       const start = args[startKey] === undefined ? observed.markers[`start${suffix}`] : finiteRange(args[startKey], startKey, 0, Number.MAX_SAFE_INTEGER);
       const end = args[endKey] === undefined ? observed.markers[`end${suffix}`] : finiteRange(args[endKey], endKey, 0, Number.MAX_SAFE_INTEGER);
       if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) throw new Error(`${endKey} must be greater than ${startKey}`);
       if (args[startKey] !== undefined) changes[startKey] = { previous: observed.markers[`start${suffix}`], value: start };
       if (args[endKey] !== undefined) changes[endKey] = { previous: observed.markers[`end${suffix}`], value: end };
+      markerBounds = {suffix,start,end,warping:observed.warping};
     }
     if (!Object.keys(changes).length) throw new Error("at least one audio clip change is required");
-    return this.#confirmedMutation({
+    const result = await this.#confirmedMutation({
       method: "set_audio_clip_state", trackId: args.trackId, clipId: args.clipId,
       expectedStateVersion: args.expectedStateVersion, before: observed, changes
     }, args);
+    if (!markerBounds || result.dryRun) return result;
+    const scope = 'separate native playback bounds readback; other edits, file bytes and hidden state are not verified';
+    try {
+      const readback = await this.bridge.request('get_audio_clip_state',{trackId:args.trackId,clipId:args.clipId}),mismatches=[];
+      for (const [key,value] of [['trackId',args.trackId],['clipId',args.clipId],['stateVersion',args.expectedStateVersion+1],['warping',markerBounds.warping]])
+        if (readback[key] !== value) mismatches.push(key);
+      for (const [edge,value] of [['start',markerBounds.start],['end',markerBounds.end]]) {
+        if (readback.markers?.[`${edge}${markerBounds.suffix}`] !== value ||
+            (!markerBounds.warping && (readback.loop?.enabled !== false || readback.loop.unit !== 'seconds' || readback.loop[`${edge}Seconds`] !== value)))
+          mismatches.push(`${edge}Marker${markerBounds.suffix}`);
+      }
+      if (readback.markers?.unit !== (markerBounds.warping?'beats':'seconds')) mismatches.push('markerUnits');
+      return {...result,immediateObserved:result.observed,observed:readback,
+        verification:{markerBoundsConfirmed:mismatches.length===0,mismatches,
+          warpMarkersChanged:JSON.stringify(readback.warpMarkers)!==JSON.stringify(observed.warpMarkers),
+          arrangementContextChanged:JSON.stringify(readback.timeline)!==JSON.stringify(observed.timeline),scope}};
+    } catch (error) {
+      return {...result,verification:{markerBoundsConfirmed:false,mismatches:['readback'],error:String(error.message||error).slice(0,600),scope}};
+    }
   }
 
   async #applyMonophonicAudioTuning(args) {
@@ -2788,7 +2885,7 @@ export class ToolService {
       expectedStateVersion: args.expectedStateVersion, before, beatTime, targetBeatTime }, args);
   }
 
-  async #duplicateClip(args) {
+  async #duplicateClip(args, method = "duplicate_clip") {
     requireExpectedState(args);
     const sourceClipId = args.clipId ?? args.sourceClipId;
     const targetClipId = args.destinationClipId ?? args.targetClipId;
@@ -2796,13 +2893,14 @@ export class ToolService {
     if (args.name !== undefined && (typeof args.name !== "string" || !args.name.trim() || args.name.length > 128)) throw new Error("name must contain 1 to 128 characters");
     const observed = await this.bridge.request("get_clip_duplication_source", { trackId: args.trackId, sourceClipId, targetTrackId, targetClipId });
     assertExpectedState({ expectedStateVersion: args.expectedStateVersion, trackId: args.trackId }, observed);
-    if (!observed.identityToken || observed.sourceClipId !== sourceClipId || observed.targetClipId !== targetClipId || observed.targetTrackId !== targetTrackId) throw new Error("updated bridge clip duplication context required");
+    if (observed.copyGuardVersion !== 2 || !observed.identityToken || observed.sourceClipId !== sourceClipId || observed.targetClipId !== targetClipId || observed.targetTrackId !== targetTrackId) throw new Error("updated bridge clip duplication context required");
     const result = await this.#confirmedMutation({
-      method: "duplicate_clip", trackId: args.trackId,
+      method, trackId: args.trackId,
       sourceClipId, targetTrackId, targetClipId, ...(args.name !== undefined ? { name: args.name } : {}),
+      ...(method === "duplicate_session_object" ? {target:{targetType:"clip",trackId:args.trackId,targetId:sourceClipId,destinationId:targetClipId,name:observed.source.name}} : {}),
       expectedStateVersion: args.expectedStateVersion, before: observed
     }, args);
-    if (!result.dryRun && (result.observed.stateVersion !== args.expectedStateVersion + 1 || result.observed.copyVerified !== true ||
+    if (!result.dryRun && (result.observed.stateVersion !== args.expectedStateVersion + 1 || typeof result.observed.copyVerified !== "boolean" ||
       result.observed.trackId !== targetTrackId || result.observed.sourceTrackId !== args.trackId || result.observed.sourceClipId !== sourceClipId || result.observed.copiedClipId !== targetClipId)) {
       throw new Error("clip copy readback mismatch; inspect both tracks before retrying");
     }
@@ -2817,36 +2915,31 @@ export class ToolService {
     if (!source?.hasClip) throw new Error("source clip is empty or unknown");
     if (!before.sourceGuard?.identityToken || !before.sourceGuard?.contentSha256) throw new Error("updated bridge Arrangement source context required");
     const startBeats = finiteRange(args.startBeats, "startBeats", 0, Number.MAX_SAFE_INTEGER);
-    if (!Number.isFinite(source.lengthBeats) || source.lengthBeats <= 0) throw new Error("source clip length is unavailable");
-    const endBeats = startBeats + source.lengthBeats;
+    const placement = before.placement;
+    if (placement?.unit !== 'beats' || !Number.isFinite(placement.lengthBeats) || placement.lengthBeats <= 0)
+      throw new Error('updated bridge placement range required; reload the bridge with this server');
+    const endBeats = startBeats + placement.lengthBeats;
     if (!Number.isSafeInteger(Math.ceil(endBeats))) throw new Error("placement end exceeds supported beat range");
+    if (before.beforeArrangement.length >= 4096) throw new Error('Arrangement placement needs capacity below 4096 clips');
     if (before.beforeArrangement.some((clip) => startBeats < clip.endBeats && endBeats > clip.startBeats)) throw new Error("placement would overlap existing Arrangement clips");
     return this.#confirmedMutation({ method: "place_session_clip_in_arrangement", trackId: args.trackId,
-      clipId: args.clipId, expectedStateVersion: args.expectedStateVersion, startBeats, endBeats, source,
+      clipId: args.clipId, expectedStateVersion: args.expectedStateVersion, startBeats, endBeats, source, placement,
       beforeArrangement: before.beforeArrangement, sourceGuard: before.sourceGuard }, args);
   }
 
   async #deleteClip(args) {
-    requireExpectedState(args);
-    const observed = await this.bridge.request("list_clips", { trackId: args.trackId });
-    assertExpectedState(args, observed);
-    const clip = observed.clips.find(({ id }) => id === args.clipId);
-    if (!clip) throw new Error(`unknown clipId ${args.clipId}`);
-    if (!clip.hasClip) throw new Error("clip is empty");
-    return this.#confirmedMutation({
-      method: "delete_clip", trackId: args.trackId, clipId: clip.id,
-      expectedStateVersion: args.expectedStateVersion, before: clip
-    }, args);
+    return removeClip(this.bridge, this.confirmations, "delete_clip", args);
   }
 
   async #mutateArrangementClip(method, args) {
+    if (method === "delete_arrangement_clip") return removeClip(this.bridge, this.confirmations, method, args);
     requireExpectedState(args);
     const observed = await this.bridge.request("list_arrangement_clips", { trackId: args.trackId });
     assertExpectedState(args, observed);
     const before = observed.clips.find(({ id }) => id === args.clipId);
     if (!before) throw new Error(`unknown Arrangement clip ID ${args.clipId}`);
     const plan = { method, trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion, before };
-    if (method === "move_arrangement_clip" || method === "duplicate_arrangement_clip") {
+    if (method === "move_arrangement_clip") {
       plan.startBeats = finiteRange(args.startBeats, "startBeats", 0, Number.MAX_SAFE_INTEGER);
       const end = plan.startBeats + before.lengthBeats;
       if (!Number.isFinite(end) || end > Number.MAX_SAFE_INTEGER || before.lengthBeats <= 0) throw new Error(`${method === "move_arrangement_clip" ? "move" : "duplication"} interval is invalid`);
@@ -3286,56 +3379,21 @@ export class ToolService {
   async #renameSessionObject(args) {
     requireExpectedState(args);
     const name = sessionName(args.name);
-    if (args.targetType === "return") {
-      const observed = await this.bridge.request("get_set_mixer", {});
-      assertExpectedState(args, observed);
-      const target = observed.returns.find(({ id }) => id === args.targetId);
-      if (!target) throw new Error(`unknown return ${args.targetId}`);
-      return this.#confirmedMutation({
-        method: "rename_session_object", expectedStateVersion: args.expectedStateVersion,
-        target: { targetType: "return", targetId: target.id, previousName: target.name, name }
-      }, args);
-    }
-    if (args.targetType === "clip") {
-      const observed = await this.bridge.request("list_clips", { trackId: args.trackId });
-      assertExpectedState(args, observed);
-      const clip = observed.clips.find(({ id }) => id === args.targetId);
-      if (!clip) throw new Error(`unknown clip slot ${args.targetId}`);
-      if (!clip.hasClip) throw new Error(`empty clip slot ${args.targetId}`);
-      return this.#confirmedMutation({
-        method: "rename_session_object", expectedStateVersion: args.expectedStateVersion,
-        target: { targetType: "clip", trackId: args.trackId, targetId: args.targetId, previousName: clip.name, name }
-      }, args);
-    }
-    if (!["track", "scene"].includes(args.targetType)) throw new Error("targetType must be track, return, scene, or clip");
-    const observed = args.targetType === "track" ? await this.bridge.request("list_tracks", {})
-      : await this.bridge.request("list_scenes", {});
-    assertExpectedState(args, observed);
-    const items = args.targetType === "track" ? observed.tracks : observed.scenes;
-    const target = items.find(({ id }) => id === args.targetId);
-    if (!target) throw new Error(`unknown ${args.targetType} ${args.targetId}`);
-    return this.#confirmedMutation({
-      method: "rename_session_object", expectedStateVersion: args.expectedStateVersion,
-      target: { targetType: args.targetType, targetId: args.targetId, previousName: target.name, name }
-    }, args);
+    if (args.targetType === "clip") return renameSessionClip(this.bridge,this.confirmations,{...args,name});
+    if (args.targetType !== "clip") return renameSessionObject(this.bridge,this.confirmations,{...args,name});
   }
 
   async #duplicateSessionObject(args) {
     requireExpectedState(args);
     if (args.targetType === "track") {
-      if (args.name !== undefined && (typeof args.name !== "string" || !args.name.trim())) {
-        throw new Error("name must be a non-empty string");
-      }
-      const observed = await this.bridge.request("list_tracks", {});
-      assertExpectedState({ expectedStateVersion: args.expectedStateVersion }, observed);
-      const index = observed.tracks.findIndex(({ id }) => id === args.targetId);
-      if (index === -1) throw new Error(`unknown track ${args.targetId}`);
-      const source = observed.tracks[index];
-      return this.#confirmedMutation({
-        method: "duplicate_session_object", expectedStateVersion: args.expectedStateVersion,
-        target: { targetType: "track", targetId: source.id, sourceName: source.name, name: args.name?.trim() || source.name,
-          destinationId: `track-${index + 1}`, displaced: observed.tracks[index + 1] || null }
-      }, args);
+      if(args.name!==undefined && (typeof args.name!=="string" || !args.name.trim() || args.name.length>128 || /[\x00-\x1f\x7f]/u.test(args.name)))throw Error("name must be a non-empty string of at most 128 characters without controls");
+      const trackCopyContext=await this.bridge.request("get_track_copy_context",{trackId:args.targetId});
+      assertExpectedState(args,trackCopyContext);
+      if(trackCopyContext.trackId!==args.targetId || !trackCopyContext.identityToken || !Array.isArray(trackCopyContext.sourceTracks) || !trackCopyContext.sourceTracks.length || trackCopyContext.sourceTracks[0].trackId!==args.targetId || !/^track-(0|[1-9][0-9]*)$/u.test(trackCopyContext.destinationId??""))
+        throw Error("updated native track copy identity, complete subtree and insertion context required");
+      return this.#confirmedMutation({method:"duplicate_session_object",expectedStateVersion:args.expectedStateVersion,trackCopyContext,explicitCopyName:args.name!==undefined,
+        target:{targetType:"track",targetId:args.targetId,sourceName:trackCopyContext.sourceTracks[0].name,name:args.name?.trim()||trackCopyContext.sourceTracks[0].name,
+          destinationId:trackCopyContext.destinationId,displaced:trackCopyContext.displaced}},args);
     }
     if (args.targetType === "clip") {
       const observed = await this.bridge.request("list_clips", { trackId: args.trackId });
@@ -3347,11 +3405,8 @@ export class ToolService {
       const destination = observed.clips[index + 1];
       if (!destination) throw new Error("clip duplication requires a following clip slot");
       if (destination.hasClip) throw new Error(`destination clip slot ${destination.id} is occupied`);
-      return this.#confirmedMutation({
-        method: "duplicate_session_object", expectedStateVersion: args.expectedStateVersion,
-        target: { targetType: "clip", trackId: args.trackId, targetId: source.id,
-          name: source.name, destinationId: destination.id }
-      }, args);
+      return this.#duplicateClip({trackId:args.trackId,clipId:source.id,destinationClipId:destination.id,
+        expectedStateVersion:args.expectedStateVersion,dryRun:args.dryRun,confirmationToken:args.confirmationToken,planHash:args.planHash}, "duplicate_session_object");
     }
     if (args.targetType !== "scene") throw new Error("targetType must be track, scene, or clip");
     const observed = await this.bridge.request("list_scenes", {});
@@ -3359,8 +3414,13 @@ export class ToolService {
     const index = observed.scenes.findIndex(({ id }) => id === args.targetId);
     if (index === -1) throw new Error(`unknown scene ${args.targetId}`);
     const source = observed.scenes[index];
+    const sceneCopyContext = await this.bridge.request('get_scene_duplication_context',{sceneId:source.id});
+    assertExpectedState(args,sceneCopyContext);
+    if(sceneCopyContext.sceneId!==source.id || sceneCopyContext.destinationId!==`scene-${index+1}` ||
+       !sceneCopyContext.identityToken || sceneCopyContext.scenes?.[index]?.name!==source.name || !Array.isArray(sceneCopyContext.tracks))
+      throw Error('updated native scene copy identity and complete Session material context required');
     return this.#confirmedMutation({
-      method: "duplicate_session_object", expectedStateVersion: args.expectedStateVersion,
+      method: "duplicate_session_object", expectedStateVersion: args.expectedStateVersion, sceneCopyContext,
       target: { targetType: "scene", targetId: source.id, name: source.name,
         destinationId: `scene-${index + 1}`, displaced: observed.scenes[index + 1] || null }
     }, args);
@@ -3369,53 +3429,31 @@ export class ToolService {
   async #deleteSessionObject(args) {
     requireExpectedState(args);
     if (args.targetType === "return") {
-      const observed = await this.bridge.request("get_set_mixer", {});
-      assertExpectedState(args, observed);
-      const target = observed.returns.find(({ id }) => id === args.targetId);
-      if (!target) throw new Error(`unknown return ${args.targetId}`);
-      if (args.allowContent !== true) {
-        throw new Error("allowContent: true is required to delete a Return Track, its devices, and its send lane");
-      }
-      const tracks = (await this.bridge.request("list_tracks", {})).tracks;
-      const affectedTrackSends = [];
-      for (const track of tracks) {
-        const mixer = await this.bridge.request("get_track_mixer", { trackId: track.id });
-        const send = mixer.sends.find(({ returnTrackId }) => returnTrackId === target.id);
-        if (send) affectedTrackSends.push({ trackId: track.id, trackName: track.name, send });
-      }
-      return this.#confirmedMutation({ method: "delete_session_object",
-        expectedStateVersion: args.expectedStateVersion,
-        target: { targetType: "return", targetId: target.id, ...target, affectedTrackSends }
-      }, args);
+      const returnRemovalContext=await this.bridge.request("get_return_removal_context",{returnTrackId:args.targetId});
+      assertExpectedState(args,returnRemovalContext);
+      if(returnRemovalContext.returnTrackId!==args.targetId || !returnRemovalContext.identityToken || !Array.isArray(returnRemovalContext.target?.devices) || !Array.isArray(returnRemovalContext.affectedSends))
+        throw Error("updated native Return removal identity, devices and complete send context required");
+      if(args.allowContent!==true)throw Error("allowContent: true is required to delete a Return, its devices and every affected send lane");
+      return this.#confirmedMutation({method:"delete_session_object",expectedStateVersion:args.expectedStateVersion,allowContent:true,returnRemovalContext,
+        target:{targetType:"return",targetId:args.targetId,...returnRemovalContext.target,
+          affectedTrackSends:returnRemovalContext.affectedSends.filter(row=>row.ownerId.startsWith("track-")).map(row=>({trackId:row.ownerId,trackName:row.ownerName,send:{id:row.sendId,returnTrackId:row.returnTrackId,name:row.returnName,...row.send}}))}},args);
     }
     if (args.targetType === "clip") {
-      const observed = await this.bridge.request("list_clips", { trackId: args.trackId });
-      assertExpectedState(args, observed);
-      const clip = observed.clips.find(({ id }) => id === args.targetId);
-      if (!clip) throw new Error(`unknown clip slot ${args.targetId}`);
-      if (!clip.hasClip) throw new Error(`empty clip slot ${args.targetId}`);
-      return this.#confirmedMutation({ method: "delete_session_object",
-        expectedStateVersion: args.expectedStateVersion,
-        target: { targetType: "clip", trackId: args.trackId, targetId: clip.id, name: clip.name }
-      }, args);
+      return removeClip(this.bridge, this.confirmations, "delete_session_object", args);
     }
     if (args.targetType === "track") {
-      const observed = await this.bridge.request("list_tracks", {});
-      assertExpectedState(args, observed);
-      if (observed.tracks.length <= 1) throw new Error("cannot delete the last track");
-      const track = observed.tracks.find(({ id }) => id === args.targetId);
-      if (!track) throw new Error(`unknown track ${args.targetId}`);
-      const clips = (await this.bridge.request("list_clips", { trackId: track.id })).clips
-        .filter(({ hasClip }) => hasClip).map(({ id, name }) => ({ id, name }));
-      const devices = (await this.bridge.request("list_devices", { trackId: track.id })).devices;
-      if ((clips.length || devices.length) && args.allowContent !== true) {
-        throw new Error("allowContent: true is required to delete a track containing clips or devices");
-      }
-      return this.#confirmedMutation({ method: "delete_session_object",
-        expectedStateVersion: args.expectedStateVersion,
-        target: { targetType: "track", targetId: track.id, name: track.name,
-          clipCount: clips.length, deviceCount: devices.length, clips, devices }
-      }, args);
+      const trackRemovalContext=await this.bridge.request('get_track_removal_context',{trackId:args.targetId});
+      assertExpectedState(args,trackRemovalContext);
+      const removed=trackRemovalContext.removedTracks;
+      if(trackRemovalContext.trackId!==args.targetId || !trackRemovalContext.identityToken || !Array.isArray(removed) || !removed.length ||
+         removed[0].trackId!==args.targetId || removed.some(row=>!Array.isArray(row.clips)||!Array.isArray(row.devices)||!Number.isInteger(row.sessionClipCount)||!Number.isInteger(row.arrangementClipCount)||!Number.isInteger(row.deviceCount)))
+        throw Error('updated native track removal identity and complete Group/Session/Arrangement context required');
+      if(args.allowContent!==true)throw Error('allowContent: true is required to delete tracks, including unexposed automation');
+      return this.#confirmedMutation({method:'delete_session_object',expectedStateVersion:args.expectedStateVersion,
+        trackRemovalContext,allowContent:true,target:{targetType:'track',targetId:args.targetId,name:removed[0].name,
+          clipCount:removed.reduce((sum,row)=>sum+row.sessionClipCount+row.arrangementClipCount,0),
+          deviceCount:removed.reduce((sum,row)=>sum+row.deviceCount,0),
+          clips:removed.flatMap(row=>row.clips.map(clip=>({id:clip.clipId,name:clip.name}))),devices:removed.flatMap(row=>row.devices)}},args);
     }
     if (args.targetType !== "scene") throw new Error("targetType must be track, return, scene, or clip");
     const observed = await this.bridge.request("list_scenes", {});
@@ -3423,18 +3461,19 @@ export class ToolService {
     if (observed.scenes.length <= 1) throw new Error("cannot delete the last scene");
     const sceneIndex = observed.scenes.findIndex(({ id }) => id === args.targetId);
     if (sceneIndex === -1) throw new Error(`unknown scene ${args.targetId}`);
-    const tracks = (await this.bridge.request("list_tracks", {})).tracks;
-    const occupiedClips = [];
-    for (const track of tracks) {
-      const slot = (await this.bridge.request("list_clips", { trackId: track.id })).clips[sceneIndex];
-      if (slot?.hasClip) occupiedClips.push({ trackId: track.id, clipId: slot.id, name: slot.name });
-    }
+    const sceneRemovalContext=await this.bridge.request('get_scene_removal_context',{sceneId:args.targetId});
+    assertExpectedState(args,sceneRemovalContext);
+    if(sceneRemovalContext.sceneId!==args.targetId || !sceneRemovalContext.identityToken ||
+       sceneRemovalContext.scenes?.[sceneIndex]?.name!==observed.scenes[sceneIndex].name ||
+       !Array.isArray(sceneRemovalContext.tracks) || !Array.isArray(sceneRemovalContext.occupiedClips))
+      throw Error('updated native scene removal identity and complete Session material context required');
+    const occupiedClips=sceneRemovalContext.occupiedClips;
     if (occupiedClips.length && args.allowContent !== true) {
       throw new Error("allowContent: true is required to delete a scene containing clips");
     }
     const scene = observed.scenes[sceneIndex];
     return this.#confirmedMutation({ method: "delete_session_object",
-      expectedStateVersion: args.expectedStateVersion,
+      expectedStateVersion: args.expectedStateVersion,sceneRemovalContext,allowContent:args.allowContent===true,
       target: { targetType: "scene", targetId: scene.id, name: scene.name, occupiedClips }
     }, args);
   }
@@ -3886,7 +3925,8 @@ export class ToolService {
 
   async #setMidiNoteProperties(args) {
     requireExpectedState(args);
-    if (!Array.isArray(args.changes) || args.changes.length === 0) throw new Error("changes must be a non-empty array");
+    if (!Array.isArray(args.changes) || !args.changes.length || args.changes.length > 4096) throw new Error("1–4096 explicit note-property changes required");
+    if (new Set(args.changes.map(change=>change.noteId)).size !== args.changes.length) throw Error('duplicate noteId in changes');
     const observed = await this.bridge.request("get_midi_clip_notes_extended", {
       trackId: args.trackId, clipId: args.clipId
     });
@@ -3901,6 +3941,16 @@ export class ToolService {
     if (JSON.stringify(observed) !== JSON.stringify(refreshed) || observed.trackId !== args.trackId ||
         observed.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
       throw new Error("MIDI clip changed during note-property planning; retry");
+    const propertyEditContext = await this.bridge.request('get_midi_note_edit_context', {trackId:args.trackId,clipId:args.clipId});
+    assertExpectedState(args,propertyEditContext);
+    const ordered = notes=>JSON.stringify([...notes].sort((a,b)=>a.noteId-b.noteId));
+    if (typeof propertyEditContext.identityToken !== 'string' || !propertyEditContext.identityToken || propertyEditContext.modifySupported !== true ||
+        propertyEditContext.trackId !== args.trackId || propertyEditContext.clipId !== args.clipId ||
+        propertyEditContext.lengthBeats !== observed.lengthBeats ||
+        !Array.isArray(propertyEditContext.notes) || ordered(propertyEditContext.notes) !== ordered(observed.notes) ||
+        JSON.stringify(propertyEditContext.clipTiming) !== JSON.stringify(clipTiming) ||
+        ['frozen','clipRecording','clipOverdubbing','pendingLaunch','arrangementRecord','sessionRecord','countingIn'].some(k=>propertyEditContext.editContext?.[k]!==false))
+      throw Error('resolve native identity, complete notes, timing, modification support and edit context before note-property edits');
     const notes = new Map(observed.notes.map((note) => [note.noteId, note]));
     let selectionToken;
     if (args.expectedNoteSelectionToken !== undefined) {
@@ -3919,7 +3969,7 @@ export class ToolService {
     const plan = {
       method: "set_midi_note_properties", trackId: args.trackId, clipId: args.clipId,
       ...(selectionToken !== undefined ? {expectedNoteSelectionToken: selectionToken} : {}),
-      expectedStateVersion: args.expectedStateVersion, before: observed, clipTiming,
+      expectedStateVersion: args.expectedStateVersion, before: observed, clipTiming, propertyEditContext,
       changes: args.changes.map((change, index) => {
         const current = notes.get(change.noteId);
         if (!current) throw new Error(`unknown noteId ${change.noteId}`);
@@ -3983,6 +4033,7 @@ export class ToolService {
 
   async #transformMidiNotes(args) {
     requireExpectedState(args);
+    if (args.operation?.type === 'scaleTime') return scaleMidiTime(this.bridge, this.confirmations, args);
     const observed = await this.bridge.request("get_midi_clip_notes_extended", {
       trackId: args.trackId, clipId: args.clipId
     });
