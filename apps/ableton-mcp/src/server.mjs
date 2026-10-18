@@ -277,6 +277,7 @@ const toolNames = [
   "set_beat_repeat_grid",
   "set_beat_repeat_interval",
   "create_midi_clip",
+  "create_arrangement_midi_clip",
   "create_scale_chord_progression_clip",
   "create_scale_bassline_clip",
   "create_scale_melody_clip",

@@ -3153,6 +3153,12 @@ def _clip_hold_module():
 
 
 def dispatch_request(song, request, state_version, application=None):
+    if request.get("method") in ("get_arrangement_creation_target", "create_arrangement_midi_clip"):
+        try:
+            from .arrangement_creation import target, create
+        except ImportError:
+            from arrangement_creation import target, create
+        return (target if request["method"] == "get_arrangement_creation_target" else create)(song, request.get("params", {}), state_version)
     if request.get("method") in ("get_session_scene_capture_context", "capture_session_scene"):
         try:
             from .scene_capture import context, capture

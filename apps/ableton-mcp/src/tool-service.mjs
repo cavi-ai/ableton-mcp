@@ -1666,6 +1666,7 @@ export class ToolService {
     if (name === "duplicate_clip") return this.#duplicateClip(args);
     if (name === "delete_clip") return this.#deleteClip(args);
     if (name === "duplicate_clip_loop") return this.#duplicateClipLoop(args);
+    if (name === "create_arrangement_midi_clip") return this.#createArrangementMidiClip(args);
     if (name === "create_midi_clip") return this.#createMidiClip(args);
     if (name === "create_scale_chord_progression_clip") return this.#createScaleChordProgressionClip(args);
     if (name === "create_scale_bassline_clip") return this.#createScaleBasslineClip(args);
@@ -3428,6 +3429,19 @@ export class ToolService {
       expectedStateVersion: args.expectedStateVersion,
       target: { targetType: "scene", targetId: scene.id, name: scene.name, occupiedClips }
     }, args);
+  }
+
+  async #createArrangementMidiClip(args) {
+    requireExpectedState(args);
+    const startBeats=finiteRange(args.startBeats,'startBeats',0,1576800),lengthBeats=finiteRange(args.lengthBeats,'lengthBeats',Number.MIN_VALUE,1576800);
+    if(startBeats+lengthBeats>1576800||startBeats+lengthBeats<=startBeats)throw Error('Arrangement interval exceeds supported range');
+    if(typeof args.name!=='string'||!args.name.trim()||args.name.length>128||/[\x00-\x1f\x7f]/u.test(args.name))throw Error('explicit name of 1 to 128 characters without controls required');
+    if(!Array.isArray(args.notes)||args.notes.length>4096)throw Error('at most 4096 MIDI notes required');
+    const notes=args.notes.map((note,index)=>normalizeMidiNote(note,index,lengthBeats));
+    const ids={trackId:args.trackId,startBeats,lengthBeats},before=await this.bridge.request('get_arrangement_creation_target',ids);
+    assertExpectedState(args,before);
+    if(!before.identityToken||before.startBeats!==startBeats||before.lengthBeats!==lengthBeats)throw Error('updated native Arrangement creation context required');
+    return this.#confirmedMutation({method:'create_arrangement_midi_clip',...ids,name:args.name,notes,expectedStateVersion:args.expectedStateVersion,before},args);
   }
 
   async #createMidiClip(args) {
