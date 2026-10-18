@@ -89,7 +89,7 @@ const producer = await exchange(bin, ["serve"], producerEnvironment, [
   { id: 2, method: "tools/call", params: { name: "record_production_note", arguments: {
     projectId: "song", kind: "intent", text: "Preserve the original bass." } } }
 ]);
-assert.equal(producer[0].result.tools.length, 9);
+assert.equal(producer[0].result.tools.length, 12);
 const noteRef = producer[1].result.structuredContent.noteRef;
 assert.match(noteRef, /^[a-f0-9]{64}$/);
 const note = JSON.parse(execFileSync(bin, ["call", "read_production_artifact", "--args",
@@ -107,7 +107,7 @@ assert.match(producerFixture[0].result.structuredContent.text, /Preserve the ori
 const remoteScripts = path.join(work, "Remote Scripts");
 execFileSync(bin, ["install", "--destination", remoteScripts, "--json"], { encoding: "utf8" });
 const bridgeFiles = readdirSync(path.join(remoteScripts, "CaviMcpBridge")).sort();
-assert.deepEqual(bridgeFiles, ["__init__.py", "arrangement_audition.py", "arrangement_recording.py", "arrangement_return.py", "arrangement_section.py", "audio_capture.py", "audio_export.py", "audio_midi_sketch.py", "beat_repeat_fill.py", "bridge.py", "browser_load.py", "browser_preview.py", "capabilities.json", "clip_duplication.py", "clip_envelope.py", "clip_hold.py", "clip_launch.py", "crossfader.py", "device_ab.py", "device_bypass.py", "device_preset.py", "instrument_comparison.py", "live_navigation.py", "looper_export.py", "manual_override.py", "midi_capture.py", "midi_export.py", "midi_import.py", "object_colors.py", "panning.py", "parameter_automation.py", "parameter_display.py", "protocol.py", "rack_performance.py", "recording_setup.py", "session_recording.py", "signal_activity.py", "simpler_sample.py", "take_lanes.py", "track_bounce.py", "track_freeze.py", "track_grouping.py", "track_send.py", "track_volume.py"]);
+assert.deepEqual(bridgeFiles, ["__init__.py", "arrangement_audition.py", "arrangement_copy.py", "arrangement_recording.py", "arrangement_return.py", "arrangement_section.py", "audio_capture.py", "audio_export.py", "audio_midi_sketch.py", "beat_repeat_fill.py", "bridge.py", "browser_load.py", "browser_preview.py", "capabilities.json", "clip_duplication.py", "clip_envelope.py", "clip_hold.py", "clip_launch.py", "crossfader.py", "device_ab.py", "device_bypass.py", "device_preset.py", "instrument_comparison.py", "live_navigation.py", "looper_export.py", "manual_override.py", "midi_capture.py", "midi_export.py", "midi_import.py", "midi_insertion.py", "midi_note_removal.py", "midi_note_selection.py", "object_colors.py", "panning.py", "parameter_automation.py", "parameter_display.py", "protocol.py", "rack_performance.py", "recording_setup.py", "scene_capture.py", "selected_control.py", "session_recording.py", "signal_activity.py", "simpler_sample.py", "take_lanes.py", "track_bounce.py", "track_freeze.py", "track_grouping.py", "track_send.py", "track_volume.py"]);
 
 const doctor = JSON.parse(execFileSync(bin, ["doctor", "--json"], {
   encoding: "utf8",
