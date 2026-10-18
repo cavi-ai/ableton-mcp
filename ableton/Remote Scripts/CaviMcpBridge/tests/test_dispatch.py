@@ -122,6 +122,7 @@ class Track:
         self.current_output_sub_routing = self.available_output_routing_channels[0]
         self.current_monitoring_state = 1
         self.mixer_device = type("Mixer", (), {
+            "panning_mode": 0,
             "volume": type("Value", (), {"value": 0.75, "min": 0.0, "max": 1.0})(),
             "panning": type("Value", (), {"value": 0.0, "min": -1.0, "max": 1.0})(),
             "sends": [type("Value", (), {"value": 0.2, "min": 0.0, "max": 1.0})()]
@@ -339,6 +340,7 @@ class Song:
         self.tracks = [Track(), Track()]
         self.view = type("View", (), {"selected_track": self.tracks[0]})()
         mixer = lambda volume=0.6: type("Mixer", (), {
+            "panning_mode": 0,
             "volume": type("Value", (), {"value": volume, "min": 0.0, "max": 1.0})(),
             "panning": type("Value", (), {"value": 0.0, "min": -1.0, "max": 1.0})(),
         })()
@@ -888,6 +890,47 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(song.current_song_time, 4.0)
         self.assertFalse(song.record_mode)
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
+    def test_transport_flag_write_accepts_advancing_playhead_at_native_boundary(self):
+        song = Song()
+        song.is_playing = True
+        song.record_mode = True
+        before = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
+        del before["currentSongTime"]
+        song.current_song_time = 12.0
+        result = dispatch_request(song, {"method": "set_transport_recording_context", "params": {
+            "before": before, "changes": {"arrangement": {"record": False}},
+        }}, 3)
+        self.assertFalse(song.record_mode)
+        self.assertTrue(song.is_playing)
+        self.assertEqual(song.current_song_time, 12.0)
+        self.assertEqual(result["currentSongTime"], 12.0)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
+    def test_transport_binding_keeps_seek_stopped_position_and_mode_guards(self):
+        for change in ("seek", "stopped", "playback", "record", "automation", "version"):
+            with self.subTest(change=change):
+                song = Song()
+                song.is_playing = change != "stopped"
+                before = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
+                changes = {"arrangement": {"overdub": True}}
+                if change == "seek":
+                    changes["currentSongTime"] = 32.0
+                elif song.is_playing:
+                    del before["currentSongTime"]
+                if change in ("seek", "stopped"):
+                    song.current_song_time += 1
+                if change == "playback":
+                    song.is_playing = False
+                if change == "record":
+                    song.session_record = not song.session_record
+                if change == "automation":
+                    song.session_automation_record = not song.session_automation_record
+                with self.assertRaisesRegex(ValueError, "changed after planning"):
+                    dispatch_request(song, {"method": "set_transport_recording_context", "params": {
+                        "before": before, "changes": changes,
+                    }}, 4 if change == "version" else 3)
+                self.assertEqual(song.undo_boundaries, [])
 
     def test_transport_recording_context_rejects_external_change_at_native_boundary(self):
         song = Song()
@@ -1810,6 +1853,57 @@ class DispatchTest(unittest.TestCase):
             dispatch_request(song, {"method": "duplicate_arrangement_clip", "params": {**params, "before": {**before, "name": "Wrong"}}}, 4)
         with self.assertRaisesRegex(ValueError, "overlap"):
             dispatch_request(song, {"method": "duplicate_arrangement_clip", "params": {**params, "startBeats": 2.0}}, 4)
+
+    def test_arrangement_duplication_compares_native_clip_identity_across_wrappers(self):
+        class ClipProxy:
+            def __init__(self, native_id, start):
+                self.native_id = native_id
+                self.name = "Verse"
+                self.start_time, self.end_time = start, start + 4
+                self.is_audio_clip = False
+
+            def __eq__(self, other):
+                return isinstance(other, ClipProxy) and self.native_id == other.native_id
+
+        for real_collision in (False, True):
+            with self.subTest(real_collision=real_collision):
+                song = Song()
+                track = song.tracks[0]
+                source = ClipProxy("source", 0)
+                track.arrangement_clips = [source]
+                removed = []
+
+                def duplicate(clip, start):
+                    track.arrangement_clips.append(ClipProxy("copy", start))
+                    if real_collision:
+                        track.arrangement_clips.append(ClipProxy("other", start))
+                    return ClipProxy("copy", start)
+
+                def delete(clip):
+                    removed.append(clip.native_id)
+                    track.arrangement_clips.remove(clip)
+
+                track.duplicate_clip_to_arrangement = duplicate
+                track.delete_clip = delete
+                before = {"id": "track-0:arrangement-clip-0", "name": "Verse", "startBeats": 0.0,
+                          "endBeats": 4.0, "lengthBeats": 4.0, "type": "midi"}
+                request = {"method": "duplicate_arrangement_clip", "params": {
+                    "trackId": "track-0", "clipId": before["id"], "before": before, "startBeats": 8.0}}
+                if real_collision:
+                    with self.assertRaisesRegex(ValueError, "overlaps another Arrangement clip"):
+                        dispatch_request(song, request, 3)
+                    self.assertEqual(removed, ["copy"])
+                    self.assertEqual([clip.native_id for clip in track.arrangement_clips], ["source", "other"])
+                else:
+                    result = dispatch_request(song, request, 3)
+                    self.assertEqual(result["duplicatedClip"], {**before,
+                        "id": "track-0:arrangement-clip-1", "startBeats": 8.0, "endBeats": 12.0})
+                    self.assertEqual(result["sourceClip"], before)
+                    self.assertEqual(removed, [])
+                    self.assertEqual([clip.native_id for clip in track.arrangement_clips], ["source", "copy"])
+                self.assertIs(track.arrangement_clips[0], source)
+                self.assertEqual((source.start_time, source.end_time), (0, 4))
+                self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
     def test_arrangement_duplication_rejects_shifted_native_copy_and_reports_failed_cleanup(self):
         for cleanup_fails in (False, True):

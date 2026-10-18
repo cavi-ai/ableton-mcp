@@ -1,8 +1,20 @@
-# Reuse a Session part on another track
+# Reuse a part on another track
 
 Retrieve `reuse-session-clip` through `get_producer_workflow` in the `all` profile, or open its MCP prompt. For example, ask “copy these chords to the existing piano track, keep the original, and leave playback stopped.” The workflow resolves the source, destination and empty Session slot before planning a native copy.
 
-## Choose the destination
+For timeline material, use `reuse-arrangement-clip` with the source passage, intended destination and musical purpose. Collaborative mode resolves the direction with the user; autonomous mode chooses within the brief. Playback, instrument replacement, saving and deletion remain separately scoped.
+
+## Reuse an Arrangement passage
+
+Resolve an exact current `track-N:arrangement-clip-M` through `list_arrangement_clips`, read its notes or audio state and timing, and inspect the destination's devices, mixer and routing. `copy_arrangement_clip_to_track` copies one whole observed timeline span to a different compatible ordinary track. Supply `trackId`, `clipId`, `destinationTrackId`, explicit `startBeats`, `name` and fresh `expectedStateVersion`. The complete destination interval must be empty. The name must be nonempty, at most 128 characters and contain no control characters.
+
+The plan binds native source/destination owners and clip layouts, the source interval, complete stored MIDI notes/timing or exposed audio settings. It rechecks at undo entry. Recording/count-in, frozen tracks, incompatible types and stale contexts refuse. Lookup is bounded to 256 tracks, 4096 source clips and room for one copy within 4096 destination clips; content reads support 4096 MIDI notes or warp markers. Devices, mixer and routing remain on their tracks. This does not duplicate the whole track or convert the passage to Session.
+
+Inspect `copyRequested`, `nativeReturned`, `nameWriteReturned`, `copyVerified`, `sourcePreserved`, `destinationRetained`, `copiedClipId`, `copiedClip`, `observedCopy`, `destinationClips` and errors independently. Partial work remains without rollback or replay. A native exception or lost reply may leave a copy with unconfirmed ownership; inspect the current destination before any further action. Never delete an ambiguous candidate or globally undo over manual work.
+
+Read the actual copy's notes/settings and requested interval/name again. New MIDI note IDs can differ. Copy verification excludes the adaptive editor grid. Audio shares its source file; file bytes, envelope contents/retargeting, hidden expression and plug-in state are not verified. A copy does not establish audible equivalence. Authorized listening follows [Arrangement audition](arrangement-audition.md); keep existing material and processing intact.
+
+## Choose a Session destination
 
 Read `list_clips` on both exact tracks. MIDI clips need an ordinary MIDI destination and audio clips an ordinary audio destination. The destination slot must already exist and be empty. Track or clip names can repeat; resolve their IDs instead of guessing. Creating space, loading an instrument, converting audio/MIDI, changing routing or overwriting existing content requires a separate scope.
 

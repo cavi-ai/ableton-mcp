@@ -8,11 +8,7 @@ import { getPrompt, listPrompts } from "./prompts.mjs";
 import { withDiscoveryExamples } from "./discovery-examples.mjs";
 import { withRequestSignal } from "./request-context.mjs";
 import { producerToolContracts } from "./producer-contracts.mjs";
-
-function requestFailure(error) {
-  if (!error?.outcome) return undefined;
-  return { code: error.code, message: error.message, outcome: error.outcome, requestIds: error.requestIds ?? [] };
-}
+import { bridgeFailureDetails as requestFailure } from './bridge-client.mjs';
 
 const SUPPORTED_PROTOCOL_VERSION = "2025-03-26";
 
@@ -46,6 +42,9 @@ const resourceTemplates = resourceUris.filter((uri) => uri.includes("{"))
   .map((uriTemplate) => ({ uriTemplate, name: uriTemplate, mimeType: "application/json" }));
 
 const toolNames = [
+  'get_parameter_automation_context', 're_enable_parameter_automation',
+  'get_browser_preview_context', 'set_browser_preview',
+  'override_parameter_automation',
   "group_tracks",
   "get_track_grouping_status",
   "ungroup_tracks",
@@ -56,6 +55,7 @@ const toolNames = [
   "audition_arrangement_passage",
   "return_tracks_to_arrangement",
   "get_crossfader_context", "set_crossfader_state",
+  "get_mixer_panning_context", "set_mixer_panning",
   "get_producer_workflow",
   "search_presets",
   "get_nks_generation_status",
@@ -206,6 +206,8 @@ const toolNames = [
   "delete_arrangement_clip",
   "move_arrangement_clip",
   "duplicate_arrangement_clip",
+  "copy_arrangement_clip_to_track",
+  "capture_session_scene",
   "create_audio_clip",
   "set_return_mixer",
   "list_factory_device_profiles",

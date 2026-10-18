@@ -20,6 +20,8 @@ A cancelled confirmed request may have consumed its single-use token even if its
 
 Tool failures from the bridge include `structuredContent.error` with `code`, `message`, `outcome` and native `requestIds`. Resource failures carry the same details in the JSON-RPC error's `data`.
 
+Available `bridgeProgress` describes the client's connection, protocol validation, transmission and received replies. It does not establish native execution or override `outcome`; a transmitted request can still be explicitly refused before execution. See [bridge diagnostics](troubleshooting.md#distinguish-connection-from-a-live-response).
+
 | Outcome | Meaning |
 |---|---|
 | `not_executed` | The requested operation was not transmitted, or the bridge explicitly refused it before execution. |

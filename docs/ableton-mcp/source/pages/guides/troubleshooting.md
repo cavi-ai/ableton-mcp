@@ -8,6 +8,24 @@ npm run cli -- doctor --json
 
 `bridge.reason` names the failure.
 
+## Distinguish connection from a Live response
+
+`doctor` makes one read-only `get_live_state` probe with the normal five-second bridge deadline. It does not retry, move focus, stop playback or restart Live. `ok` still requires a Live response with the expected version and advertised capabilities.
+
+| Field | Meaning |
+| --- | --- |
+| `bridge.connected` | Whether this probe established a socket connection; `null` when connection evidence is unavailable. A connection alone does not establish a responsive Live main thread. |
+| `bridge.protocol` | `compatible`, `incompatible` or `unconfirmed`, based on the protocol response. |
+| `bridge.liveStateAvailable` | Whether this probe received Live state. |
+| `bridge.probeElapsedMs` | Elapsed time for the probe, not a measurement of Live computation or queue time. |
+| `bridge.failure` | Structured bridge error, including its execution outcome and available connection progress. |
+
+If Live state is unavailable, `capabilities` and `missingCapabilities` remain `null`. This does not establish that every capability is missing. A compatible protocol with an unavailable Live response can indicate a delayed main-thread callback; it does not identify the cause or authorize restarting Live.
+
+Bridge errors from MCP calls also include `bridgeProgress`: the last reached `phase` (`connect`, `handshake` or `response`), observed socket connection and protocol validation, request transmission, target request count, received replies and elapsed milliseconds. Reply counts exclude the protocol handshake and unrelated or duplicate IDs. These are client observations, not evidence that Live executed an operation or completed a mutation. See [request cancellation](request-cancellation.md) before retrying an uncertain call.
+
+`requestTransmitted` records the client's attempt to write the framed requests, not a delivery acknowledgment. A successful socket or protocol step does not establish that Live's main thread processed the request.
+
 ## `connect ENOENT /tmp/cavi-ableton-mcp.sock`
 
 Nothing is listening on the socket. Check that:
