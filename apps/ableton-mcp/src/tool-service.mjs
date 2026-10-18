@@ -1,6 +1,7 @@
 import {setSessionClipEntry} from './clip-entry.mjs';
 import {jumpToCuePoint} from './cue-jump.mjs';
 import {seekTransport} from './transport-seek.mjs';
+import {reverseMidiPhrase} from './midi-retrograde.mjs';
 import {captureSessionScene} from './scene-capture.mjs';
 import {planArrangementRepeat} from './arrangement-repeat.mjs';
 import {copyArrangementClip} from './arrangement-copy.mjs';
@@ -1724,6 +1725,7 @@ export class ToolService {
     if (name === "create_clip_mixer_envelope") return createClipMixerEnvelope(this.bridge,this.confirmations,args);
     if (name === "set_midi_note_properties") return this.#setMidiNoteProperties(args);
     if (name === "correct_midi_clip_to_scale") return this.#correctMidiClipToScale(args);
+    if (name === "transform_midi_notes" && args.operation?.type === 'reverseTime') return reverseMidiPhrase(this.bridge,this.confirmations,args);
     if (name === "transform_midi_notes") return this.#transformMidiNotes(args);
     if (name === "set_track_mixer") return this.#setTrackMixer(args);
     if (['get_parameter_automation_context','re_enable_parameter_automation'].includes(name)) return parameterAutomation(this.bridge,this.confirmations,name,args);

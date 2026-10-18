@@ -67,6 +67,7 @@ It publishes 318 tools, 9 concrete resources, 13 resource templates and 69 promp
 - [Cancel agent work](docs/ableton-mcp/source/pages/guides/request-cancellation.md)
 - [Resume work after an interruption](docs/ableton-mcp/source/pages/guides/resume-session-work.md)
 - [Create a playable musical sketch](docs/ableton-mcp/source/pages/guides/musical-sketch.md)
+- [Reverse a MIDI phrase](docs/ableton-mcp/source/pages/guides/midi-retrograde.md)
 - [Organize names and colors](docs/ableton-mcp/source/pages/guides/session-organization.md)
 - [Understand a Set and explore instruments](docs/ableton-mcp/source/pages/guides/session-orientation.md)
 - [Understand how MIDI parts relate](docs/ableton-mcp/source/pages/guides/musical-parts.md)

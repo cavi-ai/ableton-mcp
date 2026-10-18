@@ -106,6 +106,7 @@
     "ableton/Remote Scripts/CaviMcpBridge/midi_note_removal.py",
     "ableton/Remote Scripts/CaviMcpBridge/midi_insertion.py",
     "ableton/Remote Scripts/CaviMcpBridge/midi_time_scaling.py"
+    "ableton/Remote Scripts/CaviMcpBridge/midi_retrograde.py"
   ],
   "workspaces": [
     "apps/*",
