@@ -1,4 +1,5 @@
 [
+  "get_midi_note_insertion_context", "insert_midi_notes",
   "get_session_scene_capture_context",
   "capture_session_scene",
   "get_arrangement_copy_source",

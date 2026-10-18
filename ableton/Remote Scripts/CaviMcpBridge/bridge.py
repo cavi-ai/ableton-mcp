@@ -3839,6 +3839,14 @@ def dispatch_request(song, request, state_version, application=None):
         return {"stateVersion": state_version, "query": query, "searchedRoots": searched,
                 "unavailableRoots": unavailable, "results": results[:limit],
                 "visitedItems": visited, "truncated": reason is not None, "truncationReason": reason}
+    if method in ("get_midi_note_insertion_context", "insert_midi_notes"):
+        try:
+            from . import midi_insertion
+        except ImportError:
+            import midi_insertion
+        if method == "get_midi_note_insertion_context":
+            return midi_insertion.context(song, params, state_version)
+        return midi_insertion.apply(song, params, state_version)
     if method in ("get_browser_preview_context", "set_browser_preview"):
         try:
             from . import browser_preview

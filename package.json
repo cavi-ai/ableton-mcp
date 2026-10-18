@@ -87,7 +87,8 @@
     "ableton/Remote Scripts/CaviMcpBridge/track_bounce.py",
     "ableton/Remote Scripts/CaviMcpBridge/track_freeze.py",
     "ableton/Remote Scripts/CaviMcpBridge/recording_setup.py",
-    "ableton/Remote Scripts/CaviMcpBridge/signal_activity.py"
+    "ableton/Remote Scripts/CaviMcpBridge/signal_activity.py",
+    "ableton/Remote Scripts/CaviMcpBridge/midi_insertion.py"
   ],
   "workspaces": [
     "apps/*",
