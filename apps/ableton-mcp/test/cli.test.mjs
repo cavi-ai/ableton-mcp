@@ -229,7 +229,7 @@ test("prompts commands render templates without opening a runtime", async () => 
   const runtimeFactory = () => { opened.push(true); return { close() {} }; };
   const output = [];
   const listed = await runCli(["prompts", "--json"], { runtimeFactory, stdout: (line) => output.push(line) });
-  assert.equal(listed.prompts.length, 61);
+  assert.equal(listed.prompts.length, 62);
   const rendered = await runCli(["prompt", "produce-drum-pattern", "--args", '{"trackId":"track-3"}', "--json"],
     { runtimeFactory, stdout: () => {} });
   assert.match(rendered.messages[0].content.text, /track-3/);
