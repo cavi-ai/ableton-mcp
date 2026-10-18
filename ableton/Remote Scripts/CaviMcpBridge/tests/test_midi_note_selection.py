@@ -13,7 +13,8 @@ class MidiNoteSelectionTests(unittest.TestCase):
         self.song = Song()
         self.song.is_counting_in = False
         self.clip = self.song.tracks[0].clip_slots[0].clip
-        self.clip.is_recording = False
+        self.clip.is_recording = self.clip.is_overdubbing = self.clip.is_triggered = False
+        self.clip.get_notes_by_id = lambda ids: copy.deepcopy([n for n in self.clip.extended_notes if n.note_id in ids])
         self.clip.extended_notes = [MidiNote(7), MidiNote(8)]
         self.selected = [self.clip.extended_notes[0]]
         self.clip.get_selected_notes_extended = lambda: self.selected
@@ -26,6 +27,7 @@ class MidiNoteSelectionTests(unittest.TestCase):
     def plan(self, token=None, note_id=7):
         before = dispatch_request(self.song, {'method': 'get_midi_clip_notes_extended', 'params': self.target}, 3)
         return {**self.target, 'expectedStateVersion': 3, 'before': before,
+                'propertyEditContext': dispatch_request(self.song, {'method':'get_midi_note_edit_context','params':self.target}, 3),
                 'clipTiming': dispatch_request(self.song, {'method': 'get_clip_timing', 'params': self.target}, 3),
                 'expectedNoteSelectionToken': token or self.read()['selectionToken'],
                 'changes': [{'noteId': note_id, 'previous': next(n for n in before['notes'] if n['noteId'] == note_id), 'velocity': 70}]}

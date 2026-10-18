@@ -152,7 +152,8 @@ test("arrangement MIDI clip reads and note edits resolve timeline identity", asy
   const calls = [];
   const service = new ToolService({ bridge: { async request(method, params) {
     calls.push({ method, params });
-    if (method === "get_midi_clip_notes_extended") return extended;
+    if(method==='get_midi_note_edit_context')return {...await this.request('get_midi_clip_notes_extended',params),identityToken:'native',modifySupported:true,clipTiming:await this.request('get_clip_timing',params),editContext:Object.fromEntries(['frozen','clipRecording','clipOverdubbing','pendingLaunch','arrangementRecord','sessionRecord','countingIn'].map(k=>[k,false]))};
+      if (method === "get_midi_clip_notes_extended") return extended;
     if (method === "get_clip_timing") return {
       stateVersion: 4, trackId: "track-0", clipId: arrangementClip.id,
       location: "arrangement", timeline: arrangementClip,

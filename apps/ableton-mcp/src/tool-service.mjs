@@ -3895,7 +3895,8 @@ export class ToolService {
 
   async #setMidiNoteProperties(args) {
     requireExpectedState(args);
-    if (!Array.isArray(args.changes) || args.changes.length === 0) throw new Error("changes must be a non-empty array");
+    if (!Array.isArray(args.changes) || !args.changes.length || args.changes.length > 4096) throw new Error("1–4096 explicit note-property changes required");
+    if (new Set(args.changes.map(change=>change.noteId)).size !== args.changes.length) throw Error('duplicate noteId in changes');
     const observed = await this.bridge.request("get_midi_clip_notes_extended", {
       trackId: args.trackId, clipId: args.clipId
     });
@@ -3910,6 +3911,16 @@ export class ToolService {
     if (JSON.stringify(observed) !== JSON.stringify(refreshed) || observed.trackId !== args.trackId ||
         observed.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
       throw new Error("MIDI clip changed during note-property planning; retry");
+    const propertyEditContext = await this.bridge.request('get_midi_note_edit_context', {trackId:args.trackId,clipId:args.clipId});
+    assertExpectedState(args,propertyEditContext);
+    const ordered = notes=>JSON.stringify([...notes].sort((a,b)=>a.noteId-b.noteId));
+    if (typeof propertyEditContext.identityToken !== 'string' || !propertyEditContext.identityToken || propertyEditContext.modifySupported !== true ||
+        propertyEditContext.trackId !== args.trackId || propertyEditContext.clipId !== args.clipId ||
+        propertyEditContext.lengthBeats !== observed.lengthBeats ||
+        !Array.isArray(propertyEditContext.notes) || ordered(propertyEditContext.notes) !== ordered(observed.notes) ||
+        JSON.stringify(propertyEditContext.clipTiming) !== JSON.stringify(clipTiming) ||
+        ['frozen','clipRecording','clipOverdubbing','pendingLaunch','arrangementRecord','sessionRecord','countingIn'].some(k=>propertyEditContext.editContext?.[k]!==false))
+      throw Error('resolve native identity, complete notes, timing, modification support and edit context before note-property edits');
     const notes = new Map(observed.notes.map((note) => [note.noteId, note]));
     let selectionToken;
     if (args.expectedNoteSelectionToken !== undefined) {
@@ -3928,7 +3939,7 @@ export class ToolService {
     const plan = {
       method: "set_midi_note_properties", trackId: args.trackId, clipId: args.clipId,
       ...(selectionToken !== undefined ? {expectedNoteSelectionToken: selectionToken} : {}),
-      expectedStateVersion: args.expectedStateVersion, before: observed, clipTiming,
+      expectedStateVersion: args.expectedStateVersion, before: observed, clipTiming, propertyEditContext,
       changes: args.changes.map((change, index) => {
         const current = notes.get(change.noteId);
         if (!current) throw new Error(`unknown noteId ${change.noteId}`);
