@@ -30,6 +30,7 @@
         { "title": "Develop a drum part", "path": "guides/drum-development.md" },
         { "title": "Analyze an Arrangement passage", "path": "guides/arrangement-section.md" },
         { "title": "Move an Arrangement part", "path": "guides/arrangement-movement.md" },
+        { "title": "Navigate to an Arrangement locator", "path": "guides/arrangement-navigation.md" },
         { "title": "Audition an Arrangement passage", "path": "guides/arrangement-audition.md" },
         { "title": "Return tracks to Arrangement", "path": "guides/arrangement-return.md" },
         { "title": "Prepare crossfader parts", "path": "guides/crossfader.md" },

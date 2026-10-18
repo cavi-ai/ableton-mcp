@@ -1197,8 +1197,7 @@ test("arrangement cue points are inspectable and exact mutations are guarded", a
   for (const [name, args] of [
     ["create_arrangement_cue_point", { timeBeats: 32, name: "Chorus" }],
     ["rename_arrangement_cue_point", { cuePointId: "cue-0", name: "Intro" }],
-    ["delete_arrangement_cue_point", { cuePointId: "cue-0" }],
-    ["jump_to_arrangement_cue_point", { cuePointId: "cue-0" }]
+    ["delete_arrangement_cue_point", { cuePointId: "cue-0" }]
   ]) {
     const dry = await service.call(name, { expectedStateVersion: 4, ...args });
     assert.equal(dry.dryRun, true);

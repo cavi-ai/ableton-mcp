@@ -72,6 +72,7 @@ It publishes 318 tools, 9 concrete resources, 13 resource templates and 69 promp
 - [Understand how MIDI parts relate](docs/ableton-mcp/source/pages/guides/musical-parts.md)
 - [Keep a Looper performance](docs/ableton-mcp/source/pages/guides/looper-performance.md)
 - [Capture and inspect Live audio](docs/ableton-mcp/source/pages/guides/live-audio-capture.md)
+- [Navigate to an Arrangement locator](docs/ableton-mcp/source/pages/guides/arrangement-navigation.md)
 - [Audition an Arrangement passage](docs/ableton-mcp/source/pages/guides/arrangement-audition.md)
 - [Compare instruments while keeping the original](docs/ableton-mcp/source/pages/guides/instrument-comparison.md)
 - [Refine an instrument sound](docs/ableton-mcp/source/pages/guides/instrument-refinement.md)

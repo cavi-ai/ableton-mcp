@@ -1,4 +1,5 @@
 import {setSessionClipEntry} from './clip-entry.mjs';
+import {jumpToCuePoint} from './cue-jump.mjs';
 import {captureSessionScene} from './scene-capture.mjs';
 import {planArrangementRepeat} from './arrangement-repeat.mjs';
 import {copyArrangementClip} from './arrangement-copy.mjs';
@@ -1662,7 +1663,8 @@ export class ToolService {
     if (name === "set_transport_recording_context") return this.#setTransportRecordingContext(args);
     if (name === "get_midi_capture_context") return this.bridge.request(name, {});
     if (name === "capture_midi_session") return this.#captureMidiSession(args);
-    if (["create_arrangement_cue_point", "rename_arrangement_cue_point", "delete_arrangement_cue_point", "jump_to_arrangement_cue_point"].includes(name)) {
+    if (name === "jump_to_arrangement_cue_point") return jumpToCuePoint(this.bridge, this.confirmations, args);
+    if (["create_arrangement_cue_point", "rename_arrangement_cue_point", "delete_arrangement_cue_point"].includes(name)) {
       return this.#arrangementCuePointMutation(name, args);
     }
     if (name === "set_transport_context") return this.#setTransportContext(args);
