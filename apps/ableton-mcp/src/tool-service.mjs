@@ -1,3 +1,5 @@
+import {captureSessionScene} from './scene-capture.mjs';
+import {copyArrangementClip} from './arrangement-copy.mjs';
 import {saveMidiClip,MacMidiExportHost} from './midi-export.mjs';
 import {reverseAudioClip,MacAudioReverseHost} from './audio-reverse.mjs';
 import {trackBounce,MacTrackBounceHost} from "./track-bounce.mjs";
@@ -17,6 +19,9 @@ import {MacTakeLaneAuditionHost,takeLaneAudition} from "./take-lane-audition.mjs
 import {setTrackVolumeDb} from "./track-volume.mjs";
 import {parameterAutomation} from './parameter-automation.mjs';
 import {browserPreview} from './browser-preview.mjs';
+import {selectedControl} from './selected-control.mjs';
+import {midiNoteRemoval} from './midi-note-removal.mjs';
+import {midiInsertion} from './midi-insertion.mjs';
 import {overrideParameterAutomation} from './parameter-override.mjs';
 import {setTrackSendDb} from "./track-send.mjs";
 import {setDeviceParameterDisplay} from "./parameter-display.mjs";
@@ -775,6 +780,7 @@ export class ToolService {
     if (["delete_arrangement_clip", "move_arrangement_clip", "duplicate_arrangement_clip"].includes(name)) return this.#mutateArrangementClip(name, args);
     if (name === "get_midi_clip_notes") return this.bridge.request("get_midi_clip_notes", args);
     if (name === "get_midi_clip_notes_extended") return this.bridge.request("get_midi_clip_notes_extended", args);
+    if (name === "get_midi_note_selection") return this.bridge.request("get_midi_note_selection", args);
     if (name === "analyze_midi_clip_scale") {
       const before = await this.bridge.request("get_song_musical_context", {});
       const clip = await this.bridge.request("get_midi_clip_notes_extended", args);
@@ -1622,6 +1628,7 @@ export class ToolService {
     if (name === "set_beat_repeat_enabled") return this.#setBeatRepeatEnabled(args);
     if (name === "set_beat_repeat_grid") return this.#setBeatRepeatGrid(args);
     if (name === "set_beat_repeat_interval") return this.#setBeatRepeatInterval(args);
+    if (name === "get_device_activation_context") return this.bridge.request(name, {trackId: args.trackId, deviceId: args.deviceId});
     if (name === "set_device_active" || name === "delete_device" || name === "move_device") return this.#deviceLifecycle(name, args);
     if (name === "set_song_musical_context") return this.#setSongMusicalContext(args);
     if (name === "set_groove") return this.#setGroove(args);
@@ -1652,6 +1659,8 @@ export class ToolService {
     if (name === "add_audio_warp_marker") return this.#addAudioWarpMarker(args);
     if (name === "quantize_audio_clip") return this.#quantizeAudioClip(args);
     if (name === "crop_audio_clip") return this.#cropAudioClip(args);
+    if (name === "capture_session_scene") return captureSessionScene(this.bridge,this.confirmations,args);
+    if (name === "copy_arrangement_clip_to_track") return copyArrangementClip(this.bridge,this.confirmations,args);
     if (name === "duplicate_clip") return this.#duplicateClip(args);
     if (name === "delete_clip") return this.#deleteClip(args);
     if (name === "duplicate_clip_loop") return this.#duplicateClipLoop(args);
@@ -1688,6 +1697,9 @@ export class ToolService {
     if (name === "set_track_mixer") return this.#setTrackMixer(args);
     if (['get_parameter_automation_context','re_enable_parameter_automation'].includes(name)) return parameterAutomation(this.bridge,this.confirmations,name,args);
     if (['get_browser_preview_context','set_browser_preview'].includes(name)) return browserPreview(this.bridge,this.confirmations,name,args);
+    if (['get_selected_parameter_context','set_selected_parameter'].includes(name)) return selectedControl(this.bridge,this.confirmations,name,args);
+    if (['get_midi_note_removal_context','remove_midi_notes'].includes(name)) return midiNoteRemoval(this.bridge,this.confirmations,name,args);
+    if (['get_midi_note_insertion_context','insert_midi_notes'].includes(name)) return midiInsertion(this.bridge,this.confirmations,name,args);
     if (name==='override_parameter_automation') return overrideParameterAutomation(this.bridge,this.confirmations,args);
     if (name === "set_track_volume_db") return setTrackVolumeDb(this.bridge,this.confirmations,args);
     if (name === "set_track_send_db") return setTrackSendDb(this.bridge,this.confirmations,args);
@@ -2278,6 +2290,14 @@ export class ToolService {
   async #deviceLifecycle(method, args) {
     requireExpectedState(args);
     if (method === "set_device_active" && typeof args.active !== "boolean") throw new Error("active must be boolean");
+    if (method === "set_device_active") {
+      const before = await this.bridge.request("get_device_activation_edit_context", {trackId: args.trackId, deviceId: args.deviceId});
+      assertExpectedState(args, before);
+      if (!before.supported) throw Error("unique native binary Device On control is unavailable");
+      return this.#confirmedMutation({method, trackId: args.trackId, deviceId: args.deviceId,
+        expectedStateVersion: args.expectedStateVersion, active: args.active, beforeDevice: before.device, before,
+        warning: "Changes only this device's local Device On control, preserving focus/playback. An enclosing rack can keep the device effectively inactive. Active or unknown Device On automation refuses. Partial work remains without rollback or replay; readback does not prove audible bypass or equal loudness."}, args);
+    }
     const observed = await this.#observeDevice(args);
     assertExpectedState({ expectedStateVersion: args.expectedStateVersion, trackId: args.trackId }, observed);
     const device = observed.device;
@@ -2285,7 +2305,6 @@ export class ToolService {
       method, trackId: args.trackId, deviceId: args.deviceId,
       expectedStateVersion: args.expectedStateVersion, beforeDevice: device
     };
-    if (method === "set_device_active") plan.active = args.active;
     if (method === "move_device") {
       if (!Number.isSafeInteger(args.targetPosition) || args.targetPosition < 0) throw new Error("targetPosition must be a nonnegative integer");
       plan.targetPosition = args.targetPosition;
@@ -3853,8 +3872,23 @@ export class ToolService {
         observed.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
       throw new Error("MIDI clip changed during note-property planning; retry");
     const notes = new Map(observed.notes.map((note) => [note.noteId, note]));
+    let selectionToken;
+    if (args.expectedNoteSelectionToken !== undefined) {
+      const selection = await this.bridge.request("get_midi_note_selection", {trackId: args.trackId, clipId: args.clipId});
+      assertExpectedState(args, selection);
+      if (typeof args.expectedNoteSelectionToken !== "string" || !args.expectedNoteSelectionToken ||
+          selection.trackId !== args.trackId || selection.clipId !== args.clipId || selection.status !== "selected" ||
+          selection.selectionToken !== args.expectedNoteSelectionToken || !Array.isArray(selection.noteIds) ||
+          args.changes.some(change => !selection.noteIds.includes(change.noteId)))
+        throw new Error("MIDI note selection changed or changes include unselected notes");
+      if (["frozen", "clipRecording", "arrangementRecord", "sessionRecord", "countingIn"]
+          .some(key => selection.editContext?.[key] !== false))
+        throw new Error("resolve frozen state, recording and count-in before selected-note edits");
+      selectionToken = args.expectedNoteSelectionToken;
+    }
     const plan = {
       method: "set_midi_note_properties", trackId: args.trackId, clipId: args.clipId,
+      ...(selectionToken !== undefined ? {expectedNoteSelectionToken: selectionToken} : {}),
       expectedStateVersion: args.expectedStateVersion, before: observed, clipTiming,
       changes: args.changes.map((change, index) => {
         const current = notes.get(change.noteId);

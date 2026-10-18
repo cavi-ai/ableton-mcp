@@ -32,6 +32,8 @@
     "apps/ableton-mcp/src",
     "ableton/Remote Scripts/CaviMcpBridge/__init__.py",
     "ableton/Remote Scripts/CaviMcpBridge/bridge.py",
+    "ableton/Remote Scripts/CaviMcpBridge/arrangement_copy.py",
+    "ableton/Remote Scripts/CaviMcpBridge/scene_capture.py",
     "ableton/Remote Scripts/CaviMcpBridge/capabilities.json",
     "ableton/Remote Scripts/CaviMcpBridge/protocol.py",
     "ableton/Remote Scripts/CaviMcpBridge/parameter_automation.py",
@@ -73,9 +75,11 @@
     "ableton/Remote Scripts/CaviMcpBridge/browser_load.py",
     "ableton/Remote Scripts/CaviMcpBridge/browser_preview.py",
     "ableton/Remote Scripts/CaviMcpBridge/midi_import.py",
+    "ableton/Remote Scripts/CaviMcpBridge/midi_note_selection.py",
     "ableton/Remote Scripts/CaviMcpBridge/rack_performance.py",
     "ableton/Remote Scripts/CaviMcpBridge/looper_export.py",
     "ableton/Remote Scripts/CaviMcpBridge/device_ab.py",
+    "ableton/Remote Scripts/CaviMcpBridge/device_bypass.py",
     "ableton/Remote Scripts/CaviMcpBridge/take_lanes.py",
     "ableton/Remote Scripts/CaviMcpBridge/midi_capture.py",
     "ableton/Remote Scripts/CaviMcpBridge/audio_midi_sketch.py",
@@ -85,7 +89,10 @@
     "ableton/Remote Scripts/CaviMcpBridge/track_bounce.py",
     "ableton/Remote Scripts/CaviMcpBridge/track_freeze.py",
     "ableton/Remote Scripts/CaviMcpBridge/recording_setup.py",
-    "ableton/Remote Scripts/CaviMcpBridge/signal_activity.py"
+    "ableton/Remote Scripts/CaviMcpBridge/signal_activity.py",
+    "ableton/Remote Scripts/CaviMcpBridge/selected_control.py",
+    "ableton/Remote Scripts/CaviMcpBridge/midi_note_removal.py",
+    "ableton/Remote Scripts/CaviMcpBridge/midi_insertion.py"
   ],
   "workspaces": [
     "apps/*",
