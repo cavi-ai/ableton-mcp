@@ -6,11 +6,13 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from bridge import dispatch_request
 from test_dispatch import Song
+from test_dispatch import loop_plan, prepare_loop_target
 
 
 class ClipMuteTests(unittest.TestCase):
     def setUp(self):
         self.song = Song()
+        prepare_loop_target(self.song)
         self.song.is_counting_in = False
         self.song.record_mode = self.song.session_record = False
         for track in self.song.tracks:
@@ -28,7 +30,8 @@ class ClipMuteTests(unittest.TestCase):
         return dispatch_request(self.song, {'method': name, 'params': args}, 3)
 
     def plan(self, mute=True, **changes):
-        return {**self.args, 'before': self.call('get_clip_timing', self.args),
+        return {**self.args, **(loop_plan(self.song, self.args) if 'loop' in changes else {}),
+                'before': self.call('get_clip_timing', self.args),
                 'muteEditContext': self.call('get_clip_mute_edit_context', self.args),
                 'expectedStateVersion': 3, 'changes': {'mute': mute, **changes}}
 
@@ -134,7 +137,7 @@ class ClipMuteTests(unittest.TestCase):
             self.call('set_clip_timing', plan)
         self.assertFalse(self.song.tracks[0].clip_slots[0].clip.muted)
 
-    def test_mixed_edit_rollback_preserves_a_later_manual_loop_change(self):
+    def test_mixed_loop_edit_retains_partial_mute_and_later_manual_change(self):
         clip = self.song.tracks[0].clip_slots[0].clip
         class LaterEdit(type(clip.view)):
             @property
@@ -145,14 +148,14 @@ class ClipMuteTests(unittest.TestCase):
                 clip.loop_end = 99
                 raise ValueError('later editor write failed')
         clip.view = LaterEdit(grid_quantization=clip.view.grid_quantization)
-        with self.assertRaisesRegex(RuntimeError, 'partial|ownership'):
-            self.call('set_clip_timing', self.plan(loop={'endBeats': 8}, editorGrid={'isTriplet': True}))
+        result = self.call('set_clip_timing', self.plan(loop={'endBeats': 8}, editorGrid={'isTriplet': True}))
+        self.assertFalse(result['requestedChangesVerified'])
+        self.assertTrue(result['error'])
         self.assertEqual(clip.loop_end, 99)
-        self.assertFalse(clip.muted)
+        self.assertTrue(clip.muted)
 
     def test_mixed_edit_preserves_callback_change_before_later_write(self):
         clip = self.song.tracks[0].clip_slots[0].clip
-        original_start = clip.loop_start
         class LaterLoopEdit(type(clip)):
             @property
             def loop_start(self):
@@ -163,11 +166,39 @@ class ClipMuteTests(unittest.TestCase):
                 self.loop_end = 99
         clip._loop_start = clip.loop_start
         clip.__class__ = LaterLoopEdit
-        with self.assertRaisesRegex((ValueError, RuntimeError), 'changed|ownership'):
-            self.call('set_clip_timing', self.plan(loop={'startBeats': 1, 'endBeats': 8}))
+        result = self.call('set_clip_timing', self.plan(loop={'startBeats': 1, 'endBeats': 8}))
+        self.assertFalse(result['requestedChangesVerified'])
+        self.assertTrue(result['error'])
         self.assertEqual(clip.loop_end, 99)
-        self.assertEqual(clip.loop_start, original_start)
+        self.assertEqual(clip.loop_start, 1)
         self.assertFalse(clip.muted)
+
+    def test_loop_and_mute_recheck_track_arm_at_undo_entry(self):
+        clip = self.song.tracks[0].clip_slots[0].clip
+        plan = self.plan(loop={'endBeats': 8})
+        self.song.begin_undo_step = lambda: setattr(self.song.tracks[0], 'arm', True)
+        with self.assertRaisesRegex(ValueError, 'context|armed'):
+            self.call('set_clip_timing', plan)
+        self.assertEqual(clip.loop_end, 4)
+        self.assertFalse(clip.muted)
+
+    def test_loop_and_mute_recheck_track_arm_after_undo_closes(self):
+        plan = self.plan(loop={'endBeats': 8})
+        self.song.end_undo_step = lambda: setattr(self.song.tracks[0], 'arm', True)
+        result = self.call('set_clip_timing', plan)
+        self.assertFalse(result['requestedChangesVerified'])
+        self.assertTrue(result['observationError'])
+        self.assertTrue(self.song.tracks[0].clip_slots[0].clip.muted)
+
+    def test_loop_and_mute_recheck_readiness_on_each_deferred_read(self):
+        from clip_loop_edit import begin, complete
+        operation = begin(self.song, self.plan(loop={'endBeats': 8}), 3)
+        self.song.tracks[0].arm = True
+        for _ in range(2):
+            result = complete(self.song, operation, 4)
+            self.assertFalse(result['requestedChangesVerified'])
+            self.assertTrue(result['observationError'])
+        self.assertTrue(self.song.tracks[0].clip_slots[0].clip.muted)
 
     def test_mixed_editor_edit_accepts_equal_native_view_wrappers(self):
         clip = self.song.tracks[0].clip_slots[0].clip

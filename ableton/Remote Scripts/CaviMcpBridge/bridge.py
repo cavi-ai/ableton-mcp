@@ -3176,6 +3176,8 @@ def _apply_clip_timing(song, params, state_version, deferred_loop=False):
     clip, timeline = _clip_reference(song, params["trackId"], params["clipId"])
     changes = params["changes"]
     launch_identity = None
+    mute_identity = None
+    expected_mute = None
     if "launchMode" in changes:
         if timeline is not None:
             raise ValueError("Session clip launch mode is unavailable in Arrangement")
@@ -3198,6 +3200,17 @@ def _apply_clip_timing(song, params, state_version, deferred_loop=False):
             raise ValueError("clip mute is unavailable")
         if type(changes["mute"]) is not bool:
             raise ValueError("mute must be boolean")
+        try:
+            from . import clip_mute as mute_guard
+        except ImportError:
+            import clip_mute as mute_guard
+        mute_context = mute_guard.source(song, params, state_version)
+        if params.get("muteEditContext") != mute_context:
+            raise ValueError("clip mute identity or context changed since planning")
+        mute_identity = mute_guard.objects(song, params)
+        expected_mute = mute_context['muted']
+        if set(changes) == {'mute'} and changes['mute'] == expected_mute:
+            return _clip_timing(song, params["trackId"], params["clipId"], state_version + 1)
     editor_grid = changes.get("editorGrid", {})
     if "quantization" in editor_grid:
         grid_value = editor_grid["quantization"]
@@ -3238,10 +3251,40 @@ def _apply_clip_timing(song, params, state_version, deferred_loop=False):
         except ImportError:
             from clip_loop_edit import Guard
         loop_guard = Guard(song, params, state_version)
+        if mute_identity is not None:
+            loop_guard.readback_check = lambda current_song: mute_guard.assert_owned(
+                current_song, params, mute_identity, mute_context['controls'], expected_mute)
+    editor_view = clip.view if editor_grid else None
+    mute_fields = []
+    if mute_identity is not None and loop_guard is None:
+        fields = []
+        if start_key in loop or end_key in loop:
+            fields.extend([(clip, 'loop_start'), (clip, 'loop_end')])
+        if 'enabled' in loop:
+            fields.append((clip, 'looping'))
+        for key, attribute in [('numerator', 'signature_numerator'), ('denominator', 'signature_denominator')]:
+            if key in signature:
+                fields.append((clip, attribute))
+        for key, attribute in [('launchQuantization', 'launch_quantization'), ('launchMode', 'launch_mode'),
+                               ('launchLegato', 'legato'), ('mute', 'muted'), ('grooveId', 'groove')]:
+            if key in changes:
+                fields.append((clip, attribute))
+        for key, attribute in [('quantization', 'grid_quantization'), ('isTriplet', 'grid_is_triplet')]:
+            if key in editor_grid:
+                fields.append((editor_view, attribute))
+        mute_fields = [[owner, attribute, getattr(owner, attribute)] for owner, attribute in fields]
+    def assert_mute_fields():
+        for owner, attribute, expected in mute_fields:
+            if getattr(owner, attribute) != expected:
+                raise ValueError('clip mute edit field changed; edit ownership lost')
     writes = []
     def write(owner, attribute, value):
+        nonlocal expected_mute
         if launch_identity is not None:
             launch_guard.assert_owned(song, params, launch_identity)
+        if mute_identity is not None:
+            mute_guard.assert_owned(song, params, mute_identity, mute_context['controls'], expected_mute)
+            assert_mute_fields()
         previous = getattr(owner, attribute)
         if previous != value:
             field = loop_guard.before_write(owner, attribute, value) if loop_guard is not None else None
@@ -3249,6 +3292,14 @@ def _apply_clip_timing(song, params, state_version, deferred_loop=False):
             if loop_guard is not None:
                 loop_guard.after_write(field)
             writes.append((owner, attribute, previous, value))
+            if mute_identity is not None:
+                for field in mute_fields:
+                    if field[0] is owner and field[1] == attribute:
+                        field[2] = value
+                if owner is clip and attribute == 'muted':
+                    expected_mute = value
+                mute_guard.assert_owned(song, params, mute_identity, mute_context['controls'], expected_mute)
+                assert_mute_fields()
             if launch_identity is not None:
                 launch_guard.assert_owned(song, params, launch_identity)
                 if attribute == "launch_mode" and int(clip.launch_mode) != value:
@@ -3257,6 +3308,9 @@ def _apply_clip_timing(song, params, state_version, deferred_loop=False):
         from contextlib import nullcontext
         with (_undo_step(song) if loop_guard is None or loop_guard.has_writes else nullcontext()):
             try:
+                if mute_identity is not None and (mute_guard.source(song, params, state_version) != mute_context or
+                        _clip_timing(song, params["trackId"], params["clipId"], state_version) != params.get('before')):
+                    raise ValueError('clip mute context changed at undo entry')
                 if "enabled" in loop:
                     write(clip, "looping", loop["enabled"])
                 if start_key in loop or end_key in loop:
@@ -3280,9 +3334,9 @@ def _apply_clip_timing(song, params, state_version, deferred_loop=False):
                     write(clip, "muted", changes["mute"])
                 if "quantization" in editor_grid:
                     grid = Live.Clip.GridQuantization.values[editor_grid["quantization"]] if Live is not None else editor_grid["quantization"]
-                    write(clip.view, "grid_quantization", grid)
+                    write(editor_view, "grid_quantization", grid)
                 if "isTriplet" in editor_grid:
-                    write(clip.view, "grid_is_triplet", editor_grid["isTriplet"])
+                    write(editor_view, "grid_is_triplet", editor_grid["isTriplet"])
                 if "grooveId" in changes:
                     write(clip, "groove", selected_groove)
                 if launch_identity is not None:
@@ -3300,17 +3354,25 @@ def _apply_clip_timing(song, params, state_version, deferred_loop=False):
                     for owner, attribute, previous, applied in reversed(writes):
                         if launch_identity is not None:
                             launch_guard.assert_owned(song, params, launch_identity)
+                        if mute_identity is not None:
+                            mute_guard.assert_owned(song, params, mute_identity, mute_context['controls'], expected_mute)
+                        if launch_identity is not None or mute_identity is not None:
                             current = getattr(owner, attribute)
                             if current == previous:
                                 continue
                             if current != applied:
                                 raise RuntimeError("later clip edit preserved; rollback ownership lost")
                         setattr(owner, attribute, previous)
+                        if mute_identity is not None:
+                            if owner is clip and attribute == 'muted':
+                                expected_mute = previous
+                            mute_guard.assert_owned(song, params, mute_identity, mute_context['controls'], expected_mute)
                         if launch_identity is not None:
                             launch_guard.assert_owned(song, params, launch_identity)
                 except Exception as rollback_error:
-                    if launch_identity is not None:
-                        raise RuntimeError(f"partial clip launch edit: {error}; identity or edit ownership lost: {rollback_error}; inspect current clips before continuing") from error
+                    if launch_identity is not None or mute_identity is not None:
+                        scope = 'clip launch' if launch_identity is not None else 'clip mute'
+                        raise RuntimeError(f"partial {scope} edit: {error}; identity or edit ownership lost: {rollback_error}; inspect current clips before continuing") from error
                     raise RuntimeError(f"clip timing failed: {error}; rollback failed: {rollback_error}; use Live undo") from error
                 raise
     except Exception as error:
@@ -3322,6 +3384,8 @@ def _apply_clip_timing(song, params, state_version, deferred_loop=False):
     if launch_identity is not None:
         launch_guard.assert_owned(song, params, launch_identity)
     result = _clip_timing(song, params["trackId"], params["clipId"], state_version + 1)
+    if mute_identity is not None:
+        mute_guard.assert_owned(song, params, mute_identity, mute_context['controls'], expected_mute)
     if launch_identity is not None:
         launch_guard.assert_owned(song, params, launch_identity)
     return result
@@ -5423,194 +5487,6 @@ def dispatch_request(song, request, state_version, application=None):
         except ImportError:
             import midi_clip_markers
         return (midi_clip_markers.context if method == 'get_midi_clip_marker_context' else midi_clip_markers.apply)(song, params, state_version)
-    if method == "set_clip_timing":
-        if "before" in params and _clip_timing(song, params["trackId"], params["clipId"], state_version) != params["before"]:
-            raise ValueError("clip timing changed since observation")
-        clip, timeline = _clip_reference(song, params["trackId"], params["clipId"])
-        changes = params["changes"]
-        launch_identity = None
-        mute_identity = None
-        expected_mute = None
-        if "launchMode" in changes:
-            if timeline is not None:
-                raise ValueError("Session clip launch mode is unavailable in Arrangement")
-            if type(changes["launchMode"]) is not int or changes["launchMode"] not in range(4):
-                raise ValueError("launchMode must be an exact native launch mode")
-            try:
-                from . import clip_launch as launch_guard
-            except ImportError:
-                import clip_launch as launch_guard
-            if params.get("launchEditContext") != launch_guard.source(song, params, state_version):
-                raise ValueError("clip launch identity or context changed since planning")
-            launch_identity = launch_guard.objects(song, params)
-        if "launchLegato" in changes:
-            if timeline is not None or not hasattr(clip, "legato"):
-                raise ValueError("clip launch Legato is unavailable")
-            if type(changes["launchLegato"]) is not bool:
-                raise ValueError("launchLegato must be boolean")
-        if "mute" in changes:
-            if not hasattr(clip, "muted"):
-                raise ValueError("clip mute is unavailable")
-            if type(changes["mute"]) is not bool:
-                raise ValueError("mute must be boolean")
-            try:
-                from . import clip_mute as mute_guard
-            except ImportError:
-                import clip_mute as mute_guard
-            mute_context = mute_guard.source(song, params, state_version)
-            if params.get("muteEditContext") != mute_context:
-                raise ValueError("clip mute identity or context changed since planning")
-            mute_identity = mute_guard.objects(song, params)
-            expected_mute = mute_context['muted']
-            if set(changes) == {'mute'} and changes['mute'] == expected_mute:
-                return _clip_timing(song, params["trackId"], params["clipId"], state_version + 1)
-        editor_grid = changes.get("editorGrid", {})
-        if "quantization" in editor_grid:
-            grid_value = editor_grid["quantization"]
-            if type(grid_value) is not int or grid_value < 0 or grid_value >= len(CLIP_GRID_NAMES):
-                raise ValueError("invalid clip editor grid quantization")
-            if Live is not None and grid_value not in Live.Clip.GridQuantization.values:
-                raise ValueError("clip editor grid quantization is unavailable in this Live version")
-        if "isTriplet" in editor_grid and type(editor_grid["isTriplet"]) is not bool:
-            raise ValueError("clip editor grid isTriplet must be boolean")
-        loop = changes.get("loop", {})
-        if getattr(clip, "is_audio_clip", False) and not clip.warping and any(key in loop for key in ("startBeats", "endBeats")):
-            raise ValueError("beat-based loop positions cannot be applied to unwarped audio")
-        seconds = bool(getattr(clip, "is_audio_clip", False)) and not clip.warping
-        if not seconds and any(key in loop for key in ("startSeconds", "endSeconds")):
-            raise ValueError("seconds-based loop positions require unwarped audio")
-        start_key, end_key = ("startSeconds", "endSeconds") if seconds else ("startBeats", "endBeats")
-        start, end = float(loop.get(start_key, clip.loop_start)), float(loop.get(end_key, clip.loop_end))
-        if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start:
-            raise ValueError("loop positions must define a finite positive interval")
-        selected_groove = None
-        if "grooveId" in changes:
-            matches = [groove for index, groove in enumerate(_grooves(song))
-                       if changes["grooveId"] == f"groove-{index}"]
-            if len(matches) != 1:
-                raise ValueError("unknown groove ID")
-            selected_groove = matches[0]
-        signature = changes.get("timeSignature", {})
-        editor_view = clip.view if editor_grid else None
-        mute_fields = []
-        if mute_identity is not None:
-            fields = []
-            if start_key in loop or end_key in loop:
-                fields.extend([(clip, 'loop_start'), (clip, 'loop_end')])
-            if 'enabled' in loop:
-                fields.append((clip, 'looping'))
-            for key, attribute in [('numerator', 'signature_numerator'), ('denominator', 'signature_denominator')]:
-                if key in signature:
-                    fields.append((clip, attribute))
-            for key, attribute in [('launchQuantization', 'launch_quantization'), ('launchMode', 'launch_mode'),
-                                   ('launchLegato', 'legato'), ('mute', 'muted'), ('grooveId', 'groove')]:
-                if key in changes:
-                    fields.append((clip, attribute))
-            for key, attribute in [('quantization', 'grid_quantization'), ('isTriplet', 'grid_is_triplet')]:
-                if key in editor_grid:
-                    fields.append((editor_view, attribute))
-            mute_fields = [[owner, attribute, getattr(owner, attribute)] for owner, attribute in fields]
-        def assert_mute_fields():
-            for owner, attribute, expected in mute_fields:
-                if getattr(owner, attribute) != expected:
-                    raise ValueError('clip mute edit field changed; edit ownership lost')
-        writes = []
-        def write(owner, attribute, value):
-            nonlocal expected_mute
-            if launch_identity is not None:
-                launch_guard.assert_owned(song, params, launch_identity)
-            if mute_identity is not None:
-                mute_guard.assert_owned(song, params, mute_identity, mute_context['controls'], expected_mute)
-                assert_mute_fields()
-            previous = getattr(owner, attribute)
-            if previous != value:
-                setattr(owner, attribute, value)
-                writes.append((owner, attribute, previous, value))
-                if mute_identity is not None:
-                    for field in mute_fields:
-                        if field[0] is owner and field[1] == attribute:
-                            field[2] = value
-                    if owner is clip and attribute == 'muted':
-                        expected_mute = value
-                    mute_guard.assert_owned(song, params, mute_identity, mute_context['controls'], expected_mute)
-                    assert_mute_fields()
-                if launch_identity is not None:
-                    launch_guard.assert_owned(song, params, launch_identity)
-                    if attribute == "launch_mode" and int(clip.launch_mode) != value:
-                        raise ValueError("native launch mode readback did not match requested value")
-        with _undo_step(song):
-            try:
-                if mute_identity is not None and (mute_guard.source(song, params, state_version) != mute_context or
-                        _clip_timing(song, params["trackId"], params["clipId"], state_version) != params.get('before')):
-                    raise ValueError('clip mute context changed at undo entry')
-                if start_key in loop or end_key in loop:
-                    if start >= clip.loop_end:
-                        write(clip, "loop_end", end)
-                        write(clip, "loop_start", start)
-                    else:
-                        write(clip, "loop_start", start)
-                        write(clip, "loop_end", end)
-                if "enabled" in loop:
-                    write(clip, "looping", loop["enabled"])
-                if "numerator" in signature:
-                    write(clip, "signature_numerator", int(signature["numerator"]))
-                if "denominator" in signature:
-                    write(clip, "signature_denominator", int(signature["denominator"]))
-                if "launchQuantization" in changes:
-                    write(clip, "launch_quantization", int(changes["launchQuantization"]))
-                if "launchMode" in changes:
-                    write(clip, "launch_mode", changes["launchMode"])
-                if "launchLegato" in changes:
-                    write(clip, "legato", changes["launchLegato"])
-                if "mute" in changes:
-                    write(clip, "muted", changes["mute"])
-                if "quantization" in editor_grid:
-                    grid = Live.Clip.GridQuantization.values[editor_grid["quantization"]] if Live is not None else editor_grid["quantization"]
-                    write(editor_view, "grid_quantization", grid)
-                if "isTriplet" in editor_grid:
-                    write(editor_view, "grid_is_triplet", editor_grid["isTriplet"])
-                if "grooveId" in changes:
-                    write(clip, "groove", selected_groove)
-                if launch_identity is not None:
-                    launch_guard.assert_owned(song, params, launch_identity)
-                    if int(clip.launch_mode) != changes["launchMode"]:
-                        raise ValueError("native launch mode readback did not match requested value")
-            except Exception as error:
-                try:
-                    if launch_identity is not None:
-                        launch_guard.assert_owned(song, params, launch_identity)
-                    for owner, attribute, previous, applied in reversed(writes):
-                        if launch_identity is not None:
-                            launch_guard.assert_owned(song, params, launch_identity)
-                        if mute_identity is not None:
-                            mute_guard.assert_owned(song, params, mute_identity, mute_context['controls'], expected_mute)
-                        if launch_identity is not None or mute_identity is not None:
-                            current = getattr(owner, attribute)
-                            if current == previous:
-                                continue
-                            if current != applied:
-                                raise RuntimeError("later clip edit preserved; rollback ownership lost")
-                        setattr(owner, attribute, previous)
-                        if mute_identity is not None:
-                            if owner is clip and attribute == 'muted':
-                                expected_mute = previous
-                            mute_guard.assert_owned(song, params, mute_identity, mute_context['controls'], expected_mute)
-                        if launch_identity is not None:
-                            launch_guard.assert_owned(song, params, launch_identity)
-                except Exception as rollback_error:
-                    if launch_identity is not None or mute_identity is not None:
-                        scope = 'clip launch' if launch_identity is not None else 'clip mute'
-                        raise RuntimeError(f"partial {scope} edit: {error}; identity or edit ownership lost: {rollback_error}; inspect current clips before continuing") from error
-                    raise RuntimeError(f"clip timing failed: {error}; rollback failed: {rollback_error}; use Live undo") from error
-                raise
-        if launch_identity is not None:
-            launch_guard.assert_owned(song, params, launch_identity)
-        result = _clip_timing(song, params["trackId"], params["clipId"], state_version + 1)
-        if mute_identity is not None:
-            mute_guard.assert_owned(song, params, mute_identity, mute_context['controls'], expected_mute)
-        if launch_identity is not None:
-            launch_guard.assert_owned(song, params, launch_identity)
-        return result
     if method == 'get_clip_loop_edit_context':
         try:
             from .clip_loop_edit import plan_context

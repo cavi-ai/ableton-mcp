@@ -222,6 +222,7 @@ class Guard:
         self.has_writes = any(_value(self.before['clipTiming'],field) != value for field,value in self.targets.items())
         self.native_returned = False
         self.attempted, self.completed, self.error = [], [], None
+        self.readback_check = None
 
     def before_write(self, owner, attribute, value):
         if context(self.song,self.params,self.version) != self.expected:
@@ -293,6 +294,8 @@ class Guard:
             _normalize_resize(current,expected,'loop.settled')
             rebased = _rebase_markers(current,expected,self.before,'loop.startSeconds' in self.completed)
             result['warpMarkersRebased']=rebased if audio else None
+            if self.readback_check is not None:
+                self.readback_check(current_song)
             result['requestedChangesVerified'] = (result['error'] is None and current == expected and identity and
                 all(_equal(_value(observed['clipTiming'],f),v,f in self.completed and f.startswith('loop.') and f != 'loop.enabled') for f,v in self.targets.items()))
             if not result['requestedChangesVerified'] and result['error'] is None:
