@@ -38,4 +38,10 @@ Partial edits remain after a failure. Inspect their returned observations and re
 
 ## Names remain explicit
 
-`rename_session_object` separately handles tracks, Returns, scenes and Session clips. Return names use the raw label without Live's automatic bus letter. Each rename needs its own fresh guarded plan and name readback. It does not rename Arrangement clips. Organization does not silently move tracks, create Groups, rewrite notes or replace clips to change a label.
+`rename_session_object` separately handles tracks, Returns, scenes and Session clips. Return names use the raw label without Live's automatic bus letter. Each rename needs its own fresh guarded plan and name readback.
+
+Use `rename_arrangement_clip` for an exact Arrangement MIDI or audio clip from `list_arrangement_clips`. Supply its `trackId`, `clipId`, explicit `name` and fresh `expectedStateVersion`. Names may contain Unicode and duplicate existing labels; they must be nonempty, at most 128 characters, and contain no control characters. Resolve the actual track and beat interval rather than guessing from a label. Lookup is bounded to 256 tracks and 4096 Arrangement clips on the target track.
+
+The plan binds native owner and timeline clip objects, the current interval and prior name. Execution rechecks those observations inside the undo step immediately before one `Clip.name` write. A same-version manual rename, changed interval or replacement invalidates the plan. A no-op makes no write or undo step. Playback and focus continue; the tool requests no note, audio, loop, device, routing or recording change. It does not read or back up complete musical content.
+
+Inspect `writeRequested`, `nativeReturned`, `verified`, `targetRetained`, `intervalPreserved`, `observed`, `error` and `observationError` separately. Finalization or readback failure retains the actual name without rollback or replay. After a lost reply, inspect the current exact clip before planning what remains. Preserve intervening manual labels. Organization does not silently move tracks, create Groups, rewrite notes or replace clips to change a label.
