@@ -25,3 +25,5 @@ Live's configured scale remains separate from measured evidence. A support fract
 Partial coverage leaves every excluded part visible. With no eligible parts, `combined` is null. More than 16384 analyzed notes rejects the request instead of silently sampling; choose fewer parts. Invalid, empty or mismatched clip references also reject the request.
 
 After the discussion, continue with [instrument comparison](instrument-comparison.md) or [MIDI clip variations](midi-clip-variations.md) for an explicitly chosen part. Those workflows plan and confirm their own edits. This analysis preserves selection and focus and does not authorize playback or changes.
+
+To write bass, melody or harmony against existing material, follow [Write a supporting part](supporting-parts.md). It establishes a shared passage before creating a separate playable part.
