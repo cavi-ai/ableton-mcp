@@ -36,6 +36,7 @@
   "show_live_object",
   "get_midi_export_source",
   "get_arrangement_clip_name_context",
+  "get_session_clip_name_context",
   "rename_arrangement_clip",
   "get_audio_clip_reverse_source",
   "select_audio_clip_reverse_source",

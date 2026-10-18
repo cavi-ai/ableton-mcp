@@ -5011,6 +5011,19 @@ def dispatch_request(song, request, state_version, application=None):
         return {"stateVersion": state_version + 1, "scene": _scene_record(scene, index)}
     if method == "rename_session_object":
         target = params["target"]
+        if target["targetType"] == "clip":
+            try:
+                from . import clip_names
+            except ImportError:
+                import clip_names
+            before=params.get("before")
+            if not isinstance(before,dict):raise ValueError("guarded Session clip name context required")
+            expected={"targetType":"clip","trackId":params.get("trackId"),"targetId":params.get("clipId"),
+                      "previousName":before.get("clip",{}).get("name"),"name":params.get("name")}
+            if target!=expected:raise ValueError("Session clip name target changed")
+            result=clip_names.rename(song,{**params,"location":"session"},state_version)
+            if result["verified"]:result["target"]={**target,"name":result["observed"]["clip"]["name"]}
+            return result
         if target["targetType"] == "track":
             _, item = _track(song, target["targetId"])
         elif target["targetType"] == "return":
@@ -5023,10 +5036,7 @@ def dispatch_request(song, request, state_version, application=None):
         elif target["targetType"] == "scene":
             item = song.scenes[int(target["targetId"].removeprefix("scene-"))]
         else:
-            _, _, slot = _clip_slot(song, target["trackId"], target["targetId"])
-            if not slot.has_clip:
-                raise ValueError("clip slot is empty")
-            item = slot.clip
+            raise ValueError("unsupported rename targetType")
         item.name = target["name"]
         return {"stateVersion": state_version + 1, "target": {
             **target, "name": item.name,
@@ -6180,13 +6190,14 @@ def dispatch_request(song, request, state_version, application=None):
     if method == "list_devices":
         owner_id, track = _device_owner(song, params["trackId"])
         return {"stateVersion": state_version, "trackId": owner_id, "devices": [_device_tree(device, f"{owner_id}:device-{i}") for i, device in enumerate(track.devices)]}
-    if method in ("get_arrangement_clip_name_context", "rename_arrangement_clip"):
+    if method in ("get_arrangement_clip_name_context", "get_session_clip_name_context", "rename_arrangement_clip"):
         try:
             from . import clip_names
         except ImportError:
             import clip_names
-        return (clip_names.context(song, params, state_version) if method == "get_arrangement_clip_name_context" else
-                clip_names.rename(song, params, state_version))
+        params={**params,"location":"session" if method=="get_session_clip_name_context" else "arrangement"}
+        return (clip_names.rename(song, params, state_version) if method=="rename_arrangement_clip" else
+                clip_names.context(song, params, state_version))
     if method in ("get_device_activation_context", "get_device_activation_edit_context", "set_device_active"):
         try:
             from . import device_bypass

@@ -1,7 +1,7 @@
 import {captureSessionScene} from './scene-capture.mjs';
 import {copyArrangementClip} from './arrangement-copy.mjs';
 import {saveMidiClip,MacMidiExportHost} from './midi-export.mjs';
-import {renameArrangementClip} from './clip-names.mjs';
+import {renameArrangementClip,renameSessionClip} from './clip-names.mjs';
 import {reverseAudioClip,MacAudioReverseHost} from './audio-reverse.mjs';
 import {trackBounce,MacTrackBounceHost} from "./track-bounce.mjs";
 import {trackFreeze,MacTrackFreezeHost} from "./track-freeze.mjs";
@@ -3286,6 +3286,7 @@ export class ToolService {
   async #renameSessionObject(args) {
     requireExpectedState(args);
     const name = sessionName(args.name);
+    if (args.targetType === "clip") return renameSessionClip(this.bridge,this.confirmations,{...args,name});
     if (args.targetType === "return") {
       const observed = await this.bridge.request("get_set_mixer", {});
       assertExpectedState(args, observed);
@@ -3294,17 +3295,6 @@ export class ToolService {
       return this.#confirmedMutation({
         method: "rename_session_object", expectedStateVersion: args.expectedStateVersion,
         target: { targetType: "return", targetId: target.id, previousName: target.name, name }
-      }, args);
-    }
-    if (args.targetType === "clip") {
-      const observed = await this.bridge.request("list_clips", { trackId: args.trackId });
-      assertExpectedState(args, observed);
-      const clip = observed.clips.find(({ id }) => id === args.targetId);
-      if (!clip) throw new Error(`unknown clip slot ${args.targetId}`);
-      if (!clip.hasClip) throw new Error(`empty clip slot ${args.targetId}`);
-      return this.#confirmedMutation({
-        method: "rename_session_object", expectedStateVersion: args.expectedStateVersion,
-        target: { targetType: "clip", trackId: args.trackId, targetId: args.targetId, previousName: clip.name, name }
       }, args);
     }
     if (!["track", "scene"].includes(args.targetType)) throw new Error("targetType must be track, return, scene, or clip");

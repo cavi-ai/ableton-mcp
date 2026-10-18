@@ -193,6 +193,10 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         slot:{id:params.clipId,hasClip:params.trackId==="track-0"&&params.clipId==="track-0:clip-0"},
         launchQuantizationChoices:[{value:0,name:"global"},{value:12,name:"1_16"}]
       };
+      if (method === "get_session_clip_name_context") {
+        if(params.clipId === "track-0:clip-1")throw Error("empty clip slot");
+        return {stateVersion:4,trackId:params.trackId,clipId:params.clipId,identityToken:"native-label",clip:{id:params.clipId,name:"Loop",hasClip:true}};
+      }
       if (method === "get_clip_duplication_source") {
         if (params.sourceClipId === "track-0:clip-1") throw new Error("source clip is empty");
         if (params.targetClipId === "track-0:clip-0") throw new Error("target clip must be empty");
