@@ -2817,12 +2817,15 @@ export class ToolService {
     if (!source?.hasClip) throw new Error("source clip is empty or unknown");
     if (!before.sourceGuard?.identityToken || !before.sourceGuard?.contentSha256) throw new Error("updated bridge Arrangement source context required");
     const startBeats = finiteRange(args.startBeats, "startBeats", 0, Number.MAX_SAFE_INTEGER);
-    if (!Number.isFinite(source.lengthBeats) || source.lengthBeats <= 0) throw new Error("source clip length is unavailable");
-    const endBeats = startBeats + source.lengthBeats;
+    const placement = before.placement;
+    if (placement?.unit !== 'beats' || !Number.isFinite(placement.lengthBeats) || placement.lengthBeats <= 0)
+      throw new Error('updated bridge placement range required; reload the bridge with this server');
+    const endBeats = startBeats + placement.lengthBeats;
     if (!Number.isSafeInteger(Math.ceil(endBeats))) throw new Error("placement end exceeds supported beat range");
+    if (before.beforeArrangement.length >= 4096) throw new Error('Arrangement placement needs capacity below 4096 clips');
     if (before.beforeArrangement.some((clip) => startBeats < clip.endBeats && endBeats > clip.startBeats)) throw new Error("placement would overlap existing Arrangement clips");
     return this.#confirmedMutation({ method: "place_session_clip_in_arrangement", trackId: args.trackId,
-      clipId: args.clipId, expectedStateVersion: args.expectedStateVersion, startBeats, endBeats, source,
+      clipId: args.clipId, expectedStateVersion: args.expectedStateVersion, startBeats, endBeats, source, placement,
       beforeArrangement: before.beforeArrangement, sourceGuard: before.sourceGuard }, args);
   }
 

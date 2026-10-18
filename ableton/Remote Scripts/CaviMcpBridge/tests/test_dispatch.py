@@ -1708,6 +1708,7 @@ class DispatchTest(unittest.TestCase):
     def test_session_clip_placement_lists_timeline_and_rejects_overlap(self):
         song = Song()
         track = song.tracks[0]
+        track.clip_slots[0].clip.start_marker, track.clip_slots[0].clip.end_marker = 0, 4
         track.arrangement_clips = []
         def duplicate(clip, time):
             result = copy.deepcopy(clip)
@@ -1735,6 +1736,7 @@ class DispatchTest(unittest.TestCase):
     def test_session_clip_placement_accepts_equal_native_wrappers(self):
         song = Song()
         track = song.tracks[0]
+        track.clip_slots[0].clip.start_marker, track.clip_slots[0].clip.end_marker = 0, 4
         track.arrangement_clips = []
 
         class NativeClipProxy:
@@ -1768,6 +1770,7 @@ class DispatchTest(unittest.TestCase):
     def test_session_clip_placement_rechecks_signed_source_and_timeline_before_copy(self):
         song = Song()
         track = song.tracks[0]
+        track.clip_slots[0].clip.start_marker, track.clip_slots[0].clip.end_marker = 0, 4
         track.arrangement_clips = []
         copies = []
         def duplicate(clip, start):
@@ -1791,9 +1794,10 @@ class DispatchTest(unittest.TestCase):
             dispatch_request(song, {"method": "place_session_clip_in_arrangement", "params": params}, 3)
         self.assertEqual(copies, [])
 
-    def test_session_clip_placement_rolls_back_wrong_native_interval(self):
+    def test_session_clip_placement_retains_wrong_native_interval(self):
         song = Song()
         track = song.tracks[0]
+        track.clip_slots[0].clip.start_marker, track.clip_slots[0].clip.end_marker = 0, 4
         track.arrangement_clips = []
         boundaries = []
         song.begin_undo_step = lambda: boundaries.append("begin")
@@ -1806,11 +1810,12 @@ class DispatchTest(unittest.TestCase):
         track.duplicate_clip_to_arrangement = duplicate
         track.delete_clip = lambda clip: track.arrangement_clips.remove(clip)
         source = dispatch_request(song, {"method": "list_clips", "params": {"trackId": "track-0"}}, 3)["clips"][0]
-        with self.assertRaisesRegex(ValueError, "placed clip interval"):
-            dispatch_request(song, {"method": "place_session_clip_in_arrangement", "params": {
+        result = dispatch_request(song, {"method": "place_session_clip_in_arrangement", "params": {
                 "trackId": "track-0", "clipId": source["id"], "startBeats": 8.0, "endBeats": 12.0,
                 "source": source, "beforeArrangement": []}}, 3)
-        self.assertEqual(track.arrangement_clips, [])
+        self.assertFalse(result["placementVerified"])
+        self.assertIn("placed clip interval", result["error"])
+        self.assertEqual(len(track.arrangement_clips), 1)
         self.assertEqual(boundaries, ["begin", "end"])
 
     def test_arrangement_deletion_checks_identity_and_preserves_other_clips(self):
