@@ -5437,6 +5437,121 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual([note["noteId"] for note in result["notes"]], [8, 100])
         self.assertEqual(result["stateVersion"], 4)
 
+    def test_drum_random_matches_javascript_unsigned_vectors(self):
+        from bridge import _drum_random
+        vectors = {
+            0: [1144304738, 1416247, 958946056, 627933444, 2007157716, 2340967985],
+            173: [217270111, 3836928167, 882014801, 2991425364, 326509601, 3361743521],
+            4294967295: [3850105811, 813802916, 3073704848, 4054706436, 3630262831, 2315588663],
+        }
+        for seed, expected in vectors.items():
+            with self.subTest(seed=seed):
+                values = _drum_random(seed)
+                self.assertEqual([int(next(values) * 4294967296) for _ in expected], expected)
+
+    def _drum_replacement(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        hit, retained = MidiNote(7), MidiNote(8)
+        hit.pitch, retained.pitch = 42, 36
+        hit.velocity_deviation, hit.release_velocity, hit.probability = -3, 62, 0.75
+        clip.extended_notes = [hit, retained]
+        target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+        params = {**target, "operation": "edit_drum_pattern_clip", "expectedStateVersion": 3,
+                  "before": before, "clipTiming": timing, "removeNoteIds": [7],
+                  "gridReference": {"tempoBpm": 120, "timeSignature": {"numerator": 4, "denominator": 4}},
+                  "newNotes": [{"pitch": 42, "start": 0.0, "duration": 0.125, "velocity": 74, "mute": False}]}
+        return song, clip, params
+
+    def test_drum_replacement_removes_hits_before_overlapping_native_additions(self):
+        song, clip, params = self._drum_replacement()
+        native_add, native_remove = clip.add_new_notes, clip.remove_notes_by_id
+        events = []
+        def live_add(specs):
+            events.append("add")
+            for spec in specs:
+                clip.extended_notes = [note for note in clip.extended_notes if not (
+                    note.pitch == spec["pitch"] and note.start_time < spec["start"] + spec["duration"] and
+                    spec["start"] < note.start_time + note.duration)]
+            return native_add(specs)
+        def live_remove(ids):
+            events.append("remove")
+            if not set(ids).issubset({note.note_id for note in clip.extended_notes}):
+                raise ValueError("All given IDs must be present in clip")
+            native_remove(ids)
+        clip.add_new_notes, clip.remove_notes_by_id = live_add, live_remove
+        result = dispatch_request(song, {"method": "replace_midi_notes", "params": params}, 3)
+        self.assertEqual(events[:2], ["remove", "add"])
+        self.assertEqual([note["noteId"] for note in result["notes"]], [8, 100])
+        self.assertEqual(result["notes"][0], params["before"]["notes"][1])
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
+    def test_drum_replacement_restores_removed_content_when_native_addition_fails(self):
+        song, clip, params = self._drum_replacement()
+        native_add, calls = clip.add_new_notes, []
+        def fail_once(specs):
+            calls.append(len(specs))
+            if len(calls) == 1:
+                raise ValueError("native addition failed")
+            return native_add(specs)
+        clip.add_new_notes = fail_once
+        with self.assertRaisesRegex(ValueError, "native addition failed"):
+            dispatch_request(song, {"method": "replace_midi_notes", "params": params}, 3)
+        observed = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": params}, 3)
+        project = lambda notes: sorted([{k: v for k, v in note.items() if k != "noteId"} for note in notes], key=lambda n: n["pitch"])
+        self.assertEqual(project(observed["notes"]), project(params["before"]["notes"]))
+        self.assertEqual(calls, [1, 1])
+
+    def test_drum_replacement_retains_an_undo_entry_manual_edit_without_rollback(self):
+        song, clip, params = self._drum_replacement()
+        begin = song.begin_undo_step
+        def changed_begin():
+            begin()
+            clip.extended_notes[0].velocity = 42
+        song.begin_undo_step = changed_begin
+        with self.assertRaisesRegex(ValueError, "changed.*undo"):
+            dispatch_request(song, {"method": "replace_midi_notes", "params": params}, 3)
+        self.assertEqual([note.note_id for note in clip.extended_notes], [7, 8])
+        self.assertEqual(clip.extended_notes[0].velocity, 42)
+        self.assertFalse(hasattr(clip, "added_notes"))
+
+    def test_drum_replacement_refuses_an_equal_content_native_clip_replacement_at_undo(self):
+        song, clip, params = self._drum_replacement()
+        replacement = copy.deepcopy(clip)
+        begin = song.begin_undo_step
+        def replaced_begin():
+            begin()
+            song.tracks[0].clip_slots[0].clip = replacement
+        song.begin_undo_step = replaced_begin
+        with self.assertRaisesRegex(ValueError, "changed.*undo"):
+            dispatch_request(song, {"method": "replace_midi_notes", "params": params}, 3)
+        self.assertEqual([note.note_id for note in replacement.extended_notes], [7, 8])
+        self.assertEqual([note.note_id for note in clip.extended_notes], [7, 8])
+        self.assertFalse(hasattr(clip, "added_notes"))
+
+    def test_drum_replacement_clears_a_lane_without_empty_native_additions(self):
+        song, clip, params = self._drum_replacement()
+        params["newNotes"] = []
+        def reject_add(specs):
+            raise AssertionError("clearing must not add notes")
+        clip.add_new_notes = reject_add
+        result = dispatch_request(song, {"method": "replace_midi_notes", "params": params}, 3)
+        self.assertEqual(result["addedNoteIds"], [])
+        self.assertEqual([note["noteId"] for note in result["notes"]], [8])
+
+    def test_drum_replacement_checks_native_additions_and_retained_note_readback(self):
+        song, clip, params = self._drum_replacement()
+        native_add = clip.add_new_notes
+        def altered_add(specs):
+            added = native_add(specs)
+            clip.extended_notes[-1].velocity = 12
+            return added
+        clip.add_new_notes = altered_add
+        with self.assertRaisesRegex(ValueError, "drum edit readback"):
+            dispatch_request(song, {"method": "replace_midi_notes", "params": params}, 3)
+
     def test_guarded_ratchet_replaces_exact_notes_and_preserves_extended_properties(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip
