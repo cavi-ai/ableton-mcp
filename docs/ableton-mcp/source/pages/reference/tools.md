@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 313 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 314 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (135)
 
@@ -144,7 +144,7 @@ The server publishes 313 tools. Mutations of the Live Set require `expectedState
 | `search_local_splice_samples` | Search existing local Splice audio files by filename/folder, private favorite state and/or private tags. Query is optional when a metadata filter is supplied. Filtering happens before pagination; visited and truncated report an incomplete bounded scan. Private metadata is not a native Splice collection; no cloud search, license verification, download, or sync. | `rootPath` |
 | `search_presets` | Search the optional local NKS preset catalog by name, across every product unless productSlug is given. Presets the last inventory did not find on disk are excluded. | none |
 
-## Mutations (147)
+## Mutations (148)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -238,6 +238,7 @@ The server publishes 313 tools. Mutations of the Live Set require `expectedState
 | `rename_rack_macro` | Plan or rename one exact rack macro when Live exposes an unambiguous macro parameter layout and name readback. Rechecks the full rack snapshot and confirms the observed name after the native write. | `expectedStateVersion`, `trackId`, `deviceId`, `macroIndex`, `name` |
 | `rename_session_object` | Plan or rename an exact track, Return Track, scene, or Session clip. Return names are raw labels; Live prefixes the displayed bus letter. | `expectedStateVersion`, `targetType`, `targetId`, `name` |
 | `return_tracks_to_arrangement` | Return explicit ordinary tracks from Session override while preserving global playback and loop settings, without seeking. May stop their Session clips and reveal Arrangement material or silence. Refuses Groups, recording, armed/frozen targets, pending target launches and unresolved holds. Native identity guards; partial results retained. Immediate, not beat-scheduled or audible proof. Updated bridge; all profile. | `expectedStateVersion`, `trackIds` |
+| `reverse_audio_clip` | Reverse one exact Session or Arrangement audio clip through macOS English Live's Clip View. Requires a saved Set, unique clip name, stopped/unarmed/unfrozen state, PCM/FLAC source up to 60 seconds/64 MiB and ffmpeg. Selects the clip, changes its source and native timing/warp placement. Verifies decoded reverse frames and unchanged original source bytes; does not verify envelope contents or audible outcome. Partial work retained; never replay automatically. All profile; updated bridge. | `expectedStateVersion`, `trackId`, `clipId` |
 | `route_tracks_to_bus` | Plan or route existing tracks to one exact existing group bus using Live's available routing choices. | `expectedStateVersion`, `trackIds`, `busTrackId` |
 | `route_tracks_to_return_bus` | Plan or route existing tracks to one exact Return bus using matching sends and Sends Only outputs. Prevalidates all sources; Live applies one undo step but runtime failures can interrupt it. | `expectedStateVersion`, `trackIds`, `returnTrackId`, `sendValue` |
 | `run_production_task` | Run configured creative and/or functional specialists with bounded private context. Returns an immutable proposal reference, never executes Live changes. Optional caller postconditions define required final field checks. Provider use follows explicit server configuration. | `projectId`, `goal` |

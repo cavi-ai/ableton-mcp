@@ -4196,6 +4196,13 @@ def dispatch_request(song, request, state_version, application=None):
         return source(song, params, state_version)
     if method == "get_audio_clip_state":
         return _audio_clip_state(song, params["trackId"], params["clipId"], state_version)
+    if method in ("get_audio_clip_reverse_source", "select_audio_clip_reverse_source"):
+        try:
+            from . import audio_reverse
+        except ImportError:
+            import audio_reverse
+        return (audio_reverse.source(song, params, state_version) if method == "get_audio_clip_reverse_source" else
+                audio_reverse.select(song, params, state_version, application))
     if method == "get_audio_source_beat_times":
         track_id, clip_id = params["trackId"], params["clipId"]
         clip, _ = _audio_clip(song, track_id, clip_id)
