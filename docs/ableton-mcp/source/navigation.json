@@ -69,6 +69,7 @@
         { "title": "Diagnose a silent part", "path": "guides/signal-diagnosis.md" },
         { "title": "Arrange Session ideas", "path": "guides/session-arrangement.md" },
         { "title": "MIDI clip variations", "path": "guides/midi-clip-variations.md" },
+        { "title": "Make space in a MIDI part", "path": "guides/midi-simplification.md" },
         { "title": "Match MIDI feel", "path": "guides/midi-feel.md" },
         { "title": "Reuse clips across tracks", "path": "guides/clip-reuse.md" },
         { "title": "Sketch MIDI from audio", "path": "guides/audio-midi-sketch.md" },
