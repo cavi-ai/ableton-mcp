@@ -10,6 +10,7 @@
   "capture_session_scene",
   "get_arrangement_copy_source",
   "get_arrangement_duplicate_source",
+  "get_arrangement_move_source",
   "copy_arrangement_clip_to_track",
   "get_recording_setup_source",
   "get_arrangement_recording_source",

@@ -2,6 +2,7 @@ import {setSessionClipEntry} from './clip-entry.mjs';
 import {captureSessionScene} from './scene-capture.mjs';
 import {planArrangementRepeat} from './arrangement-repeat.mjs';
 import {copyArrangementClip} from './arrangement-copy.mjs';
+import {moveArrangementClip} from './arrangement-move.mjs';
 import {saveMidiClip,MacMidiExportHost} from './midi-export.mjs';
 import {renameArrangementClip} from './clip-names.mjs';
 import {reverseAudioClip,MacAudioReverseHost} from './audio-reverse.mjs';
@@ -799,7 +800,8 @@ export class ToolService {
     if (name === "list_arrangement_clips") return this.bridge.request(name, args);
     if (name === "place_session_clip_in_arrangement") return this.#placeSessionClipInArrangement(args);
     if (name === "duplicate_arrangement_clip") return copyArrangementClip(this.bridge, this.confirmations, args, {sameTrack: true});
-    if (["delete_arrangement_clip", "move_arrangement_clip"].includes(name)) return this.#mutateArrangementClip(name, args);
+    if (name === "move_arrangement_clip") return moveArrangementClip(this.bridge, this.confirmations, args);
+    if (name === "delete_arrangement_clip") return this.#mutateArrangementClip(name, args);
     if (name === "get_midi_clip_notes") return this.bridge.request("get_midi_clip_notes", args);
     if (name === "get_midi_clip_notes_extended") return this.bridge.request("get_midi_clip_notes_extended", args);
     if (name === "get_midi_note_selection") return this.bridge.request("get_midi_note_selection", args);

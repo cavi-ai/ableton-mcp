@@ -35,6 +35,7 @@
     "ableton/Remote Scripts/CaviMcpBridge/arrangement_audio.py",
     "ableton/Remote Scripts/CaviMcpBridge/arrangement_creation.py",
     "ableton/Remote Scripts/CaviMcpBridge/arrangement_copy.py",
+    "ableton/Remote Scripts/CaviMcpBridge/arrangement_move.py",
     "ableton/Remote Scripts/CaviMcpBridge/scene_capture.py",
     "ableton/Remote Scripts/CaviMcpBridge/capabilities.json",
     "ableton/Remote Scripts/CaviMcpBridge/protocol.py",
