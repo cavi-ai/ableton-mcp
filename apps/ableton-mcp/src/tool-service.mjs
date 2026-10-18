@@ -1,3 +1,4 @@
+import {seekTransport} from './transport-seek.mjs';
 import {captureSessionScene} from './scene-capture.mjs';
 import {copyArrangementClip} from './arrangement-copy.mjs';
 import {saveMidiClip,MacMidiExportHost} from './midi-export.mjs';
@@ -2424,8 +2425,6 @@ export class ToolService {
 
   async #setTransportRecordingContext(args) {
     requireExpectedState(args);
-    const observed = await this.bridge.request("get_transport_recording_context", {});
-    assertExpectedState(args, observed);
     const changes = {};
     if (args.currentSongTime !== undefined) changes.currentSongTime = finiteRange(args.currentSongTime, "currentSongTime", 0, Number.MAX_SAFE_INTEGER);
     const metronome = optionalBoolean(args.metronome, "metronome");
@@ -2445,6 +2444,9 @@ export class ToolService {
       if (Object.keys(values).length) changes[group] = values;
     }
     if (!Object.keys(changes).length) throw new Error("at least one transport recording context change is required");
+    if (changes.currentSongTime !== undefined) return seekTransport(this.bridge,this.confirmations,args,changes);
+    const observed = await this.bridge.request("get_transport_recording_context", {});
+    assertExpectedState(args, observed);
     const before = { ...observed };
     // Playback advances between planning, confirmation and native execution.
     if (observed.isPlaying === true && changes.currentSongTime === undefined) delete before.currentSongTime;

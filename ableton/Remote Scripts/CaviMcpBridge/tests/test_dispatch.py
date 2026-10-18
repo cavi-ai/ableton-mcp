@@ -854,7 +854,13 @@ class DispatchTest(unittest.TestCase):
         self.assertTrue(observed["session"]["overdub"])
         self.assertTrue(observed["midiCapture"]["available"])
         self.assertEqual(observed["midiCapture"]["midiTrackIds"], ["track-0", "track-1"])
-        changed = dispatch_request(song, {"method": "set_transport_recording_context", "params": {"before": observed, "changes": {
+        song.is_counting_in = False
+        for track in song.tracks:
+            track.arrangement_clips = []
+            for slot in track.clip_slots:
+                if slot.has_clip: slot.clip.is_recording = False
+        observed = dispatch_request(song, {"method":"get_transport_seek_context"}, 3)
+        changed = dispatch_request(song, {"method": "set_transport_recording_context", "params": {"expectedStateVersion":3,"before": observed, "changes": {
             "currentSongTime": 32.0, "metronome": False,
             "arrangement": {"record": True, "overdub": True, "punchIn": False, "punchOut": True, "backToArranger": True},
             "session": {"record": True, "overdub": False}, "automationArm": True,
@@ -867,7 +873,7 @@ class DispatchTest(unittest.TestCase):
         self.assertTrue(song.session_automation_record)
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
-    def test_transport_recording_context_rolls_back_before_record_if_setter_fails(self):
+    def test_transport_recording_context_keeps_seek_after_later_setter_failure(self):
         class RejectingSong(Song):
             @property
             def metronome(self):
@@ -881,13 +887,19 @@ class DispatchTest(unittest.TestCase):
 
         song = RejectingSong()
         song._reject_metronome = True
-        before = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
-        with self.assertRaisesRegex(ValueError, "metronome rejected"):
-            dispatch_request(song, {"method": "set_transport_recording_context", "params": {
-                "before": before, "changes": {"currentSongTime": 32.0, "metronome": True,
-                                               "arrangement": {"record": True}},
-            }}, 3)
-        self.assertEqual(song.current_song_time, 4.0)
+        song.is_counting_in = False
+        for track in song.tracks:
+            track.arrangement_clips = []
+            for slot in track.clip_slots:
+                if slot.has_clip: slot.clip.is_recording = False
+        before = dispatch_request(song, {"method":"get_transport_seek_context"}, 3)
+        result = dispatch_request(song, {"method": "set_transport_recording_context", "params": {
+            "expectedStateVersion":3,"before": before, "changes": {"currentSongTime": 32.0, "metronome": True,
+                                           "arrangement": {"record": True}},
+        }}, 3)
+        self.assertIn("metronome rejected", result["error"])
+        self.assertFalse(result["nativeReturned"])
+        self.assertEqual(song.current_song_time, 32.0)
         self.assertFalse(song.record_mode)
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
@@ -908,17 +920,15 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
     def test_transport_binding_keeps_seek_stopped_position_and_mode_guards(self):
-        for change in ("seek", "stopped", "playback", "record", "automation", "version"):
+        for change in ("stopped", "playback", "record", "automation", "version"):
             with self.subTest(change=change):
                 song = Song()
                 song.is_playing = change != "stopped"
                 before = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
                 changes = {"arrangement": {"overdub": True}}
-                if change == "seek":
-                    changes["currentSongTime"] = 32.0
-                elif song.is_playing:
+                if song.is_playing:
                     del before["currentSongTime"]
-                if change in ("seek", "stopped"):
+                if change == "stopped":
                     song.current_song_time += 1
                 if change == "playback":
                     song.is_playing = False
@@ -934,11 +944,16 @@ class DispatchTest(unittest.TestCase):
 
     def test_transport_recording_context_rejects_external_change_at_native_boundary(self):
         song = Song()
-        before = dispatch_request(song, {"method": "get_transport_recording_context"}, 3)
+        song.is_counting_in = False
+        for track in song.tracks:
+            track.arrangement_clips = []
+            for slot in track.clip_slots:
+                if slot.has_clip: slot.clip.is_recording = False
+        before = dispatch_request(song, {"method": "get_transport_seek_context"}, 3)
         song.metronome = True
         with self.assertRaisesRegex(ValueError, "changed after planning"):
             dispatch_request(song, {"method": "set_transport_recording_context", "params": {
-                "before": before, "changes": {"currentSongTime": 32.0, "arrangement": {"record": True}},
+                "expectedStateVersion":3, "before": before, "changes": {"currentSongTime": 32.0, "arrangement": {"record": True}},
             }}, 3)
         self.assertEqual(song.current_song_time, 4.0)
         self.assertFalse(song.record_mode)

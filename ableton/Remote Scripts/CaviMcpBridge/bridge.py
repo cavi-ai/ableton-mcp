@@ -3533,6 +3533,12 @@ def dispatch_request(song, request, state_version, application=None):
         return _song_musical_context(song, state_version + 1)
     if method == "get_transport_recording_context":
         return _transport_recording_context(song, state_version)
+    if method == "get_transport_seek_context" or (method == "set_transport_recording_context" and "currentSongTime" in params.get("changes", {})):
+        try:
+            from . import transport_seek
+        except ImportError:
+            import transport_seek
+        return (transport_seek.context if method == "get_transport_seek_context" else transport_seek.seek)(song, params, state_version)
     if method == "set_transport_recording_context":
         changes = params["changes"]
         before = _transport_recording_context(song, state_version)
@@ -7090,7 +7096,7 @@ class SocketBridge:
                 if request.get("method") == "prepare_instrument_comparison":
                     self._defer_instrument_comparison(client, request, song, record)
                     return
-                if request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state", "re_enable_parameter_automation", "override_parameter_automation", "set_mixer_panning"):
+                if (request.get("method") == "set_transport_recording_context" and "currentSongTime" in request.get("params", {}).get("changes", {})) or request.get("method") in ("audition_arrangement_passage", "return_tracks_to_arrangement", "set_crossfader_state", "re_enable_parameter_automation", "override_parameter_automation", "set_mixer_panning"):
                     self._defer_observed_mutation(client, request, song, record)
                     return
                 result = dispatch_request(
@@ -7153,9 +7159,9 @@ class SocketBridge:
     def _defer_observed_mutation(self, client, request, song, record=None):
         try:
             try:
-                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning
+                from . import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, transport_seek
             except ImportError:
-                import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning
+                import arrangement_audition, arrangement_return, crossfader, parameter_automation, manual_override, panning, transport_seek
             module, success_key = {
                 'return_tracks_to_arrangement': (arrangement_return, 'returned'),
                 'audition_arrangement_passage': (arrangement_audition, 'started'),
@@ -7163,6 +7169,7 @@ class SocketBridge:
                 're_enable_parameter_automation': (parameter_automation, 'verified'),
                 'override_parameter_automation': (manual_override, 'verified'),
                 'set_mixer_panning': (panning, 'verified'),
+                'set_transport_recording_context': (transport_seek, 'nativeReturned'),
             }[request['method']]
             operation = module.begin(song, request.get("params", {}), self.state_version)
             self.state_version += 1
@@ -7172,9 +7179,12 @@ class SocketBridge:
         self.deferred_request = True
 
         def reply_unverified(error):
-            operation["error"] = f"Native readback failed: {error}"[:600]
             try:
-                result = module.complete(self.control_surface.song(), operation, self.state_version)
+                if request["method"] == "set_transport_recording_context":
+                    result = module.unobserved(operation, self.state_version, error)
+                else:
+                    operation["error"] = f"Native readback failed: {error}"[:600]
+                    result = module.complete(self.control_surface.song(), operation, self.state_version)
                 response = {"id": request.get("id"), "result": result}
             except Exception as failure:
                 response = {"id": request.get("id"), "error": {"message": str(failure) or failure.__class__.__name__}}
