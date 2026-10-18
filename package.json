@@ -32,6 +32,8 @@
     "apps/ableton-mcp/src",
     "ableton/Remote Scripts/CaviMcpBridge/__init__.py",
     "ableton/Remote Scripts/CaviMcpBridge/bridge.py",
+    "ableton/Remote Scripts/CaviMcpBridge/arrangement_copy.py",
+    "ableton/Remote Scripts/CaviMcpBridge/scene_capture.py",
     "ableton/Remote Scripts/CaviMcpBridge/capabilities.json",
     "ableton/Remote Scripts/CaviMcpBridge/protocol.py",
     "ableton/Remote Scripts/CaviMcpBridge/parameter_automation.py",

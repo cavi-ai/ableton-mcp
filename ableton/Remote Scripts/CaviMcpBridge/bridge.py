@@ -879,9 +879,13 @@ def _restore_mixer_journal_entry(entry):
 
 
 def _return_mixer_record(track, index):
+    try:
+        from .track_volume import volume_record
+    except ImportError:
+        from track_volume import volume_record
     return {
         "id": f"return-{index}", "name": track.name,
-        "volume": _value_record(track.mixer_device.volume),
+        "volume": volume_record(track.mixer_device.volume),
         "pan": _pan_record(track.mixer_device),
         "mute": bool(track.mute), "solo": bool(track.solo),
         "devices": [_device_tree(device, f"return-{index}:device-{device_index}")
@@ -913,13 +917,17 @@ def _return_routing(song, return_id, state_version):
 
 
 def _set_mixer(song, state_version):
+    try:
+        from .track_volume import volume_record
+    except ImportError:
+        from track_volume import volume_record
     mixer = song.master_track.mixer_device
     master = song.master_track
     output_supported = hasattr(master, "current_output_sub_routing") and hasattr(master, "available_output_routing_channels")
     return {
         "stateVersion": state_version,
         "master": {
-            "volume": _value_record(mixer.volume), "pan": _pan_record(mixer),
+            "volume": volume_record(mixer.volume), "pan": _pan_record(mixer),
             "cueVolume": _value_record(mixer.cue_volume), "crossfader": _value_record(mixer.crossfader),
             "outputRouting": {
                 "supported": output_supported,
@@ -3145,6 +3153,18 @@ def _clip_hold_module():
 
 
 def dispatch_request(song, request, state_version, application=None):
+    if request.get("method") in ("get_session_scene_capture_context", "capture_session_scene"):
+        try:
+            from .scene_capture import context, capture
+        except ImportError:
+            from scene_capture import context, capture
+        return (context if request["method"] == "get_session_scene_capture_context" else capture)(song, request.get("params", {}), state_version)
+    if request.get("method") in ("get_arrangement_copy_source", "copy_arrangement_clip_to_track"):
+        try:
+            from .arrangement_copy import source, duplicate
+        except ImportError:
+            from arrangement_copy import source, duplicate
+        return (source if request["method"] == "get_arrangement_copy_source" else duplicate)(song, request.get("params", {}), state_version)
     if request.get('method') in ('get_device_preset_source', 'select_device_preset_source'):
         try:
             from .device_preset import source, select
@@ -5046,7 +5066,7 @@ def dispatch_request(song, request, state_version, application=None):
                 ):
                     raise ValueError("Live changed the duplicated clip interval")
                 if any(
-                    other is not duplicate
+                    other != duplicate
                     and float(duplicate.start_time) < float(other.end_time)
                     and float(duplicate.end_time) > float(other.start_time)
                     for other in track.arrangement_clips
