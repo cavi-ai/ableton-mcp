@@ -213,6 +213,7 @@ const toolNames = [
   "copy_arrangement_clip_to_track",
   "capture_session_scene",
   "create_audio_clip",
+  "create_arrangement_audio_clip",
   "set_return_mixer",
   "list_factory_device_profiles",
   "get_factory_coverage",

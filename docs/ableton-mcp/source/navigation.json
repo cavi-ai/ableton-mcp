@@ -75,6 +75,7 @@
         { "title": "Reuse clips across tracks", "path": "guides/clip-reuse.md" },
         { "title": "Sketch MIDI from audio", "path": "guides/audio-midi-sketch.md" },
         { "title": "Develop an audio clip", "path": "guides/audio-clip-development.md" },
+        { "title": "Bring audio into a song", "path": "guides/audio-import.md" },
         { "title": "Reverse audio alternatives", "path": "guides/audio-reversal.md" },
         { "title": "Shared instrument buses", "path": "guides/shared-instrument-buses.md" },
         { "title": "Create a native track Group", "path": "guides/track-grouping.md" },

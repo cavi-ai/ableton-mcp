@@ -1,4 +1,6 @@
 [
+  "get_arrangement_audio_import_target",
+  "create_arrangement_audio_clip",
   "get_arrangement_creation_target",
   "create_arrangement_midi_clip",
   "get_selected_parameter_context", "get_selected_parameter_edit_context", "set_selected_parameter",
