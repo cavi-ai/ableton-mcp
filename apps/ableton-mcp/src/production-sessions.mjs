@@ -1,4 +1,5 @@
 const sameState = (a, b) => a?.stateVersion === b?.stateVersion && a?.setFingerprint === b?.setFingerprint;
+const completedPhases = new Set(["audition", "evaluate", "complete"]);
 
 // Session revisions are immutable. Publishing the next revision is a cross-process
 // compare-and-swap; long-running model requests never hold the Live control queue.
@@ -58,9 +59,17 @@ export class ProductionSessions {
       if (observed.documentPath !== s.documentPath) throw new Error("session Set identity does not match Live; open the original Set or start another session");
       return observed;
     };
-    const fresh = async () => {
+    const canRetainCompletedWork = observed => completedPhases.has(s.phase) && observed.stateVersion > s.basis.stateVersion &&
+      observed.setFingerprint === s.basis.setFingerprint && observed.targetHash === s.targetHash;
+    const withObservation = observed => ({ ...s,
+      basis: { stateVersion: observed.stateVersion, setFingerprint: observed.setFingerprint },
+      contextRef: observed.contextRef, targetRef: observed.targetRef, targetHash: observed.targetHash });
+    const fresh = async (retainCompletedWork = false) => {
       const observed = await observe();
-      if (!sameState(observed, s.basis) || observed.targetHash !== s.targetHash) throw new Error("session state changed; resume and propose again");
+      if (!sameState(observed, s.basis) || observed.targetHash !== s.targetHash) {
+        if (!retainCompletedWork || !canRetainCompletedWork(observed)) throw new Error("session state changed; resume and propose again");
+        s = { ...withObservation(observed), stateChanged: true };
+      }
       return observed;
     };
     const restart = observed => ({ ...s, phase: "inspect", taskId: undefined, receiptId: undefined, operationIndex: undefined,
@@ -72,20 +81,24 @@ export class ProductionSessions {
       const observed = await observe();
       const changed = !sameState(observed, s.basis) || observed.targetHash !== s.targetHash;
       const interrupted = ["execution_pending", "proposing", "needs_inspection"].includes(s.phase);
-      return save({ ...(changed || interrupted ? restart(observed) : s), contextRef: observed.contextRef,
-        stateChanged: changed, status: interrupted ? "interrupted_inspect_before_proposing" : changed ? "requires_proposal" : s.status });
+      const retained = changed && canRetainCompletedWork(observed);
+      const reevaluate = s.phase === "complete" && (!changed || retained);
+      return save({ ...(retained ? withObservation(observed) : changed || interrupted ? restart(observed) : s), contextRef: observed.contextRef,
+        ...(reevaluate ? { phase: "evaluate", evaluationRef: undefined, userDecision: undefined } : {}),
+        stateChanged: changed, status: interrupted ? "interrupted_inspect_before_proposing" : changed && !retained ? "requires_proposal"
+          : reevaluate ? "requires_evaluation" : s.status });
     }
     if (action === "feedback") {
       phase("audition", "evaluate");
       if (!args.text) throw new Error("listening feedback text is required");
-      await fresh();
+      await fresh(true);
       const feedbackRef = this.artifacts.put(projectId, "feedback", { text: args.text, taskId: s.taskId, receiptId: s.receiptId });
       return save({ ...s, feedbackRef, phase: "evaluate" });
     }
     if (action === "evaluate") {
       phase("evaluate");
       if ((!checkedCompletion && !s.feedbackRef) || !args.decision) throw new Error("feedback and an explicit decision are required");
-      const observed = await fresh();
+      const observed = await fresh(true);
       if (s.receiptId && this.artifacts.get(projectId, s.receiptId).value.status !== "applied") throw new Error("operation outcome requires inspection");
       if (args.decision === "accept") {
         const task = this.artifacts.get(projectId, s.taskId).value;

@@ -489,7 +489,8 @@ test('functional sessions complete caller criteria without a creative role or in
   const resumed = await reopen().call('advance_production_session', {
     projectId: 'song', sessionId: session.sessionId, expectedRevision: session.revision, action: 'resume'
   });
-  assert.equal(resumed.phase, 'complete'); assert.equal(resumed.roles, 'functional');
+  assert.equal(resumed.phase, 'evaluate'); assert.equal(resumed.status, 'requires_evaluation');
+  assert.equal(resumed.evaluationRef, undefined); assert.equal(resumed.roles, 'functional');
   assert.equal(resumed.completion, 'postconditions'); assert.equal(resumed.stateChanged, false);
 });
 
@@ -545,7 +546,7 @@ test('caller-checked sessions can complete an already satisfied task in either r
 
 test('functional listening sessions still require actual feedback and postcondition sessions refuse stale acceptance', async t => {
   for (const completion of ['listening', 'postconditions']) {
-    const { service, change } = await setup(t, () => response());
+    const { service, base } = await setup(t, () => response());
     let session = await service.call('start_production_session', { projectId: 'song', goal: 'Keep tempo 120',
       roles: 'functional', completion, postconditions: [{ tool: 'get_live_state', args: {}, path: ['tempo'], expected: 120 }] });
     const advance = async args => session = await service.call('advance_production_session', {
@@ -557,10 +558,52 @@ test('functional listening sessions still require actual feedback and postcondit
       await assert.rejects(advance({ action: 'evaluate', decision: 'accept' }), /feedback|phase/);
       await advance({ action: 'feedback', text: 'I prefer the current tempo.' });
     }
-    change();
+    const original = base.call.bind(base);
+    base.call = async (name, args) => name === 'get_live_state'
+      ? { ...await original(name, args), tempo: 121 } : original(name, args);
     await assert.rejects(advance({ action: 'evaluate', decision: 'accept' }), /state changed/);
     await advance({ action: 'resume' }); assert.equal(session.phase, 'inspect');
   }
+});
+
+test('resume reopens checked acceptance when manual playback changes without advancing the bridge version', async t => {
+  const { service, base } = await setup(t, () => response());
+  let playing = false; const original = base.call.bind(base);
+  base.call = async (name, args) => name === 'get_live_state'
+    ? { ...await original(name, args), isPlaying: playing } : original(name, args);
+  let session = await service.call('start_production_session', { projectId: 'song', goal: 'Keep playback stopped',
+    roles: 'functional', completion: 'postconditions', postconditions: [{ tool: 'get_live_state', args: {}, path: ['isPlaying'], expected: false }] });
+  const advance = async args => session = await service.call('advance_production_session', {
+    projectId: 'song', sessionId: session.sessionId, expectedRevision: session.revision, ...args
+  });
+  await advance({ action: 'propose' }); await advance({ action: 'evaluate', decision: 'accept' });
+  assert.equal(session.status, 'postconditions_met'); const basis = session.basis;
+  playing = true; await advance({ action: 'resume' });
+  assert.equal(session.phase, 'evaluate'); assert.equal(session.status, 'requires_evaluation');
+  assert.equal(session.evaluationRef, undefined); assert.equal(session.userDecision, undefined);
+  assert.deepEqual(session.basis, basis); assert.equal(session.stateChanged, false);
+  await advance({ action: 'evaluate', decision: 'accept' });
+  assert.equal(session.phase, 'evaluate'); assert.equal(session.status, 'postconditions_failed');
+});
+
+test('checked completion retains completed work across playback versions and rechecks acceptance', async t => {
+  const { service, change, artifacts } = await setup(t, () => response());
+  let session = await service.call('start_production_session', { projectId: 'song', goal: 'Keep tempo 120',
+    roles: 'functional', completion: 'postconditions', postconditions: [{ tool: 'get_live_state', args: {}, path: ['tempo'], expected: 120 }] });
+  const advance = async args => session = await service.call('advance_production_session', {
+    projectId: 'song', sessionId: session.sessionId, expectedRevision: session.revision, ...args
+  });
+  await advance({ action: 'propose' }); const taskId = session.taskId;
+  change(); await advance({ action: 'evaluate', decision: 'accept' });
+  assert.equal(session.status, 'postconditions_met'); assert.equal(session.basis.stateVersion, 2);
+  const priorEvaluation = session.evaluationRef;
+  change(); await advance({ action: 'resume' });
+  assert.equal(session.phase, 'evaluate'); assert.equal(session.status, 'requires_evaluation');
+  assert.equal(session.taskId, taskId); assert.equal(session.evaluationRef, undefined);
+  assert.equal(session.feedbackRef, undefined); assert.equal(session.userDecision, undefined);
+  await advance({ action: 'evaluate', decision: 'accept' });
+  assert.equal(session.status, 'postconditions_met'); assert.equal(session.basis.stateVersion, 3);
+  assert.equal(artifacts.get('song', priorEvaluation).value.checks[0].matches, true);
 });
 
 test("resuming after a manual edit invalidates saved proposals without changing Live", async t => {
@@ -892,4 +935,141 @@ test('an outer failure cannot be hidden by a positive observed native receipt',a
  const plan=await service.call('apply_production_operation',args);
  const result=await service.call('apply_production_operation',{...args,dryRun:false,confirmationToken:plan.confirmationToken,planHash:plan.planHash});
  assert.equal(result.status,'outcome_unknown');assert.equal(result.nativeVerificationFailed,true);
+});
+
+async function appliedSession(t) {
+  const fixture = await setup(t, packet => response(packet.role === "creative" ?
+    { alternatives: [{ name: "Sparse", description: "Less busy" }] } : { operations: [{ tool: "set_tempo", args: { tempo: 100 } }] }));
+  let playing = false;
+  const original = fixture.base.call.bind(fixture.base);
+  fixture.base.call = async (name, args) => {
+    const result = await original(name, args);
+    return name === "get_live_state" ? { ...result, isPlaying: playing } : result;
+  };
+  let session = await fixture.service.call("start_production_session", { projectId: "song", goal: "Refine bass", scope: { trackId: "track-0" },
+    postconditions: [{ tool: "get_live_state", args: {}, path: ["isPlaying"], expected: false }] });
+  const advance = args => fixture.service.call("advance_production_session", { projectId: "song", sessionId: session.sessionId,
+    expectedRevision: session.revision, ...args });
+  for (const args of [{ action: "propose" }, { action: "choose", alternativeIndex: 0 }, { action: "propose" }]) session = await advance(args);
+  const plan = await advance({ action: "apply", expectedStateVersion: 1 });
+  session = await advance({ action: "apply", expectedStateVersion: 1, dryRun: false,
+    confirmationToken: plan.operation.confirmationToken, planHash: plan.operation.planHash });
+  assert.equal(session.phase, "audition");
+  return { ...fixture, session, setPlaying: value => { playing = value; fixture.change(); } };
+}
+
+for (const phase of ["audition", "evaluate", "complete"]) test(`resume retains ${phase} evidence after a version advance with unchanged scoped content`, async t => {
+  const { service, artifacts, reopen, change, packets, calls, session: started } = await appliedSession(t);
+  let session = started;
+  const advance = args => service.call("advance_production_session", { projectId: "song", sessionId: session.sessionId,
+    expectedRevision: session.revision, ...args });
+  if (phase !== "audition") session = await advance({ action: "feedback", text: "Test listening preference." });
+  if (phase === "complete") session = await advance({ action: "evaluate", decision: "accept" });
+  const before = session;
+  change();
+  session = await reopen().call("advance_production_session", { projectId: "song", sessionId: session.sessionId,
+    expectedRevision: session.revision, action: "resume" });
+  assert.equal(session.phase, phase === "complete" ? "evaluate" : phase);
+  assert.equal(session.stateChanged, true);
+  for (const key of ["taskId", "receiptId", "selectedRef", "feedbackRef"]) assert.equal(session[key], before[key]);
+  if (phase === "complete") {
+    assert.equal(session.status, "requires_evaluation");
+    assert.equal(session.evaluationRef, undefined);
+    assert.equal(session.userDecision, undefined);
+    assert.equal(artifacts.get("song", before.evaluationRef).value.decision, "accept");
+  } else assert.equal(session.evaluationRef, before.evaluationRef);
+  assert.equal(session.basis.stateVersion, 3);
+  assert.equal(artifacts.get("song", session.taskId).value.basis.stateVersion, 1);
+  assert.equal(artifacts.get("song", session.receiptId).value.after.stateVersion, 2);
+  await assert.rejects(advance({ action: "apply", expectedStateVersion: 3 }), /phase/);
+  assert.equal(packets.length, 2);
+  assert.equal(calls.filter(call => call.name === "set_tempo" && call.args.dryRun === false).length, 1);
+});
+
+test("feedback and evaluation tolerate version advances but still enforce declared playback checks", async t => {
+  const { service, setPlaying, session: started } = await appliedSession(t);
+  let session = started;
+  const advance = args => service.call("advance_production_session", { projectId: "song", sessionId: session.sessionId,
+    expectedRevision: session.revision, ...args });
+  setPlaying(true);
+  session = await advance({ action: "feedback", text: "Test preference after playback." });
+  assert.equal(session.phase, "evaluate");
+  assert.equal(session.basis.stateVersion, 3);
+  session = await advance({ action: "evaluate", decision: "accept" });
+  assert.equal(session.phase, "evaluate");
+  assert.equal(session.status, "postconditions_failed");
+  assert.equal(session.checks[0].matches, false);
+  setPlaying(false);
+  session = await advance({ action: "evaluate", decision: "accept" });
+  assert.equal(session.phase, "complete");
+  assert.equal(session.basis.stateVersion, 4);
+  assert.equal(session.audibleQualityVerified, false);
+});
+
+for (const edit of ["scoped mixer", "fingerprint", "version regression"]) test(`resume invalidates audition evidence after ${edit} changes`, async t => {
+  const { service, base, session } = await appliedSession(t);
+  const original = base.call.bind(base);
+  base.call = async (name, args) => {
+    const value = await original(name, args);
+    if (edit === "scoped mixer" && name === "get_track_mixer") return { ...value, volume: { value: 0.7 } };
+    if (edit === "fingerprint" && name === "get_live_state") return { ...value, setFingerprint: "edited-set" };
+    if (edit === "version regression" && name === "get_live_state") return { ...value, stateVersion: 1 };
+    return value;
+  };
+  await assert.rejects(service.call("advance_production_session", { projectId: "song", sessionId: session.sessionId,
+    expectedRevision: session.revision, action: "feedback", text: "Test preference." }), /state changed/);
+  const resumed = await service.call("advance_production_session", { projectId: "song", sessionId: session.sessionId,
+    expectedRevision: session.revision, action: "resume" });
+  assert.equal(resumed.phase, "inspect");
+  assert.equal(resumed.taskId, undefined);
+  assert.equal(resumed.receiptId, undefined);
+});
+
+test("acceptance rejects a version change during required outcome checks", async t => {
+  const { service, base, change } = await setup(t, () => response({ alternatives: [{ name: "Sparse", description: "Less busy" }] }));
+  let canUndo = true, changeDuringCheck = false;
+  const original = base.call.bind(base);
+  base.call = async (name, args) => {
+    if (name !== "get_history_state") return original(name, args);
+    const result = { canUndo };
+    if (changeDuringCheck) { canUndo = false; change(); }
+    return result;
+  };
+  let session = await service.call("start_production_session", { projectId: "song", goal: "Compare bass",
+    postconditions: [{ tool: "get_history_state", args: {}, path: ["canUndo"], expected: true }] });
+  const advance = args => service.call("advance_production_session", { projectId: "song", sessionId: session.sessionId,
+    expectedRevision: session.revision, ...args });
+  for (const args of [{ action: "propose" }, { action: "choose", alternativeIndex: 0 }, { action: "propose" },
+    { action: "feedback", text: "Test listening preference." }]) session = await advance(args);
+  changeDuringCheck = true;
+  await assert.rejects(advance({ action: "evaluate", decision: "accept" }), /state changed/);
+  assert.equal((await service.call("get_production_session", { projectId: "song", sessionId: session.sessionId })).phase, "evaluate");
+});
+
+test("resuming accepted work requires fresh checks against the current playback state", async t => {
+  const { service, setPlaying, session: started } = await appliedSession(t);
+  let session = started;
+  const advance = args => service.call("advance_production_session", { projectId: "song", sessionId: session.sessionId,
+    expectedRevision: session.revision, ...args });
+  session = await advance({ action: "feedback", text: "Test preference." });
+  session = await advance({ action: "evaluate", decision: "accept" });
+  const accepted = session;
+  session = await advance({ action: "resume" });
+  assert.equal(session.phase, "evaluate");
+  assert.equal(session.status, "requires_evaluation");
+  assert.equal(session.evaluationRef, undefined);
+  session = await advance({ action: "evaluate", decision: "accept" });
+  assert.equal(session.phase, "complete");
+  setPlaying(true);
+  session = await advance({ action: "resume" });
+  assert.equal(session.phase, "evaluate");
+  assert.equal(session.status, "requires_evaluation");
+  assert.equal(session.evaluationRef, undefined);
+  assert.equal(session.userDecision, undefined);
+  assert.equal(session.feedbackRef, accepted.feedbackRef);
+  session = await advance({ action: "evaluate", decision: "accept" });
+  assert.equal(session.status, "postconditions_failed");
+  setPlaying(false);
+  session = await advance({ action: "evaluate", decision: "accept" });
+  assert.equal(session.phase, "complete");
 });

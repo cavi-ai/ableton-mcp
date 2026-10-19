@@ -7,7 +7,7 @@ Local-first Ableton Live control for MCP clients. It has three parts: a Remote S
 
 ## Install
 
-Requirements: macOS, Ableton Live 12 (tested with 12.4.5), Node.js 22.13 or newer, and `ffmpeg` for the audio analysis tools.
+Requirements: macOS, Ableton Live 12 (tested with 12.4.6), Node.js 22.13 or newer, and `ffmpeg` for the audio analysis tools.
 
 ```bash
 git clone https://github.com/cavi-ai/ableton-mcp.git

@@ -4242,7 +4242,7 @@ class DispatchTest(unittest.TestCase):
         song = Song()
         status = dispatch_request(song, {"method": "get_live_state", "params": {}}, 4)
         self.assertEqual(status["stateVersion"], 4)
-        self.assertEqual(status["bridgeVersion"], "0.2.1")
+        self.assertEqual(status["bridgeVersion"], "0.3.0")
         self.assertIn("list_scenes", status["capabilities"])
         self.assertIn("create_rack_chain", status["capabilities"])
         self.assertIn("move_device_to_chain", status["capabilities"])
