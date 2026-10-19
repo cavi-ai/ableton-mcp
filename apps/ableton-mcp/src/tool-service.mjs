@@ -1,4 +1,5 @@
 import {setSessionClipEntry} from './clip-entry.mjs';
+import {withMutationOutcome} from './mutation-outcomes.mjs';
 import {jumpToCuePoint} from './cue-jump.mjs';
 import {seekTransport} from './transport-seek.mjs';
 import {reverseMidiPhrase} from './midi-retrograde.mjs';
@@ -530,6 +531,10 @@ export class ToolService {
   }
 
   async call(name, args = {}) {
+    return withMutationOutcome(name, args, await this.#call(name, args));
+  }
+
+  async #call(name, args) {
     if (name === 'set_session_clip_entry') return setSessionClipEntry(this.bridge,this.confirmations,args);
     requestSignal()?.throwIfAborted();
     if (name === 'show_live_object') return showLiveObject(this.bridge, this.confirmations, args);

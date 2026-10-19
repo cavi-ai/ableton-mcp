@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+- Added a shared execution-outcome contract for guarded Live mutations and production sessions, preserving native receipts and keeping partial, failed or pending work out of applied status.
+- Reject malformed and conflicting producer scopes before Live observation or specialist calls, including saved tasks.
+- Corrected tool effect annotations and added a directory profile exposing individual native tools without producer coordinators.
+
 ## 0.3.0
 
 - Added production workflow discovery, bounded creative and functional specialists, and durable sessions with caller-defined completion checks.

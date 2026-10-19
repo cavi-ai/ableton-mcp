@@ -68,7 +68,9 @@ Scope checks cover target arrays, nested targets and source/destination aliases 
 
 Scope IDs must be canonical and belong to the same owner. Malformed or conflicting IDs are rejected before observing Live or calling a specialist. Task scopes may specify only a clip or device ID; durable sessions still require its explicit track owner.
 
-Native receipts requiring inspection or reporting incomplete color writes or unverified navigation cannot become applied producer receipts. The session retains the result for inspection and cannot advance, even when declared field checks pass.
+Confirmed native mutations return an additive `operationOutcome` object with `schemaVersion: 1`, `status`, `reason` and an `evidence` list of field names. The native receipt remains intact. The same outcome contract controls producer receipts and durable session advancement, even when declared field checks pass. Dry-run plans and reads do not acquire an execution outcome.
+
+Each guarded native tool declares its receipt policy. Tools exposing execution-verification fields must supply their affirmative evidence; missing, contradictory or failed receipts remain `outcome_unknown`. Legacy versioned mutations retain their operation-response and state-readback guarantee. Request-only launches and active recordings remain `pending_postconditions`; UI actions awaiting user input remain `pending_user_action`. Handle-release evidence describes cleanup, not a completed performance. False audible-quality, hidden-state and equivalence limitations do not by themselves indicate execution failure.
 
 All public tools declare four boolean annotations. Capturing production context persists an artifact and is an additive write. Tools that overwrite existing state are marked potentially destructive; additive creation tools are separate. Private project reads and notes are closed-world, while configured model providers and arbitrary file paths can cross that boundary. Annotations describe effects and never replace native confirmations or scope checks.
 
