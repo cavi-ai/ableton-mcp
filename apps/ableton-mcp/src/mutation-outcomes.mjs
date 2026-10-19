@@ -68,6 +68,7 @@ declare(["presetSaveVerified"], "save_native_device_preset");
 declare(["sampleCollectionVerified"], "collect_project_media");
 declare(["opened"], "open_live_set");
 declare(["saved"], "save_live_set");
+declare(["sessionRecordVerified", "scopeVerified"], "set_session_midi_overdub");
 for (const fields of Object.values(mutationOutcomeContracts)) Object.freeze(fields);
 Object.freeze(mutationOutcomeContracts);
 
@@ -87,7 +88,7 @@ function requiredEvidence(name, args) {
   }
   if (name === "set_clip_timing") {
     if (args.grooveId === null) return ["removalVerified"];
-    if (args.loop !== undefined) return ["requestedChangesVerified"];
+    if (Object.values(args.loop ?? {}).some(value => value !== undefined)) return ["requestedChangesVerified"];
   }
   if (name === "set_audio_clip_state" && ["startMarkerBeats", "endMarkerBeats", "startMarkerSeconds", "endMarkerSeconds"].some(key => args[key] !== undefined))
     return ["verification.markerBoundsConfirmed"];
@@ -111,12 +112,12 @@ export function classifyMutationOutcome(name, args, value) {
   if (!Object.hasOwn(mutationOutcomeContracts, name)) return receipt("outcome_unknown", "undeclared_tool");
   if (!record(value) || value.dryRun !== false)
     return receipt("outcome_unknown", "missing_receipt");
-  if (has(value, "inspectionRequired", true)) return receipt("outcome_unknown", "inspection_required");
+  if (has(value, "inspectionRequired", true) || has(value, "requiresInspection", true)) return receipt("outcome_unknown", "inspection_required");
   if (layers(value).some(item => ["verified", "targetRetained", "contextPreserved", "writeCompleted", "showVerified"].some(key => item[key] === false) ||
       item.writeRequested === true && item.nativeReturned === false)) return receipt("outcome_unknown", "native_failure");
   if (has(value, "pendingUserAction", true)) return receipt("pending_user_action", "user_action_required");
   if (Object.hasOwn(value, "observed") && !record(value.observed)) return receipt("outcome_unknown", "missing_receipt");
-  if (layers(value).some(item => ["error", "observationError", "verificationError", "inspectionError", "controlError", "startError"].some(key => Boolean(item[key])) ||
+  if (layers(value).some(item => ["error", "observationError", "verificationError", "inspectionError", "controlError", "startError", "scopeError"].some(key => Boolean(item[key])) ||
       Array.isArray(item.cleanupErrors) && item.cleanupErrors.length || failedStates.has(item.status)))
     return receipt("outcome_unknown", "native_failure");
   if (performanceStarts.has(name) && layers(value).some(item => ["interrupted", "superseded", "cancelled"].includes(item.status)))
