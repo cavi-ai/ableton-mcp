@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0
+
+- Added production workflow discovery, bounded creative and functional specialists, and durable sessions with caller-defined completion checks.
+- Expanded Session and Arrangement composition, MIDI editing, clip comparison, recording, capture, and audio export workflows.
+- Added native instrument comparisons, browser previews, rack performance controls, and audio capture and analysis.
+- Strengthened native identity, recording, automation, routing, and readback checks for track, Group, Return, and Main operations.
+- Added Group and solo signal context, shared-bus production sessions, and detection of musical-context changes before continuing saved proposals.
+- Preserved completed production evidence across playback-only version changes while requiring fresh outcome checks before acceptance.
+
+Upgrade the server and CaviMcpBridge together, reinstall the Remote Script, restart Live, and run `ableton-mcp doctor` to confirm matching versions.
+
 ## 0.2.1
 
 - Corrected MCP ping handling and read-only output schemas and validation.

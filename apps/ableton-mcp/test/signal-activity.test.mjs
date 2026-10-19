@@ -6,7 +6,9 @@ import {toolContracts} from "../src/tool-contracts.mjs";
 import {getProducerWorkflow} from "../src/prompts.mjs";
 
 test("signal activity is an exact read-only bridge request in the all profile", async () => {
-  const calls = [], observed = {stateVersion: 4, trackId: "return-0", meters: {output: {status: "available", value: .25}}};
+  const calls = [], observed = {stateVersion: 4, trackId: "return-0", meters: {output: {status: "available", value: .25}},
+    groupContext:{status:"not_applicable",parents:[],reason:null},
+    soloContext:{status:"partial",soloedTracks:[{trackId:"track-1",name:"Drums",solo:true}],unknownTrackIds:["return-0"]}};
   const service = new ToolService({bridge: {request: async (method, args) => {
     calls.push({method, args}); return observed;
   }}}), route = createRouter(service);
@@ -65,4 +67,7 @@ test("silent-part workflow resolves actual signal evidence and preserves the per
   assert.match(text, /speaker/i);
   assert.match(text, /Never.*unmute/i);
   assert.match(text, /fresh.*plan/i);
+  for(const term of ['groupContext','soloContext','groupMembershipOnly','status','unknownTrackIds','membership','routing']) assert.ok(text.includes(term),term);
+  for(const term of ['set_return_mixer','returnTrackId','shared Return']) assert.ok(text.includes(term),term);
+  for(const term of ['set_master_mixer','hardware','mix-wide']) assert.ok(text.includes(term),term);
 });

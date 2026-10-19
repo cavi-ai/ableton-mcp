@@ -249,6 +249,16 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
           }
         ]
       };
+      if (method === "get_track_mixer_edit_context") return {stateVersion:4,identityToken:"native-mixer",trackIds:params.trackIds,readyToChange:true,reasons:[],tracks:await Promise.all(params.trackIds.map(trackId=>this.request("get_track_mixer",{trackId})))};
+      if (method === "get_master_mixer_edit_context") {
+        const mixer = await this.request("get_set_mixer",{});
+        return {stateVersion:mixer.stateVersion,identityToken:"native-main",fields:params.fields,master:mixer.master,readyToChange:true,reasons:[]};
+      }
+      if (method === "get_return_mixer_edit_context") {
+        const mixer = await this.request("get_set_mixer",{}), target = mixer.returns.find(row=>row.id===params.returnTrackId);
+        if (!target) throw new Error(`unknown return track ${params.returnTrackId}`);
+        return {stateVersion:mixer.stateVersion,identityToken:"native-return",trackIds:[params.returnTrackId],readyToChange:true,reasons:[],tracks:[{...target,trackId:params.returnTrackId}]};
+      }
       if (method === "get_track_mixer") return {
         stateVersion: 4, trackId: params.trackId,
         volume: { value: 0.75, min: 0, max: 1 },
@@ -266,7 +276,9 @@ function fixture({ extendedNotes = [{ noteId: 7, pitch: 60, start: 0, duration: 
         stateVersion: 4, trackId: params.trackId, clips: [{ id: `${params.trackId}:arrangement-clip-0`,
           name: "Hook", startBeats: 8, endBeats: 16, lengthBeats: 8, type: "midi" }]
       };
-      if (method === "get_track_routing") return {
+      if (method === "get_track_routing" || method === "get_track_routing_edit_context") return {
+        identityToken: "native-routing-owner", recordingOff: true, launchesClear: true,
+        target: {isGroup:false,isFrozen:false}, armStates:[{armed:false,implicitArm:false}],
         stateVersion: 4, trackId: params.trackId,
         input: {
           type: { id: "all-ins", name: "All Ins" }, channel: { id: "all-channels", name: "All Channels" },
@@ -1370,8 +1382,8 @@ test("track routing rejects unknown choices and empty changes", async () => {
 
 test("Group Track monitoring is rejected before mutation planning", async () => {
   const service = new ToolService({ bridge: { async request(method) {
-    assert.equal(method, "get_track_routing");
-    return { stateVersion: 4, trackId: "track-0", monitoring: null };
+    assert.equal(method, "get_track_routing_edit_context");
+    return { stateVersion: 4, trackId: "track-0", identityToken: "group", recordingOff:true, launchesClear:true, monitoring: null };
   } } });
   await assert.rejects(service.call("set_track_routing", { trackId: "track-0", expectedStateVersion: 4, monitoring: "in" }), /monitoring is not supported/);
 });
@@ -1784,7 +1796,7 @@ test("set mixer exposes master and return buses and guards bounded changes", asy
   const originalRequest = service.bridge.request.bind(service.bridge);
   service.bridge.request = async (method, params) => method === "get_set_mixer" ? refreshed : originalRequest(method, params);
   const returnDry = await service.call("set_return_mixer", returnArgs);
-  assert.equal(returnDry.plan.beforeReturn.name, "Reverb");
+  assert.equal(returnDry.plan.before.tracks[0].name, "Reverb");
   assert.equal(returnDry.plan.changes.mute.value, true);
 });
 
@@ -2029,12 +2041,13 @@ test("device sidechain readback preserves exact native routing identity", async 
 
 test("device sidechain changes bind full native state and reject ambiguous sources", async () => {
   const before = { stateVersion: 4, trackId: "track-0", deviceId: "track-0:device-0",
+    identityToken:"owner",frozen:false,recordingOff:true,launchesClear:true,
     device: { name: "Compressor", className: "Compressor2" },
     sidechain: { supported: true, type: { id: "none", name: "No Input" },
       channel: { id: "", name: "" }, availableTypes: [{ id: "bass", name: "Bass" }], availableChannels: [{ id: "", name: "" }] } };
   let mutations = 0;
   const service = new ToolService({ bridge: { async request(method, params) {
-    if (method === "get_device_sidechain_routing") return structuredClone(before);
+    if (method === "get_device_sidechain_edit_context") return structuredClone(before);
     if (method === "set_device_sidechain_routing") {
       assert.deepEqual(params.before, before);
       assert.deepEqual(params.changes, { sourceTypeId: { previous: before.sidechain.type, value: { id: "bass", name: "Bass" } } });
@@ -2310,7 +2323,7 @@ test("clip parameter envelope contract rejects invalid step times and durations"
 
 test("core transport, mixer, scene, and clip operations use guarded mutation plans", async () => {
   const { service, calls } = fixture();
-  for (const name of ["transport_play", "transport_stop", "set_tempo", "launch_clip", "stop_clip", "arm_track"]) {
+  for (const name of ["transport_play", "transport_stop", "set_tempo", "launch_clip", "stop_clip"]) {
     const target=name==="launch_clip"?{trackId:"track-0",clipId:"track-0:clip-0"}:{};
     const dry = await service.call(name, { expectedStateVersion: 4, value: 0.5,...target });
     assert.equal(dry.dryRun, true);

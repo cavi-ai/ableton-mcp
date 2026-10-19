@@ -3,7 +3,7 @@
 ## Requirements
 
 - macOS. The bridge transport is a Unix domain socket, so Windows is not supported.
-- Ableton Live 12. Tested with 12.4.5.
+- Ableton Live 12. Tested with 12.4.6.
 - Node.js 22.13 or newer.
 - `ffmpeg` and `ffprobe`, for the audio analysis tools.
 - ImageMagick 7 (`magick`), only for the NKS artwork pipeline.
@@ -29,7 +29,7 @@ Pass `--destination <Remote Scripts path>` if your User Library is somewhere els
 
 ### An older copy inside the application bundle
 
-On the tested Live 12.4.5 installation, an older copy of the same script inside the application bundle took precedence over both the User Library and the preferences-directory copies. If `doctor` reports an outdated bridge after installing, update that copy:
+An older copy of the script inside the application bundle can take precedence over the User Library copy. If `doctor` reports an outdated bridge after installing, check and update that copy:
 
 ```bash
 npm run cli -- install --destination "/Applications/Ableton Live 12 Suite.app/Contents/App-Resources/MIDI Remote Scripts"

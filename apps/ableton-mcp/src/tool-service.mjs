@@ -7,6 +7,7 @@ import {captureSessionScene} from './scene-capture.mjs';
 import {planArrangementRepeat} from './arrangement-repeat.mjs';
 import {copyArrangementClip} from './arrangement-copy.mjs';
 import {moveArrangementClip} from './arrangement-move.mjs';
+import {armTrack} from './track-arming.mjs';
 import {removeClip} from './clip-removal.mjs';
 import {saveMidiClip,MacMidiExportHost} from './midi-export.mjs';
 import {renameArrangementClip,renameSessionClip} from './clip-names.mjs';
@@ -880,6 +881,8 @@ export class ToolService {
     if (name === "get_track_mixer") return this.bridge.request("get_track_mixer", args);
     if (name === "get_track_signal_activity") return this.bridge.request("get_track_signal_activity", args);
     if (name === "get_track_routing") return this.bridge.request("get_track_routing", args);
+    if (name === "get_track_arm_context") return this.bridge.request(name, args);
+    if (name === "arm_track") return armTrack(this.bridge,this.confirmations,args);
     if (name === "get_set_mixer") return this.bridge.request("get_set_mixer", {});
     if (name === "get_return_routing") return this.bridge.request("get_return_routing", {returnTrackId:args.returnTrackId});
     if (name === "get_producer_workflow") return getProducerWorkflow(args);
@@ -4682,14 +4685,41 @@ export class ToolService {
       verification: { matchesExpectedNotes: true }, timestamp: new Date().toISOString() };
   }
 
+  #mixerFields(args, sends = true) {
+    const fields = ["volume", "pan", "mute", "solo"].filter(key => args[key] !== undefined);
+    for (const key of ["mute", "solo"]) if (args[key] !== undefined && typeof args[key] !== "boolean") throw new Error(`${key} must be boolean`);
+    if (sends && args.sends !== undefined) {
+      if (!Array.isArray(args.sends)) throw new Error("sends must be an array");
+      const seen = new Set();
+      for (const send of args.sends) {
+        if (!send || typeof send.id !== "string" || !/^send-(0|[1-9][0-9]*)$/.test(send.id)) throw new Error(`unknown send ${send?.id}`);
+        if (seen.has(send.id)) throw new Error(`duplicate send ${send.id}`);
+        seen.add(send.id); fields.push(send.id);
+      }
+    }
+    return fields.sort();
+  }
+
+  async #trackMixerContext(args, trackIds, fields) {
+    const before = await this.bridge.request("get_track_mixer_edit_context", { trackIds, fields });
+    assertExpectedState({ expectedStateVersion: args.expectedStateVersion }, before);
+    if (typeof before.identityToken !== "string" || !before.identityToken ||
+        JSON.stringify(before.trackIds) !== JSON.stringify(trackIds) ||
+        JSON.stringify(before.tracks?.map(row => row.trackId)) !== JSON.stringify(trackIds)) {
+      throw new Error("native mixer context required; update the Live bridge");
+    }
+    if (before.readyToChange !== true) throw new Error(`mixer changes refused: ${(before.reasons ?? []).join(", ")}`);
+    return before;
+  }
+
   async #setTrackMixer(args) {
     requireExpectedState(args);
     const hasScalar = ["volume", "pan", "mute", "solo"].some((key) => args[key] !== undefined);
     if (!hasScalar && (!Array.isArray(args.sends) || args.sends.length === 0)) {
       throw new Error("at least one mixer change is required");
     }
-    const observed = await this.bridge.request("get_track_mixer", { trackId: args.trackId });
-    assertExpectedState(args, observed);
+    const before = await this.#trackMixerContext(args, [args.trackId], this.#mixerFields(args));
+    const observed = before.tracks[0];
     if (args.pan !== undefined) assertStereoPan(observed.pan);
     const changes = {};
     for (const key of ["volume", "pan"]) {
@@ -4726,7 +4756,7 @@ export class ToolService {
     }
     const plan = {
       method: "set_track_mixer", trackId: args.trackId,
-      expectedStateVersion: args.expectedStateVersion, changes
+      expectedStateVersion: args.expectedStateVersion, before, changes
     };
     if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
     this.#consumeConfirmation(plan, args);
@@ -4742,14 +4772,12 @@ export class ToolService {
     if (trackIds.length > 64) throw new Error("trackIds supports at most 64 tracks");
     const hasChange = ["volume", "pan", "mute", "solo"].some((key) => args[key] !== undefined);
     if (!hasChange) throw new Error("at least one bulk mixer change is required");
+    const before = await this.#trackMixerContext(args, trackIds, this.#mixerFields(args, false));
     const soloTracks = [];
-    const observedList = [];
-    for (const trackId of trackIds) {
-      const observed = await this.bridge.request("get_track_mixer", { trackId });
-      assertExpectedState(args, observed);
+    const observedList = before.tracks;
+    for (const observed of observedList) {
       if (args.pan !== undefined) assertStereoPan(observed.pan);
-      observedList.push(observed);
-      if (args.solo === true && observed.solo) soloTracks.push(trackId);
+      if (args.solo === true && observed.solo) soloTracks.push(observed.trackId);
       if (args.volume !== undefined && !Number.isFinite(Number(args.volume))) throw new Error("volume must be finite");
     }
     const tracks = trackIds.map((trackId, index) => {
@@ -4771,7 +4799,7 @@ export class ToolService {
     });
     return this.#confirmedMutation({ method: "set_bulk_track_mixer",
       expectedStateVersion: args.expectedStateVersion,
-      trackIds, tracks, before: observedList,
+      trackIds, tracks, before,
       ...(args.solo === true && soloTracks.length ? { warning: `Tracks ${soloTracks.join(", ")} were already soloed.` } : {}) }, args);
   }
 
@@ -4796,9 +4824,15 @@ export class ToolService {
     if (keys.length !== 1) throw new Error("exactly one sidechain source type or channel change is required");
     const key = keys[0];
     if (typeof args[key] !== "string") throw new Error(`${key} must be a string`);
-    const before = await this.bridge.request("get_device_sidechain_routing", { trackId: args.trackId, deviceId: args.deviceId });
+    const before = await this.bridge.request("get_device_sidechain_edit_context", { trackId: args.trackId, deviceId: args.deviceId });
     assertExpectedState(args, before);
+    if (!before.identityToken || before.trackId !== args.trackId || before.deviceId !== args.deviceId) {
+      throw new Error("native sidechain context required; update the Live bridge");
+    }
     if (!before.sidechain.supported) throw new Error("device sidechain routing is unsupported");
+    if (before.frozen !== false || !before.recordingOff || !before.launchesClear) {
+      throw new Error("sidechain routing requires known inactive recording, count-in and pending launches and an unfrozen owner");
+    }
     const isType = key === "sourceTypeId";
     const matches = before.sidechain[isType ? "availableTypes" : "availableChannels"].filter(option => option.id === args[key]);
     if (!matches.length) throw new Error(`unknown ${key} ${args[key]}`);
@@ -4810,8 +4844,10 @@ export class ToolService {
 
   async #setTrackRouting(args) {
     requireExpectedState(args);
-    const observed = await this.bridge.request("get_track_routing", { trackId: args.trackId });
+    const observed = await this.bridge.request("get_track_routing_edit_context", { trackId: args.trackId });
     assertExpectedState(args, observed);
+    if (!observed.identityToken || observed.trackId !== args.trackId) throw new Error("native routing context required; update the Live bridge");
+    if (!observed.recordingOff || !observed.launchesClear) throw new Error("routing requires known inactive recording, count-in and pending launches");
     const changes = {};
     for (const [argument, section, field] of [
       ["inputTypeId", "input", "type"], ["inputChannelId", "input", "channel"],
@@ -4820,7 +4856,9 @@ export class ToolService {
       if (args[argument] === undefined) continue;
       if (typeof args[argument] !== "string") throw new Error(`${argument} must be a string`);
       const choices = observed[section][field === "type" ? "availableTypes" : "availableChannels"];
-      const selected = choices.find(({ id }) => id === args[argument]);
+      const matches = choices.filter(({ id }) => id === args[argument]);
+      if (matches.length > 1) throw new Error(`ambiguous ${argument} ${args[argument]}`);
+      const selected = matches[0];
       if (!selected) throw new Error(`unknown ${argument} ${args[argument]}`);
       changes[argument] = { previous: observed[section][field], value: selected };
     }
@@ -4831,9 +4869,16 @@ export class ToolService {
       changes.monitoring = { previous: { value: observed.monitoring.value, name: observed.monitoring.name }, value: selected };
     }
     if (!Object.keys(changes).length) throw new Error("at least one routing change is required");
+    if (Object.keys(changes).some(key => key.startsWith("input") || key === "monitoring")) {
+      if (observed.target?.isGroup !== false) throw new Error("input and monitoring changes are not supported on Group Tracks");
+      const arm = observed.armStates?.[Number(args.trackId.slice(6))];
+      if (observed.target?.isFrozen !== false || arm?.armed !== false || arm?.implicitArm !== false) {
+        throw new Error("input and monitoring changes require a known unfrozen, disarmed target");
+      }
+    }
     return this.#confirmedMutation({
       method: "set_track_routing", trackId: args.trackId,
-      expectedStateVersion: args.expectedStateVersion, changes
+      expectedStateVersion: args.expectedStateVersion, before: observed, changes
     }, args);
   }
 
@@ -4965,22 +5010,45 @@ export class ToolService {
 
   async #setBusMixer(method, args) {
     requireExpectedState(args);
-    const observed = await this.bridge.request("get_set_mixer", {});
-    assertExpectedState({ expectedStateVersion: args.expectedStateVersion }, observed);
-    const target = method === "set_master_mixer"
-      ? observed.master
-      : observed.returns.find(({ id }) => id === args.returnTrackId);
-    if (!target) throw new Error(`unknown return track ${args.returnTrackId}`);
+    if (method === "set_return_mixer") {
+      if (typeof args.returnTrackId !== "string" || !/^return-(0|[1-9][0-9]*)$/.test(args.returnTrackId)) throw new Error("canonical Return Track ID required");
+      const fields = this.#mixerFields(args, false);
+      if (!fields.length) throw new Error("at least one return mixer change is required");
+      const before = await this.bridge.request("get_return_mixer_edit_context", {returnTrackId: args.returnTrackId, fields});
+      assertExpectedState({expectedStateVersion:args.expectedStateVersion}, before);
+      if (typeof before.identityToken !== "string" || !before.identityToken ||
+          JSON.stringify(before.trackIds) !== JSON.stringify([args.returnTrackId]) ||
+          before.tracks?.length !== 1 || before.tracks[0].trackId !== args.returnTrackId) throw new Error("native Return mixer context required; update the Live bridge");
+      if (before.readyToChange !== true) throw new Error(`Return mixer changes refused: ${(before.reasons ?? []).join(", ")}`);
+      const target = before.tracks[0], changes = {};
+      if (args.pan !== undefined) assertStereoPan(target.pan);
+      for (const key of fields) {
+        if (key === "mute" || key === "solo") changes[key] = {previousValue: target[key], value: args[key]};
+        else {
+          const requestedValue = Number(args[key]);
+          if (!Number.isFinite(requestedValue)) throw new Error(`${key} must be finite`);
+          changes[key] = {previousValue: target[key].value, requestedValue,
+            value: Math.max(target[key].min, Math.min(target[key].max, requestedValue))};
+        }
+      }
+      return this.#confirmedMutation({method,returnTrackId:args.returnTrackId,expectedStateVersion:args.expectedStateVersion,before,changes},args);
+    }
+    const fields = ["volume","pan","cueVolume","crossfader","outputChannelId"].filter(key=>args[key]!==undefined).sort();
+    if (!fields.length) throw new Error("at least one master mixer change is required");
+    const before = await this.bridge.request("get_master_mixer_edit_context", {fields});
+    assertExpectedState({expectedStateVersion:args.expectedStateVersion}, before);
+    if (typeof before.identityToken !== "string" || !before.identityToken || !before.master ||
+        JSON.stringify(before.fields)!==JSON.stringify(fields)) throw new Error("native Main mixer context required; update the Live bridge");
+    if (before.readyToChange !== true) throw new Error(`Main mixer changes refused: ${(before.reasons ?? []).join(", ")}`);
+    const target = before.master;
     if (args.pan !== undefined) assertStereoPan(target.pan);
-    const numericKeys = method === "set_master_mixer"
-      ? ["volume", "pan", "cueVolume", "crossfader"]
-      : ["volume", "pan"];
-    const booleanKeys = method === "set_return_mixer" ? ["mute", "solo"] : [];
+    const numericKeys = ["volume", "pan", "cueVolume", "crossfader"];
     const changes = {};
-    if (method === "set_master_mixer" && args.outputChannelId !== undefined) {
+    if (args.outputChannelId !== undefined) {
       const routing = target.outputRouting;
-      const selected = routing?.availableChannels.find(({ id }) => id === args.outputChannelId);
-      if (!routing?.supported || !selected) throw new Error("master output channel is unavailable");
+      const choices = routing?.availableChannels.filter(({ id }) => id === args.outputChannelId) ?? [];
+      if (!routing?.supported || choices.length !== 1) throw new Error("master output channel is unavailable or ambiguous");
+      const selected = choices[0];
       changes.outputChannelId = { previous: routing.channel, value: selected };
     }
     for (const key of numericKeys) {
@@ -4992,20 +5060,10 @@ export class ToolService {
         value: Math.max(target[key].min, Math.min(target[key].max, requestedValue))
       };
     }
-    for (const key of booleanKeys) {
-      if (args[key] === undefined) continue;
-      if (typeof args[key] !== "boolean") throw new Error(`${key} must be boolean`);
-      changes[key] = { previousValue: target[key], value: args[key] };
-    }
     if (!Object.keys(changes).length) {
-      throw new Error(`at least one ${method === "set_master_mixer" ? "master" : "return"} mixer change is required`);
+      throw new Error("at least one master mixer change is required");
     }
-    const plan = { method, expectedStateVersion: args.expectedStateVersion, changes };
-    if (method === "set_master_mixer") plan.beforeMaster = target;
-    else {
-      plan.returnTrackId = args.returnTrackId;
-      plan.beforeReturn = target;
-    }
+    const plan = { method, expectedStateVersion: args.expectedStateVersion, changes, before };
     return this.#confirmedMutation(plan, args);
   }
 

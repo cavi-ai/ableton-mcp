@@ -1,6 +1,6 @@
 {
   "name": "@cavi-ai/ableton-mcp",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Local-first Ableton Live MCP server, CLI, and Remote Script bridge",
   "keywords": [
     "ableton",
@@ -36,6 +36,7 @@
     "ableton/Remote Scripts/CaviMcpBridge/arrangement_creation.py",
     "ableton/Remote Scripts/CaviMcpBridge/arrangement_copy.py",
     "ableton/Remote Scripts/CaviMcpBridge/arrangement_move.py",
+    "ableton/Remote Scripts/CaviMcpBridge/return_mixer.py",
     "ableton/Remote Scripts/CaviMcpBridge/return_removal.py",
     "ableton/Remote Scripts/CaviMcpBridge/scene_capture.py",
     "ableton/Remote Scripts/CaviMcpBridge/scene_duplication.py",
@@ -44,6 +45,7 @@
     "ableton/Remote Scripts/CaviMcpBridge/protocol.py",
     "ableton/Remote Scripts/CaviMcpBridge/parameter_automation.py",
     "ableton/Remote Scripts/CaviMcpBridge/manual_override.py",
+    "ableton/Remote Scripts/CaviMcpBridge/master_mixer.py",
     "ableton/Remote Scripts/CaviMcpBridge/parameter_display.py",
     "ableton/Remote Scripts/CaviMcpBridge/object_colors.py",
     "ableton/Remote Scripts/CaviMcpBridge/device_preset.py",
@@ -115,7 +117,11 @@
     "ableton/Remote Scripts/CaviMcpBridge/midi_note_removal.py",
     "ableton/Remote Scripts/CaviMcpBridge/midi_insertion.py",
     "ableton/Remote Scripts/CaviMcpBridge/midi_time_scaling.py",
-    "ableton/Remote Scripts/CaviMcpBridge/midi_retrograde.py"
+    "ableton/Remote Scripts/CaviMcpBridge/midi_retrograde.py",
+    "ableton/Remote Scripts/CaviMcpBridge/track_arming.py",
+    "ableton/Remote Scripts/CaviMcpBridge/track_routing.py",
+    "ableton/Remote Scripts/CaviMcpBridge/sidechain_routing.py",
+    "ableton/Remote Scripts/CaviMcpBridge/track_mixer.py"
   ],
   "workspaces": [
     "apps/*",

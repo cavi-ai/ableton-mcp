@@ -69,13 +69,19 @@ const listing = await exchange(bin, ["serve"], { ABLETON_MCP_BRIDGE_SOCKET: path
   { id: 2, method: "tools/list" },
   { id: 3, method: "resources/list" },
   { id: 4, method: "resources/templates/list" },
-  { id: 5, method: "prompts/list" }
+  { id: 5, method: "prompts/list" },
+  { id: 6, method: "tools/call", params: {name:"get_producer_workflow",arguments:{query:"silent part",limit:2}} },
+  { id: 7, method: "tools/call", params: {name:"get_producer_workflow",arguments:{workflow:"diagnose-silent-part",arguments:{request:"Inspect the named part without changing it."}}} }
 ]);
 assert.equal(listing[0].result.serverInfo.name, "ableton-mcp");
 assert.equal(listing[1].result.tools.length, Object.keys(toolContracts).length);
 assert.equal(listing[2].result.resources.length, 9);
 assert.equal(listing[3].result.resourceTemplates.length, 13);
 assert.ok(listing[4].result.prompts.length > 0);
+assert.equal(listing[5].result.structuredContent.workflows[0].name,"diagnose-silent-part");
+assert.ok(listing[5].result.structuredContent.workflows.length<=2);
+assert.equal(listing[6].result.structuredContent.workflow,"diagnose-silent-part");
+assert.match(listing[6].result.structuredContent.messages[0].content.text,/Inspect the named part without changing it/);
 
 const fixture = await exchange(process.execPath, [path.join(installed, "apps/ableton-mcp/src/server.mjs")], { ABLETON_MCP_FIXTURE: "1" }, [
   { id: 1, method: "tools/call", params: { name: "search_presets", arguments: { query: "Deep" } } }
@@ -87,9 +93,11 @@ const producerEnvironment = { ABLETON_MCP_TOOL_PROFILE: "producer", ABLETON_MCP_
 const producer = await exchange(bin, ["serve"], producerEnvironment, [
   { id: 1, method: "tools/list" },
   { id: 2, method: "tools/call", params: { name: "record_production_note", arguments: {
-    projectId: "song", kind: "intent", text: "Preserve the original bass." } } }
+    projectId: "song", kind: "intent", text: "Preserve the original bass." } } },
+  { id: 3, method: "tools/call", params: {name:"get_producer_workflow",arguments:{query:"record Session take",limit:1}} }
 ]);
 assert.equal(producer[0].result.tools.length, 12);
+assert.equal(producer[2].result.structuredContent.workflows[0].name,"record-session-take");
 const noteRef = producer[1].result.structuredContent.noteRef;
 assert.match(noteRef, /^[a-f0-9]{64}$/);
 const note = JSON.parse(execFileSync(bin, ["call", "read_production_artifact", "--args",
@@ -107,7 +115,7 @@ assert.match(producerFixture[0].result.structuredContent.text, /Preserve the ori
 const remoteScripts = path.join(work, "Remote Scripts");
 execFileSync(bin, ["install", "--destination", remoteScripts, "--json"], { encoding: "utf8" });
 const bridgeFiles = readdirSync(path.join(remoteScripts, "CaviMcpBridge")).sort();
-assert.deepEqual(bridgeFiles, ["__init__.py", "arrangement_audio.py", "arrangement_audition.py", "arrangement_copy.py", "arrangement_creation.py", "arrangement_move.py", "arrangement_recording.py", "arrangement_return.py", "arrangement_section.py", "audio_capture.py", "audio_export.py", "audio_midi_sketch.py", "audio_reverse.py", "beat_repeat_fill.py", "bridge.py", "browser_load.py", "browser_preview.py", "capabilities.json", "clip_duplication.py", "clip_entry.py", "clip_envelope.py", "clip_hold.py", "clip_launch.py", "clip_loop_edit.py", "clip_mute.py", "clip_names.py", "clip_removal.py", "crossfader.py", "cue_jump.py", "device_ab.py", "device_bypass.py", "device_preset.py", "instrument_comparison.py", "live_navigation.py", "looper_export.py", "manual_override.py", "midi_capture.py", "midi_clip_markers.py", "midi_crop.py", "midi_export.py", "midi_import.py", "midi_insertion.py", "midi_note_edit.py", "midi_note_removal.py", "midi_note_selection.py", "midi_retrograde.py", "midi_time_scaling.py", "object_colors.py", "panning.py", "parameter_automation.py", "parameter_display.py", "protocol.py", "rack_performance.py", "recording_setup.py", "return_removal.py", "scene_capture.py", "scene_duplication.py", "scene_removal.py", "selected_control.py", "session_arrangement.py", "session_names.py", "session_overdub.py", "session_recording.py", "signal_activity.py", "simpler_sample.py", "take_lanes.py", "track_bounce.py", "track_copy.py", "track_freeze.py", "track_grouping.py", "track_removal.py", "track_send.py", "track_volume.py", "transport_seek.py"]);
+assert.deepEqual(bridgeFiles, ["__init__.py", "arrangement_audio.py", "arrangement_audition.py", "arrangement_copy.py", "arrangement_creation.py", "arrangement_move.py", "arrangement_recording.py", "arrangement_return.py", "arrangement_section.py", "audio_capture.py", "audio_export.py", "audio_midi_sketch.py", "audio_reverse.py", "beat_repeat_fill.py", "bridge.py", "browser_load.py", "browser_preview.py", "capabilities.json", "clip_duplication.py", "clip_entry.py", "clip_envelope.py", "clip_hold.py", "clip_launch.py", "clip_loop_edit.py", "clip_mute.py", "clip_names.py", "clip_removal.py", "crossfader.py", "cue_jump.py", "device_ab.py", "device_bypass.py", "device_preset.py", "instrument_comparison.py", "live_navigation.py", "looper_export.py", "manual_override.py", "master_mixer.py", "midi_capture.py", "midi_clip_markers.py", "midi_crop.py", "midi_export.py", "midi_import.py", "midi_insertion.py", "midi_note_edit.py", "midi_note_removal.py", "midi_note_selection.py", "midi_retrograde.py", "midi_time_scaling.py", "object_colors.py", "panning.py", "parameter_automation.py", "parameter_display.py", "protocol.py", "rack_performance.py", "recording_setup.py", "return_mixer.py", "return_removal.py", "scene_capture.py", "scene_duplication.py", "scene_removal.py", "selected_control.py", "session_arrangement.py", "session_names.py", "session_overdub.py", "session_recording.py", "sidechain_routing.py", "signal_activity.py", "simpler_sample.py", "take_lanes.py", "track_arming.py", "track_bounce.py", "track_copy.py", "track_freeze.py", "track_grouping.py", "track_mixer.py", "track_removal.py", "track_routing.py", "track_send.py", "track_volume.py", "transport_seek.py"]);
 
 const doctor = JSON.parse(execFileSync(bin, ["doctor", "--json"], {
   encoding: "utf8",
@@ -124,6 +132,7 @@ process.stdout.write(`${JSON.stringify({
   resources: listing[2].result.resources.length,
   resourceTemplates: listing[3].result.resourceTemplates.length,
   prompts: listing[4].result.prompts.length,
+  workflowSearchProfiles:["all","producer"],
   bridgeFiles
 })}\n`);
 rmSync(work, { recursive: true, force: true });

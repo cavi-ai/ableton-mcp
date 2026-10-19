@@ -7,7 +7,7 @@ Local-first Ableton Live control for MCP clients. It has three parts: a Remote S
 
 ## Install
 
-Requirements: macOS, Ableton Live 12 (tested with 12.4.5), Node.js 22.13 or newer, and `ffmpeg` for the audio analysis tools.
+Requirements: macOS, Ableton Live 12 (tested with 12.4.6), Node.js 22.13 or newer, and `ffmpeg` for the audio analysis tools.
 
 ```bash
 git clone https://github.com/cavi-ai/ableton-mcp.git
@@ -44,6 +44,14 @@ npm run cli -- status --json
 npm run cli -- call list_devices --args '{"trackId":"track-0"}' --json
 ```
 
+Find workflow guidance before choosing individual tools:
+
+```bash
+npm run cli -- call get_producer_workflow --args '{"query":"silent part","limit":3}' --json
+```
+
+Search returns keyword candidates with their required arguments. Retrieve a chosen reference by its exact `workflow` name and named string `arguments`. Searching and reading guidance do not execute Live operations.
+
 To try client wiring without Live, run `ABLETON_MCP_FIXTURE=1 npm start`.
 
 For a smaller initial tool catalog, set `ABLETON_MCP_TOOL_PROFILE=core` in the MCP server's environment. It advertises 63 common tools instead of the full catalog. Use the default `all` profile when an agent needs the complete MIDI, audio, rack, or snapshot toolset; restart the server after changing profiles. The CLI's direct `call` command remains independent of the discovery profile.
@@ -58,7 +66,7 @@ For separate creative and functional model contexts, configure optional [product
 - **Audio analysis**: loudness, true peak, spectrum, pitch, transients and tuning of local audio files.
 - **Optional NKS preset catalog**: search, tags and favorites for presets discovered from your plug-in libraries.
 
-It publishes 327 tools, 9 concrete resources, 13 resource templates and 89 prompt templates. When Live's Remote Script API doesn't expose something, such as Arrangement automation, the tool reports that boundary and fails closed.
+It publishes 328 tools, 9 concrete resources, 13 resource templates and 89 prompt templates. When Live's Remote Script API doesn't expose something, such as Arrangement automation, the tool reports that boundary and fails closed.
 
 ## Documentation
 
