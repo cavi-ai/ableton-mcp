@@ -4,12 +4,17 @@ import {ToolService} from '../src/tool-service.mjs';
 import {createRouter} from '../src/server.mjs';
 import {getProducerWorkflow} from '../src/prompts.mjs';
 
-function fixture(){
+function fixture(receiptOverrides={}){
   const source={stateVersion:3,trackId:'track-0',clipId:'track-0:clip-0',identityToken:'native',sessionRecord:false,baseline:{notesSha256:'a'}};
   const writes=[];
   const service=new ToolService({bridge:{request:async(method,args)=>{
     if(method==='get_session_midi_overdub_context')return structuredClone(source);
-    if(method==='set_session_midi_overdub'){writes.push(args);return {nativeReturned:true,sessionRecordVerified:true,performanceVerified:false};}
+    if(method==='set_session_midi_overdub'){writes.push(args);return {
+      stateVersion:args.expectedStateVersion+1,operationRequested:true,nativeReturned:true,
+      sessionRecordVerified:true,performanceVerified:false,overdubActiveObserved:args.enabled,
+      recordingStoppedObserved:!args.enabled,scopeVerified:true,scopeError:null,requiresInspection:false,
+      error:null,observationError:null,observed:{sessionRecord:args.enabled,isRecording:args.enabled,isOverdubbing:args.enabled},
+      ...receiptOverrides};}
     throw Error(method);
   }}});
   return {source,writes,service,args:{trackId:source.trackId,clipId:source.clipId,enabled:true,expectedStateVersion:3}};
@@ -22,7 +27,23 @@ test('Session overdub confirms exact source once and distinguishes the recording
   const result=await f.service.call('set_session_midi_overdub',input);
   assert.equal(f.writes.length,1);assert.deepEqual(f.writes[0].before,f.source);
   assert.equal(result.observed.performanceVerified,false);
+  assert.equal(result.operationOutcome.status,'applied');
   await assert.rejects(f.service.call('set_session_midi_overdub',input),/confirmation/);
+});
+
+for(const [name,overrides] of [
+  ['changed scope',{scopeVerified:false,scopeError:'Session overdub scope changed during native request',requiresInspection:true}],
+  ['unverified recording switch',{sessionRecordVerified:false}],
+  ['missing switch evidence',{sessionRecordVerified:undefined}],
+  ['missing scope evidence',{scopeVerified:undefined}],
+  ['inspection required despite affirmative flags',{requiresInspection:true}],
+  ['scope error despite affirmative flags',{scopeError:'native scope readback failed'}]
+])test(`Session overdub cannot claim applied with ${name}`,async()=>{
+  const f=fixture(overrides),plan=await f.service.call('set_session_midi_overdub',f.args);
+  const result=await f.service.call('set_session_midi_overdub',{...f.args,dryRun:false,
+    confirmationToken:plan.confirmation.token,planHash:plan.confirmation.planHash});
+  assert.equal(result.operationOutcome.status,'outcome_unknown');
+  for(const [key,value] of Object.entries(overrides))assert.equal(result.observed[key],value);
 });
 
 test('changed source, replacement, wrong state and invalid toggle never reach the native write',async()=>{
@@ -41,7 +62,8 @@ test('reconnected clients can read the current target and explicitly stop withou
   const context=await f.service.call('get_session_midi_overdub_context',{trackId:f.args.trackId,clipId:f.args.clipId});
   assert.equal(context.sessionRecord,true);
   const args={...f.args,enabled:false},p=await f.service.call('set_session_midi_overdub',args);
-  await f.service.call('set_session_midi_overdub',{...args,dryRun:false,confirmationToken:p.confirmation.token,planHash:p.confirmation.planHash});
+  const stopped=await f.service.call('set_session_midi_overdub',{...args,dryRun:false,confirmationToken:p.confirmation.token,planHash:p.confirmation.planHash});
+  assert.equal(stopped.operationOutcome.status,'applied');
   assert.equal(f.writes[0].enabled,false);
 });
 

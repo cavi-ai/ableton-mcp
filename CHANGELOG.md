@@ -3,6 +3,7 @@
 ## 0.3.1
 
 - Added a shared execution-outcome contract for guarded Live mutations and production sessions, preserving native receipts and keeping partial, failed or pending work out of applied status.
+- Require verified Session overdub scope and recording-switch receipts, and preserve successful meter edits when an optional loop object is empty.
 - Reject malformed and conflicting producer scopes before Live observation or specialist calls, including saved tasks.
 - Corrected tool effect annotations and added a directory profile exposing individual native tools without producer coordinators.
 

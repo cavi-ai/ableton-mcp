@@ -16,6 +16,26 @@ test('loop plans bind native context and preserve partial receipts',async()=>{
  assert.deepEqual(f.calls.find(x=>x.method==='get_clip_loop_edit_context').args.changes,p.plan.changes);
  const r=await f.service.call('set_clip_timing',{...f.args,dryRun:false,confirmationToken:p.confirmation.token,planHash:p.confirmation.planHash});
  assert.equal(r.observed.requestedChangesVerified,false);assert.match(r.observed.error,/interrupted/);
+ assert.equal(r.operationOutcome.status,'outcome_unknown');
+});
+
+test('an empty optional loop does not demand loop evidence for a meter-only edit',async()=>{
+ const target={trackId:'track-0',clipId:'track-0:clip-0'},calls=[];
+ const timing={stateVersion:4,...target,loop:{enabled:true,unit:'beats',startBeats:0,endBeats:4},timeSignature:{numerator:4,denominator:4}};
+ const service=new ToolService({bridge:{async request(method,args){
+  calls.push(method);
+  if(method==='get_clip_timing')return structuredClone(timing);
+  assert.equal(method,'set_clip_timing');
+  assert.deepEqual(args.changes,{timeSignature:{numerator:3,denominator:4}});
+  return {...timing,stateVersion:5,timeSignature:{numerator:3,denominator:4}};
+ }}});
+ const args={...target,expectedStateVersion:4,loop:{},timeSignature:{numerator:3,denominator:4}};
+ const plan=await service.call('set_clip_timing',args);
+ assert.equal(plan.plan.loopEditContext,undefined);
+ const result=await service.call('set_clip_timing',{...args,dryRun:false,confirmationToken:plan.confirmation.token,planHash:plan.confirmation.planHash});
+ assert.equal(result.operationOutcome.status,'applied');
+ assert.deepEqual(result.observed.timeSignature,{numerator:3,denominator:4});
+ assert.equal(calls.includes('get_clip_loop_edit_context'),false);
 });
 test('same-version native replacement, notes and flags refuse confirmation',async()=>{
  for(const change of [c=>c.identityToken='replacement',c=>c.material.notes.push({noteId:7}),c=>c.editContext.arrangementRecord=true]){
