@@ -40,6 +40,8 @@ Each runtime accepts `timeoutMs` from 1,000 to 180,000; the default is 60,000. A
 
 Set `ABLETON_MCP_TOOL_PROFILE=producer` in the MCP server environment. This profile advertises nine workflow tools plus `get_live_state`, `transport_stop` and `panic`. Existing `core` and `all` profiles remain available. The CLI's `call` command is independent of discovery profiles.
 
+Use `ABLETON_MCP_TOOL_PROFILE=directory` for a surface where each native operation is listed individually for host review. It excludes the producer coordinator tools, including task execution and session advancement; hidden coordinator calls are rejected. The compact `producer` profile remains available for local specialist workflows. Choosing a profile does not establish directory approval or satisfy other submission requirements.
+
 1. `get_production_context` captures consistent Live selection and musical context, returning a bounded preview and `contextRef`. It does not call a model.
 2. `record_production_note` stores explicit intent or feedback. Pass its `noteRef` in a later task's `contextRefs` to reuse it.
 3. `run_production_task` accepts `projectId`, `goal`, optional exact `scope` IDs, `constraints`, `contextRefs`, and `roles` (`creative`, `functional`, or `both`; default `functional`). It returns a `taskId`, short summary, result references and operation count.
@@ -61,6 +63,10 @@ Every specialist request identifies its current turn, maximum turns and remainin
 Continuation requests include only the immediately preceding validated reply from the same role and task, counted within the input-size budget. Ollama receives that actual reply as an assistant message followed by the current task and observations. ACP receives it in the bounded task packet. Neither runtime receives transcripts from older tasks automatically.
 
 Ollama structured output restricts operations to the names and argument schemas supplied for that turn; creative requests permit no operations. The coordinator independently validates every proposal from either runtime, including argument schemas, scope and permissions.
+
+Scope checks cover target arrays, nested targets and source/destination aliases at proposal time and again before applying a saved operation. A scoped MIDI source may be copied into new slots on the same track; its source ID must still match. Imported snapshot/template provenance is data, not an additional Live target. A track send may reference its Return without modifying that Return. Scoped writes whose targets cannot be resolved are rejected; song tempo and musical-context proposals retain their existing song-level behavior.
+
+All public tools declare four boolean annotations. Capturing production context persists an artifact and is an additive write. Tools that overwrite existing state are marked potentially destructive; additive creation tools are separate. Private project reads and notes are closed-world, while configured model providers and arbitrary file paths can cross that boundary. Annotations describe effects and never replace native confirmations or scope checks.
 
 The initial functional toolkit includes native `set_track_volume_db` and `set_track_send_db` schemas alongside the raw mixer tool. Use these for dB targets after reading the exact fader or send in `get_track_mixer`; raw mixer values are not dB values. Less common operations still require discovery.
 

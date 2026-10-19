@@ -22,7 +22,7 @@ test('color requests require explicit canonical unique targets, valid RGB and ma
 });
 test('color tools are all-profile and distinguish native palette adjustment from exact RGB',async()=>{
  const f=fixture(),all=createRouter(f.service),core=createRouter(f.service,{toolProfile:'core'}),listed=(await all({id:1,method:'tools/list'})).result.tools;
- assert.equal(listed.find(t=>t.name==='get_live_object_colors').annotations.readOnlyHint,true);assert.equal(listed.find(t=>t.name==='set_live_object_colors').annotations.destructiveHint,false);
+ assert.equal(listed.find(t=>t.name==='get_live_object_colors').annotations.readOnlyHint,true);assert.equal(listed.find(t=>t.name==='set_live_object_colors').annotations.destructiveHint,true);
  assert.equal((await core({id:2,method:'tools/call',params:{name:'set_live_object_colors',arguments:args}})).error.code,-32601);
  const original=f.bridge.request;f.bridge.request=async(...a)=>{const r=await original(...a);if(a[0]==='set_live_object_colors'){r.objects[0].color='#FE1234';r.objects[0].exactMatch=false;}return r;};
  const p=await f.service.call('set_live_object_colors',args),r=await f.service.call('set_live_object_colors',{...args,dryRun:false,confirmationToken:p.confirmation.token,planHash:p.confirmation.planHash});assert.equal(r.observed.writeCompleted,true);assert.equal(r.observed.objects[0].exactMatch,false);
