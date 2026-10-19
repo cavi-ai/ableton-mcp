@@ -868,7 +868,7 @@ const readOnlyTools = new Set([
 
 // Unknown writes are potentially destructive. Only additive operations opt out.
 const additiveTools = new Set([
-  "create_track", "create_return_track", "create_scene", "capture_session_scene",
+  "create_track", "create_return_track", "create_scene",
   "create_midi_clip", "create_audio_clip", "create_arrangement_midi_clip", "create_arrangement_audio_clip",
   "create_scale_chord_progression_clip", "create_scale_bassline_clip", "create_scale_melody_clip", "create_drum_pattern_clip",
   "insert_midi_notes", "duplicate_midi_clip_variations", "duplicate_clip", "duplicate_arrangement_clip",

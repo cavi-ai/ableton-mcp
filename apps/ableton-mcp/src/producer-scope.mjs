@@ -7,8 +7,22 @@ const objectFields = new Set(["objectId", "objectIds", "targetId"]);
 const returnReferences = new Set(["set_track_send_db", "create_clip_mixer_envelope", "get_clip_mixer_envelope"]);
 // Existing song-level proposals remain available alongside an exact part scope.
 const songOperations = new Set(["set_tempo", "set_song_musical_context"]);
+const scopePatterns = {
+  trackId: /^(?:master|(?:track|return)-(?:0|[1-9][0-9]*))$/,
+  clipId: /^track-(?:0|[1-9][0-9]*):(?:arrangement-)?clip-(?:0|[1-9][0-9]*)$/,
+  deviceId: /^(?:master|(?:track|return)-(?:0|[1-9][0-9]*)):device-(?:0|[1-9][0-9]*)(?:\/(?:return-)?chain-(?:0|[1-9][0-9]*)\/device-(?:0|[1-9][0-9]*))*$/
+};
+
+export function validateProducerScope(scope = {}) {
+  for (const [key, pattern] of Object.entries(scopePatterns))
+    if (scope[key] !== undefined && (typeof scope[key] !== "string" || !pattern.test(scope[key])))
+      throw new Error(`producer scope ${key} requires a canonical Live ID`);
+  const owners = new Set(Object.keys(scopePatterns).filter(key => scope[key] !== undefined).map(key => ownerOf(scope[key])));
+  if (owners.size > 1) throw new Error("producer scope IDs must belong to the same owner");
+}
 
 export function assertProducerScope(tool, args, scope, { write = false } = {}) {
+  validateProducerScope(scope);
   if (!scope.trackId && !scope.clipId && !scope.deviceId) return;
   const owner = scope.trackId || ownerOf(scope.clipId) || ownerOf(scope.deviceId);
   let targets = 0;
