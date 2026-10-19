@@ -25,7 +25,7 @@ async function setup(t, generate) {
       if (args.dryRun !== false) return { dryRun: true, plan, confirmation: confirmations.issue(plan) };
       confirmations.consume(args.confirmationToken, args.planHash);
       tempo = args.tempo; version++;
-      return { dryRun: false, tempo };
+      return { dryRun: false, stateVersion: version, tempo };
     }
     return { stateVersion: version, data: "x".repeat(12000) };
   }, readResource: async uri => ({ uri }) };
@@ -1062,12 +1062,14 @@ test('raw and wrapped explicit native failures cannot become applied receipts',a
  }
 });
 
-for (const tool of ["set_live_object_colors", "show_live_object"]) for (const succeeds of [false, true])
+for (const tool of ["set_live_object_colors", "show_live_object", "capture_session_scene", "duplicate_clip"]) for (const succeeds of [false, true])
   test(`${tool} native receipts control durable advancement: success=${succeeds}`, async t => {
     let turn = 0, version = 1;
     const operation = { tool, args: tool === "set_live_object_colors"
       ? { changes: [{ objectId: "track-0", color: "#ff0000" }], expectedSetFingerprint: "set-a" }
-      : { trackId: "track-0", view: "Session", expectedSetFingerprint: "set-a" } };
+      : tool === "show_live_object" ? { trackId: "track-0", view: "Session", expectedSetFingerprint: "set-a" }
+      : tool === "capture_session_scene" ? { afterSceneId: "scene-0", name: "Jam" }
+      : { trackId: "track-0", clipId: "track-0:clip-0", destinationClipId: "track-0:clip-1" } };
     const fixture = await setup(t, () => ++turn === 1
       ? response({ reads: [{ tool: "discover_production_tools", args: { query: tool, kind: "operation" } }] })
       : response({ operations: [operation] }));
@@ -1077,16 +1079,24 @@ for (const tool of ["set_live_object_colors", "show_live_object"]) for (const su
         objects: args.objectIds.map(objectId => ({ objectId, supported: true, color: "#123456", colorIndex: 7 })) };
       if (method === "get_live_navigation_context") return { stateVersion: version, setFingerprint: "set-a", identityToken: "navigation",
         target: { trackId: "track-0", view: "Session" }, selection: {}, views: {}, controls: {}, deviceViews: [], groupsToReveal: [] };
+      if (method === "get_session_scene_capture_context") return { stateVersion: version, identityToken: "capture", afterSceneId: "scene-0" };
+      if (method === "get_clip_duplication_source") return { stateVersion: version, trackId: "track-0", copyGuardVersion: 2, identityToken: "copy",
+        sourceClipId: "track-0:clip-0", targetClipId: "track-0:clip-1", targetTrackId: "track-0" };
       version++; change();
       if (method === "set_live_object_colors") return { stateVersion: version, writeCompleted: true, identityRetained: succeeds, selectionUnchanged: true,
         objects: args.changes.map(({ objectId, color }) => ({ objectId, requestedColor: color, color, colorIndex: 2, supported: true, exactMatch: true, writeReturned: true })) };
+      if (method === "capture_session_scene") return { stateVersion: version, captureRequested: true, nativeReturned: succeeds,
+        captureVerified: succeeds, audibleOutputVerified: false, error: succeeds ? null : "retained partial scene" };
+      if (method === "duplicate_clip") return { stateVersion: version, trackId: "track-0", sourceTrackId: "track-0", sourceClipId: "track-0:clip-0",
+        copiedClipId: "track-0:clip-1", copyRequested: true, nativeReturned: true, targetRetained: true, copyVerified: succeeds,
+        error: succeeds ? null : "clip copy readback mismatch" };
       assert.equal(method, "show_live_object");
       return { stateVersion: version, target: args.before.target, showVerified: succeeds,
         targetIdentityRetained: succeeds, selectionVerified: succeeds, viewsVerified: succeeds, deviceViewsVerified: succeeds, controlsUnchanged: true };
     } } });
     base.call = (name, args) => name === tool ? native.call(name, args) : original(name, args);
     let session = await service.call("start_production_session", { projectId: "song", goal: "Edit the exact target", roles: "functional",
-      scope: { trackId: "track-0" }, completion: "postconditions",
+      scope: tool === "capture_session_scene" ? {} : { trackId: "track-0" }, completion: "postconditions",
       postconditions: [{ tool: "get_live_state", args: {}, path: ["stateVersion"], expected: 2 }] });
     const advance = args => service.call("advance_production_session", { projectId: "song", sessionId: session.sessionId, expectedRevision: session.revision, ...args });
     session = await advance({ action: "propose" });
@@ -1096,7 +1106,8 @@ for (const tool of ["set_live_object_colors", "show_live_object"]) for (const su
     assert.equal(session.operation.checks[0].matches, true);
     assert.equal(session.operation.status, succeeds ? "applied" : "outcome_unknown");
     const observed = artifacts.get("song", session.operation.resultRef).value.observed;
-    assert.equal(observed[tool === "set_live_object_colors" ? "writeCompleted" : "showVerified"], succeeds);
+    assert.equal(observed[{ set_live_object_colors: "writeCompleted", show_live_object: "showVerified",
+      capture_session_scene: "captureVerified", duplicate_clip: "copyVerified" }[tool]], succeeds);
     if (succeeds) {
       assert.equal(session.phase, "evaluate");
       assert.equal((await advance({ action: "evaluate", decision: "accept" })).phase, "complete");

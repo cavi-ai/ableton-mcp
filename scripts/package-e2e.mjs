@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { toolContracts } from "../apps/ableton-mcp/src/tool-contracts.mjs";
 
@@ -38,6 +38,13 @@ npm(["install", "--no-audit", "--no-fund", path.join(work, filename)], consumer)
 
 const bin = path.join(consumer, "node_modules/.bin/ableton-mcp");
 const installed = path.join(consumer, "node_modules/@cavi-ai/ableton-mcp");
+const packageVersion = JSON.parse(readFileSync(path.join(installed, "package.json"), "utf8")).version;
+const { classifyMutationOutcome } = await import(pathToFileURL(path.join(installed, "apps/ableton-mcp/src/mutation-outcomes.mjs")));
+for (const [name, field] of [["capture_session_scene", "captureVerified"], ["duplicate_clip", "copyVerified"]]) {
+  const failed = classifyMutationOutcome(name, { expectedStateVersion: 1, dryRun: false },
+    { dryRun: false, observed: { stateVersion: 2, [field]: false } });
+  assert.equal(failed.status, "outcome_unknown");
+}
 const help = execFileSync(bin, ["help"], { encoding: "utf8" });
 assert.match(help, /"serve"/u);
 const previewPlan = JSON.parse(execFileSync(process.execPath,
@@ -74,6 +81,7 @@ const listing = await exchange(bin, ["serve"], { ABLETON_MCP_BRIDGE_SOCKET: path
   { id: 7, method: "tools/call", params: {name:"get_producer_workflow",arguments:{workflow:"diagnose-silent-part",arguments:{request:"Inspect the named part without changing it."}}} }
 ]);
 assert.equal(listing[0].result.serverInfo.name, "ableton-mcp");
+assert.equal(listing[0].result.serverInfo.version, packageVersion);
 assert.equal(listing[1].result.tools.length, Object.keys(toolContracts).length);
 assert.equal(listing[2].result.resources.length, 9);
 assert.equal(listing[3].result.resourceTemplates.length, 13);
@@ -127,6 +135,7 @@ assert.equal(directory[2].error.code, -32601);
 const remoteScripts = path.join(work, "Remote Scripts");
 execFileSync(bin, ["install", "--destination", remoteScripts, "--json"], { encoding: "utf8" });
 const bridgeFiles = readdirSync(path.join(remoteScripts, "CaviMcpBridge")).sort();
+assert.ok(readFileSync(path.join(remoteScripts, "CaviMcpBridge/bridge.py"), "utf8").includes(`BRIDGE_VERSION = "${packageVersion}"`));
 assert.deepEqual(bridgeFiles, ["__init__.py", "arrangement_audio.py", "arrangement_audition.py", "arrangement_copy.py", "arrangement_creation.py", "arrangement_move.py", "arrangement_recording.py", "arrangement_return.py", "arrangement_section.py", "audio_capture.py", "audio_export.py", "audio_midi_sketch.py", "audio_reverse.py", "beat_repeat_fill.py", "bridge.py", "browser_load.py", "browser_preview.py", "capabilities.json", "clip_duplication.py", "clip_entry.py", "clip_envelope.py", "clip_hold.py", "clip_launch.py", "clip_loop_edit.py", "clip_mute.py", "clip_names.py", "clip_removal.py", "crossfader.py", "cue_jump.py", "device_ab.py", "device_bypass.py", "device_preset.py", "instrument_comparison.py", "live_navigation.py", "looper_export.py", "manual_override.py", "master_mixer.py", "midi_capture.py", "midi_clip_markers.py", "midi_crop.py", "midi_export.py", "midi_import.py", "midi_insertion.py", "midi_note_edit.py", "midi_note_removal.py", "midi_note_selection.py", "midi_retrograde.py", "midi_time_scaling.py", "object_colors.py", "panning.py", "parameter_automation.py", "parameter_display.py", "protocol.py", "rack_performance.py", "recording_setup.py", "return_mixer.py", "return_removal.py", "scene_capture.py", "scene_duplication.py", "scene_removal.py", "selected_control.py", "session_arrangement.py", "session_names.py", "session_overdub.py", "session_recording.py", "sidechain_routing.py", "signal_activity.py", "simpler_sample.py", "take_lanes.py", "track_arming.py", "track_bounce.py", "track_copy.py", "track_freeze.py", "track_grouping.py", "track_mixer.py", "track_removal.py", "track_routing.py", "track_send.py", "track_volume.py", "transport_seek.py"]);
 
 const doctor = JSON.parse(execFileSync(bin, ["doctor", "--json"], {

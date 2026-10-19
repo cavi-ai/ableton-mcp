@@ -12,7 +12,9 @@ test('scene capture plans bind the native combination and confirm once without r
   }}});
   const args={afterSceneId:'scene-0',name:'Jam',expectedStateVersion:4},plan=await service.call('capture_session_scene',args);assert.equal(writes,0);assert.equal(plan.plan.launchesCapturedScene,true);
   const input={...args,dryRun:false,confirmationToken:plan.confirmation.token,planHash:plan.confirmation.planHash};token='replacement';await assert.rejects(service.call('capture_session_scene',input));token='native-1';
-  const result=await service.call('capture_session_scene',input);assert.equal(result.observed.captureVerified,false);assert.equal(writes,1);await assert.rejects(service.call('capture_session_scene',input));
+  const result=await service.call('capture_session_scene',input);assert.equal(result.observed.captureVerified,false);
+  assert.equal(result.operationOutcome?.status,'outcome_unknown');
+  assert.equal(writes,1);await assert.rejects(service.call('capture_session_scene',input));
 });
 
 test('scene capture requires explicit selected anchor and name and stays outside core',async()=>{

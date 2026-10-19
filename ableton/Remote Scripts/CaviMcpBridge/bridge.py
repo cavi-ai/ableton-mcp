@@ -19,7 +19,7 @@ try:
 except ImportError:
     from protocol import BRIDGE_PROTOCOL, ClientSession, QueuedRequest, decode_lines, encode_message
 
-BRIDGE_VERSION = "0.3.0"
+BRIDGE_VERSION = "0.3.1"
 with open(os.path.join(os.path.dirname(__file__), "capabilities.json"), encoding="utf-8") as capability_file:
     CAPABILITIES = tuple(json.load(capability_file))
 

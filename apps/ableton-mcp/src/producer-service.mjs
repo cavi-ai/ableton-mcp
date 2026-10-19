@@ -10,6 +10,7 @@ import { requestSignal, withRequestSignal } from "./request-context.mjs";
 import { getProducerWorkflow } from "./prompts.mjs";
 import { ProductionSessions } from "./production-sessions.mjs";
 import { assertProducerScope, validateProducerScope } from "./producer-scope.mjs";
+import { classifyMutationOutcome } from "./mutation-outcomes.mjs";
 
 const readNames = ["get_live_state", "get_selection_context", "get_song_musical_context", "list_tracks", "list_clips",
   "list_devices", "list_device_parameters", "get_device_parameter_edit_context", "get_clip_timing",
@@ -397,15 +398,13 @@ export class ProducerService {
       }
       after = await this.#live();
     } catch (error) { observationError = error.message; }
-    const nativeVerificationFailed = [value,value?.observed].some(native=>native?.inspectionRequired === true ||
-      native?.writeCompleted === false || native?.showVerified === false || native?.verified === false || native?.targetRetained === false ||
-      native?.contextPreserved === false || (native?.writeRequested === true && native?.nativeReturned === false));
+    const operationOutcome = classifyMutationOutcome(operation.tool, callArgs, value);
+    const nativeVerificationFailed = operationOutcome.status === "outcome_unknown";
     const nativeMetadata = nativeVerificationFailed ? {nativeVerificationFailed:true} : {};
-    const status = observationError || nativeVerificationFailed ? "outcome_unknown" : value.pendingUserAction ? "pending_user_action"
-      : value.playbackVerified === false ? "pending_postconditions"
-      : checks.some(check => !check.matches) || value.saved === false || value.opened === false ? "postconditions_failed" : "applied";
-    const receiptId = this.artifacts.put(projectId, "receipt", { taskId, operationIndex, status, ...checkMetadata, ...nativeMetadata, after, checks, resultRef, observationError });
+    const status = observationError ? "outcome_unknown" : operationOutcome.status !== "applied" ? operationOutcome.status
+      : checks.some(check => !check.matches) ? "postconditions_failed" : "applied";
+    const receiptId = this.artifacts.put(projectId, "receipt", { taskId, operationIndex, status, ...checkMetadata, ...nativeMetadata, operationOutcome, after, checks, resultRef, observationError });
     return { taskId, operationIndex, status, ...checkMetadata, ...nativeMetadata, receiptId, resultRef, ...(after ? identity(after) : {}), checks,
-      verification: checks.length ? "declared_field_checks" : "operation_response_and_state_readback", audibleQualityVerified: false };
+      operationOutcome, verification: checks.length ? "declared_field_checks" : "operation_response_and_state_readback", audibleQualityVerified: false };
   }
 }
