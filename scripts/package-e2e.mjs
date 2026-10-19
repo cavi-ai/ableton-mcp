@@ -112,6 +112,18 @@ const producerFixture = await exchange(process.execPath, [path.join(installed, "
 assert.equal(producerFixture[0].result.isError, undefined);
 assert.match(producerFixture[0].result.structuredContent.text, /Preserve the original bass/);
 
+const directory = await exchange(bin, ["serve"], { ...producerEnvironment, ABLETON_MCP_TOOL_PROFILE: "directory" }, [
+  { id: 1, method: "tools/list" },
+  { id: 2, method: "tools/call", params: { name: "apply_production_operation", arguments: {} } },
+  { id: 3, method: "tools/call", params: { name: "advance_production_session", arguments: {} } }
+]);
+assert.equal(directory[0].result.tools.some(tool => tool.name === "set_bulk_track_mixer"), true);
+assert.equal(directory[0].result.tools.some(tool => tool.name === "run_production_task"), false);
+for (const tool of directory[0].result.tools) for (const hint of ["readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"])
+  assert.equal(typeof tool.annotations[hint], "boolean", `${tool.name}.${hint}`);
+assert.equal(directory[1].error.code, -32601);
+assert.equal(directory[2].error.code, -32601);
+
 const remoteScripts = path.join(work, "Remote Scripts");
 execFileSync(bin, ["install", "--destination", remoteScripts, "--json"], { encoding: "utf8" });
 const bridgeFiles = readdirSync(path.join(remoteScripts, "CaviMcpBridge")).sort();
@@ -129,6 +141,7 @@ process.stdout.write(`${JSON.stringify({
   tarball: filename,
   tools: listing[1].result.tools.length,
   producerTools: producer[0].result.tools.length,
+  directoryTools: directory[0].result.tools.length,
   resources: listing[2].result.resources.length,
   resourceTemplates: listing[3].result.resourceTemplates.length,
   prompts: listing[4].result.prompts.length,

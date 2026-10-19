@@ -488,7 +488,7 @@ const contracts = {
   get_browser_item_metadata: { description: "Read private MCP-managed tags, favorite state, and revision for one exact observed Live browser item or local audio sample. A Live user-folder sample shares the local Splice record only when its URI unambiguously matches a configured local Splice file; reserved URI delimiters and existing separate Live metadata preserve exact Live identity. For a local sample, use root local_splice and path [absolute directory, relative audio path]. Does not read native collections.", inputSchema: object({ root: string("Live browser root or local_splice."), path: array(string("Exact browser segment, or [absolute directory, relative audio path] for local_splice."), "Non-empty path to one item.") }, ["root", "path"]) },
   set_browser_item_metadata: { description: "Plan or edit private MCP-managed tags and favorite state with observed Live browser identity or local audio-file version, exact revision, and single-use confirmation. A Live user-folder sample shares the local Splice record only when its URI unambiguously matches a configured local Splice file; reserved URI delimiters and existing separate Live metadata preserve exact Live identity. For a local sample, use root local_splice and path [absolute directory, relative audio path]. Does not modify native collections.", inputSchema: metadataGuarded({ root: string("Live browser root or local_splice."), path: array(string("Exact browser segment, or [absolute directory, relative audio path] for local_splice."), "Non-empty path to one item."), favorite: boolean("Private favorite state."), tags: array(string("Private user tag."), "Complete replacement tag set, up to 32 entries.") }, ["root", "path"]) },
   search_browser_item_metadata: { description: "Search saved private tags and favorites for Live browser items or local_splice samples. Results are not reverified against Live or the local filesystem and do not represent native collections.", inputSchema: object({ root: string("Optional browser root or local_splice filter."), favorite: boolean("Optional private favorite filter."), tags: array(string("Required private user tag."), "Require all tags."), limit: { type: "integer", minimum: 1, maximum: 200 } }) },
-  get_live_state: { description: "Read Ableton bridge identity, capabilities, set file path, tempo, playback, and state version.", inputSchema: empty },
+  get_live_state: { description: "Read bridge identity, capabilities, Set path, tempo, playback and state version.", inputSchema: empty },
   open_live_set: { description: "Plan/open a macOS Set; launch requires closed Live and configured app.", inputSchema: { ...guarded({
     path: string("Existing absolute .als path."),
     mode: { type: "string", enum: ["open", "launch"], description: "launch if closed." },
@@ -748,7 +748,7 @@ const contracts = {
   panic: { description: "Plan or stop Live playback immediately using the guarded panic operation.", inputSchema: guarded() },
   transport_play: { description: "Plan or start Ableton transport playback.", inputSchema: guarded() },
   transport_stop: { description: "Plan or stop Ableton transport playback.", inputSchema: guarded() },
-  set_tempo: { description: "Plan or set song tempo within Live's accepted range.", inputSchema: guarded({ tempo: number("Tempo in BPM.", { minimum: 20, maximum: 999 }) }, ["tempo"]) },
+  set_tempo: { description: "Plan or set tempo within Live's range.", inputSchema: guarded({ tempo: number("Tempo in BPM.", { minimum: 20, maximum: 999 }) }, ["tempo"]) },
   set_track_mixer: { description: "Plan or apply guarded track volume, pan, mute, solo, and return-send changes.", inputSchema: guarded({ trackId: ids.trackId, volume: number("Track volume."), pan: number("Track pan.", { minimum: -1, maximum: 1 }), mute: boolean("Mute track."), solo: boolean("Solo track."), sends: array(object({ id: string("Send ID."), value: number("Send value.") }, ["id", "value"]), "Named return-send changes.") }, ["trackId"]) },
   launch_scene: { description: "Plan/fire a scene with full-row recheck. May stop, record or change tempo/meter. Request-only receipt. Requires updated bridge.", inputSchema: guarded({ sceneId: ids.sceneId, forceLegato: boolean("Force immediate Legato launch for every clip in this scene; defaults to false.") }, ["sceneId"]) },
   launch_clip: { description: "Launch a Session slot. recordLengthBeats records an empty armed slot; updated bridge rechecks input, native identity and recording readiness. launchQuantization overrides once. Receipt does not prove take completion.", inputSchema: guarded({ trackId: ids.trackId, clipId: ids.clipId, recordLengthBeats: number("Fixed recording length in beats for an empty armed slot.", { exclusiveMinimum: 0 }), launchQuantization: choice("One-shot native launch quantization choice from get_clip_timing or list_clips.launchQuantizationChoices.") }, ["trackId", "clipId"]) },
@@ -866,35 +866,22 @@ const readOnlyTools = new Set([
   "get_track_midi_routing", "get_track_freeze_state"
 ]);
 
-const destructiveTools = new Set([
-  'remove_midi_notes',
-  "export_looper_clip",
-  "load_simpler_sample",
-  "set_simpler_sample_region",
-  "set_simpler_manual_slices",
-  "audition_arrangement_passage",
-  "open_live_set",
-  "save_live_set",
-  "collect_project_media",
-  "save_native_device_preset",
-  "ungroup_tracks",
-  "delete_session_object",
-  "delete_clip",
-  "delete_arrangement_clip",
-  "export_midi_clip",
-  "import_midi_file",
-  "delete_arrangement_cue_point", "remove_audio_warp_marker",
-  "delete_device", "crop_midi_clip", "crop_audio_clip", "set_looper_state", "set_device_parameters", "set_clip_parameter_envelope",
-  "fail_nks_generation_job", "complete_nks_generation_job",
-  "bounce_track_in_place", "set_track_freeze_state", "adjust_rack_macro_count", "delete_rack_macro_variation"
+// Unknown writes are potentially destructive. Only additive operations opt out.
+const additiveTools = new Set([
+  "create_track", "create_return_track", "create_scene", "capture_session_scene",
+  "create_midi_clip", "create_audio_clip", "create_arrangement_midi_clip", "create_arrangement_audio_clip",
+  "create_scale_chord_progression_clip", "create_scale_bassline_clip", "create_scale_melody_clip", "create_drum_pattern_clip",
+  "insert_midi_notes", "duplicate_midi_clip_variations", "duplicate_clip", "duplicate_arrangement_clip",
+  "duplicate_session_object", "copy_arrangement_clip_to_track", "create_arrangement_cue_point", "create_groove",
+  "create_rack_chain", "store_rack_macro_variation", "create_clip_parameter_envelope", "create_clip_mixer_envelope",
+  "save_device_chain_snapshot", "save_track_state_snapshot", "save_group_system_snapshot", "save_midi_feel_template"
 ]);
 
-// These tools answer from bundled reference data; all other tools can observe or
-// change the local catalog, filesystem, or a running Ableton Live set.
-const closedWorldTools = new Set([
-  "get_live_scale_reference", "list_live_scales",
-  "list_producer_chain_blueprints", "get_producer_chain_blueprint",
-  "list_factory_device_profiles"
+// Live and configured private catalogs are bounded. Arbitrary file paths cross
+// that boundary; connectivity to a local process alone is not open-world access.
+const openWorldTools = new Set([
+  "open_live_set", "save_live_set", "import_midi_file", "export_midi_clip", "export_audio_mix", "export_audio_track",
+  "create_audio_clip", "create_arrangement_audio_clip", "load_simpler_sample", "analyze_audio_file", "compare_audio_reference"
 ]);
 
 const parameterDescriptions = {
@@ -935,9 +922,9 @@ export const toolContracts = Object.fromEntries(Object.entries(contracts).map(([
   name, { ...contract, inputSchema: describedInput(name, contract.inputSchema),
     outputSchema: toolOutputContracts[name] ?? extensibleToolResult, annotations: {
     readOnlyHint: readOnlyTools.has(name),
-    destructiveHint: destructiveTools.has(name),
+    destructiveHint: !readOnlyTools.has(name) && !additiveTools.has(name),
     idempotentHint: readOnlyTools.has(name),
-    openWorldHint: !closedWorldTools.has(name)
+    openWorldHint: openWorldTools.has(name)
   } }
 ]));
 Object.assign(toolContracts, producerToolContracts);

@@ -9,6 +9,7 @@ import { createProducerRuntime, parseProducerResponse } from "./producer-runtime
 import { requestSignal, withRequestSignal } from "./request-context.mjs";
 import { getProducerWorkflow } from "./prompts.mjs";
 import { ProductionSessions } from "./production-sessions.mjs";
+import { assertProducerScope } from "./producer-scope.mjs";
 
 const readNames = ["get_live_state", "get_selection_context", "get_song_musical_context", "list_tracks", "list_clips",
   "list_devices", "list_device_parameters", "get_device_parameter_edit_context", "get_clip_timing",
@@ -173,7 +174,7 @@ export class ProducerService {
   #validateRead(read, scope, allowedReads = readNames) {
     if (!allowedReads.includes(read.tool)) throw new Error(`specialist read tool is not allowed: ${read.tool}`);
     validateToolArguments(read.tool, read.args);
-    this.#scope(read.args, scope);
+    assertProducerScope(read.tool, read.args, scope);
   }
 
   #validatePostconditions(checks, scope) {
@@ -182,15 +183,6 @@ export class ProducerService {
         throw new Error(`postcondition tool must be read-only: ${check.tool}`);
       this.#validateRead(check, scope, [check.tool]);
     }
-  }
-
-  #scope(args, scope, tool) {
-    for (const key of ["trackId", "clipId", "deviceId"])
-      if (scope[key] && args[key] && args[key] !== scope[key]) throw new Error(`specialist ${key} is outside task scope`);
-    if (scope.trackId && args.returnTrackId && args.returnTrackId !== scope.trackId)
-      throw new Error("specialist Return owner is outside task scope");
-    if (scope.trackId && tool === "set_master_mixer" && scope.trackId !== "master")
-      throw new Error("specialist Main mixer is outside task scope");
   }
 
   #validateProposal(result, role, scope, allowedReads = readNames, allowedOperations = operationNames) {
@@ -205,8 +197,8 @@ export class ProducerService {
     for (const operation of result.operations) {
       if (!allowedOperations.includes(operation.tool) || !eligibleOperation(operation.tool))
         throw new Error(`specialist operation is not allowed: ${operation.tool}`);
-      this.#scope(operation.args, scope, operation.tool);
       validateToolArguments(operation.tool, { ...operation.args, expectedStateVersion: 1 });
+      assertProducerScope(operation.tool, operation.args, scope, { write: true });
     }
     for (const check of result.checks) this.#validateRead(check, scope, allowedReads);
   }

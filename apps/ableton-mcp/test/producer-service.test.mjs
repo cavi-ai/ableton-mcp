@@ -36,6 +36,105 @@ async function setup(t, generate) {
       runtimeFactory: service.runtimeFactory }) };
 }
 
+async function scopedProposal(t, operation, scope) {
+  let turn = 0;
+  const fixture = await setup(t, () => ++turn === 1
+    ? response({ reads: [{ tool: "discover_production_tools", args: { query: operation.tool, kind: "operation" } }] })
+    : response({ operations: [operation] }));
+  return { ...fixture, propose: () => fixture.service.call("run_production_task", {
+    projectId: "song", goal: "Change only the declared target", roles: "functional", scope }) };
+}
+
+for (const operation of [
+  { tool: "set_bulk_track_mixer", args: { trackIds: ["track-1"], mute: true } },
+  { tool: "set_crossfader_state", args: { assignments: [{ trackId: "track-1", side: "A" }] } },
+  { tool: "duplicate_clip", args: { trackId: "track-0", clipId: "track-0:clip-0", destinationTrackId: "track-1", destinationClipId: "track-1:clip-1" } },
+  { tool: "rename_session_object", args: { targetType: "track", targetId: "track-1", name: "Other track" } },
+  { tool: "set_selected_parameter", args: { expectedSelectionToken: "selection", value: 0.5 } }
+]) test(`scoped proposals reject unresolved or out-of-scope targets in ${operation.tool}`, async t => {
+  const { propose, calls } = await scopedProposal(t, operation, { trackId: "track-0" });
+  await assert.rejects(propose(), /scope/);
+  assert.equal(calls.some(call => call.name === operation.tool), false);
+});
+
+for (const [name, args] of [
+  ["source", { trackId: "track-0", sourceClipId: "track-0:clip-8", variants: [{ clipId: "track-0:clip-1", name: "Copy" }] }],
+  ["destination owner", { trackId: "track-0", sourceClipId: "track-0:clip-0", variants: [{ clipId: "track-1:clip-1", name: "Copy" }] }]
+]) test(`MIDI copy proposals validate the ${name} against scope`, async t => {
+  const { propose } = await scopedProposal(t, { tool: "duplicate_midi_clip_variations", args }, { trackId: "track-0", clipId: "track-0:clip-0" });
+  await assert.rejects(propose(), /scope/);
+});
+
+test("scoped copies preserve the source boundary while allowing a new slot on the same track", async t => {
+  const { propose } = await scopedProposal(t, { tool: "duplicate_midi_clip_variations", args: {
+    trackId: "track-0", sourceClipId: "track-0:clip-0", variants: [{ clipId: "track-0:clip-1", name: "Copy" }] }
+  }, { trackId: "track-0", clipId: "track-0:clip-0" });
+  assert.equal((await propose()).operationCount, 1);
+});
+
+test("a scoped send may reference a Return without modifying that Return", async t => {
+  const { propose } = await scopedProposal(t, { tool: "set_track_send_db", args: {
+    trackId: "track-0", returnTrackId: "return-0", sendId: "send-0", sendDb: -12 }
+  }, { trackId: "track-0" });
+  assert.equal((await propose()).operationCount, 1);
+});
+
+test("saved proposals are checked for array scope escapes again before planning", async t => {
+  const operation = { tool: "set_bulk_track_mixer", args: { trackIds: ["track-1"], mute: true } };
+  const { propose, service, artifacts, calls } = await scopedProposal(t, operation, {});
+  const task = await propose();
+  const taskId = artifacts.put("song", "task", { ...artifacts.get("song", task.taskId).value, scope: { trackId: "track-0" } });
+  await assert.rejects(service.call("apply_production_operation", { projectId: "song", taskId,
+    operationIndex: 0, expectedStateVersion: 1 }), /scope/);
+  assert.equal(calls.some(call => call.name === operation.tool), false);
+});
+
+test("bulk observation targets obey the same owner scope as proposals", async t => {
+  let turn = 0;
+  const { service, calls } = await setup(t, () => ++turn === 1
+    ? response({ reads: [{ tool: "discover_production_tools", args: { query: "get_track_signal_activity", kind: "read" } }] })
+    : response({ reads: [{ tool: "get_track_signal_activity", args: { trackIds: ["track-1"] } }] }));
+  await assert.rejects(service.call("run_production_task", { projectId: "song", goal: "Inspect only track zero",
+    roles: "functional", scope: { trackId: "track-0" } }), /scope/);
+  assert.equal(calls.some(call => call.name === "get_track_signal_activity"), false);
+});
+
+test("device aliases cannot address a different device in a scoped proposal", async t => {
+  const { propose } = await scopedProposal(t, { tool: "map_rack_macro_to_parameter", args: {
+    trackId: "track-0", deviceId: "track-0:device-0", targetDeviceId: "track-0:device-1", parameterId: "parameter-0", macroIndex: 0 }
+  }, { trackId: "track-0", deviceId: "track-0:device-0" });
+  await assert.rejects(propose(), /scope/);
+});
+
+test("destination chains cannot escape an exact device scope", async t => {
+  const { propose, calls } = await scopedProposal(t, { tool: "move_device_to_chain", args: {
+    trackId: "track-0", deviceId: "track-0:device-0", targetTrackId: "track-0",
+    targetChainId: "track-0:device-1/chain-0", targetPosition: 0 }
+  }, { trackId: "track-0", deviceId: "track-0:device-0" });
+  await assert.rejects(propose(), /scope/);
+  assert.equal(calls.some(call => call.name === "move_device_to_chain"), false);
+});
+
+for (const [clipId, allowed] of [["track-0:arrangement-clip-0", true], ["track-0:arrangement-clip-1", false]])
+  test(`Arrangement color targets enforce exact clip scope: ${clipId}`, async t => {
+    const { propose } = await scopedProposal(t, { tool: "set_live_object_colors", args: {
+      changes: [{ objectId: clipId, color: "#ff0000" }], expectedSetFingerprint: "set-a" }
+    }, { trackId: "track-0", clipId: "track-0:arrangement-clip-0" });
+    if (allowed) assert.equal((await propose()).operationCount, 1);
+    else await assert.rejects(propose(), /scope/);
+  });
+
+test("imported feel provenance is not treated as another Live mutation target", async t => {
+  const template = { format: "cavi-audio-feel-v1", gridBeats: 0.25, bars: 1, barBeats: 4,
+    cycleBeats: 4, slotCount: 16, nativeGrooveId: null,
+    source: { trackId: "track-1", clipId: "track-1:clip-0", stateVersion: 4, sourcePath: "/audio/source.wav" },
+    slots: [{ slot: 1, hitCount: 1, reliableTimingHits: 1, meanOffsetBeats: 0.04, meanStrength: 0.7 }], limitation: "Source timing only." };
+  const { propose } = await scopedProposal(t, { tool: "apply_midi_feel_template", args: {
+    trackId: "track-0", clipId: "track-0:clip-0", template, timingAmount: 1, velocityAmount: 0 }
+  }, { trackId: "track-0", clipId: "track-0:clip-0" });
+  assert.equal((await propose()).operationCount, 1);
+});
+
 test("context and role results are stored as bounded references; creative and functional inputs stay separate", async t => {
   const { service, artifacts, packets } = await setup(t, packet => response(packet.role === "functional" ?
     { operations: [{ tool: "set_tempo", args: { tempo: 100 } }] } : { alternatives: [{ name: "Sparse", description: "Fewer notes." }] }));

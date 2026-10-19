@@ -90,7 +90,6 @@ test("every tool advertises MCP annotations matching its mutation class", async 
     for (const hint of Object.keys(tool.annotations)) {
       assert.equal(typeof tool.annotations[hint], "boolean", `${hint} on ${tool.name}`);
     }
-    assert.equal(tool.annotations.idempotentHint, tool.annotations.readOnlyHint, tool.name);
   }
   const byName = new Map(listed.result.tools.map(tool => [tool.name, tool]));
   for (const name of ["get_live_state", "list_scenes", "plan_drum_pattern", "analyze_audio_file",
@@ -98,25 +97,52 @@ test("every tool advertises MCP annotations matching its mutation class", async 
     assert.equal(byName.get(name).annotations.readOnlyHint, true, name);
     assert.equal(byName.get(name).annotations.destructiveHint, false, name);
   }
-  for (const name of ["set_tempo", "create_track", "launch_clip", "undo",
-    "set_scene_launch_quantization", "create_groove", "set_track_midi_routing"]) {
+  for (const name of ["create_track", "create_groove", "create_midi_clip", "insert_midi_notes",
+    "create_clip_parameter_envelope", "create_clip_mixer_envelope", "get_production_context", "record_production_note"]) {
     assert.equal(byName.get(name).annotations.readOnlyHint, false, name);
     assert.equal(byName.get(name).annotations.destructiveHint, false, name);
   }
   for (const name of ["delete_clip", "delete_device", "delete_session_object",
-    "crop_audio_clip", "set_looper_state", "set_device_parameters"]) {
+    "crop_audio_clip", "set_looper_state", "set_device_parameters", "set_midi_note_properties", "transform_midi_notes",
+    "set_tempo", "launch_clip", "undo", "set_scene_launch_quantization", "set_track_midi_routing"]) {
     assert.equal(byName.get(name).annotations.readOnlyHint, false, name);
     assert.equal(byName.get(name).annotations.destructiveHint, true, name);
   }
   for (const name of ["delete_arrangement_cue_point", "remove_audio_warp_marker"]) {
     assert.equal(byName.get(name).annotations.destructiveHint, true, name);
   }
-  for (const name of ["get_live_scale_reference", "list_live_scales", "list_factory_device_profiles"]) {
+  for (const name of ["get_live_scale_reference", "list_live_scales", "list_factory_device_profiles", "get_live_state",
+    "search_presets", "set_tempo", "read_production_artifact", "record_production_note", "get_production_session"]) {
     assert.equal(byName.get(name).annotations.openWorldHint, false, name);
   }
-  for (const name of ["get_live_state", "search_presets", "set_tempo", "analyze_audio_file"]) {
+  for (const name of ["analyze_audio_file", "export_midi_clip", "run_production_task"]) {
     assert.equal(byName.get(name).annotations.openWorldHint, true, name);
   }
+  assert.equal(byName.get("get_production_context").annotations.idempotentHint, false);
+  assert.equal(byName.get("record_production_note").annotations.idempotentHint, true);
+});
+
+test("directory profile exposes named native tools and rejects producer coordinators", async () => {
+  let calls = 0;
+  const route = createRouter({ call: async () => { calls++; return { dryRun: true }; } }, { toolProfile: "directory" });
+  const tools = (await route({ id: 1, method: "tools/list" })).result.tools;
+  const names = new Set(tools.map(tool => tool.name));
+  for (const name of ["set_tempo", "set_bulk_track_mixer", "duplicate_midi_clip_variations", "transform_midi_notes"])
+    assert.ok(names.has(name), name);
+  for (const name of ["run_production_task", "apply_production_operation", "start_production_session", "advance_production_session",
+    "get_production_context", "get_production_session", "read_production_artifact", "record_production_note"]) {
+    assert.equal(names.has(name), false, name);
+    const denied = await route({ id: 2, method: "tools/call", params: { name, arguments: {} } });
+    assert.equal(denied.error.code, -32601);
+  }
+  assert.equal(calls, 0);
+  const planned = await route({ id: 3, method: "tools/call", params: {
+    name: "set_tempo", arguments: { tempo: 100, expectedStateVersion: 1 }
+  } });
+  assert.equal(planned.result.structuredContent.dryRun, true);
+  assert.equal(calls, 1);
+  for (const tool of tools) for (const hint of ["readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"])
+    assert.equal(typeof tool.annotations[hint], "boolean", `${tool.name}.${hint}`);
 });
 
 test("every contracted tool has a service handler", async () => {

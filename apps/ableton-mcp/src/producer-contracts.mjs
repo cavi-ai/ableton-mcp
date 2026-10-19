@@ -10,7 +10,7 @@ const contract = (description, properties, required, readOnlyHint = true) => ({ 
   annotations: { readOnlyHint, destructiveHint: false, idempotentHint: readOnlyHint, openWorldHint: true } });
 
 export const producerToolContracts = {
-  get_production_context: contract("Read a consistent Live selection and musical context into a private artifact; return a bounded overview and contextRef. No model call.", {}, []),
+  get_production_context: contract("Capture consistent Live selection and musical context in a persistent private artifact; return a bounded overview and contextRef. No model call or Live edit.", {}, [], false),
   run_production_task: contract("Run configured creative and/or functional specialists with bounded private context. Returns an immutable proposal reference, never executes Live changes. Optional caller postconditions define required final field checks. Provider use follows explicit server configuration.", {
     goal: string("Requested musical or operational outcome.", 6000), roles: { type: "string", enum: ["creative", "functional", "both"] },
     scope: object({ trackId: string("Exact ordinary/Group track-N, Return return-N or Main master owner.", 120), clipId: string("Exact clip ID on an ordinary track.", 120), deviceId: string("Exact device ID owned by trackId.", 120) }, []),
@@ -56,3 +56,7 @@ producerToolContracts.advance_production_session = contract("Advance one durable
   ...Object.fromEntries(["expectedStateVersion", "dryRun", "confirmationToken", "planHash"].map(key => [key, producerToolContracts.apply_production_operation.inputSchema.properties[key]]))
 }, ["sessionId", "expectedRevision", "action"], false);
 producerToolContracts.advance_production_session.annotations.destructiveHint = true;
+for (const name of ["get_production_context", "read_production_artifact", "record_production_note", "start_production_session", "get_production_session"])
+  producerToolContracts[name].annotations.openWorldHint = false;
+// Notes are content-addressed: repeating the same note creates no additional artifact.
+producerToolContracts.record_production_note.annotations.idempotentHint = true;
