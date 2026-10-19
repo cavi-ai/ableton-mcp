@@ -9,7 +9,7 @@ import { createProducerRuntime, parseProducerResponse } from "./producer-runtime
 import { requestSignal, withRequestSignal } from "./request-context.mjs";
 import { getProducerWorkflow } from "./prompts.mjs";
 import { ProductionSessions } from "./production-sessions.mjs";
-import { assertProducerScope } from "./producer-scope.mjs";
+import { assertProducerScope, validateProducerScope } from "./producer-scope.mjs";
 
 const readNames = ["get_live_state", "get_selection_context", "get_song_musical_context", "list_tracks", "list_clips",
   "list_devices", "list_device_parameters", "get_device_parameter_edit_context", "get_clip_timing",
@@ -28,8 +28,7 @@ const eligibleOperation = name => !Object.hasOwn(producerToolContracts, name) &&
 const stableSessionObservation = value => JSON.parse(JSON.stringify(value, (key, item) =>
   ["stateVersion", "setFingerprint", "isPlaying", "isTriggered", "playingPosition"].includes(key) ? undefined : item));
 function validateSessionScope(scope = {}) {
-  if (scope.trackId !== undefined && !/^(?:master|(?:track|return)-(?:0|[1-9][0-9]*))$/.test(scope.trackId))
-    throw new Error("session scope requires a canonical ordinary, Group, Return or Main owner");
+  validateProducerScope(scope);
   if ((scope.clipId || scope.deviceId) && !scope.trackId) throw new Error("clip and device session scopes require trackId");
   if (scope.clipId && !scope.trackId.startsWith("track-")) throw new Error("clip session scope requires an ordinary track owner");
 }
@@ -231,6 +230,7 @@ export class ProducerService {
   }
 
   async #run(args) {
+    validateProducerScope(args.scope);
     if (this.#activeTasks >= 2) throw new Error("two specialist tasks are already active; cancel or await one before starting another");
     this.#activeTasks++;
     try { return await this.#runTask(args); }
@@ -344,6 +344,7 @@ export class ProducerService {
     const taskRecord = this.artifacts.get(projectId, taskId);
     if (taskRecord.kind !== "task" || taskRecord.value.status !== "proposed") throw new Error("task is incomplete or not executable");
     const task = taskRecord.value;
+    validateProducerScope(task.scope);
     const checkMetadata = { checkSource: task.checkSource || "specialist", suggestedCheckCount: task.suggestedCheckCount ?? task.checks.length,
       ...(task.postconditionsRef ? { postconditionsRef: task.postconditionsRef } : {}) };
     if (checkMetadata.checkSource === "caller") {
@@ -396,7 +397,8 @@ export class ProducerService {
       }
       after = await this.#live();
     } catch (error) { observationError = error.message; }
-    const nativeVerificationFailed = [value,value?.observed].some(native=>native?.verified === false || native?.targetRetained === false ||
+    const nativeVerificationFailed = [value,value?.observed].some(native=>native?.inspectionRequired === true ||
+      native?.writeCompleted === false || native?.showVerified === false || native?.verified === false || native?.targetRetained === false ||
       native?.contextPreserved === false || (native?.writeRequested === true && native?.nativeReturned === false));
     const nativeMetadata = nativeVerificationFailed ? {nativeVerificationFailed:true} : {};
     const status = observationError || nativeVerificationFailed ? "outcome_unknown" : value.pendingUserAction ? "pending_user_action"

@@ -7,6 +7,7 @@ import { ProducerService } from "../src/producer-service.mjs";
 import { ProducerArtifacts } from "../src/producer-artifacts.mjs";
 import { ConfirmationStore } from "../src/confirmation-store.mjs";
 import { withRequestSignal } from "../src/request-context.mjs";
+import { ToolService } from "../src/tool-service.mjs";
 
 const response = (extra = {}) => ({ summary: "Use a quieter bass.", reads: [], operations: [], checks: [], questions: [], alternatives: [], ...extra });
 async function setup(t, generate) {
@@ -44,6 +45,32 @@ async function scopedProposal(t, operation, scope) {
   return { ...fixture, propose: () => fixture.service.call("run_production_task", {
     projectId: "song", goal: "Change only the declared target", roles: "functional", scope }) };
 }
+
+for (const name of ["run_production_task", "start_production_session"])
+  test(`${name} rejects malformed or inconsistent scopes before observation`, async t => {
+    for (const scope of [
+      { clipId: "trak-0:clip-0" }, { deviceId: "device-0" }, { trackId: "track-00" },
+      { trackId: "track-0", clipId: "track-1:clip-0" },
+      { trackId: "track-0", deviceId: "track-1:device-0" },
+      { clipId: "track-0:clip-0", deviceId: "track-1:device-0" },
+      { trackId: "track-0", clipId: "track-0:clip-00" },
+      { trackId: "track-0", deviceId: "track-0:device-0/chain-00/device-0" }
+    ]) {
+      const { service, calls, packets } = await setup(t, () => response());
+      await assert.rejects(service.call(name, { projectId: "song", goal: "Inspect the exact target", roles: "functional", scope }), /scope/);
+      assert.equal(calls.length, 0);
+      assert.equal(packets.length, 0);
+    }
+  });
+
+test("clip-only task scopes retain their canonical owner boundary", async t => {
+  for (const clipId of ["track-0:clip-0", "track-0:arrangement-clip-0"]) {
+    const { propose } = await scopedProposal(t, { tool: "set_track_mixer", args: { trackId: "track-1", mute: true } }, { clipId });
+    await assert.rejects(propose(), /scope/);
+  }
+  const { propose } = await scopedProposal(t, { tool: "set_clip_timing", args: { trackId: "track-0", clipId: "track-0:clip-0", mute: true } }, { clipId: "track-0:clip-0" });
+  assert.equal((await propose()).operationCount, 1);
+});
 
 for (const operation of [
   { tool: "set_bulk_track_mixer", args: { trackIds: ["track-1"], mute: true } },
@@ -87,6 +114,18 @@ test("saved proposals are checked for array scope escapes again before planning"
   await assert.rejects(service.call("apply_production_operation", { projectId: "song", taskId,
     operationIndex: 0, expectedStateVersion: 1 }), /scope/);
   assert.equal(calls.some(call => call.name === operation.tool), false);
+});
+
+test("saved malformed scopes are rejected before contacting an unavailable Live", async t => {
+  const { service, base, artifacts } = await setup(t, () => response({ operations: [{ tool: "set_tempo", args: { tempo: 100 } }] }));
+  const task = await service.call("run_production_task", { projectId: "song", goal: "Set tempo", roles: "functional" });
+  const saved = artifacts.get("song", task.taskId).value;
+  base.call = async () => { throw new Error("Live is unavailable"); };
+  for (const scope of [{ clipId: "trak-0:clip-0" }, { trackId: "track-0", deviceId: "track-1:device-0" }]) {
+    const taskId = artifacts.put("song", "task", { ...saved, scope });
+    await assert.rejects(service.call("apply_production_operation", { projectId: "song", taskId,
+      operationIndex: 0, expectedStateVersion: 1 }), /scope/);
+  }
 });
 
 test("bulk observation targets obey the same owner scope as proposals", async t => {
@@ -1005,7 +1044,8 @@ test('explicit native verification failures stop durable execution despite passi
 });
 
 test('raw and wrapped explicit native failures cannot become applied receipts',async t=>{
- for(const wrapped of [false,true])for(const failure of [{verified:false},{targetRetained:false},{contextPreserved:false},{writeRequested:true,nativeReturned:false}]){
+ for(const wrapped of [false,true])for(const failure of [{verified:false},{targetRetained:false},{contextPreserved:false},{writeRequested:true,nativeReturned:false},
+  {inspectionRequired:true},{writeCompleted:false},{showVerified:false}]){
   const {service,base,artifacts}=await setup(t,()=>response({operations:[{tool:'set_tempo',args:{tempo:100}}]}));
   const original=base.call.bind(base);
   base.call=async(name,args)=>{
@@ -1021,6 +1061,52 @@ test('raw and wrapped explicit native failures cannot become applied receipts',a
   assert.deepEqual(wrapped?saved.observed:Object.fromEntries(Object.keys(failure).map(key=>[key,saved[key]])),failure);
  }
 });
+
+for (const tool of ["set_live_object_colors", "show_live_object"]) for (const succeeds of [false, true])
+  test(`${tool} native receipts control durable advancement: success=${succeeds}`, async t => {
+    let turn = 0, version = 1;
+    const operation = { tool, args: tool === "set_live_object_colors"
+      ? { changes: [{ objectId: "track-0", color: "#ff0000" }], expectedSetFingerprint: "set-a" }
+      : { trackId: "track-0", view: "Session", expectedSetFingerprint: "set-a" } };
+    const fixture = await setup(t, () => ++turn === 1
+      ? response({ reads: [{ tool: "discover_production_tools", args: { query: tool, kind: "operation" } }] })
+      : response({ operations: [operation] }));
+    const { service, base, artifacts, change } = fixture, original = base.call.bind(base);
+    const native = new ToolService({ bridge: { async request(method, args) {
+      if (method === "get_live_object_colors") return { stateVersion: version, setFingerprint: "set-a", identityToken: "colors", selection: {},
+        objects: args.objectIds.map(objectId => ({ objectId, supported: true, color: "#123456", colorIndex: 7 })) };
+      if (method === "get_live_navigation_context") return { stateVersion: version, setFingerprint: "set-a", identityToken: "navigation",
+        target: { trackId: "track-0", view: "Session" }, selection: {}, views: {}, controls: {}, deviceViews: [], groupsToReveal: [] };
+      version++; change();
+      if (method === "set_live_object_colors") return { stateVersion: version, writeCompleted: true, identityRetained: succeeds, selectionUnchanged: true,
+        objects: args.changes.map(({ objectId, color }) => ({ objectId, requestedColor: color, color, colorIndex: 2, supported: true, exactMatch: true, writeReturned: true })) };
+      assert.equal(method, "show_live_object");
+      return { stateVersion: version, target: args.before.target, showVerified: succeeds,
+        targetIdentityRetained: succeeds, selectionVerified: succeeds, viewsVerified: succeeds, deviceViewsVerified: succeeds, controlsUnchanged: true };
+    } } });
+    base.call = (name, args) => name === tool ? native.call(name, args) : original(name, args);
+    let session = await service.call("start_production_session", { projectId: "song", goal: "Edit the exact target", roles: "functional",
+      scope: { trackId: "track-0" }, completion: "postconditions",
+      postconditions: [{ tool: "get_live_state", args: {}, path: ["stateVersion"], expected: 2 }] });
+    const advance = args => service.call("advance_production_session", { projectId: "song", sessionId: session.sessionId, expectedRevision: session.revision, ...args });
+    session = await advance({ action: "propose" });
+    const plan = await advance({ action: "apply", expectedStateVersion: 1 });
+    session = await advance({ action: "apply", expectedStateVersion: 1, dryRun: false,
+      confirmationToken: plan.operation.confirmationToken, planHash: plan.operation.planHash });
+    assert.equal(session.operation.checks[0].matches, true);
+    assert.equal(session.operation.status, succeeds ? "applied" : "outcome_unknown");
+    const observed = artifacts.get("song", session.operation.resultRef).value.observed;
+    assert.equal(observed[tool === "set_live_object_colors" ? "writeCompleted" : "showVerified"], succeeds);
+    if (succeeds) {
+      assert.equal(session.phase, "evaluate");
+      assert.equal((await advance({ action: "evaluate", decision: "accept" })).phase, "complete");
+    } else {
+      assert.equal(session.phase, "needs_inspection");
+      assert.equal(session.operationIndex, 0);
+      await assert.rejects(advance({ action: "apply", expectedStateVersion: 2 }), /phase/);
+      await assert.rejects(advance({ action: "evaluate", decision: "accept" }), /phase/);
+    }
+  });
 
 test('an outer failure cannot be hidden by a positive observed native receipt',async t=>{
  const {service,base}=await setup(t,()=>response({operations:[{tool:'set_tempo',args:{tempo:100}}]}));

@@ -66,6 +66,10 @@ Ollama structured output restricts operations to the names and argument schemas 
 
 Scope checks cover target arrays, nested targets and source/destination aliases at proposal time and again before applying a saved operation. A scoped MIDI source may be copied into new slots on the same track; its source ID must still match. Imported snapshot/template provenance is data, not an additional Live target. A track send may reference its Return without modifying that Return. Scoped writes whose targets cannot be resolved are rejected; song tempo and musical-context proposals retain their existing song-level behavior.
 
+Scope IDs must be canonical and belong to the same owner. Malformed or conflicting IDs are rejected before observing Live or calling a specialist. Task scopes may specify only a clip or device ID; durable sessions still require its explicit track owner.
+
+Native receipts requiring inspection or reporting incomplete color writes or unverified navigation cannot become applied producer receipts. The session retains the result for inspection and cannot advance, even when declared field checks pass.
+
 All public tools declare four boolean annotations. Capturing production context persists an artifact and is an additive write. Tools that overwrite existing state are marked potentially destructive; additive creation tools are separate. Private project reads and notes are closed-world, while configured model providers and arbitrary file paths can cross that boundary. Annotations describe effects and never replace native confirmations or scope checks.
 
 The initial functional toolkit includes native `set_track_volume_db` and `set_track_send_db` schemas alongside the raw mixer tool. Use these for dB targets after reading the exact fader or send in `get_track_mixer`; raw mixer values are not dB values. Less common operations still require discovery.

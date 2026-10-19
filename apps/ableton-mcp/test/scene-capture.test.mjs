@@ -17,6 +17,8 @@ test('scene capture plans bind the native combination and confirm once without r
 
 test('scene capture requires explicit selected anchor and name and stays outside core',async()=>{
   const service=new ToolService({bridge:{request:async()=>{throw Error('invalid requests must not reach Live');}}}),route=createRouter(service),core=createRouter(service,{toolProfile:'core'});
+  const tool=(await route({id:0,method:'tools/list'})).result.tools.find(tool=>tool.name==='capture_session_scene');
+  assert.equal(tool.annotations.readOnlyHint,false);assert.equal(tool.annotations.destructiveHint,true);
   for(const args of [{name:'Jam',expectedStateVersion:4},{afterSceneId:'scene-0',name:'bad\nname',expectedStateVersion:4},{afterSceneId:'scene-0',name:'Jam'}])assert.equal((await route({id:1,method:'tools/call',params:{name:'capture_session_scene',arguments:args}})).error.code,-32602);
   assert.equal((await core({id:2,method:'tools/call',params:{name:'capture_session_scene',arguments:{afterSceneId:'scene-0',name:'Jam',expectedStateVersion:4}}})).error.code,-32601);
 });
