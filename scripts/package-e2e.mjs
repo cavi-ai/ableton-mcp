@@ -39,6 +39,15 @@ npm(["install", "--no-audit", "--no-fund", path.join(work, filename)], consumer)
 const bin = path.join(consumer, "node_modules/.bin/ableton-mcp");
 const installed = path.join(consumer, "node_modules/@cavi-ai/ableton-mcp");
 const packageVersion = JSON.parse(readFileSync(path.join(installed, "package.json"), "utf8")).version;
+const { createProducerRuntime } = await import(pathToFileURL(path.join(installed, "apps/ableton-mcp/src/producer-runtime.mjs")));
+const specialistReply = { summary: "Inspect the supplied context.", reads: [], operations: [], checks: [], questions: [], alternatives: [] };
+const specialist = createProducerRuntime({ type: "api-client", provider: "claude", model: "test-model", allowRemote: true }, {
+  env: { ANTHROPIC_API_KEY: "package-test-key" },
+  fetch: async () => new Response(`event: content_block_delta\ndata: ${JSON.stringify({
+    delta: { type: "text_delta", text: JSON.stringify(specialistReply) }
+  })}\n\nevent: message_stop\ndata: {}\n\n`)
+});
+assert.deepEqual(await specialist.generate({ role: "creative", goal: "Inspect", context: [] }), specialistReply);
 const { classifyMutationOutcome } = await import(pathToFileURL(path.join(installed, "apps/ableton-mcp/src/mutation-outcomes.mjs")));
 for (const [name, field] of [["capture_session_scene", "captureVerified"], ["duplicate_clip", "copyVerified"]]) {
   const failed = classifyMutationOutcome(name, { expectedStateVersion: 1, dryRun: false },

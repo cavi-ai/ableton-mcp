@@ -59,7 +59,8 @@ function responseFormat(packet) {
   return schema;
 }
 const runtimeProperties = {
-  type: { enum: ["ollama", "acp"] }, model: { type: "string", minLength: 1, maxLength: 200 },
+  type: { enum: ["ollama", "acp", "api-client"] }, model: { type: "string", minLength: 1, maxLength: 200 },
+  provider: { enum: ["claude"] }, apiKeyEnv: { type: "string", pattern: "^[A-Za-z_][A-Za-z0-9_]*$", maxLength: 200 },
   toolDiscovery: { enum: ["eager", "deferred"] },
   endpoint: { type: "string", maxLength: 2000 }, allowRemote: { type: "boolean" },
   command: { type: "string", minLength: 1 }, args: list({ type: "string" }, 32),
@@ -87,6 +88,14 @@ export function parseProducerConfig(environment) {
   catch { throw new Error("producer config must be JSON"); }
   if (!validateConfig(config)) throw new Error(`invalid producer config: ${ajv.errorsText(validateConfig.errors)}`);
   for (const runtime of Object.values(config)) {
+    if (runtime.type === "api-client") {
+      if (!runtime.model || !runtime.provider || runtime.allowRemote !== true ||
+          ["endpoint", "command", "args", "env"].some(key => Object.hasOwn(runtime, key)))
+        throw new Error("API-client config requires provider, model and allowRemote: true; endpoints, commands and process environment are not supported");
+      continue;
+    }
+    if (runtime.provider !== undefined || runtime.apiKeyEnv !== undefined)
+      throw new Error("provider and apiKeyEnv require API-client config");
     if (runtime.type === "ollama") {
       if (!runtime.model || runtime.command || runtime.args || runtime.env) throw new Error("Ollama config requires model and cannot specify a command or environment");
       endpointFor(runtime);
@@ -146,6 +155,12 @@ export function createProducerRuntime(config, dependencies = {}) {
       );
       messages.push({ role: "user", content: previousResponse ? JSON.stringify({ ...packet, progress }) : encoded });
       const fetch = dependencies.fetch || globalThis.fetch;
+      if (config.type === "api-client") {
+        const { generateApiClientResponse } = await import("./producer-api-client.mjs");
+        return parseProducerResponse(await generateApiClientResponse(config, messages, {
+          signal: activeSignal, fetch, env: dependencies.env || process.env
+        }));
+      }
       const endpoint = endpointFor(config);
       if (!config.allowRemote) {
         // Cloud aliases need not contain "cloud". Inspect model-only metadata

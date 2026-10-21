@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add opt-in Claude Messages production specialists through `@cavi-ai/api-client`, with environment-based credentials, bounded streaming and existing proposal and confirmation guards.
 - Distinguish read-only inspections, executable change proposals, incomplete tasks and freshly verified no-change outcomes. Empty functional responses no longer advance change tasks to acceptance.
 - Validate guarded plans, execution receipts, producer results and important Live reads through MCP and CLI, preserving unknown outcomes for malformed write receipts.
 - Retrieve bounded specialist schemas from task metadata while retaining exact-name discovery, role restrictions and the full tool catalog.

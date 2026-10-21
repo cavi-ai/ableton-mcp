@@ -34,7 +34,25 @@ Use the command and arguments documented by your ACP agent. Provider and model s
 
 ACP receives a fresh session for each bounded request, an isolated temporary working directory, no MCP servers and no client filesystem or terminal capabilities. Permission requests are denied. Only the final agent message is collected; thought streams are not forwarded. ACP is a trusted subprocess connection, not an operating-system sandbox: use an agent whose own permissions you trust. A configured executable can access the machine independently of ACP client capabilities.
 
-Each runtime accepts `timeoutMs` from 1,000 to 180,000; the default is 60,000. A complete production task also has a 180,000 ms deadline, with at most two tasks active in one service. Cancellation stops pending model work and terminates the owned ACP process group on POSIX, or requests process-tree termination on Windows. Teardown is bounded independently of inherited process pipes. Specialist model turns do not hold the MCP control queue, so stop requests remain dispatchable.
+For Claude Messages through `@cavi-ai/api-client`:
+
+```json
+{
+  "functional": {
+    "type": "api-client",
+    "provider": "claude",
+    "model": "your-enabled-claude-model",
+    "allowRemote": true,
+    "apiKeyEnv": "ANTHROPIC_API_KEY"
+  }
+}
+```
+
+Set the named API key in the server environment and replace the model placeholder with a model enabled for that API account. `apiKeyEnv` defaults to `ANTHROPIC_API_KEY`; it names a variable and never contains the key itself. This backend uses the published `@cavi-ai/api-client` 0.22.0 dependency and sends the bounded task, supplied observations and immediately preceding reply to the official Anthropic Messages HTTPS endpoint. It requires `allowRemote: true` for each configured role. Provider billing and data handling apply; an ACP agent's login or subscription is not an API key.
+
+Only `provider: "claude"` is supported. Custom endpoints and redirects are rejected. The adapter streams text, requests at most 2,048 output tokens, limits collected text to 16,000 bytes and the full response to 128,000 bytes, and requires a terminal completion before accepting a proposal. It requests JSON through instructions and validates the response locally; provider-side schema-constrained decoding is not enabled. Native model tools are not exposed. The coordinator still validates role, allowed tools, argument schemas and scope before creating a proposal. Requests are not automatically retried and never fall back to another backend. No audio or images are transmitted.
+
+Each runtime accepts `timeoutMs` from 1,000 to 180,000; the default is 60,000. A complete production task also has a 180,000 ms deadline, with at most two tasks active in one service. Cancellation aborts API-client requests and response streams, and terminates the owned ACP process group on POSIX, or requests process-tree termination on Windows. Aborting an API connection does not establish that provider billing or processing stopped. Teardown is bounded independently of inherited process pipes. Specialist model turns do not hold the MCP control queue, so stop requests remain dispatchable.
 
 ## Keep the main tool catalog small
 
@@ -74,9 +92,9 @@ Deferred mode permits up to six model requests per role and eight schema discove
 
 Every specialist request identifies its current turn, maximum turns and remaining task reads in `progress`. Its completed-read ledger identifies observations, discovered schemas and artifact-page continuation offsets from earlier turns of that role. Specialists can use these results before requesting more data; a tool discovered in one turn becomes available in the next. Repeated Live reads still perform fresh observations and consume the read budget.
 
-Continuation requests include only the immediately preceding validated reply from the same role and task, counted within the input-size budget. Ollama receives that actual reply as an assistant message followed by the current task and observations. ACP receives it in the bounded task packet. Neither runtime receives transcripts from older tasks automatically.
+Continuation requests include only the immediately preceding validated reply from the same role and task, counted within the input-size budget. Ollama and API-client backends receive that actual reply as an assistant message followed by the current task and observations. ACP receives it in the bounded task packet. No runtime receives transcripts from older tasks automatically.
 
-Ollama structured output restricts operations to the names and argument schemas supplied for that turn; creative requests permit no operations. The coordinator independently validates every proposal from either runtime, including argument schemas, scope and permissions.
+Ollama structured output restricts operations to the names and argument schemas supplied for that turn; creative requests permit no operations. The coordinator independently validates every proposal from every runtime, including argument schemas, scope and permissions.
 
 Scope checks cover target arrays, nested targets and source/destination aliases at proposal time and again before applying a saved operation. A scoped MIDI source may be copied into new slots on the same track; its source ID must still match. Imported snapshot/template provenance is data, not an additional Live target. A track send may reference its Return without modifying that Return. Scoped writes whose targets cannot be resolved are rejected; song tempo and musical-context proposals retain their existing song-level behavior.
 

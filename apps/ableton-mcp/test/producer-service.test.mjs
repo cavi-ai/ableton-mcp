@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProducerService } from "../src/producer-service.mjs";
+import { createProducerRuntime } from "../src/producer-runtime.mjs";
 import { ProducerArtifacts } from "../src/producer-artifacts.mjs";
 import { ConfirmationStore } from "../src/confirmation-store.mjs";
 import { withRequestSignal } from "../src/request-context.mjs";
@@ -55,6 +56,32 @@ async function scopedProposal(t, operation, scope) {
   return { ...fixture, propose: () => fixture.service.call("run_production_task", {
     projectId: "song", goal: "Change only the declared target", roles: "functional", scope }) };
 }
+
+test("API-client proposals retain role restrictions and require guarded confirmation before execution", async t => {
+  const { service, calls } = await setup(t, () => response());
+  const config = { type: "api-client", provider: "claude", model: "test-model", allowRemote: true };
+  service.config = { creative: config, functional: config };
+  service.runtimeFactory = config => createProducerRuntime(config, {
+    env: { ANTHROPIC_API_KEY: "test-key" },
+    fetch: async () => new Response(`event: content_block_delta\ndata: ${JSON.stringify({
+      delta: { type: "text_delta", text: JSON.stringify(response({ operations: [{ tool: "set_tempo", args: { tempo: 100 } }] })) }
+    })}\n\nevent: message_stop\ndata: {}\n\n`)
+  });
+  const request = { projectId: "song", goal: "Set tempo to 100" };
+  await assert.rejects(service.call("run_production_task", { ...request, roles: "creative" }), /creative/);
+  await assert.rejects(service.call("run_production_task", { ...request, intent: "inspect" }), /inspection/);
+  const task = await service.call("run_production_task", request);
+  assert.equal(task.status, "proposed");
+  assert.equal(task.operationCount, 1);
+  assert.equal(calls.some(call => call.name === "set_tempo"), false);
+  const args = { projectId: "song", taskId: task.taskId, operationIndex: 0, expectedStateVersion: 1 };
+  const plan = await service.call("apply_production_operation", args);
+  assert.equal(plan.status, "planned");
+  await assert.rejects(service.call("apply_production_operation", { ...args, dryRun: false, planHash: plan.planHash }), /confirmation/);
+  const applied = await service.call("apply_production_operation", { ...args, dryRun: false,
+    planHash: plan.planHash, confirmationToken: plan.confirmationToken });
+  assert.equal(applied.status, "applied");
+});
 
 test("change tasks cannot finish with an empty executable proposal", async t => {
   const { service, artifacts } = await setup(t, () => response());
