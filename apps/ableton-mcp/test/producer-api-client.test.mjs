@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { once } from "node:events";
+import { createServer } from "node:http";
 import { createProducerRuntime, parseProducerConfig } from "../src/producer-runtime.mjs";
 
 const config = { type: "api-client", provider: "claude", model: "test-model", allowRemote: true };
@@ -86,15 +88,22 @@ test("the wire budget includes ignored stream frames", async () => {
     .generate(packet), /byte limit/);
 });
 
-test("cancellation and deadlines stop an open response body", async () => {
+test("cancellation and deadlines stop an open response body", { timeout: 5000 }, async t => {
   for (const deadline of [false, true]) {
-    let cancelled = false;
     const controller = new AbortController();
-    const generate = runtime(async () => {
+    const { promise: disconnected, resolve } = Promise.withResolvers();
+    const server = createServer((request, response) => {
+      response.writeHead(200, { "Content-Type": "text/event-stream" });
+      response.write(": connected\n\n");
+      response.once("close", resolve);
       if (!deadline) setTimeout(() => controller.abort(), 20);
-      return new Response(new ReadableStream({ cancel() { cancelled = true; } }));
-    }, { ...config, timeoutMs: 1000 });
+    });
+    t.after(() => { server.closeAllConnections(); server.close(); });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const endpoint = `http://127.0.0.1:${server.address().port}`;
+    const generate = runtime((url, init) => fetch(endpoint, init), { ...config, timeoutMs: 1000 });
     await assert.rejects(generate.generate(packet, { signal: controller.signal }), /abort|timeout/i);
-    assert.equal(cancelled, true);
+    await disconnected;
   }
 });
