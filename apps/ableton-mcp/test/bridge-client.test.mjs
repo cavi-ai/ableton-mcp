@@ -8,6 +8,7 @@ import { UnixBridgeClient } from "../src/bridge-client.mjs";
 import { decodeBridgeLines, encodeBridgeMessage } from "../src/bridge-protocol.mjs";
 import { runCli } from '../src/cli.mjs';
 import { createRouter } from '../src/server.mjs';
+import { ToolService } from '../src/tool-service.mjs';
 
 async function listener(t, receive, { handshake = true } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "ab-batch-"));
@@ -134,6 +135,58 @@ test("batch reads share one connection and preserve order across fragmented reve
   assert.deepEqual(await client.requestMany(requests), requests);
   assert.equal(connections(), 1);
   assert.equal(new Set(received.map(request => request.id)).size, 4);
+});
+
+for (const nested of [false, true]) test(`factory context uses one bridge connection for ${nested ? "nested" : "top-level"} devices`, async t => {
+  const args = { trackId: "track-0", deviceId: nested ? "track-0:device-0/chain-0/device-0" : "track-0:device-0" };
+  const device = { id: args.deviceId, name: "EQ Eight", className: "Eq8", type: "audio_effect" };
+  const { client, connections } = await listener(t, (socket, request) => {
+    if (request.method !== "list_device_parameters")
+      assert.equal(request.method, nested ? "get_device_hierarchy" : "list_devices");
+    assert.deepEqual(request.params, nested || request.method === "list_device_parameters" ? args : { trackId: args.trackId });
+    const result = request.method === "list_device_parameters"
+      ? { stateVersion: 7, ...args, parameters: [{ id: "frequency", name: "1 Frequency A", value: 800 }] }
+      : { stateVersion: 7, trackId: args.trackId, ...(nested ? { device } : { devices: [device] }) };
+    socket.write(encodeBridgeMessage({ id: request.id, result }));
+  });
+  const context = await new ToolService({ bridge: client }).call("get_factory_device_context", args);
+  assert.equal(context.device.id, args.deviceId);
+  assert.equal(context.profile.id, "eq-eight");
+  assert.equal(context.parameterCoverage.total, 1);
+  assert.equal(connections(), 1);
+});
+
+test("factory context refuses changed versions without retrying the batch", async t => {
+  const args = { trackId: "track-0", deviceId: "track-0:device-0" };
+  const { client, connections } = await listener(t, (socket, request) => {
+    const result = request.method === "list_device_parameters"
+      ? { stateVersion: 8, ...args, parameters: [] }
+      : { stateVersion: 7, trackId: args.trackId, devices: [{ id: args.deviceId, className: "Eq8" }] };
+    socket.write(encodeBridgeMessage({ id: request.id, result }));
+  });
+  await assert.rejects(new ToolService({ bridge: client }).call("get_factory_device_context", args), /device context changed/);
+  assert.equal(connections(), 1);
+});
+
+test("factory context propagates failed parameter reads without retrying", async t => {
+  const args = { trackId: "track-0", deviceId: "track-0:device-0" };
+  const { client, connections } = await listener(t, (socket, request) => socket.write(encodeBridgeMessage(
+    request.method === "list_device_parameters"
+      ? { id: request.id, error: { message: "parameter read failed" } }
+      : { id: request.id, result: { stateVersion: 7, devices: [{ id: args.deviceId, className: "Eq8" }] } }
+  )));
+  await assert.rejects(new ToolService({ bridge: client }).call("get_factory_device_context", args), /parameter read failed/);
+  assert.equal(connections(), 1);
+});
+
+test("factory context refuses incomplete batch results without individual fallback reads", async () => {
+  for (const results of [[], [{}], [null, {}], [{}, null]]) {
+    const bridge = { requestMany: async () => results,
+      request: async () => { throw new Error("unexpected individual read"); } };
+    await assert.rejects(new ToolService({ bridge }).call("get_factory_device_context", {
+      trackId: "track-0", deviceId: "track-0:device-0"
+    }), /incomplete device context batch/);
+  }
 });
 
 test("a batch error rejects the read and subsequent single requests remain fresh", async t => {

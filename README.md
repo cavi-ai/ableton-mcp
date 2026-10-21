@@ -133,6 +133,8 @@ npm run verify:package
 
 `npm test` runs the pipeline and server suites, the bridge's Python tests, and the docs tests. `eval:core` checks the compact MCP catalog and read-only tool behavior with MCP Eval. ImageMagick 7 (`magick`) and `ffmpeg` must be installed. `verify:package` packs the npm tarball, installs it into a temporary project, and drives the installed CLI and server.
 
+Readiness scoring also requires a running Live bridge, a configured preset catalog, and available MIDI clips, audio sources, and devices. The manifest gate and readiness score are reported separately.
+
 ## Project status
 
 See [GitHub Releases](https://github.com/cavi-ai/ableton-mcp/releases) and the [changelog](CHANGELOG.md) for released versions and changes. The tool surface can still change before 1.0.

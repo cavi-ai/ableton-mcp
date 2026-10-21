@@ -1153,10 +1153,24 @@ export class ToolService {
       };
     }
     if (name === "get_factory_device_context") {
-      const identity = await this.#observeDevice(args);
+      let identity, observed;
+      if (typeof this.bridge.requestMany === "function") {
+        const nested = typeof args.deviceId === "string" && args.deviceId.includes("/");
+        const observations = await this.bridge.requestMany([
+          { method: nested ? "get_device_hierarchy" : "list_devices",
+            params: nested ? { trackId: args.trackId, deviceId: args.deviceId } : { trackId: args.trackId } },
+          { method: "list_device_parameters", params: args }
+        ]);
+        if (!Array.isArray(observations) || observations.length !== 2 || observations.some(value => !value))
+          throw new Error("incomplete device context batch");
+        identity = await this.#observeDevice(args, observations[0]);
+        observed = observations[1];
+      } else {
+        identity = await this.#observeDevice(args);
+        observed = await this.bridge.request("list_device_parameters", args);
+      }
       const { device } = identity;
       const profile = getFactoryDeviceProfile(device);
-      const observed = await this.bridge.request("list_device_parameters", args);
       if (observed.stateVersion !== identity.stateVersion)
         throw new Error("device context changed between reads");
       let scaleLink;
@@ -2347,13 +2361,13 @@ export class ToolService {
     return this.#confirmedMutation(plan, args);
   }
 
-  async #observeDevice(args) {
+  async #observeDevice(args, observation) {
     if (typeof args.deviceId === "string" && args.deviceId.includes("/")) {
-      const observed = await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
+      const observed = observation ?? await this.bridge.request("get_device_hierarchy", { trackId: args.trackId, deviceId: args.deviceId });
       if (observed.device?.id !== args.deviceId) throw new Error(`unknown device ${args.deviceId}`);
       return observed;
     }
-    const observed = await this.bridge.request("list_devices", { trackId: args.trackId });
+    const observed = observation ?? await this.bridge.request("list_devices", { trackId: args.trackId });
     const device = observed.devices.find(({ id }) => id === args.deviceId);
     if (!device) throw new Error(`unknown device ${args.deviceId}`);
     return { ...observed, device };

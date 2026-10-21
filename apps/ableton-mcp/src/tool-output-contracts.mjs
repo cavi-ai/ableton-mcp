@@ -1,7 +1,7 @@
 // Live readbacks and guarded mutation receipts are extensible objects. Bundled
 // references have stable fields that can be validated more specifically.
 const result = (properties, required = Object.keys(properties)) => ({
-  type: "object", properties, required, additionalProperties: true
+  type: "object", properties, required
 });
 const text = { type: "string" };
 const integers = { type: "array", items: { type: "integer" } };
@@ -24,4 +24,4 @@ export const toolOutputContracts = {
   }, ["id", "name", "type", "family", "parameterRoles"]) } })
 };
 
-export const extensibleToolResult = { type: "object", additionalProperties: true };
+export const extensibleToolResult = { type: "object" };

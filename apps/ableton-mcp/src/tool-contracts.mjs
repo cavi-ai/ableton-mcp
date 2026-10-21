@@ -15,7 +15,7 @@ const ids = {
   trackId: string("ID from list_tracks."),
   deviceOwnerId: string("track-N from list_tracks, return-N from get_set_mixer, or master."),
   sceneId: string("ID from list_scenes."),
-  clipId: string("Session ID from list_clips; Arrangement ID from list_arrangement_clips where supported."),
+  clipId: string("list_clips Session ID or supported list_arrangement_clips ID."),
   deviceId: string("ID from list_devices."),
   parameterId: string("ID from list_device_parameters."),
   presetId: string("NKS catalog preset ID."),
@@ -644,10 +644,12 @@ const contracts = {
   inspect_clip_groove_postconditions: { description: "Read current native context and inspect extraction, baking, or plain groove-removal postconditions against a supplied pre-action get_clip_groove_context snapshot. Does not execute the UI action, prove provenance, or validate audible equivalence. Extraction expects one appended groove and unchanged source/timing; baking expects removed assignment and unchanged unrelated timing/shared context; removal also requires unchanged source content.", inputSchema: object({ ...clip.properties, operation: { type: "string", enum: ["bake", "extract", "remove"] }, before: { type: "object", description: "Complete pre-action native clip groove context snapshot; supplied data is not authenticated history." } }, ["trackId", "clipId", "operation", "before"]) },
   set_clip_timing: { description: "Loop, meter, launch, Legato, mute, groove and grid edits. Loops bind native identity/material; partial readback, no rollback.", inputSchema: guarded({
     trackId: ids.trackId, clipId: ids.clipId,
-    loop: object({ enabled: boolean("Clip loop enabled."), startBeats: number("Beat start; MIDI/warped audio.", { minimum: 0 }), endBeats: number("Beat end; MIDI/warped audio.", { exclusiveMinimum: 0 }), startSeconds: number("Second start; unwarped audio.", { minimum: 0 }), endSeconds: number("Second end; unwarped audio.", { exclusiveMinimum: 0 }) }),
+    loop: object({ enabled: { type: "boolean" }, startBeats: { type: "number", minimum: 0 },
+      endBeats: { type: "number", exclusiveMinimum: 0 }, startSeconds: { type: "number", minimum: 0 },
+      endSeconds: { type: "number", exclusiveMinimum: 0 } }),
     timeSignature: object({ numerator: { type: "integer", minimum: 1 }, denominator: { type: "integer", enum: [1, 2, 4, 8, 16] } }),
     launchMode: choice("Session launch choice."), launchQuantization: choice("Launch quantization value or name."), launchLegato: boolean("Session Legato launch."), mute: boolean("Guarded Clip Activator mute; updated bridge."), grooveId: {type: ["string", "null"], description: "ID assigns. Null removes in macOS Clip View: saved Set, unique clip name, sole edit. Selects clip; updated bridge."},
-    editorGrid: object({ quantization: choice("Editor-grid choice from get_clip_timing."), isTriplet: boolean("Display clip-editor triplets.") }),
+    editorGrid: object({ quantization: choice("Editor-grid choice from get_clip_timing."), isTriplet: { type: "boolean" } }),
   }, ["trackId", "clipId"]) },
   set_midi_clip_markers: {description:'Set start/end markers of one loop-enabled Session or Arrangement MIDI clip in absolute source beats. Omitted bound stays unchanged. Preserves stored notes and loop settings; same values make no write. Native guards and partial readback; no automatic rollback.',inputSchema:guarded({trackId:ids.trackId,clipId:ids.clipId,startBeats:number('Native start marker; at least one marker required.',{minimum:0}),endBeats:number('Native end marker above start.',{exclusiveMinimum:0})},['trackId','clipId'])},
   get_audio_clip_state: { description: "Read Session/Arrangement audio settings, markers and timeline identity. Unavailable fades report supported=false.", inputSchema: clip },
@@ -748,7 +750,7 @@ const contracts = {
   panic: { description: "Plan or stop Live playback immediately using the guarded panic operation.", inputSchema: guarded() },
   transport_play: { description: "Plan or start Ableton transport playback.", inputSchema: guarded() },
   transport_stop: { description: "Plan or stop Ableton transport playback.", inputSchema: guarded() },
-  set_tempo: { description: "Plan or set tempo within Live's range.", inputSchema: guarded({ tempo: number("Tempo in BPM.", { minimum: 20, maximum: 999 }) }, ["tempo"]) },
+  set_tempo: { description: "Plan or apply a guarded tempo change from 20 to 999 BPM; returns the plan or observed tempo.", inputSchema: guarded({ tempo: number("Tempo in BPM.", { minimum: 20, maximum: 999 }) }, ["tempo"]) },
   set_track_mixer: { description: "Plan or apply guarded track volume, pan, mute, solo, and return-send changes.", inputSchema: guarded({ trackId: ids.trackId, volume: number("Track volume."), pan: number("Track pan.", { minimum: -1, maximum: 1 }), mute: boolean("Mute track."), solo: boolean("Solo track."), sends: array(object({ id: string("Send ID."), value: number("Send value.") }, ["id", "value"]), "Named return-send changes.") }, ["trackId"]) },
   launch_scene: { description: "Plan/fire a scene with full-row recheck. May stop, record or change tempo/meter. Request-only receipt. Requires updated bridge.", inputSchema: guarded({ sceneId: ids.sceneId, forceLegato: boolean("Force immediate Legato launch for every clip in this scene; defaults to false.") }, ["sceneId"]) },
   launch_clip: { description: "Launch a Session slot. recordLengthBeats records an empty armed slot; updated bridge rechecks input, native identity and recording readiness. launchQuantization overrides once. Receipt does not prove take completion.", inputSchema: guarded({ trackId: ids.trackId, clipId: ids.clipId, recordLengthBeats: number("Fixed recording length in beats for an empty armed slot.", { exclusiveMinimum: 0 }), launchQuantization: choice("One-shot native launch quantization choice from get_clip_timing or list_clips.launchQuantizationChoices.") }, ["trackId", "clipId"]) },
@@ -895,8 +897,8 @@ const parameterDescriptions = {
     loop: "Arrangement loop enablement and boundaries in beats."
   },
   set_clip_timing: {
-    loop: "Clip loop enablement and boundaries; beats for warped clips, seconds for unwarped audio.",
-    timeSignature: "Requested native numerator and denominator.",
+    loop: "Enable looping and set bounds: beats for MIDI/warped audio; seconds for unwarped.",
+    timeSignature: "Native numerator and denominator.",
     editorGrid: "Native clip-editor quantization and triplet display."
   },
   create_track: { type: "Native track type to create.", index: "Zero-based insertion index; omit to append." },
