@@ -1,3 +1,4 @@
+import { isBridgeRead, readBridgeContext } from "./bridge-reads.mjs";
 import { getProductionCapabilities } from "./production-capabilities.mjs";
 import {setSessionClipEntry} from './clip-entry.mjs';
 import {withMutationOutcome} from './mutation-outcomes.mjs';
@@ -538,6 +539,7 @@ export class ToolService {
   async #call(name, args) {
     if (name === 'set_session_clip_entry') return setSessionClipEntry(this.bridge,this.confirmations,args);
     requestSignal()?.throwIfAborted();
+    if (isBridgeRead(name)) return readBridgeContext(this.bridge, name, args);
     if (name === 'show_live_object') return showLiveObject(this.bridge, this.confirmations, args);
     if(name === "export_midi_clip")return saveMidiClip(this.bridge,this.confirmations,this.midiExportHost,args);
     if(name === "rename_arrangement_clip")return renameArrangementClip(this.bridge,this.confirmations,args);
@@ -727,7 +729,7 @@ export class ToolService {
     if (name === "search_browser_item_metadata") {
       return { items: this.#browserMetadataLibrary().search(args), limitation: "Private MCP tags and favorites only; saved identities are not reverified against Live or the local filesystem in this search and do not change native collections." };
     }
-    if (name === "get_live_state") return this.bridge.request("get_live_state", {});
+
     if (name === "plan_arrangement_repeat") return planArrangementRepeat(this.bridge,args);
     if (name === "get_session_orientation") return enrichSessionOrientation(await this.bridge.request(name, {}));
     if (name === "analyze_arrangement_section") {
@@ -748,17 +750,17 @@ export class ToolService {
       return sessionClipHold(this.bridge,this.confirmations,name,args);
     if (["get_instrument_comparison", "prepare_instrument_comparison", "adopt_instrument_comparison", "select_instrument_comparison"].includes(name))
       return instrumentComparison(this.bridge, this.confirmations, name, args);
-    if (name === "get_selection_context") return this.bridge.request(name, {});
+
     if (name === "duplicate_midi_clip_variations") return duplicateMidiClipVariations(this.bridge, this.confirmations, args);
     if (name === "open_live_set") return this.#openLiveSet(args);
     if (name === "save_live_set") return this.#saveLiveSet(args);
-    if (name === "get_transport_context") return this.bridge.request("get_transport_context", {});
+
     if (name === "get_looper_export_context") return this.#readLooperExport(args);
     if (name === "export_looper_clip") return this.#exportLooperClip(args);
-    if (name === "get_rack_performance_context") return this.bridge.request(name, args);
-    if (name === "get_looper_performance_context") return this.bridge.request("get_looper_performance_context", args);
-    if (name === "get_beat_repeat_performance_context") return this.bridge.request("get_beat_repeat_performance_context", args);
-    if (name === "get_history_state") return this.bridge.request("get_history_state", {});
+
+
+
+
     if (name === "get_song_musical_context") {
       return enrichSongScaleContext(await this.bridge.request("get_song_musical_context", {}));
     }
@@ -792,16 +794,16 @@ export class ToolService {
     }
     if (name === "plan_drum_pattern_edit") return this.#planDrumPatternEdit(args);
     if (name === "plan_drum_variation") return this.#planDrumVariation(args);
-    if (name === "get_clip_groove_context") return this.bridge.request("get_clip_groove_context", args);
+
     if (name === "inspect_clip_groove_postconditions") {
       if (args.before?.trackId !== args.trackId || args.before?.clipId !== args.clipId) throw new Error("before snapshot does not match target");
       const observed = await this.bridge.request("get_clip_groove_context", { trackId: args.trackId, clipId: args.clipId });
       return { ...inspectGroovePostconditions(args.operation, args.before, observed), observed };
     }
-    if (name === "get_transport_recording_context") return this.bridge.request("get_transport_recording_context", {});
-    if (name === "list_arrangement_cue_points") return this.bridge.request("list_arrangement_cue_points", {});
-    if (name === "list_tracks") return this.bridge.request("list_tracks", {});
-    if (name === "list_scenes") return this.bridge.request("list_scenes", {});
+
+
+
+
     if (['get_take_lane_audition_context','show_take_lanes','select_take_lane_audition'].includes(name)) return takeLaneAudition(name,this.bridge,this.confirmations,this.takeLaneAuditionHost,args);
     if (name === "get_take_lane_context") return readTakeLaneContext(this.bridge,args);
     if (name === "get_scene_launch_context") return getSceneLaunchContext(this.bridge,args);
@@ -809,15 +811,15 @@ export class ToolService {
     if (name === "load_simpler_sample") return this.#loadSimplerSample(args);
     if (name === "set_simpler_sample_region") return this.#setSimplerSampleRegion(args);
     if (name === "set_simpler_manual_slices") return this.#setSimplerManualSlices(args);
-    if (name === "list_clips") return this.bridge.request("list_clips", args);
-    if (name === "list_arrangement_clips") return this.bridge.request(name, args);
+
+
     if (name === "place_session_clip_in_arrangement") return this.#placeSessionClipInArrangement(args);
     if (name === "duplicate_arrangement_clip") return copyArrangementClip(this.bridge, this.confirmations, args, {sameTrack: true});
     if (name === "move_arrangement_clip") return moveArrangementClip(this.bridge, this.confirmations, args);
     if (name === "delete_arrangement_clip") return this.#mutateArrangementClip(name, args);
-    if (name === "get_midi_clip_notes") return this.bridge.request("get_midi_clip_notes", args);
-    if (name === "get_midi_clip_notes_extended") return this.bridge.request("get_midi_clip_notes_extended", args);
-    if (name === "get_midi_note_selection") return this.bridge.request("get_midi_note_selection", args);
+
+
+
     if (name === "analyze_midi_clip_scale") {
       const before = await this.bridge.request("get_song_musical_context", {});
       const clip = await this.bridge.request("get_midi_clip_notes_extended", args);
@@ -884,12 +886,12 @@ export class ToolService {
     if (name === "plan_midi_diatonic_harmony") return this.#planMidiDiatonicHarmony(args);
     if (name === "plan_midi_scale_chord_remapping") return this.#planMidiScaleChordRemapping(args);
     if (name === "plan_midi_diatonic_chord_quality") return this.#planMidiDiatonicChordQuality(args);
-    if (name === "get_track_mixer") return this.bridge.request("get_track_mixer", args);
-    if (name === "get_track_signal_activity") return this.bridge.request("get_track_signal_activity", args);
-    if (name === "get_track_routing") return this.bridge.request("get_track_routing", args);
-    if (name === "get_track_arm_context") return this.bridge.request(name, args);
+
+
+
+
     if (name === "arm_track") return armTrack(this.bridge,this.confirmations,args);
-    if (name === "get_set_mixer") return this.bridge.request("get_set_mixer", {});
+
     if (name === "get_return_routing") return this.bridge.request("get_return_routing", {returnTrackId:args.returnTrackId});
     if (name === "get_producer_workflow") return getProducerWorkflow(args);
     if (['get_mixer_panning_context','set_mixer_panning'].includes(name)) return mixerPanning(this.bridge,this.confirmations,name,args);
@@ -1036,7 +1038,7 @@ export class ToolService {
       return { roots, deepIntegrationVerified: false,
         limitation: "Paged top-level factory browser observations, not an atomic inventory or exhaustive preset/Pack/third-party catalog. Profile matches use browser names; verify native class identity and actual controls after loading. A profile or loadable item does not prove save/recall, modulation, signal flow, or complete device integration." };
     }
-    if (name === "list_browser_roots") return this.bridge.request(name, {});
+
     if (name === "search_browser_roots") {
       if (typeof args.query !== "string" || !args.query.trim()) throw new Error("query must be a non-empty string");
       if (args.includeMetadata !== undefined && typeof args.includeMetadata !== "boolean") throw new Error("includeMetadata must be boolean");
@@ -1227,10 +1229,10 @@ export class ToolService {
       };
     }
     if (name === "get_automation_capabilities") return getProductionCapabilities();
-    if (name === "get_clip_parameter_envelope") return this.bridge.request("get_clip_parameter_envelope", args);
-    if (name === "get_clip_mixer_envelope") return this.bridge.request("get_clip_mixer_envelope", args);
-    if (name === "get_clip_timing") return this.bridge.request("get_clip_timing", args);
-    if (name === "get_audio_clip_state") return this.bridge.request("get_audio_clip_state", args);
+
+
+
+
     if (name === "get_audio_source_beat_times") {
       const result = await this.bridge.request("get_audio_source_beat_times", args);
       if (result.trackId !== args.trackId || result.clipId !== args.clipId) throw new Error("audio clip identity mismatch");
@@ -1366,7 +1368,7 @@ export class ToolService {
         candidateCount: candidates.length, gridAlignment, actions,
         limitation: "Heuristic source-only candidates and review-only actions. Offsets no larger than one 10-ms detector hop in native beat coordinates are reported but not proposed as marker edits. Each remaining marker must be dry-run against fresh Live state; neighbor/BPM constraints may reject it. Does not modify or audibly validate the clip." };
     }
-    if (name === "get_device_sidechain_routing") return this.bridge.request("get_device_sidechain_routing", args);
+
     if (name === "compare_audio_reference") return compareAudioReference(args);
     if (name === "plan_audio_midi_sketch") return planAudioMidiSketch(this.bridge,args);
     if (name === "analyze_audio_file") return analyzeAudioFile(args.sourcePath, args);
@@ -1382,8 +1384,8 @@ export class ToolService {
         ...(args.targetMidiNote !== undefined ? { clipPitchAdjustment: planClipPitchAdjustment(measurement.tuningMeasurement, after.pitch) } : {}),
         limitation: "The measurement is source audio only; it excludes clip gain, transposition, warp, envelopes, and device processing. The separate review-only pitch adjustment reads the current clip pitch but does not audibly validate the result." };
     }
-    if (name === "list_devices") return this.bridge.request("list_devices", args);
-    if (name === "get_device_hierarchy") return this.bridge.request("get_device_hierarchy", args);
+
+
     if (name === "move_device_to_chain") {
       requireExpectedState(args);
       const match = typeof args.targetChainId === "string" && /^(.*)\/(?:return-)?chain-(\d+)$/.exec(args.targetChainId);
@@ -1643,9 +1645,6 @@ export class ToolService {
         expectedStateVersion: args.expectedStateVersion, beforeDevice: rack, beforeParameters: parameters.parameters,
         limitation: "Live controls randomization; no seed or predictable target values are exposed. Inspect returned parameters." }, args);
     }
-    if (name === "list_device_parameters") {
-      return this.bridge.request("list_device_parameters", args);
-    }
     if (name === "set_device_parameters") return this.#setDeviceParameters(args);
     if (name === "get_device_ab_context") return this.bridge.request(name,{trackId:args.trackId,deviceId:args.deviceId});
     if (name === "copy_device_ab_slot" || name === "select_device_ab_slot") {
@@ -1671,7 +1670,7 @@ export class ToolService {
     if (name === "set_groove") return this.#setGroove(args);
     if (name === "create_groove") return this.#createGroove(args);
     if (name === "set_transport_recording_context") return this.#setTransportRecordingContext(args);
-    if (name === "get_midi_capture_context") return this.bridge.request(name, {});
+
     if (name === "capture_midi_session") return this.#captureMidiSession(args);
     if (name === "jump_to_arrangement_cue_point") return jumpToCuePoint(this.bridge, this.confirmations, args);
     if (["create_arrangement_cue_point", "rename_arrangement_cue_point", "delete_arrangement_cue_point"].includes(name)) {
@@ -1777,9 +1776,9 @@ export class ToolService {
     if (name === "set_bulk_track_mixer") return this.#setBulkTrackMixer(args);
     if (name === "stop_all_clips") return this.#stopAllClips(args);
     if (name === "set_track_routing") return this.#setTrackRouting(args);
-    if (name === "get_track_midi_routing") return this.bridge.request("get_track_midi_routing", args);
+
     if (name === "set_track_midi_routing") return this.#setTrackMidiRouting(args);
-    if (name === "get_track_freeze_state") return this.bridge.request("get_track_freeze_state", args);
+
     if (name === "set_track_freeze_state") return this.#setTrackFreezeState(args);
     if (name === "set_device_sidechain_routing") return this.#setDeviceSidechainRouting(args);
     if (name === "set_group_fold_state") return this.#setGroupFoldState(args);
