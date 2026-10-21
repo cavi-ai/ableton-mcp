@@ -19,6 +19,7 @@ const readNames = ["get_live_state", "get_selection_context", "get_song_musical_
 const operationNames = ["set_tempo", "set_song_musical_context", "set_device_parameters", "set_track_mixer", "set_track_volume_db", "set_track_send_db",
   "set_clip_timing", "set_audio_clip_state", "set_midi_note_properties", "transform_midi_notes",
   "duplicate_midi_clip_variations", "create_midi_clip", "set_device_active", "set_session_clip_entry"];
+const deferredReadNames = ["get_live_state", "get_selection_context", "get_song_musical_context"];
 const executionFields = ["dryRun", "confirmationToken", "planHash", "expectedStateVersion"];
 const roles = ["creative", "functional"];
 const checkSignal = () => requestSignal()?.throwIfAborted();
@@ -222,9 +223,13 @@ export class ProducerService {
       nextOffset: offset + 4 < matches.length ? offset + 4 : null };
   }
 
-  #schemas(role, initialReads = readNames) {
-    const operations = role === "functional" ? operationNames.filter(eligibleOperation).map(operationSchema) : [];
+  #schemas(role, initialReads = readNames, deferred = false) {
+    const operations = role === "functional" && !deferred ? operationNames.filter(eligibleOperation).map(operationSchema) : [];
     return { reads: initialReads.filter(name => toolContracts[name]).map(name => ({ name, inputSchema: toolContracts[name].inputSchema })), operations,
+      ...(deferred ? { available: {
+        reads: Object.keys(toolContracts).filter(name => !Object.hasOwn(producerToolContracts, name) && toolContracts[name].annotations.readOnlyHint),
+        operations: role === "functional" ? Object.keys(toolContracts).filter(eligibleOperation) : []
+      } } : {}),
       discovery: { tool: "discover_production_tools", args: { query: "words from the tool name or description", kind: "read or operation", offset: 0 },
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
         description: "Find at most four additional tool schemas. Creative may discover reads only. Operations are proposed, never executed by a specialist." },
@@ -259,7 +264,8 @@ export class ProducerService {
       for (const ref of contextRefs) this.artifacts.get(projectId, ref);
       const sessionRoot = join(this.artifacts.directory, ".sessions");
       mkdirSync(sessionRoot, { recursive: true, mode: 0o700 });
-      const results = [], turnRefs = []; let exhausted = false, reads = 0, stopReason;
+      const results = [], turnRefs = []; let exhausted = false, reads = 0, discoveries = 0, stopReason;
+      const hasDeferredRole = selected.some(role => this.config[role].toolDiscovery === "deferred");
       const initialReads = [...new Set([...readNames, ...(postconditions || []).map(check => check.tool)])];
       const allowedReads = [...initialReads], allowedOperations = [...operationNames];
       for (const role of selected) {
@@ -267,29 +273,40 @@ export class ProducerService {
         const cwd = mkdtempSync(join(sessionRoot, `${role}-`));
         try {
           const runtime = this.runtimeFactory(this.config[role]);
+          const deferred = this.config[role].toolDiscovery === "deferred";
+          const maxTurns = deferred ? 6 : 3;
+          const roleReads = deferred ? [...new Set([...deferredReadNames, ...(postconditions || []).map(check => check.tool)])] : initialReads;
           const packet = { role, goal, scope, constraints, context: contextRefs.map(ref => this.#preview(projectId, ref)),
             ...(workflow?{workflow}:{}),
             ...(postconditions ? { postconditions: structuredClone(postconditions) } : {}),
-            tools: this.#schemas(role, initialReads), progress: { completedReads: [] },
+            tools: this.#schemas(role, roleReads, deferred), progress: { completedReads: [] },
             ...(role === "functional" && results.length ? { creativeProposal: results[0].result } : {}) };
-          for (let round = 0; round < 3; round++) {
+          for (let round = 0; round < maxTurns; round++) {
             checkSignal();
-            Object.assign(packet.progress, { turn: round + 1, maxTurns: 3, readsRemaining: 8 - reads });
+            Object.assign(packet.progress, { turn: round + 1, maxTurns, readsRemaining: 8 - reads,
+              ...(deferred ? { discoveriesRemaining: 8 - discoveries } : {}) });
             if (Buffer.byteLength(JSON.stringify(packet)) > 48000) { exhausted = true; stopReason = "input_limit"; break; }
             const inputRef = this.artifacts.put(projectId, "specialist-input", packet);
             const result = await runtime.generate(packet, { signal: taskSignal, cwd });
-            checkSignal(); this.#validateProposal(result, role, scope, allowedReads, allowedOperations);
+            checkSignal(); this.#validateProposal(result, role, scope,
+              deferred ? packet.tools.reads.map(tool => tool.name) : allowedReads,
+              deferred ? packet.tools.operations.map(tool => tool.name) : allowedOperations);
             const resultRef = this.artifacts.put(projectId, "specialist-result", { role, result, inputRef,
               runtime: { type: this.config[role].type, model: this.config[role].model || null } });
             turnRefs.push({ role, turn: round + 1, inputRef, resultRef });
             packet.progress.previousResultRef = resultRef;
             packet.progress.previousResponse = result;
             if (!result.reads.length) { results.push({ role, result, resultRef }); break; }
-            if (round === 2 || reads + result.reads.length > 8) {
-              exhausted = true; stopReason = round === 2 ? "model_turn_limit" : "read_limit"; break;
+            const discoveryCount = deferred ? result.reads.filter(read => read.tool === "discover_production_tools").length : 0;
+            const readCount = result.reads.length - discoveryCount;
+            if (round === maxTurns - 1 || reads + readCount > 8 || discoveries + discoveryCount > 8) {
+              exhausted = true; stopReason = round === maxTurns - 1 ? "model_turn_limit"
+                : reads + readCount > 8 ? "read_limit" : "discovery_limit"; break;
             }
             for (const read of result.reads) {
-              checkSignal(); reads++;
+              checkSignal();
+              if (deferred && read.tool === "discover_production_tools") discoveries++;
+              else reads++;
               if (read.tool === "discover_production_tools") {
                 const found = this.#discover(read.args, role);
                 const target = read.args.kind === "read" ? packet.tools.reads : packet.tools.operations;
@@ -329,6 +346,7 @@ export class ProducerService {
       checkMetadata.suggestedCheckCount = functional?.checks.length || 0;
       const operations = status === "proposed" ? functional?.operations || [] : [];
       const taskId = this.artifacts.put(projectId, "task", { goal, scope, constraints, basis: identity(observed), observedAfter: identity(after), contextRefs,
+        ...(hasDeferredRole ? { discoveriesUsed: discoveries } : {}),
         ...(workflowRef?{workflowRef}:{}),
         results, turnRefs, status, ...checkMetadata, ...(stopReason ? { stopReason } : {}), operations,
         checks: postconditions || functional?.checks || [], allowedReads, allowedOperations, createdAt: new Date().toISOString() });
@@ -338,7 +356,7 @@ export class ProducerService {
         ...identity(observed), operationCount: operations.length, questions: questions.slice(0, 4).map(question => question.slice(0, 300)),
         questionsTruncated: questions.length > 4 || questions.some(question => question.length > 300),
         resultRefs: results.map(value => ({ role: value.role, artifactId: value.resultRef })),
-        contextRef: observed.contextRef, readsUsed: reads, turnRefs };
+        contextRef: observed.contextRef, readsUsed: reads, ...(hasDeferredRole ? { discoveriesUsed: discoveries } : {}), turnRefs };
     });
   }
 

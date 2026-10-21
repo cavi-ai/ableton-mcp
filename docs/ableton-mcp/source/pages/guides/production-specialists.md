@@ -56,7 +56,19 @@ ableton-mcp call get_production_context --args '{"projectId":"my-song"}' --json
 ableton-mcp call run_production_task --args '{"projectId":"my-song","goal":"Propose a less busy bass variation while preserving the original","roles":"both","scope":{"trackId":"track-2"}}' --json
 ```
 
-Use IDs observed in your own Set. Read the task artifact to review proposed operations. Each specialist can make at most three model requests; a task permits at most eight additional observation, discovery or artifact reads. Specialists start with common tool schemas and can request `discover_production_tools` internally to retrieve up to four additional schemas by name or description. Creative discovery exposes reads only; functional operations must retain the original state-version and dry-run guard contract. This keeps the full catalog out of every model request while allowing new guarded tools to be discovered as the server grows.
+Use IDs observed in your own Set. Read the task artifact to review proposed operations. By default, each specialist can make at most three model requests; a task permits at most eight additional observation, discovery or artifact reads. Specialists start with common tool schemas and can request `discover_production_tools` internally to retrieve up to four additional schemas by name or description. Creative discovery exposes reads only; functional operations must retain the original state-version and dry-run guard contract. This keeps the full catalog out of every model request while allowing new guarded tools to be discovered as the server grows.
+
+To try experimental loading of schemas on demand, add `"toolDiscovery": "deferred"` to either role's runtime configuration. For example:
+
+```json
+{
+  "functional": { "type": "ollama", "model": "your-installed-model", "toolDiscovery": "deferred" }
+}
+```
+
+Deferred specialists start with only Live state, selection and musical-context read schemas, plus any caller postcondition read schemas. A compact name index keeps every supported read and guarded operation visible without loading their detailed schemas. Those schemas use the same bounded discovery path and become available on the following turn. Each role loads its own schemas; discovery grants no execution permission. Creative roles still cannot discover or propose operations.
+
+Deferred mode permits up to six model requests per role and eight schema discovery requests shared across the task, separately from the eight observation or artifact reads. The existing task deadline and input limits still apply. Exhaustion returns no executable proposal. Smaller initial schema context can require more model calls and latency; compare task outcomes before adopting this mode. Omit the setting or use `"toolDiscovery": "eager"` for the existing behavior. This setting affects specialist context only; it does not change MCP discovery profiles or the full advertised catalog.
 
 Every specialist request identifies its current turn, maximum turns and remaining task reads in `progress`. Its completed-read ledger identifies observations, discovered schemas and artifact-page continuation offsets from earlier turns of that role. Specialists can use these results before requesting more data; a tool discovered in one turn becomes available in the next. Repeated Live reads still perform fresh observations and consume the read budget.
 
