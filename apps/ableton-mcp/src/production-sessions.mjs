@@ -57,7 +57,7 @@ export class ProductionSessions {
     let s = record.value;
     if (s.revision !== expectedRevision) throw new Error("session revision conflict; read the current session");
     const allowed = {
-      resume: [], replan: [], propose: [], choose: ["alternativeIndex"],
+      resume: [], replan: ["text", "constraints"], propose: [], choose: ["alternativeIndex"],
       apply: ["expectedStateVersion", "dryRun", "confirmationToken", "planHash"],
       feedback: ["text"], evaluate: ["decision"]
     }[action];
@@ -112,13 +112,15 @@ export class ProductionSessions {
           : reevaluate ? "requires_evaluation" : s.status });
     }
     if (action === "replan") {
-      phase("needs_inspection");
+      const unexecutedRecovery = s.recoveryRef && ["inspect", "propose", "apply"].includes(s.phase) && !executionStarted(this.#execution(s));
+      if (!unexecutedRecovery) phase("needs_inspection");
       const observed = await fresh();
       const recoveryRef = this.artifacts.put(projectId, "production-recovery", { taskId: s.taskId,
         receiptId: s.receiptId, execution: s.execution, previousRecoveryRef: s.recoveryRef,
         contextRef: observed.contextRef, targetRef: observed.targetRef, basis: observed,
+        previousGoal: s.goal, previousConstraints: s.constraints || [],
         instruction: "Inspect current observations and prior execution. Propose only work still required; do not replay earlier operations or assume rollback." });
-      return save({ ...restart(observed), recoveryRef });
+      return save({ ...restart(observed), recoveryRef, goal: args.text ?? s.goal, constraints: args.constraints ?? s.constraints });
     }
     if (action === "feedback") {
       phase("audition", "evaluate");

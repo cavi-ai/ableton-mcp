@@ -128,6 +128,16 @@ test("partial failures retain their ledger and require an explicit replan withou
   assert.deepEqual(recovery.value.execution.operations.map(row => row.status), ["applied", "rejected"]);
   session = await advance(next, "propose");
   assert.ok(packets.at(-1).context.some(item => item.artifactId === session.recoveryRef));
+  const priorRecoveryRef = session.recoveryRef;
+  session = await next.call("advance_production_session", { projectId: "song", sessionId: session.sessionId,
+    expectedRevision: session.revision, action: "replan", text: "Only finish the change to 115 BPM",
+    constraints: ["Do not repeat the earlier tempo change"] });
+  assert.equal(session.phase, "inspect");
+  assert.equal(session.goal, "Only finish the change to 115 BPM");
+  assert.equal(artifacts.get("song", session.recoveryRef).value.previousRecoveryRef, priorRecoveryRef);
+  session = await advance(next, "propose");
+  assert.equal(packets.at(-1).goal, "Only finish the change to 115 BPM");
+  assert.deepEqual(packets.at(-1).constraints, ["Do not repeat the earlier tempo change"]);
   session = await applySessionOperation(next, session);
   assert.equal(session.phase, "evaluate");
   assert.deepEqual(calls.filter(call => call.name === "set_tempo" && call.args.dryRun === false).map(call => call.args.tempo), [110, 115]);

@@ -54,7 +54,8 @@ producerToolContracts.advance_production_session = contract("Advance one durable
   sessionId, expectedRevision: { type: "integer", minimum: 1 },
   action: { type: "string", enum: ["resume", "replan", "propose", "choose", "apply", "feedback", "evaluate"] },
   alternativeIndex: { type: "integer", minimum: 0, maximum: 3 },
-  text: string("Explicit user listening feedback; not an observed Live fact.", 6000),
+  text: string("Listening feedback for feedback, or an explicit remaining goal for replan; not an observed Live fact.", 6000),
+  constraints: taskProperties.constraints,
   decision: { type: "string", enum: ["accept", "revise"] },
   ...Object.fromEntries(["expectedStateVersion", "dryRun", "confirmationToken", "planHash"].map(key => [key, producerToolContracts.apply_production_operation.inputSchema.properties[key]]))
 }, ["sessionId", "expectedRevision", "action"], false);
