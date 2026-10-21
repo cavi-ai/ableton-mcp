@@ -44,7 +44,7 @@ Use `ABLETON_MCP_TOOL_PROFILE=directory` for a surface where each native operati
 
 1. `get_production_context` captures consistent Live selection and musical context, returning a bounded preview and `contextRef`. It does not call a model.
 2. `record_production_note` stores explicit intent or feedback. Pass its `noteRef` in a later task's `contextRefs` to reuse it.
-3. `run_production_task` accepts `projectId`, `goal`, optional exact `scope` IDs, `constraints`, `contextRefs`, and `roles` (`creative`, `functional`, or `both`; default `functional`). It returns a `taskId`, short summary, result references and operation count.
+3. `run_production_task` accepts `projectId`, `goal`, optional exact `scope` IDs, `constraints`, `contextRefs`, `intent` (`change` by default, or `inspect`), and `roles` (`creative`, `functional`, or `both`; default `functional`). It returns a `taskId`, short summary, result references and operation count.
 4. `read_production_artifact` pages through detailed context, proposals and evidence. Its default page is 4,000 characters, with an 8,000-character maximum. Follow `nextOffset`; a truncated preview is not complete evidence.
 5. `apply_production_operation` plans or executes one exact operation from a task.
 6. `get_producer_workflow` finds workflow references with an optional `query`, lists all names/arguments when no selector is supplied, or renders one exact `workflow` with named string `arguments`. It does not observe Live, invoke a model or execute the workflow.
@@ -120,6 +120,8 @@ The reference guides only the requested bounded phase. It grants no tool access,
 Task inputs are limited to 48,000 bytes and returned model JSON to 16,000 bytes. Detailed artifacts are capped at 2 MB each. Exhausted, stale or unanswered-question tasks have no executable operations. Main-session summaries and questions are bounded; full responses remain in the task artifacts.
 
 ## Plan, confirm and observe
+
+Use `intent: "inspect"` for read-only specialist work. It returns `observed` and permits neither operation discovery nor operation proposals. A functional change task returns `proposed` only with concrete operations. An empty response returns `incomplete` unless fresh caller-owned postconditions all match, in which case it returns `no_change_needed` with a private `completionRef`. Model-selected checks and summaries cannot establish that no change is needed. Unavailable checks, unanswered questions, budget exhaustion and changed Live state retain their failure states. Incomplete durable proposals cannot advance to audition or acceptance; propose again after resolving the reported reason.
 
 Optional `postconditions` on `run_production_task` let the caller define the required final outcome. For a bounded gain change:
 

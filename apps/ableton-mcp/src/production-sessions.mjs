@@ -136,7 +136,7 @@ export class ProductionSessions {
       }
       const savedTask = this.artifacts.get(projectId, task.taskId).value;
       const alternatives = savedTask.results.find(item => item.role === "creative")?.result.alternatives;
-      const nextPhase = task.status !== "proposed" ? "inspect" : role === "creative" ? (alternatives?.length ? "choose" : "inspect")
+      const nextPhase = !["proposed", "no_change_needed"].includes(task.status) ? "inspect" : role === "creative" ? (alternatives?.length ? "choose" : "inspect")
         : task.operationCount ? "apply" : finishedOperationsPhase;
       return { ...save({ ...s, phase: nextPhase, status: task.status, taskId: task.taskId,
         alternatives, operationIndex: 0, receiptId: undefined }), task };

@@ -13,6 +13,7 @@ export const producerToolContracts = {
   get_production_context: contract("Capture consistent Live selection and musical context in a persistent private artifact; return a bounded overview and contextRef. No model call or Live edit.", {}, [], false),
   run_production_task: contract("Run configured creative and/or functional specialists with bounded private context. Returns an immutable proposal reference, never executes Live changes. Optional caller postconditions define required final field checks. Provider use follows explicit server configuration.", {
     goal: string("Requested musical or operational outcome.", 6000), roles: { type: "string", enum: ["creative", "functional", "both"] },
+    intent: { type: "string", enum: ["change", "inspect"], description: "change (default) requires operations or fresh caller criteria proving no change is needed. inspect permits observations without operation proposals." },
     scope: object({ trackId: string("Exact ordinary/Group track-N, Return return-N or Main master owner.", 120), clipId: string("Exact clip ID on an ordinary track.", 120), deviceId: string("Exact device ID owned by trackId.", 120) }, []),
     constraints: strings, contextRefs: refs,
     postconditions: { type: "array", minItems: 1, maxItems: 8,

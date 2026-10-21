@@ -11,6 +11,7 @@ import { getProducerWorkflow } from "./prompts.mjs";
 import { ProductionSessions } from "./production-sessions.mjs";
 import { assertProducerScope, validateProducerScope } from "./producer-scope.mjs";
 import { classifyMutationOutcome } from "./mutation-outcomes.mjs";
+import { assessTaskCompletion } from "./production-task-completion.mjs";
 
 const readNames = ["get_live_state", "get_selection_context", "get_song_musical_context", "list_tracks", "list_clips",
   "list_devices", "list_device_parameters", "get_device_parameter_edit_context", "get_clip_timing",
@@ -186,9 +187,12 @@ export class ProducerService {
     }
   }
 
-  #validateProposal(result, role, scope, allowedReads = readNames, allowedOperations = operationNames) {
+  #validateProposal(result, role, scope, allowedReads = readNames, allowedOperations = operationNames, intent = "change") {
     // Injected runtimes and ACP peers follow the same response contract.
     parseProducerResponse(JSON.stringify(result));
+    if (intent === "inspect" && (result.operations.length || result.reads.some(read =>
+      read.tool === "discover_production_tools" && read.args.kind === "operation")))
+      throw new Error("inspection tasks cannot discover or propose operations");
     for (const read of result.reads) {
       if (read.tool === "read_production_artifact") continue;
       if (read.tool === "discover_production_tools") { this.#discover(read.args, role); continue; }
@@ -223,12 +227,13 @@ export class ProducerService {
       nextOffset: offset + 4 < matches.length ? offset + 4 : null };
   }
 
-  #schemas(role, initialReads = readNames, deferred = false) {
-    const operations = role === "functional" && !deferred ? operationNames.filter(eligibleOperation).map(operationSchema) : [];
+  #schemas(role, initialReads = readNames, deferred = false, intent = "change") {
+    const canChange = role === "functional" && intent !== "inspect";
+    const operations = canChange && !deferred ? operationNames.filter(eligibleOperation).map(operationSchema) : [];
     return { reads: initialReads.filter(name => toolContracts[name]).map(name => ({ name, inputSchema: toolContracts[name].inputSchema })), operations,
       ...(deferred ? { available: {
         reads: Object.keys(toolContracts).filter(name => !Object.hasOwn(producerToolContracts, name) && toolContracts[name].annotations.readOnlyHint),
-        operations: role === "functional" ? Object.keys(toolContracts).filter(eligibleOperation) : []
+        operations: canChange ? Object.keys(toolContracts).filter(eligibleOperation) : []
       } } : {}),
       discovery: { tool: "discover_production_tools", args: { query: "words from the tool name or description", kind: "read or operation", offset: 0 },
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -255,7 +260,7 @@ export class ProducerService {
     const deadline = AbortSignal.timeout(180000);
     const taskSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
     return withRequestSignal(taskSignal, async () => {
-      const { projectId, goal, scope = {}, constraints = [] } = args;
+      const { projectId, goal, scope = {}, constraints = [], intent = "change" } = args;
       const observed = await this.#context(projectId);
       const workflowRef=workflow?this.artifacts.put(projectId,"workflow",{selection:args.workflow,guidance:workflow}):null;
       const checkMetadata = { checkSource: postconditions ? "caller" : "specialist",
@@ -276,10 +281,10 @@ export class ProducerService {
           const deferred = this.config[role].toolDiscovery === "deferred";
           const maxTurns = deferred ? 6 : 3;
           const roleReads = deferred ? [...new Set([...deferredReadNames, ...(postconditions || []).map(check => check.tool)])] : initialReads;
-          const packet = { role, goal, scope, constraints, context: contextRefs.map(ref => this.#preview(projectId, ref)),
+          const packet = { role, intent, goal, scope, constraints, context: contextRefs.map(ref => this.#preview(projectId, ref)),
             ...(workflow?{workflow}:{}),
             ...(postconditions ? { postconditions: structuredClone(postconditions) } : {}),
-            tools: this.#schemas(role, roleReads, deferred), progress: { completedReads: [] },
+            tools: this.#schemas(role, roleReads, deferred, intent), progress: { completedReads: [] },
             ...(role === "functional" && results.length ? { creativeProposal: results[0].result } : {}) };
           for (let round = 0; round < maxTurns; round++) {
             checkSignal();
@@ -290,7 +295,7 @@ export class ProducerService {
             const result = await runtime.generate(packet, { signal: taskSignal, cwd });
             checkSignal(); this.#validateProposal(result, role, scope,
               deferred ? packet.tools.reads.map(tool => tool.name) : allowedReads,
-              deferred ? packet.tools.operations.map(tool => tool.name) : allowedOperations);
+              deferred ? packet.tools.operations.map(tool => tool.name) : allowedOperations, intent);
             const resultRef = this.artifacts.put(projectId, "specialist-result", { role, result, inputRef,
               runtime: { type: this.config[role].type, model: this.config[role].model || null } });
             turnRefs.push({ role, turn: round + 1, inputRef, resultRef });
@@ -338,20 +343,25 @@ export class ProducerService {
         } finally { rmSync(cwd, { recursive: true, force: true }); }
         if (exhausted) break;
       }
+      const questions = results.flatMap(value => value.result.questions);
+      const functional = results.find(value => value.role === "functional")?.result;
+      const completion = !exhausted && !questions.length ? await assessTaskCompletion({ intent, functional, postconditions,
+        verify: checks => this.#checks(projectId, checks) }) : {};
       const after = await this.#live();
       const stale = !sameState(observed, after);
-      const questions = results.flatMap(value => value.result.questions);
-      const status = exhausted ? "budget_exhausted" : stale ? "stale_context" : questions.length ? "needs_input" : "proposed";
-      const functional = results.find(value => value.role === "functional")?.result;
+      const status = exhausted ? "budget_exhausted" : stale ? "stale_context" : questions.length ? "needs_input" : completion.status;
+      if (status === "incomplete") stopReason = completion.stopReason;
+      if (completion.checks || completion.error) checkMetadata.completionRef = this.artifacts.put(projectId, "task-completion", {
+        ...completion, status, basis: identity(observed), observedAfter: identity(after) });
       checkMetadata.suggestedCheckCount = functional?.checks.length || 0;
       const operations = status === "proposed" ? functional?.operations || [] : [];
-      const taskId = this.artifacts.put(projectId, "task", { goal, scope, constraints, basis: identity(observed), observedAfter: identity(after), contextRefs,
+      const taskId = this.artifacts.put(projectId, "task", { goal, intent, scope, constraints, basis: identity(observed), observedAfter: identity(after), contextRefs,
         ...(hasDeferredRole ? { discoveriesUsed: discoveries } : {}),
         ...(workflowRef?{workflowRef}:{}),
         results, turnRefs, status, ...checkMetadata, ...(stopReason ? { stopReason } : {}), operations,
         checks: postconditions || functional?.checks || [], allowedReads, allowedOperations, createdAt: new Date().toISOString() });
-      return { taskId, status, ...checkMetadata, ...(stopReason ? { stopReason } : {}),
-        summary: (exhausted ? `Specialist stopped at ${stopReason}; no executable proposal.` : results.at(-1)?.result.summary || "No specialist proposal.").slice(0, 1000),
+      return { taskId, intent, status, ...checkMetadata, ...(stopReason ? { stopReason } : {}),
+        summary: (exhausted || status === "incomplete" ? `Specialist stopped at ${stopReason}; no executable proposal.` : results.at(-1)?.result.summary || "No specialist proposal.").slice(0, 1000),
         ...(workflowRef?{workflowRef}:{}),
         ...identity(observed), operationCount: operations.length, questions: questions.slice(0, 4).map(question => question.slice(0, 300)),
         questionsTruncated: questions.length > 4 || questions.some(question => question.length > 300),

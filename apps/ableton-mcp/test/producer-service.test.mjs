@@ -48,6 +48,67 @@ async function scopedProposal(t, operation, scope) {
     projectId: "song", goal: "Change only the declared target", roles: "functional", scope }) };
 }
 
+test("change tasks cannot finish with an empty executable proposal", async t => {
+  const { service, artifacts } = await setup(t, () => response());
+  const task = await service.call("run_production_task", { projectId: "song", goal: "Lower the bass" });
+  assert.equal(task.status, "incomplete"); assert.equal(task.stopReason, "missing_operations");
+  assert.equal(task.operationCount, 0); assert.equal(task.intent, "change");
+  assert.equal(artifacts.get("song", task.taskId).value.status, "incomplete");
+  await assert.rejects(service.call("apply_production_operation", { projectId: "song", taskId: task.taskId,
+    operationIndex: 0, expectedStateVersion: 1 }), /incomplete/);
+});
+
+test("inspection tasks expose reads without granting operation discovery or proposals", async t => {
+  const { service, packets } = await setup(t, () => response());
+  const task = await service.call("run_production_task", { projectId: "song", goal: "Inspect", intent: "inspect" });
+  assert.equal(task.status, "observed"); assert.equal(task.operationCount, 0);
+  assert.deepEqual(packets[0].tools.operations, []);
+  for (const result of [response({ operations: [{ tool: "set_tempo", args: { tempo: 100 } }] }),
+    response({ reads: [{ tool: "discover_production_tools", args: { query: "set_tempo", kind: "operation" } }] })]) {
+    service.runtimeFactory = () => ({ generate: async () => result });
+    await assert.rejects(service.call("run_production_task", { projectId: "song", goal: "Inspect", intent: "inspect" }), /inspection/);
+  }
+});
+
+test("a no-change result requires fresh caller-owned criteria and records its evidence", async t => {
+  for (const expected of [120, 100]) {
+    const { service, calls, artifacts } = await setup(t, () => response());
+    const task = await service.call("run_production_task", { projectId: "song", goal: "Use the required tempo",
+      postconditions: [{ tool: "get_live_state", args: {}, path: ["tempo"], expected }] });
+    assert.equal(task.status, expected === 120 ? "no_change_needed" : "incomplete");
+    assert.equal(task.operationCount, 0); assert.ok(task.completionRef);
+    const evidence = artifacts.get("song", task.completionRef).value;
+    assert.equal(evidence.checks[0].matches, expected === 120);
+    assert.equal(artifacts.get("song", evidence.checks[0].observationRef).value.observed.tempo, 120);
+    assert.ok(calls.filter(call => call.name === "get_live_state").length >= 4);
+    assert.equal(calls.some(call => call.name === "set_tempo"), false);
+  }
+});
+
+test("specialist-selected checks cannot certify a requested no-op", async t => {
+  const { service } = await setup(t, () => response({ checks: [{ tool: "get_live_state", args: {}, path: ["tempo"], expected: 120 }] }));
+  const task = await service.call("run_production_task", { projectId: "song", goal: "Set a different tempo" });
+  assert.equal(task.status, "incomplete"); assert.equal(task.stopReason, "missing_operations");
+});
+
+test("unavailable or changing no-op evidence cannot complete a change task", async t => {
+  for (const unavailable of [false, true]) {
+    const { service, base, change } = await setup(t, () => response());
+    const original = base.call;
+    base.call = async (name, args) => {
+      if (name === "get_track_mixer") {
+        if (unavailable) throw new Error("target unavailable");
+        change(); return { volume: -12 };
+      }
+      return original(name, args);
+    };
+    const task = await service.call("run_production_task", { projectId: "song", goal: "Set volume",
+      postconditions: [{ tool: "get_track_mixer", args: { trackId: "track-0" }, path: ["volume"], expected: -12 }] });
+    assert.equal(task.status, unavailable ? "incomplete" : "stale_context");
+    assert.equal(task.operationCount, 0);
+  }
+});
+
 for (const name of ["run_production_task", "start_production_session"])
   test(`${name} rejects malformed or inconsistent scopes before observation`, async t => {
     for (const scope of [
@@ -198,7 +259,7 @@ test("an explicitly selected workflow reaches both specialists before their firs
   const {service,packets,artifacts,calls}=await setup(t,()=>response());
   const result=await service.call('run_production_task',{projectId:'song',goal:'Propose only the next level adjustment',roles:'both',
     workflow:{name:'balance-mix',arguments:{request:'Set the named bass to -12 dB, keep the other tracks',mode:'autonomous'}}});
-  assert.equal(result.status,'proposed');assert.equal(result.readsUsed,0);assert.equal(packets.length,2);
+  assert.equal(result.status,'incomplete');assert.equal(result.readsUsed,0);assert.equal(packets.length,2);
   for(const packet of packets){
     assert.equal(packet.workflow.workflow,'balance-mix');
     assert.ok(packet.workflow.messages[0].content.text.includes('Set the named bass to -12 dB, keep the other tracks'));
@@ -233,7 +294,7 @@ test("selected workflows retain valid empty optional arguments from public workf
   const {service,packets}=await setup(t,()=>response());
   const result=await service.call('run_production_task',{projectId:'song',goal:'Propose the next continuation phase',
     workflow:{name:'resume-session-work',arguments:{request:'Continue the named bass',previousContext:''}}});
-  assert.equal(result.status,'proposed');assert.equal(packets[0].workflow.workflow,'resume-session-work');
+  assert.equal(result.status,'incomplete');assert.equal(packets[0].workflow.workflow,'resume-session-work');
 });
 
 test("workflow guidance never grants undiscovered operations or bypasses exact scope", async t => {
@@ -368,13 +429,13 @@ test("deferred discovery has its own bounded budget and preserves eight observat
     : packet.progress.turn < 4
       ? response({ reads: Array.from({ length: 4 }, () => ({ tool: "get_live_state", args: {} })) }) : response());
   service.config.functional.toolDiscovery = "deferred";
-  const task = await service.call("run_production_task", { projectId: "song", goal: "Inspect" });
-  assert.equal(task.status, "proposed"); assert.equal(task.readsUsed, 8); assert.equal(task.discoveriesUsed, 1);
+  const task = await service.call("run_production_task", { projectId: "song", goal: "Inspect", intent: "inspect" });
+  assert.equal(task.status, "observed"); assert.equal(task.readsUsed, 8); assert.equal(task.discoveriesUsed, 1);
   const limited = await setup(t, () => response({ reads: Array.from({ length: 4 }, () => ({
     tool: "discover_production_tools", args: { query: "mixer", kind: "read" }
   })) }));
   limited.service.config.functional.toolDiscovery = "deferred";
-  const exhausted = await limited.service.call("run_production_task", { projectId: "song", goal: "Inspect" });
+  const exhausted = await limited.service.call("run_production_task", { projectId: "song", goal: "Inspect", intent: "inspect" });
   assert.equal(exhausted.status, "budget_exhausted"); assert.equal(exhausted.stopReason, "discovery_limit");
   assert.equal(exhausted.discoveriesUsed, 8); assert.equal(exhausted.readsUsed, 0); assert.equal(exhausted.operationCount, 0);
 });
@@ -386,7 +447,7 @@ test("deferred roles retain caller check schemas without sharing newly loaded pe
   for (const role of ["creative", "functional"]) service.config[role].toolDiscovery = "deferred";
   const task = await service.call("run_production_task", { projectId: "song", goal: "Inspect", roles: "both",
     postconditions: [{ tool: "get_track_mixer", args: { trackId: "track-0" }, path: ["volume", "decibels"], expected: -12 }] });
-  assert.equal(task.status, "proposed");
+  assert.equal(task.status, "incomplete");
   for (const packet of packets) assert.ok(packet.tools.reads.some(tool => tool.name === "get_track_mixer"));
   assert.deepEqual(packets[0].tools.available.operations, []);
   assert.equal(packets.at(-1).tools.reads.some(tool => tool.name === "get_track_signal_activity"), false);
@@ -426,8 +487,8 @@ test("exhausted tasks retain intermediate replies and an explicit stopping reaso
 test("turn budgets remain shared across roles while each role starts its own continuation", async t => {
   const { service, packets } = await setup(t, packet => packet.role === "creative" && (!packet.progress || packet.progress.turn === 1)
     ? response({ reads: [{ tool: "get_live_state", args: {} }] }) : response());
-  const task = await service.call("run_production_task", { projectId: "song", goal: "Plan this phase", roles: "both" });
-  assert.equal(task.status, "proposed"); assert.equal(task.readsUsed, 1);
+  const task = await service.call("run_production_task", { projectId: "song", goal: "Plan this phase", intent: "inspect", roles: "both" });
+  assert.equal(task.status, "observed"); assert.equal(task.readsUsed, 1);
   assert.equal(packets.length, 3);
   assert.equal(packets[2].role, "functional");
   assert.deepEqual(packets[2].progress, { turn: 1, maxTurns: 3, readsRemaining: 7, completedReads: [] });
@@ -439,8 +500,8 @@ test("specialists can page their previous reply and receive the continuation off
     : packet.progress.turn === 2
       ? response({ reads: [{ tool: "read_production_artifact", args: { artifactId: packet.progress.previousResultRef, offset: 0, limit: 100 } }] })
       : response());
-  const task = await service.call("run_production_task", { projectId: "song", goal: "Review the previous reply" });
-  assert.equal(task.status, "proposed");assert.equal(task.readsUsed, 2);
+  const task = await service.call("run_production_task", { projectId: "song", goal: "Review the previous reply", intent: "inspect" });
+  assert.equal(task.status, "observed");assert.equal(task.readsUsed, 2);
   const completed = packets[2].progress.completedReads[1];
   assert.equal(completed.tool, "read_production_artifact");assert.equal(completed.nextOffset, 100);
   assert.equal(completed.args.artifactId, task.turnRefs[0].resultRef);
@@ -573,7 +634,7 @@ test("caller postcondition read schemas reach both roles without discovery and d
   const { service, packets, artifacts } = await setup(t, () => response());
   const task = await service.call("run_production_task", { projectId: "song", goal: "Plan the next edit", roles: "both",
     scope: { trackId: "track-0" }, postconditions: [{ tool: "get_track_freeze_state", args: { trackId: "track-0" }, path: ["frozen"], expected: false }] });
-  assert.equal(task.status, "proposed");assert.equal(task.operationCount, 0);assert.equal(task.readsUsed, 0);
+  assert.equal(task.status, "incomplete");assert.equal(task.operationCount, 0);assert.equal(task.readsUsed, 0);
   for (const packet of packets) {
     assert.equal(packet.postconditions[0].tool, "get_track_freeze_state");
     assert.ok(packet.tools.reads.some(tool => tool.name === "get_track_freeze_state"));
@@ -617,7 +678,7 @@ test("specialists discover additional tool schemas lazily without executing oper
   const { service, packets, calls } = await setup(t, packet => packet.tools.operations.some(tool => tool.name === "create_scale_bassline_clip")
     ? response() : response({ reads: [{ tool: "discover_production_tools", args: { query: "create scale bassline", kind: "operation" } }] }));
   const task = await service.call("run_production_task", { projectId: "song", goal: "plan a bassline", roles: "functional" });
-  assert.equal(task.status, "proposed");
+  assert.equal(task.status, "incomplete");
   assert.equal(packets.length, 2);
   const schema = packets[1].tools.operations.find(tool => tool.name === "create_scale_bassline_clip").inputSchema;
   assert.equal(schema.properties.expectedStateVersion, undefined);
@@ -630,9 +691,9 @@ test("producer specialists discover and read exact device activation context", a
   const {service,packets,calls}=await setup(t,()=>++round===1
     ? response({reads:[{tool:'discover_production_tools',args:{query:'get_device_activation_context',kind:'read'}}]})
     : round===2 ? response({reads:[{tool:'get_device_activation_context',args:{trackId:'track-0',deviceId:'track-0:device-0'}}]}) : response());
-  const result=await service.call('run_production_task',{projectId:'song',goal:'Inspect this effect before comparing bypass',roles:'functional',
+  const result=await service.call('run_production_task',{projectId:'song',goal:'Inspect this effect before comparing bypass',intent:'inspect',roles:'functional',
     workflow:{name:'compare-effect-bypass',arguments:{request:'Compare the named EQ and preserve playback'}}});
-  assert.equal(result.status,'proposed');
+  assert.equal(result.status,'observed');
   assert.equal(packets.length,3);
   assert.equal(calls.filter(c=>c.name==='get_device_activation_context').length,1);
   assert.equal(calls.some(c=>c.name==='set_device_active'),false);
@@ -748,15 +809,14 @@ test('empty functional proposals cannot complete failed caller criteria and can 
   const advance = async args => session = await service.call('advance_production_session', {
     projectId: 'song', sessionId: session.sessionId, expectedRevision: session.revision, ...args
   });
-  await advance({ action: 'propose' }); assert.equal(session.phase, 'evaluate');
-  await advance({ action: 'evaluate', decision: 'accept' });
-  assert.equal(session.phase, 'evaluate'); assert.equal(session.status, 'postconditions_failed');
-  assert.equal(artifacts.get('song', session.evaluationRef).value.checks[0].matches, false);
+  await advance({ action: 'propose' }); assert.equal(session.phase, 'inspect');
+  assert.equal(session.status, 'incomplete');
+  assert.equal(artifacts.get('song', session.task.completionRef).value.checks[0].matches, false);
+  await assert.rejects(advance({ action: 'evaluate', decision: 'accept' }), /invalid/);
   assert.equal(session.userDecision, undefined);
-  await advance({ action: 'evaluate', decision: 'revise' });
   assert.equal(session.phase, 'inspect'); assert.equal(session.evaluationRef, undefined);
   assert.equal(session.userDecision, undefined);
-  await advance({ action: 'propose' }); assert.equal(session.phase, 'evaluate');
+  await advance({ action: 'propose' }); assert.equal(session.phase, 'inspect');
 });
 
 test('caller-checked sessions can complete an already satisfied task in either role flow without writes', async t => {
@@ -944,17 +1004,17 @@ test("empty functional proposals cannot bypass caller postconditions at acceptan
   session = await advance({ action: "propose" });
   session = await advance({ action: "choose", alternativeIndex: 0 });
   session = await advance({ action: "propose" });
-  session = await advance({ action: "feedback", text: "I prefer this version." });
-  session = await advance({ action: "evaluate", decision: "accept" });
-  assert.equal(session.phase, "evaluate");
-  assert.equal(session.status, "postconditions_failed");
-  assert.equal(session.checks[0].matches, false);
-  assert.equal(artifacts.get("song", session.evaluationRef).value.checks[0].matches, false);
+  assert.equal(session.phase, "inspect");
+  assert.equal(session.status, "incomplete");
+  await assert.rejects(advance({ action: "feedback", text: "I prefer this version." }), /invalid/);
+  await assert.rejects(advance({ action: "evaluate", decision: "accept" }), /invalid/);
+  assert.equal(artifacts.get("song", session.task.completionRef).value.checks[0].matches, false);
 });
 
 test("listening feedback informs both specialists when the user requests another revision", async t => {
   const { service, packets } = await setup(t, () => response({ alternatives: [{ name: "Sparse", description: "Less busy" }] }));
-  let session = await service.call("start_production_session", { projectId: "song", goal: "Refine bass" });
+  let session = await service.call("start_production_session", { projectId: "song", goal: "Keep tempo 120",
+    postconditions: [{ tool: "get_live_state", args: {}, path: ["tempo"], expected: 120 }] });
   const advance = args => service.call("advance_production_session", { projectId: "song", sessionId: session.sessionId, expectedRevision: session.revision, ...args });
   for (const args of [{ action: "propose" }, { action: "choose", alternativeIndex: 0 }, { action: "propose" },
     { action: "feedback", text: "Keep the syncopation but reduce the density." }, { action: "evaluate", decision: "revise" },
