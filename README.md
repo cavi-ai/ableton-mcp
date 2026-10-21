@@ -135,6 +135,8 @@ npm run verify:package
 
 Readiness scoring also requires a running Live bridge, a configured preset catalog, and available MIDI clips, audio sources, and devices. The manifest gate and readiness score are reported separately.
 
+For model-driven mixer, MIDI, device and reconnect/resume checks against a saved scratch Set, see [workflow validation](docs/ableton-mcp/source/pages/guides/workflow-validation.md).
+
 ## Project status
 
 See [GitHub Releases](https://github.com/cavi-ai/ableton-mcp/releases) and the [changelog](CHANGELOG.md) for released versions and changes. The tool surface can still change before 1.0.

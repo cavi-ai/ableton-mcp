@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Distinguish read-only inspections, executable change proposals, incomplete tasks and freshly verified no-change outcomes. Empty functional responses no longer advance change tasks to acceptance.
+- Validate guarded plans, execution receipts, producer results and important Live reads through MCP and CLI, preserving unknown outcomes for malformed write receipts.
+- Retrieve bounded specialist schemas from task metadata while retaining exact-name discovery, role restrictions and the full tool catalog.
+- Expose production boundaries and handoffs for unsupported automation, envelope recovery, hidden plug-in state, partial tasks and listening acceptance.
+- Add opt-in live workflow acceptance for mixer, MIDI, device and durable reconnect/resume tasks against an explicit scratch Set.
+
 ## 0.3.1
 
 - Added a shared execution-outcome contract for guarded Live mutations and production sessions, preserving native receipts and keeping partial, failed or pending work out of applied status.
