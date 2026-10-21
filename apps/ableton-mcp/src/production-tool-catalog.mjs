@@ -15,10 +15,20 @@ export const eligibleOperation = name => !Object.hasOwn(producerToolContracts, n
   Boolean(toolContracts[name]?.inputSchema.properties.expectedStateVersion && toolContracts[name]?.inputSchema.properties.dryRun);
 const namesFor = kind => Object.keys(toolContracts).filter(name => !Object.hasOwn(producerToolContracts, name) &&
   (kind === "operation" ? eligibleOperation(name) : toolContracts[name].annotations.readOnlyHint));
+function argumentMetadata(schema, path = []) {
+  if (!schema || typeof schema !== "object") return [];
+  const fields = Object.entries(schema.properties || {}).filter(([key]) => path.length || !executionFields.includes(key));
+  return [
+    ...fields.flatMap(([name, property]) => [{ name: [...path, name].join("."), description: property.description || "" },
+      ...argumentMetadata(property, [...path, name])]),
+    ...argumentMetadata(schema.items, path),
+    ...[...(schema.allOf || []), ...(schema.anyOf || []), ...(schema.oneOf || []),
+      ...Object.values(schema.$defs || {}), ...Object.values(schema.definitions || {})].flatMap(branch => argumentMetadata(branch, path))
+  ];
+}
 const catalog = Object.fromEntries(["read", "operation"].map(kind => [kind, namesFor(kind).map(name => ({
   name, description: toolContracts[name].description,
-  arguments: Object.entries(toolContracts[name].inputSchema.properties).filter(([key]) => !executionFields.includes(key))
-    .map(([name, property]) => ({ name, description: property.description || "" }))
+  arguments: argumentMetadata(toolContracts[name].inputSchema)
 }))]));
 
 export function operationSchema(name) {

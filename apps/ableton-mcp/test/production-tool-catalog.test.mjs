@@ -36,6 +36,15 @@ test("read-only intent and creative roles never seed or advertise operations", (
   }
 });
 
+test("nested MIDI properties retrieve editing schemas amid clip and track identifiers", () => {
+  for (const [property, value] of [["velocity", 100], ["pitch", 64], ["probability", 0.8]]) {
+    const goal = `Inspect MIDI clip track-4:clip-0 and set its note's ${property} to ${value}. Preserve note identity, start, duration and every other property.`;
+    const tools = productionSchemas({ role: "functional", deferred: true, goal });
+    assert.ok(tools.operations.some(tool => tool.name === "set_midi_note_properties"), tools.operations.map(tool => tool.name).join(", "));
+    assert.ok(discoverProductionTools({ query: `edit note ${property}`, kind: "operation" }, "functional").names.includes("set_midi_note_properties"));
+  }
+});
+
 test("search pages are deterministic and bounded without broadening permissions", () => {
   const args = { query: "MIDI notes", kind: "read" };
   const first = discoverProductionTools(args, "functional");
