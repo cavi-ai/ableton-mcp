@@ -3,11 +3,18 @@ import { toolContracts } from "./tool-contracts.mjs";
 import { guardedMutationResult } from "./tool-output-contracts.mjs";
 
 const ajv = new Ajv({ strict: true, coerceTypes: false, useDefaults: false, removeAdditional: false });
-const validators = new Map(Object.entries(toolContracts).map(([name, contract]) => [name, ajv.compile(contract.inputSchema)]));
-const resultValidators = new Map(Object.entries(toolContracts).map(([name, contract]) => [name, ajv.compile(contract.outputSchema)]));
+const validators = new Map();
+const resultValidators = new Map();
+
+function validator(name, field, cache) {
+  const contract = toolContracts[name];
+  if (!contract) return undefined;
+  if (!cache.has(name)) cache.set(name, ajv.compile(contract[field]));
+  return cache.get(name);
+}
 
 export function validateToolArguments(name, args) {
-  const validate = validators.get(name);
+  const validate = validator(name, "inputSchema", validators);
   if (!validate) throw Object.assign(new Error("unknown tool"), { code: -32602 });
   if (!validate(args)) {
     throw Object.assign(new Error(`invalid tool arguments: ${ajv.errorsText(validate.errors)}`), { code: -32602 });
@@ -23,7 +30,7 @@ export function validateToolResult(name, value, args = {}) {
     });
     return error;
   };
-  const validate = resultValidators.get(name);
+  const validate = validator(name, "outputSchema", resultValidators);
   if (!validate || !validate(value)) {
     throw invalid(validate ? ajv.errorsText(validate.errors) : "unknown tool");
   }

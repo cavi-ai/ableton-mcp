@@ -1,15 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { toolContracts } from "../src/tool-contracts.mjs";
-import { validateToolResult } from "../src/tool-validation.mjs";
+import { validateToolArguments, validateToolResult } from "../src/tool-validation.mjs";
 import { buildSongGridReference } from "../src/song-grid-reference.mjs";
 
 test("every public tool rejects an empty success result", () => {
   const accepted = [];
   for (const name of Object.keys(toolContracts)) {
-    try { validateToolResult(name, {}); accepted.push(name); } catch {}
+    try { validateToolResult(name, {}); accepted.push(name); }
+    catch (error) { assert.match(error.message, /^invalid tool result:/, name); }
   }
   assert.deepEqual(accepted, [], `missing result contracts: ${accepted.join(", ")}`);
+});
+
+test("every public argument schema compiles under strict validation", () => {
+  for (const name of Object.keys(toolContracts)) {
+    try { validateToolArguments(name, {}); }
+    catch (error) { assert.equal(error.code, -32602, name); }
+  }
 });
 
 test("MIDI result contracts validate the values used to propose and verify edits", () => {
