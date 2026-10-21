@@ -36,12 +36,16 @@ function responseFormat(packet) {
   if (Array.isArray(packet.tools?.reads)) {
     const reads = packet.tools.reads;
     schema.properties.reads.items = callSchemas([...reads,
-      { name: "discover_production_tools", inputSchema: object({
+      { name: "discover_production_tools",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: object({
         query: { type: "string", minLength: 2, maxLength: 120 },
         kind: { type: "string", enum: packet.role === "functional" ? ["read", "operation"] : ["read"] },
         offset: { type: "integer", minimum: 0, maximum: 10000 }
       }, ["query", "kind"]) },
-      { name: "read_production_artifact", inputSchema: object({
+      { name: "read_production_artifact",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: object({
         artifactId: { type: "string", pattern: "^[a-f0-9]{64}$" },
         offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 8000 }
       }, ["artifactId"]) }

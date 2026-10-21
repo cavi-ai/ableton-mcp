@@ -51,10 +51,10 @@ test("core discovery is bounded and cannot call tools it does not advertise", as
   assert.ok(!names.has("apply_midi_diatonic_chord_quality"));
   assert.ok(tools.every((tool) => toolContracts[tool.name]));
   const catalogBytes = Buffer.byteLength(JSON.stringify(tools));
-  assert.ok(catalogBytes <= 59000, `core catalog exceeds 59000 bytes: ${catalogBytes}`);
+  assert.ok(catalogBytes <= 57000, `core catalog exceeds 57000 bytes: ${catalogBytes}`);
   for (const tool of tools) {
     const bytes = Buffer.byteLength(JSON.stringify(tool));
-    assert.ok(bytes <= 2800, `${tool.name} exceeds 2800 bytes: ${bytes}`);
+    assert.ok(bytes <= 2400, `${tool.name} exceeds 2400 bytes: ${bytes}`);
   }
   const hidden = await route({ id: 2, method: "tools/call", params: {
     name: "apply_midi_diatonic_chord_quality", arguments: {}
