@@ -66,6 +66,137 @@ test("change tasks cannot finish with an empty executable proposal", async t => 
     operationIndex: 0, expectedStateVersion: 1 }), /incomplete/);
 });
 
+async function applySessionOperation(service, session) {
+  const live = await service.call("get_live_state");
+  const args = { projectId: "song", sessionId: session.sessionId, expectedRevision: session.revision,
+    action: "apply", expectedStateVersion: live.stateVersion };
+  const planned = await service.call("advance_production_session", args);
+  return service.call("advance_production_session", { ...args, dryRun: false,
+    confirmationToken: planned.operation.confirmationToken, planHash: planned.operation.planHash });
+}
+
+test("a durable execution ledger preserves applied and unattempted operations across reconnect", async t => {
+  const { service, reopen, calls } = await setup(t, () => response({ operations: [
+    { tool: "set_tempo", args: { tempo: 110 } }, { tool: "set_tempo", args: { tempo: 115 } }
+  ] }));
+  let session = await service.call("start_production_session", { projectId: "song", goal: "Apply two staged tempo changes", roles: "functional",
+    completion: "postconditions", postconditions: [{ tool: "get_live_state", args: {}, path: ["tempo"], expected: 115 }] });
+  session = await service.call("advance_production_session", { projectId: "song", sessionId: session.sessionId, expectedRevision: session.revision, action: "propose" });
+  assert.deepEqual(session.execution.operations.map(row => row.status), ["not_attempted", "not_attempted"]);
+  session = await applySessionOperation(service, session);
+  assert.deepEqual(session.execution.operations.map(row => row.status), ["applied", "not_attempted"]);
+  assert.equal(session.execution.operations[0].receiptId, session.receiptId);
+  assert.match(session.execution.operations[0].attemptRef, /^[a-f0-9]{64}$/);
+  const next = reopen();
+  session = await next.call("advance_production_session", { projectId: "song", sessionId: session.sessionId, expectedRevision: session.revision, action: "resume" });
+  assert.equal(session.operationIndex, 1); assert.equal(session.phase, "apply");
+  session = await applySessionOperation(next, session);
+  assert.deepEqual(session.execution.operations.map(row => row.status), ["applied", "applied"]);
+  assert.deepEqual(calls.filter(call => call.name === "set_tempo" && call.args.dryRun === false).map(call => call.args.tempo), [110, 115]);
+});
+
+test("partial failures retain their ledger and require an explicit replan without replaying applied operations", async t => {
+  let recovering = false;
+  const { service, base, artifacts, reopen, calls, packets } = await setup(t, () => response({ operations: recovering
+    ? [{ tool: "set_tempo", args: { tempo: 115 } }]
+    : [{ tool: "set_tempo", args: { tempo: 110 } }, { tool: "set_tempo", args: { tempo: 115 } }] }));
+  const original = base.call.bind(base);
+  base.call = async (name, args = {}) => {
+    if (name === "set_tempo" && args.dryRun === false && args.tempo === 115 && !recovering)
+      throw Object.assign(new Error("known refusal before dispatch"), { outcome: "not_executed" });
+    return original(name, args);
+  };
+  let session = await service.call("start_production_session", { projectId: "song", goal: "Apply staged tempo changes", roles: "functional",
+    completion: "postconditions", postconditions: [{ tool: "get_live_state", args: {}, path: ["tempo"], expected: 115 }] });
+  const advance = (owner, action) => owner.call("advance_production_session", { projectId: "song", sessionId: session.sessionId, expectedRevision: session.revision, action });
+  session = await advance(service, "propose");
+  session = await applySessionOperation(service, session);
+  const firstReceipt = session.receiptId, taskId = session.taskId;
+  session = await applySessionOperation(service, session);
+  assert.deepEqual(session.execution.operations.map(row => row.status), ["applied", "rejected"]);
+  assert.equal(session.recoveryRequired, true);
+  const next = reopen();
+  session = await advance(next, "resume");
+  assert.equal(session.phase, "needs_inspection"); assert.equal(session.taskId, taskId);
+  assert.equal(session.execution.operations[0].receiptId, firstReceipt);
+  await assert.rejects(advance(next, "propose"), /phase/);
+  recovering = true;
+  session = await advance(next, "replan");
+  assert.equal(session.phase, "inspect"); assert.equal(session.taskId, undefined);
+  const recovery = artifacts.get("song", session.recoveryRef);
+  assert.equal(recovery.kind, "production-recovery");
+  assert.deepEqual(recovery.value.execution.operations.map(row => row.status), ["applied", "rejected"]);
+  session = await advance(next, "propose");
+  assert.ok(packets.at(-1).context.some(item => item.artifactId === session.recoveryRef));
+  session = await applySessionOperation(next, session);
+  assert.equal(session.phase, "evaluate");
+  assert.deepEqual(calls.filter(call => call.name === "set_tempo" && call.args.dryRun === false).map(call => call.args.tempo), [110, 115]);
+});
+
+test("a lost write reply remains uncertain even when its requested fields later match", async t => {
+  const { service, base, artifacts, reopen, calls } = await setup(t, () => response({ operations: [
+    { tool: "set_tempo", args: { tempo: 110 } }, { tool: "set_tempo", args: { tempo: 115 } }
+  ] }));
+  let session = await service.call("start_production_session", { projectId: "song", goal: "Apply staged tempo changes", roles: "functional",
+    completion: "postconditions", postconditions: [{ tool: "get_live_state", args: {}, path: ["tempo"], expected: 115 }] });
+  session = await service.call("advance_production_session", { projectId: "song", sessionId: session.sessionId,
+    expectedRevision: session.revision, action: "propose" });
+  session = await applySessionOperation(service, session);
+  const original = base.call.bind(base);
+  base.call = async (name, args = {}) => {
+    if (name === "set_tempo" && args.dryRun === false && args.tempo === 115) {
+      const pending = artifacts.session("song", session.sessionId).value;
+      assert.equal(pending.phase, "execution_pending");
+      assert.equal(pending.execution.operations[1].status, "execution_pending");
+      assert.equal(artifacts.get("song", pending.execution.operations[1].attemptRef).kind, "operation-attempt");
+      await original(name, args);
+      throw Object.assign(new Error("connection lost after dispatch"), { outcome: "unknown" });
+    }
+    return original(name, args);
+  };
+  session = await applySessionOperation(service, session);
+  assert.deepEqual(session.execution.operations.map(row => row.status), ["applied", "outcome_unknown"]);
+  assert.equal((await service.call("get_live_state")).tempo, 115);
+  const next = reopen();
+  session = await next.call("advance_production_session", { projectId: "song", sessionId: session.sessionId,
+    expectedRevision: session.revision, action: "resume" });
+  assert.equal(session.phase, "needs_inspection"); assert.equal(session.recoveryRequired, true);
+  await assert.rejects(next.call("advance_production_session", { projectId: "song", sessionId: session.sessionId,
+    expectedRevision: session.revision, action: "evaluate", decision: "accept" }), /phase/);
+  assert.deepEqual(calls.filter(call => call.name === "set_tempo" && call.args.dryRun === false).map(call => call.args.tempo), [110, 115]);
+});
+
+test("interrupted durable attempts preserve earlier receipts and never infer the missing outcome", async t => {
+  const { service, artifacts, reopen, calls } = await setup(t, () => response({ operations: [
+    { tool: "set_tempo", args: { tempo: 110 } }, { tool: "set_tempo", args: { tempo: 115 } }
+  ] }));
+  let session = await service.call("start_production_session", { projectId: "song", goal: "Staged changes", roles: "functional" });
+  session = await service.call("advance_production_session", { projectId: "song", sessionId: session.sessionId, expectedRevision: session.revision, action: "propose" });
+  session = await applySessionOperation(service, session);
+  const saved = artifacts.session("song", session.sessionId);
+  artifacts.advanceSession("song", session.sessionId, saved.value.revision, { ...saved.value, phase: "execution_pending",
+    execution: { ...saved.value.execution, operations: saved.value.execution.operations.map((row, index) => index === 1
+      ? { ...row, status: "execution_pending" } : row) } });
+  const next = reopen(), pending = await next.call("get_production_session", { projectId: "song", sessionId: session.sessionId });
+  const resumed = await next.call("advance_production_session", { projectId: "song", sessionId: session.sessionId, expectedRevision: pending.revision, action: "resume" });
+  assert.equal(resumed.phase, "needs_inspection");
+  assert.deepEqual(resumed.execution.operations.map(row => row.status), ["applied", "outcome_unknown"]);
+  assert.equal(resumed.execution.operations[0].receiptId, session.receiptId);
+  assert.deepEqual(calls.filter(call => call.name === "set_tempo" && call.args.dryRun === false).map(call => call.args.tempo), [110]);
+});
+
+test("legacy execution summaries label missing earlier receipts as unrecorded", async t => {
+  const { service, artifacts } = await setup(t, () => response({ operations: [110, 115, 118].map(tempo => ({ tool: "set_tempo", args: { tempo } })) }));
+  let session = await service.call("start_production_session", { projectId: "song", goal: "Staged changes", roles: "functional" });
+  session = await service.call("advance_production_session", { projectId: "song", sessionId: session.sessionId, expectedRevision: session.revision, action: "propose" });
+  session = await applySessionOperation(service, session); session = await applySessionOperation(service, session);
+  const saved = artifacts.session("song", session.sessionId);
+  artifacts.advanceSession("song", session.sessionId, saved.value.revision, { ...saved.value, execution: undefined });
+  const legacy = await service.call("get_production_session", { projectId: "song", sessionId: session.sessionId });
+  assert.deepEqual(legacy.execution.operations.map(row => row.status), ["unrecorded", "applied", "not_attempted"]);
+  assert.equal(legacy.execution.operations[1].receiptId, session.receiptId);
+});
+
 test("inspection tasks expose reads without granting operation discovery or proposals", async t => {
   const { service, packets } = await setup(t, () => response());
   const task = await service.call("run_production_task", { projectId: "song", goal: "Inspect", intent: "inspect" });
@@ -967,8 +1098,9 @@ test("a restarted service inspects an interrupted execution instead of replaying
     expectedRevision: restored.revision, action: "apply", expectedStateVersion: 1 }), /phase/);
   const resumed = await next.call("advance_production_session", { projectId: "song", sessionId: started.sessionId,
     expectedRevision: restored.revision, action: "resume" });
-  assert.equal(resumed.phase, "inspect");
-  assert.equal(resumed.status, "interrupted_inspect_before_proposing");
+  assert.equal(resumed.phase, "needs_inspection");
+  assert.equal(resumed.status, "requires_recovery");
+  assert.equal(resumed.recoveryRequired, true);
   assert.equal(calls.filter(call => call.name === "set_tempo").length, 0);
 });
 

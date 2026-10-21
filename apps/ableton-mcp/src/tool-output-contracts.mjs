@@ -67,9 +67,18 @@ export const withToolErrorSchema = schema => schema === extensibleToolResult ? s
 
 const artifactId = { type: "string", pattern: "^[a-f0-9]{64}$" };
 const checkSource = { enum: ["caller", "specialist"] };
+const executionStatus = { enum: ["not_attempted", "execution_pending", "applied", "rejected", "outcome_unknown",
+  "postconditions_failed", "pending_postconditions", "pending_user_action", "unrecorded"] };
+const execution = result({ taskId: artifactId,
+  operations: { type: "array", maxItems: 16, items: result({ index: { type: "integer", minimum: 0, maximum: 15 }, tool: text,
+    status: executionStatus, attemptRef: artifactId, receiptId: artifactId, resultRef: artifactId, nativeStatus: mutationReceiptSchema.properties.status,
+    error: { type: "string", maxLength: 300 } }, ["index", "tool", "status"]) },
+  counts: { type: "object", additionalProperties: { type: "integer", minimum: 0, maximum: 16 } }
+});
 const sessionSummary = result({ sessionId: { type: "string" }, sessionRef: artifactId, revision: { type: "integer", minimum: 1 },
   phase: { enum: ["inspect", "choose", "propose", "proposing", "apply", "execution_pending", "needs_inspection", "audition", "evaluate", "complete"] },
-  audibleQualityVerified: { const: false } });
+  execution, recoveryRef: artifactId, recoveryRequired: { type: "boolean" },
+  audibleQualityVerified: { const: false } }, ["sessionId", "sessionRef", "revision", "phase", "audibleQualityVerified"]);
 export const producerOutputContracts = {
   start_production_session: sessionSummary,
   advance_production_session: sessionSummary,
