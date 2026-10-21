@@ -1,3 +1,4 @@
+import { getProductionCapabilities } from "./production-capabilities.mjs";
 import {setSessionClipEntry} from './clip-entry.mjs';
 import {withMutationOutcome} from './mutation-outcomes.mjs';
 import {jumpToCuePoint} from './cue-jump.mjs';
@@ -1225,23 +1226,7 @@ export class ToolService {
         }
       };
     }
-    if (name === "get_automation_capabilities") return {
-      sessionClipParameterEnvelopes: { read: true, write: true, shape: "steps" },
-      sessionClipMixerEnvelopes: { read: true, create: true, replace: false, controls: ["volume", "pan", "send"], shape: "steps",
-        pan: { panningMode: 0, splitStereo: false, targets: "raw_native_values" } },
-      arrangementParameterAutomation: {
-        read: false, write: false,
-        reason: "Ableton Live's public Clip API returns no automation envelope for Arrangement clips"
-      },
-      perNoteProperties: {
-        read: true, write: true,
-        fields: ["pitch", "start", "duration", "velocity", "velocityDeviation", "releaseVelocity", "probability", "mute"]
-      },
-      perNoteExpressionCurves: {
-        read: false, write: false,
-        reason: "Ableton Live 12.4.5 does not expose pitch-bend, pressure, or slide curves on Live.Clip.MidiNote"
-      }
-    };
+    if (name === "get_automation_capabilities") return getProductionCapabilities();
     if (name === "get_clip_parameter_envelope") return this.bridge.request("get_clip_parameter_envelope", args);
     if (name === "get_clip_mixer_envelope") return this.bridge.request("get_clip_mixer_envelope", args);
     if (name === "get_clip_timing") return this.bridge.request("get_clip_timing", args);

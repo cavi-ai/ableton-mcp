@@ -123,6 +123,8 @@ Task inputs are limited to 48,000 bytes and returned model JSON to 16,000 bytes.
 
 ## Plan, confirm and observe
 
+`get_automation_capabilities` reports implementation boundaries and concrete handoffs without connecting to Live. `get_live_state.nativeApiSupport` separately reports what the running Live exposes. Specialists receive the shared production boundaries: multi-operation tasks are not atomic, envelope samples are not complete backups, exposed parameters do not verify hidden plug-in state, and automatic audible-quality verification is unavailable. A successful receipt or caller field check never replaces actual listening feedback.
+
 Use `intent: "inspect"` for read-only specialist work. It returns `observed` and permits neither operation discovery nor operation proposals. A functional change task returns `proposed` only with concrete operations. An empty response returns `incomplete` unless fresh caller-owned postconditions all match, in which case it returns `no_change_needed` with a private `completionRef`. Model-selected checks and summaries cannot establish that no change is needed. Unavailable checks, unanswered questions, budget exhaustion and changed Live state retain their failure states. Incomplete durable proposals cannot advance to audition or acceptance; propose again after resolving the reported reason.
 
 Optional `postconditions` on `run_production_task` let the caller define the required final outcome. For a bounded gain change:

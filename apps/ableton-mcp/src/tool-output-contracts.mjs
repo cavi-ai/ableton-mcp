@@ -29,6 +29,9 @@ export const compactOutputNames = new Set(["list_live_scales", "get_live_scale_r
   "get_producer_chain_blueprint", "list_factory_device_profiles"]);
 
 export const toolOutputContracts = {
+  get_automation_capabilities: result({ sessionClipParameterEnvelopes: { type: "object" }, sessionClipMixerEnvelopes: { type: "object" },
+    arrangementParameterAutomation: { type: "object" }, perNoteProperties: { type: "object" }, perNoteExpressionCurves: { type: "object" },
+    productionBoundaries: { type: "object" }, handoffs: records }),
   get_live_state: result({ stateVersion: version, setFingerprint: text }),
   list_tracks: versioned({ tracks: { type: "array", items: result({ id: text, name: text, type: text }) } }),
   list_scenes: versioned({ scenes: records }),

@@ -117,7 +117,7 @@ It publishes 328 tools, 9 concrete resources, 13 resource templates and 89 promp
 | `ABLETON_MCP_CONFIRMATION_DIR` | `~/.cavi/ableton-mcp/confirmations` | Confirmation tokens for CLI `call`. |
 | `ABLETON_MCP_SNAPSHOT_DIR` | `~/.cavi/ableton-mcp/snapshots` | Saved track, device-chain, group-system, and MIDI-feel snapshots in separate subdirectories. |
 | `ABLETON_MCP_FIXTURE` | unset | `1` makes `npm start` serve fixture data without Live. |
-| `ABLETON_MCP_TOOL_PROFILE` | `all` | `core` advertises 63 common tools to reduce MCP discovery context; `all` advertises every tool. |
+| `ABLETON_MCP_TOOL_PROFILE` | `all` | `core`: 63 common tools; `producer`: 12 specialist/session tools; `directory`: named native tools without coordinators; `all`: every tool. Compact profiles retain full runtime result validation. |
 
 ## Security
 

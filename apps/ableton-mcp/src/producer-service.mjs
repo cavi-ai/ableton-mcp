@@ -1,3 +1,4 @@
+import { productionBoundaries } from "./production-capabilities.mjs";
 import { readNames, operationNames, deferredReadNames, eligibleOperation, operationSchema, discoverProductionTools, productionSchemas } from "./production-tool-catalog.mjs";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -235,7 +236,7 @@ export class ProducerService {
           const deferred = this.config[role].toolDiscovery === "deferred";
           const maxTurns = deferred ? 6 : 3;
           const roleReads = deferred ? [...new Set([...deferredReadNames, ...(postconditions || []).map(check => check.tool)])] : initialReads;
-          const packet = { role, intent, goal, scope, constraints, context: contextRefs.map(ref => this.#preview(projectId, ref)),
+          const packet = { role, intent, goal, scope, constraints, capabilities: { ...productionBoundaries }, context: contextRefs.map(ref => this.#preview(projectId, ref)),
             ...(workflow?{workflow}:{}),
             ...(postconditions ? { postconditions: structuredClone(postconditions) } : {}),
             tools: productionSchemas({ role, initialReads: roleReads, deferred, intent, goal }), progress: { completedReads: [] },
