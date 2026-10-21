@@ -55,6 +55,7 @@ function responseFormat(packet) {
     });
     else schema.properties.checks.maxItems = 0;
   }
+  if (packet.progress?.turn >= packet.progress?.maxTurns) schema.properties.reads.maxItems = 0;
   return schema;
 }
 const runtimeProperties = {
