@@ -40,11 +40,13 @@ Each runtime accepts `timeoutMs` from 1,000 to 180,000; the default is 60,000. A
 
 Set `ABLETON_MCP_TOOL_PROFILE=producer` in the MCP server environment. This profile advertises nine workflow tools plus `get_live_state`, `transport_stop` and `panic`. Existing `core` and `all` profiles remain available. The CLI's `call` command is independent of discovery profiles.
 
+The `all` and `directory` profiles publish detailed result contracts. The `core` and `producer` profiles retain compact result summaries for discovery; the server and CLI still validate the full contracts on every tool call. Guarded tools must return a complete dry-run plan and confirmation, or an explicit execution-outcome receipt matching the requested mode. Invalid write receipts report an unknown outcome; inspect Live before retrying.
+
 Use `ABLETON_MCP_TOOL_PROFILE=directory` for a surface where each native operation is listed individually for host review. It excludes the producer coordinator tools, including task execution and session advancement; hidden coordinator calls are rejected. The compact `producer` profile remains available for local specialist workflows. Choosing a profile does not establish directory approval or satisfy other submission requirements.
 
 1. `get_production_context` captures consistent Live selection and musical context, returning a bounded preview and `contextRef`. It does not call a model.
 2. `record_production_note` stores explicit intent or feedback. Pass its `noteRef` in a later task's `contextRefs` to reuse it.
-3. `run_production_task` accepts `projectId`, `goal`, optional exact `scope` IDs, `constraints`, `contextRefs`, and `roles` (`creative`, `functional`, or `both`; default `functional`). It returns a `taskId`, short summary, result references and operation count.
+3. `run_production_task` accepts `projectId`, `goal`, optional exact `scope` IDs, `constraints`, `contextRefs`, `intent` (`change` by default, or `inspect`), and `roles` (`creative`, `functional`, or `both`; default `functional`). It returns a `taskId`, short summary, result references and operation count.
 4. `read_production_artifact` pages through detailed context, proposals and evidence. Its default page is 4,000 characters, with an 8,000-character maximum. Follow `nextOffset`; a truncated preview is not complete evidence.
 5. `apply_production_operation` plans or executes one exact operation from a task.
 6. `get_producer_workflow` finds workflow references with an optional `query`, lists all names/arguments when no selector is supplied, or renders one exact `workflow` with named string `arguments`. It does not observe Live, invoke a model or execute the workflow.
@@ -66,7 +68,7 @@ To try experimental loading of schemas on demand, add `"toolDiscovery": "deferre
 }
 ```
 
-Deferred specialists start with only Live state, selection and musical-context read schemas, plus any caller postcondition read schemas. A compact name index keeps every supported read and guarded operation visible without loading their detailed schemas. Those schemas use the same bounded discovery path and become available on the following turn. Each role loads its own schemas; discovery grants no execution permission. Creative roles still cannot discover or propose operations.
+Deferred specialists start with Live state, selection and musical-context read schemas, plus any caller postcondition read schemas. The coordinator uses deterministic name and description retrieval to add at most two relevant read schemas and two guarded operation schemas within an 8,000-byte initial schema allowance. Caller criteria remain available even when larger than that allowance; the task input limit still applies. Retrieval supplies schemas, not target selection or permission to execute. A compact name index keeps every supported capability discoverable. Exact-name searches resolve that capability directly; keyword searches rank metadata matches with bounded pages. Additional schemas become available on the following turn. Each role loads its own schemas; creative and inspection tasks receive no operation schemas.
 
 Deferred mode permits up to six model requests per role and eight schema discovery requests shared across the task, separately from the eight observation or artifact reads. The existing task deadline and input limits still apply. Exhaustion returns no executable proposal. Smaller initial schema context can require more model calls and latency; compare task outcomes before adopting this mode. Omit the setting or use `"toolDiscovery": "eager"` for the existing behavior. This setting affects specialist context only; it does not change MCP discovery profiles or the full advertised catalog.
 
@@ -120,6 +122,10 @@ The reference guides only the requested bounded phase. It grants no tool access,
 Task inputs are limited to 48,000 bytes and returned model JSON to 16,000 bytes. Detailed artifacts are capped at 2 MB each. Exhausted, stale or unanswered-question tasks have no executable operations. Main-session summaries and questions are bounded; full responses remain in the task artifacts.
 
 ## Plan, confirm and observe
+
+`get_automation_capabilities` reports implementation boundaries and concrete handoffs without connecting to Live. `get_live_state.nativeApiSupport` separately reports what the running Live exposes. Specialists receive the shared production boundaries: multi-operation tasks are not atomic, envelope samples are not complete backups, exposed parameters do not verify hidden plug-in state, and automatic audible-quality verification is unavailable. A successful receipt or caller field check never replaces actual listening feedback.
+
+Use `intent: "inspect"` for read-only specialist work. It returns `observed` and permits neither operation discovery nor operation proposals. A functional change task returns `proposed` only with concrete operations. An empty response returns `incomplete` unless fresh caller-owned postconditions all match, in which case it returns `no_change_needed` with a private `completionRef`. Model-selected checks and summaries cannot establish that no change is needed. Unavailable checks, unanswered questions, budget exhaustion and changed Live state retain their failure states. Incomplete durable proposals cannot advance to audition or acceptance; propose again after resolving the reported reason.
 
 Optional `postconditions` on `run_production_task` let the caller define the required final outcome. For a bounded gain change:
 

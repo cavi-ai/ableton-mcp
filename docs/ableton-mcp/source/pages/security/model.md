@@ -6,7 +6,8 @@ Ableton MCP runs on one machine, with the privileges of the user who runs Live a
 
 - The bridge listens on a Unix domain socket, by default `/tmp/cavi-ableton-mcp.sock`. It opens no TCP port.
 - The socket file's permissions come from Live's umask. Any local process that can write to the socket can drive Live. Put it in a private directory if other local users are a concern: set `ABLETON_MCP_BRIDGE_SOCKET` for both Live and the server.
-- The server speaks MCP over stdio to the client that launched it. It makes no network requests.
+- The server speaks MCP over stdio to the client that launched it. Core Live control uses the local bridge. Optional production specialists can send explicitly supplied task context to a configured Ollama endpoint or ACP subprocess. Remote Ollama endpoints require explicit `allowRemote` configuration; ACP agents follow their own provider and credential configuration.
+- This is a trusted local-user boundary. Socket access permits direct bridge commands; an ACP executable is a trusted subprocess, not an operating-system sandbox. Use a private socket directory on shared machines and configure only agents whose permissions you trust.
 
 ## Mutations
 

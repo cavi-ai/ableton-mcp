@@ -117,7 +117,7 @@ It publishes 328 tools, 9 concrete resources, 13 resource templates and 89 promp
 | `ABLETON_MCP_CONFIRMATION_DIR` | `~/.cavi/ableton-mcp/confirmations` | Confirmation tokens for CLI `call`. |
 | `ABLETON_MCP_SNAPSHOT_DIR` | `~/.cavi/ableton-mcp/snapshots` | Saved track, device-chain, group-system, and MIDI-feel snapshots in separate subdirectories. |
 | `ABLETON_MCP_FIXTURE` | unset | `1` makes `npm start` serve fixture data without Live. |
-| `ABLETON_MCP_TOOL_PROFILE` | `all` | `core` advertises 63 common tools to reduce MCP discovery context; `all` advertises every tool. |
+| `ABLETON_MCP_TOOL_PROFILE` | `all` | `core`: 63 common tools; `producer`: 12 specialist/session tools; `directory`: named native tools without coordinators; `all`: every tool. Compact profiles retain full runtime result validation. |
 
 ## Security
 
@@ -134,6 +134,8 @@ npm run verify:package
 `npm test` runs the pipeline and server suites, the bridge's Python tests, and the docs tests. `eval:core` checks the compact MCP catalog and read-only tool behavior with MCP Eval. ImageMagick 7 (`magick`) and `ffmpeg` must be installed. `verify:package` packs the npm tarball, installs it into a temporary project, and drives the installed CLI and server.
 
 Readiness scoring also requires a running Live bridge, a configured preset catalog, and available MIDI clips, audio sources, and devices. The manifest gate and readiness score are reported separately.
+
+For model-driven mixer, MIDI, device and reconnect/resume checks against a saved scratch Set, see [workflow validation](docs/ableton-mcp/source/pages/guides/workflow-validation.md).
 
 ## Project status
 

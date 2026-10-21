@@ -1,32 +1,25 @@
+import { productionBoundaries } from "./production-capabilities.mjs";
+import { readNames, operationNames, deferredReadNames, eligibleOperation, operationSchema, readSchema, discoverProductionTools, productionSchemas } from "./production-tool-catalog.mjs";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { toolContracts } from "./tool-contracts.mjs";
 import { producerToolContracts } from "./producer-contracts.mjs";
-import { validateToolArguments } from "./tool-validation.mjs";
+import { validateToolArguments, validateToolResult } from "./tool-validation.mjs";
 import { createProducerRuntime, parseProducerResponse } from "./producer-runtime.mjs";
 import { requestSignal, withRequestSignal } from "./request-context.mjs";
 import { getProducerWorkflow } from "./prompts.mjs";
 import { ProductionSessions } from "./production-sessions.mjs";
 import { assertProducerScope, validateProducerScope } from "./producer-scope.mjs";
 import { classifyMutationOutcome } from "./mutation-outcomes.mjs";
+import { assessTaskCompletion } from "./production-task-completion.mjs";
 
-const readNames = ["get_live_state", "get_selection_context", "get_song_musical_context", "list_tracks", "list_clips",
-  "list_devices", "list_device_parameters", "get_device_parameter_edit_context", "get_clip_timing",
-  "get_midi_clip_notes_extended", "get_audio_clip_state", "get_track_mixer", "get_track_routing",
-  "get_factory_device_context", "get_plugin_integration_context", "analyze_midi_clip_scale", "analyze_midi_clip_chords"];
-const operationNames = ["set_tempo", "set_song_musical_context", "set_device_parameters", "set_track_mixer", "set_track_volume_db", "set_track_send_db",
-  "set_clip_timing", "set_audio_clip_state", "set_midi_note_properties", "transform_midi_notes",
-  "duplicate_midi_clip_variations", "create_midi_clip", "set_device_active", "set_session_clip_entry"];
-const deferredReadNames = ["get_live_state", "get_selection_context", "get_song_musical_context"];
-const executionFields = ["dryRun", "confirmationToken", "planHash", "expectedStateVersion"];
 const roles = ["creative", "functional"];
 const checkSignal = () => requestSignal()?.throwIfAborted();
 const identity = value => ({ stateVersion: value.stateVersion, setFingerprint: value.setFingerprint });
 const sameState = (left, right) => left.stateVersion === right.stateVersion && left.setFingerprint === right.setFingerprint;
-const eligibleOperation = name => !Object.hasOwn(producerToolContracts, name) &&
-  Boolean(toolContracts[name]?.inputSchema.properties.expectedStateVersion && toolContracts[name]?.inputSchema.properties.dryRun);
+
 const stableSessionObservation = value => JSON.parse(JSON.stringify(value, (key, item) =>
   ["stateVersion", "setFingerprint", "isPlaying", "isTriggered", "playingPosition"].includes(key) ? undefined : item));
 function validateSessionScope(scope = {}) {
@@ -34,12 +27,7 @@ function validateSessionScope(scope = {}) {
   if ((scope.clipId || scope.deviceId) && !scope.trackId) throw new Error("clip and device session scopes require trackId");
   if (scope.clipId && !scope.trackId.startsWith("track-")) throw new Error("clip session scope requires an ordinary track owner");
 }
-function operationSchema(name) {
-  const schema = structuredClone(toolContracts[name].inputSchema);
-  for (const key of executionFields) delete schema.properties[key];
-  schema.required = (schema.required || []).filter(key => !executionFields.includes(key));
-  return { name, inputSchema: schema };
-}
+
 
 export class ProducerService {
   #queue = Promise.resolve();
@@ -90,6 +78,7 @@ export class ProducerService {
   async #live() {
     checkSignal();
     const live = await this.service.call("get_live_state", {});
+    validateToolResult("get_live_state", live);
     if (!Number.isInteger(live.stateVersion) || typeof live.setFingerprint !== "string") throw new Error("Live did not return a versioned Set identity");
     return live;
   }
@@ -98,6 +87,7 @@ export class ProducerService {
     const before = await this.#live();
     const selection = await this.service.call("get_selection_context", {});
     const musical = await this.service.call("get_song_musical_context", {});
+    validateToolResult("get_song_musical_context", musical);
     const after = await this.#live();
     if (!sameState(before, after)) throw new Error("Live context changed during observation; read again");
     const contextRef = this.artifacts.put(projectId, "context", { live: before, selection, musical });
@@ -153,6 +143,7 @@ export class ProducerService {
     for (const check of checks) {
       checkSignal();
       const observed = await this.service.call(check.tool, check.args);
+      validateToolResult(check.tool, observed, check.args);
       let field = observed;
       for (const key of check.path) field = field !== null && typeof field === "object" && Object.hasOwn(field, key) ? field[key] : undefined;
       results.push({ tool: check.tool, path: check.path, matches: isDeepStrictEqual(field, check.expected),
@@ -186,9 +177,12 @@ export class ProducerService {
     }
   }
 
-  #validateProposal(result, role, scope, allowedReads = readNames, allowedOperations = operationNames) {
+  #validateProposal(result, role, scope, allowedReads = readNames, allowedOperations = operationNames, intent = "change") {
     // Injected runtimes and ACP peers follow the same response contract.
     parseProducerResponse(JSON.stringify(result));
+    if (intent === "inspect" && (result.operations.length || result.reads.some(read =>
+      read.tool === "discover_production_tools" && read.args.kind === "operation")))
+      throw new Error("inspection tasks cannot discover or propose operations");
     for (const read of result.reads) {
       if (read.tool === "read_production_artifact") continue;
       if (read.tool === "discover_production_tools") { this.#discover(read.args, role); continue; }
@@ -204,38 +198,7 @@ export class ProducerService {
     for (const check of result.checks) this.#validateRead(check, scope, allowedReads);
   }
 
-  #discover(args, role) {
-    if (Object.keys(args).some(key => !["query", "kind", "offset"].includes(key)) ||
-        typeof args.query !== "string" || args.query.trim().length < 2 || args.query.length > 120 ||
-        !["read", "operation"].includes(args.kind) ||
-        (args.offset !== undefined && (!Number.isInteger(args.offset) || args.offset < 0 || args.offset > 10000)))
-      throw new Error("invalid tool discovery arguments");
-    if (role === "creative" && args.kind !== "read") throw new Error("creative operation discovery is not allowed");
-    const words = args.query.toLowerCase().replaceAll("_", " ").split(/\s+/).filter(Boolean);
-    const matches = Object.entries(toolContracts).filter(([name, contract]) => {
-      if (Object.hasOwn(producerToolContracts, name)) return false;
-      if (args.kind === "operation" ? !eligibleOperation(name) : !contract.annotations.readOnlyHint) return false;
-      const text = `${name.replaceAll("_", " ")} ${contract.description}`.toLowerCase();
-      return words.every(word => text.includes(word));
-    }).map(([name]) => name).sort();
-    const offset = args.offset || 0;
-    return { names: matches.slice(offset, offset + 4), total: matches.length,
-      nextOffset: offset + 4 < matches.length ? offset + 4 : null };
-  }
-
-  #schemas(role, initialReads = readNames, deferred = false) {
-    const operations = role === "functional" && !deferred ? operationNames.filter(eligibleOperation).map(operationSchema) : [];
-    return { reads: initialReads.filter(name => toolContracts[name]).map(name => ({ name, inputSchema: toolContracts[name].inputSchema })), operations,
-      ...(deferred ? { available: {
-        reads: Object.keys(toolContracts).filter(name => !Object.hasOwn(producerToolContracts, name) && toolContracts[name].annotations.readOnlyHint),
-        operations: role === "functional" ? Object.keys(toolContracts).filter(eligibleOperation) : []
-      } } : {}),
-      discovery: { tool: "discover_production_tools", args: { query: "words from the tool name or description", kind: "read or operation", offset: 0 },
-        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-        description: "Find at most four additional tool schemas. Creative may discover reads only. Operations are proposed, never executed by a specialist." },
-      artifactRead: { tool: "read_production_artifact", args: { artifactId: "ID present in this task", offset: 0, limit: 4000 },
-        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } } };
-  }
+  #discover(args, role) { return discoverProductionTools(args, role); }
 
   async #run(args) {
     validateProducerScope(args.scope);
@@ -255,7 +218,7 @@ export class ProducerService {
     const deadline = AbortSignal.timeout(180000);
     const taskSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
     return withRequestSignal(taskSignal, async () => {
-      const { projectId, goal, scope = {}, constraints = [] } = args;
+      const { projectId, goal, scope = {}, constraints = [], intent = "change" } = args;
       const observed = await this.#context(projectId);
       const workflowRef=workflow?this.artifacts.put(projectId,"workflow",{selection:args.workflow,guidance:workflow}):null;
       const checkMetadata = { checkSource: postconditions ? "caller" : "specialist",
@@ -276,11 +239,13 @@ export class ProducerService {
           const deferred = this.config[role].toolDiscovery === "deferred";
           const maxTurns = deferred ? 6 : 3;
           const roleReads = deferred ? [...new Set([...deferredReadNames, ...(postconditions || []).map(check => check.tool)])] : initialReads;
-          const packet = { role, goal, scope, constraints, context: contextRefs.map(ref => this.#preview(projectId, ref)),
+          const packet = { role, intent, goal, scope, constraints, capabilities: { ...productionBoundaries }, context: contextRefs.map(ref => this.#preview(projectId, ref)),
             ...(workflow?{workflow}:{}),
             ...(postconditions ? { postconditions: structuredClone(postconditions) } : {}),
-            tools: this.#schemas(role, roleReads, deferred), progress: { completedReads: [] },
+            tools: productionSchemas({ role, initialReads: roleReads, deferred, intent, goal }), progress: { completedReads: [] },
             ...(role === "functional" && results.length ? { creativeProposal: results[0].result } : {}) };
+          for (const tool of packet.tools.reads) if (!allowedReads.includes(tool.name)) allowedReads.push(tool.name);
+          for (const tool of packet.tools.operations) if (!allowedOperations.includes(tool.name)) allowedOperations.push(tool.name);
           for (let round = 0; round < maxTurns; round++) {
             checkSignal();
             Object.assign(packet.progress, { turn: round + 1, maxTurns, readsRemaining: 8 - reads,
@@ -290,7 +255,7 @@ export class ProducerService {
             const result = await runtime.generate(packet, { signal: taskSignal, cwd });
             checkSignal(); this.#validateProposal(result, role, scope,
               deferred ? packet.tools.reads.map(tool => tool.name) : allowedReads,
-              deferred ? packet.tools.operations.map(tool => tool.name) : allowedOperations);
+              deferred ? packet.tools.operations.map(tool => tool.name) : allowedOperations, intent);
             const resultRef = this.artifacts.put(projectId, "specialist-result", { role, result, inputRef,
               runtime: { type: this.config[role].type, model: this.config[role].model || null } });
             turnRefs.push({ role, turn: round + 1, inputRef, resultRef });
@@ -313,8 +278,7 @@ export class ProducerService {
                 const allowed = read.args.kind === "read" ? allowedReads : allowedOperations;
                 for (const name of found.names) {
                   if (!allowed.includes(name)) allowed.push(name);
-                  if (!target.some(tool => tool.name === name)) target.push(read.args.kind === "operation" ? operationSchema(name)
-                    : { name, inputSchema: toolContracts[name].inputSchema });
+                  if (!target.some(tool => tool.name === name)) target.push(read.args.kind === "operation" ? operationSchema(name) : readSchema(name));
                 }
                 packet.context.push({ discovery: { ...read.args, ...found } });
                 packet.progress.completedReads.push({ ...read, discovery: found });
@@ -329,6 +293,7 @@ export class ProducerService {
                 packet.progress.completedReads.push({ ...read, nextOffset: page.nextOffset });
               } else {
                 const value = await this.service.call(read.tool, read.args);
+                validateToolResult(read.tool, value, read.args);
                 const ref = this.artifacts.put(projectId, "observation", { tool: read.tool, args: read.args, value });
                 contextRefs.push(ref); packet.context.push(this.#preview(projectId, ref));
                 packet.progress.completedReads.push({ ...read, artifactId: ref });
@@ -338,20 +303,25 @@ export class ProducerService {
         } finally { rmSync(cwd, { recursive: true, force: true }); }
         if (exhausted) break;
       }
+      const questions = results.flatMap(value => value.result.questions);
+      const functional = results.find(value => value.role === "functional")?.result;
+      const completion = !exhausted && !questions.length ? await assessTaskCompletion({ intent, functional, postconditions,
+        verify: checks => this.#checks(projectId, checks) }) : {};
       const after = await this.#live();
       const stale = !sameState(observed, after);
-      const questions = results.flatMap(value => value.result.questions);
-      const status = exhausted ? "budget_exhausted" : stale ? "stale_context" : questions.length ? "needs_input" : "proposed";
-      const functional = results.find(value => value.role === "functional")?.result;
+      const status = exhausted ? "budget_exhausted" : stale ? "stale_context" : questions.length ? "needs_input" : completion.status;
+      if (status === "incomplete") stopReason = completion.stopReason;
+      if (completion.checks || completion.error) checkMetadata.completionRef = this.artifacts.put(projectId, "task-completion", {
+        ...completion, status, basis: identity(observed), observedAfter: identity(after) });
       checkMetadata.suggestedCheckCount = functional?.checks.length || 0;
       const operations = status === "proposed" ? functional?.operations || [] : [];
-      const taskId = this.artifacts.put(projectId, "task", { goal, scope, constraints, basis: identity(observed), observedAfter: identity(after), contextRefs,
+      const taskId = this.artifacts.put(projectId, "task", { goal, intent, scope, constraints, basis: identity(observed), observedAfter: identity(after), contextRefs,
         ...(hasDeferredRole ? { discoveriesUsed: discoveries } : {}),
         ...(workflowRef?{workflowRef}:{}),
         results, turnRefs, status, ...checkMetadata, ...(stopReason ? { stopReason } : {}), operations,
         checks: postconditions || functional?.checks || [], allowedReads, allowedOperations, createdAt: new Date().toISOString() });
-      return { taskId, status, ...checkMetadata, ...(stopReason ? { stopReason } : {}),
-        summary: (exhausted ? `Specialist stopped at ${stopReason}; no executable proposal.` : results.at(-1)?.result.summary || "No specialist proposal.").slice(0, 1000),
+      return { taskId, intent, status, ...checkMetadata, ...(stopReason ? { stopReason } : {}),
+        summary: (exhausted || status === "incomplete" ? `Specialist stopped at ${stopReason}; no executable proposal.` : results.at(-1)?.result.summary || "No specialist proposal.").slice(0, 1000),
         ...(workflowRef?{workflowRef}:{}),
         ...identity(observed), operationCount: operations.length, questions: questions.slice(0, 4).map(question => question.slice(0, 300)),
         questionsTruncated: questions.length > 4 || questions.some(question => question.length > 300),
@@ -396,13 +366,14 @@ export class ProducerService {
     validateToolArguments(operation.tool, callArgs);
     checkSignal();
     let value;
-    try { value = await this.service.call(operation.tool, callArgs); }
+    try { value = await this.service.call(operation.tool, callArgs); validateToolResult(operation.tool, value, callArgs); }
     catch (error) {
       if (args.dryRun !== false) throw error;
       const status = error.outcome === "not_executed" ? "rejected" : "outcome_unknown";
-      const receiptId = this.artifacts.put(projectId, "receipt", { taskId, operationIndex, status, ...checkMetadata,
+      const invalidResult = value === undefined ? {} : { resultRef: this.artifacts.put(projectId, "operation-result", value) };
+      const receiptId = this.artifacts.put(projectId, "receipt", { taskId, operationIndex, status, ...checkMetadata, ...invalidResult,
         error: error.message, outcome: error.outcome || null });
-      return { taskId, operationIndex, status, ...checkMetadata, outcome: error.outcome || "unknown", receiptId,
+      return { taskId, operationIndex, status, ...checkMetadata, ...invalidResult, outcome: error.outcome || "unknown", receiptId,
         message: "Inspect Live and the receipt before proposing further changes; execution is not retried." };
     }
     const resultRef = this.artifacts.put(projectId, "operation-result", value);

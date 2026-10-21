@@ -106,7 +106,8 @@
         { "title": "Prepare a Project for handoff", "path": "guides/project-handoff.md" },
         { "title": "Preset catalog", "path": "guides/preset-catalog.md" },
         { "title": "NKS artwork", "path": "guides/artwork.md" },
-        { "title": "Troubleshooting", "path": "guides/troubleshooting.md" }
+        { "title": "Troubleshooting", "path": "guides/troubleshooting.md" },
+        { "title": "Validate production workflows", "path": "guides/workflow-validation.md" }
       ]
     },
     {

@@ -1,3 +1,4 @@
+import { plannedResult } from "./fixtures/tool-results.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {ToolService} from "../src/tool-service.mjs";
@@ -28,7 +29,7 @@ test("dB level contract and workflow reject unsupported inputs and preserve scop
 });
 
 test("dB level tool is callable in all and excluded from core",async()=>{
-  const calls=[],service={call:async(name,args)=>{calls.push({name,args});return {dryRun:true};}};
+  const calls=[],service={call:async(name,args)=>{calls.push({name,args});return plannedResult();}};
   const all=createRouter(service),core=createRouter(service,{toolProfile:"core"});
   assert.ok((await all({id:1,method:"tools/list"})).result.tools.some(t=>t.name==="set_track_volume_db"));
   assert.ok(!(await core({id:2,method:"tools/list"})).result.tools.some(t=>t.name==="set_track_volume_db"));

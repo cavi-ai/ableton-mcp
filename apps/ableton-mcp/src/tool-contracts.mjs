@@ -1,5 +1,5 @@
 import { listLiveScaleReferences } from "./live-scale-reference.mjs";
-import { extensibleToolResult, toolOutputContracts } from "./tool-output-contracts.mjs";
+import { extensibleToolResult, toolOutputContracts, guardedMutationResult } from "./tool-output-contracts.mjs";
 import { LIVE_BROWSER_ROOTS } from "./browser-roots.mjs";
 import { listPrompts } from "./prompts.mjs";
 import { producerToolContracts } from "./producer-contracts.mjs";
@@ -922,7 +922,8 @@ function describedInput(name, schema) {
 
 export const toolContracts = Object.fromEntries(Object.entries(contracts).map(([name, contract]) => [
   name, { ...contract, inputSchema: describedInput(name, contract.inputSchema),
-    outputSchema: toolOutputContracts[name] ?? extensibleToolResult, annotations: {
+    outputSchema: toolOutputContracts[name] ?? (contract.inputSchema.properties.expectedStateVersion && contract.inputSchema.properties.dryRun
+      ? guardedMutationResult : extensibleToolResult), annotations: {
     readOnlyHint: readOnlyTools.has(name),
     destructiveHint: !readOnlyTools.has(name) && !additiveTools.has(name),
     idempotentHint: readOnlyTools.has(name),

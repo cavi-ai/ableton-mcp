@@ -3,6 +3,7 @@ import { ToolService } from "./tool-service.mjs";
 import { PACKAGE_VERSION, isMainModule } from "./paths.mjs";
 import { createConfiguredProducerService, createConfiguredService } from "./runtime.mjs";
 import { toolContracts } from "./tool-contracts.mjs";
+import { compactOutputNames, extensibleToolResult, withToolErrorSchema } from "./tool-output-contracts.mjs";
 import { validateToolArguments, validateToolResult } from "./tool-validation.mjs";
 import { getPrompt, listPrompts } from "./prompts.mjs";
 import { withDiscoveryExamples } from "./discovery-examples.mjs";
@@ -373,7 +374,9 @@ function listedTools(profile) {
   const producerNames = new Set([...Object.keys(producerToolContracts), "get_producer_workflow", "get_live_state", "transport_stop", "panic"]);
   return toolNames.filter((name) => profile === "all" || (profile === "directory" ? !Object.hasOwn(producerToolContracts, name)
     : (profile === "producer" ? producerNames : coreToolNames).has(name)))
-    .map((name) => ({ name, ...toolContracts[name] }));
+    .map((name) => ({ name, ...toolContracts[name], outputSchema: ["core", "producer"].includes(profile)
+      ? compactOutputNames.has(name) ? toolContracts[name].outputSchema : extensibleToolResult
+      : withToolErrorSchema(toolContracts[name].outputSchema) }));
 }
 
 function fixtureService() {
@@ -416,7 +419,7 @@ export function createRouter(service, { toolProfile = "all" } = {}) {
         validateToolArguments(params.name, args);
         try {
           const value = await service.call(params.name, args);
-          validateToolResult(params.name, value);
+          validateToolResult(params.name, value, args);
           result = { content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value };
         } catch (error) {
           result = { content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }], isError: true };

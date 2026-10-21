@@ -1,5 +1,6 @@
 import Ajv from "ajv";
 import { toolContracts } from "./tool-contracts.mjs";
+import { guardedMutationResult } from "./tool-output-contracts.mjs";
 
 const ajv = new Ajv({ strict: true, coerceTypes: false, useDefaults: false, removeAdditional: false });
 const validators = new Map(Object.entries(toolContracts).map(([name, contract]) => [name, ajv.compile(contract.inputSchema)]));
@@ -14,10 +15,20 @@ export function validateToolArguments(name, args) {
   return args;
 }
 
-export function validateToolResult(name, value) {
+export function validateToolResult(name, value, args = {}) {
+  const invalid = message => {
+    const error = new Error(`invalid tool result: ${message}`);
+    const input = toolContracts[name]?.inputSchema.properties;
+    if (input?.expectedStateVersion && input.dryRun) Object.assign(error, {
+      code: "INVALID_TOOL_RESULT", outcome: "unknown"
+    });
+    return error;
+  };
   const validate = resultValidators.get(name);
   if (!validate || !validate(value)) {
-    throw new Error(`invalid tool result: ${validate ? ajv.errorsText(validate.errors) : "unknown tool"}`);
+    throw invalid(validate ? ajv.errorsText(validate.errors) : "unknown tool");
   }
+  if (toolContracts[name].outputSchema === guardedMutationResult && value.dryRun !== (args.dryRun !== false))
+    throw invalid("dryRun does not match the requested execution mode");
   return value;
 }

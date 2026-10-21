@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { createRouter } from "../src/server.mjs";
+import { plannedResult } from "./fixtures/tool-results.mjs";
 
 test("server can be imported from a Node eval without starting stdio", async () => {
   const child = spawn(process.execPath, ["--input-type=module", "-e",
@@ -27,7 +28,7 @@ test("initialize advertises only the protocol version this server supports", asy
 });
 
 test("MCP accepts an exact parameter choice label as a requested value", async () => {
-  const route = createRouter({ call: async (_name, args) => ({ requested: args.changes[0].value }) });
+  const route = createRouter({ call: async (_name, args) => plannedResult({ requested: args.changes[0].value }) });
   const reply = await route({ id: 1, method: "tools/call", params: {
     name: "set_device_parameters", arguments: { trackId: "track-0", deviceId: "track-0:device-0",
       expectedStateVersion: 4, changes: [{ id: "parameter-4", value: "1/12" }] }
@@ -85,7 +86,7 @@ test("stdio sends no reply to notifications and survives invalid requests", asyn
 
 test("MCP rejects malformed tool arguments before service dispatch", async () => {
   let dispatches = 0;
-  const route = createRouter({ call: async () => { dispatches++; return { accepted: true }; } });
+  const route = createRouter({ call: async () => { dispatches++; return plannedResult({ accepted: true }); } });
   for (const argumentsValue of [null, [], "bad", { trackId: "track-0" },
     { expectedStateVersion: 1, trackId: "track-0", armed: "yes" },
     { expectedStateVersion: 1, trackId: "track-0", armed: true, extra: true }]) {
@@ -111,7 +112,7 @@ test("MCP returns handler failures as tool results without hiding protocol valid
 });
 
 test("MCP exposes and validates nested MIDI repeat counts", async () => {
-  const route = createRouter({ call: async (_name, args) => ({ repeats: args.operation.repeats }) });
+  const route = createRouter({ call: async (_name, args) => plannedResult({ repeats: args.operation.repeats }) });
   const listed = await route({ id: 1, method: "tools/list" });
   const tool = listed.result.tools.find(({ name }) => name === "transform_midi_notes");
   assert.equal(tool.inputSchema.properties.operation.properties.repeats?.maximum, 16);

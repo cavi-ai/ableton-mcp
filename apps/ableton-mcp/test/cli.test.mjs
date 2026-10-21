@@ -201,7 +201,7 @@ test("call and resource expose the MCP service through the CLI", async () => {
   const calls = [];
   const runtimeFactory = (environment, options) => ({
     service: {
-      async call(name, args) { calls.push({ name, args }); return { tracks: [] }; },
+      async call(name, args) { calls.push({ name, args }); return { stateVersion: 1, tracks: [] }; },
       async readResource(uri) { calls.push({ uri }); return { scenes: [] }; }
     },
     close() { calls.push({ closed: true, options }); }

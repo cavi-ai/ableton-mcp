@@ -1,3 +1,4 @@
+import { plannedResult } from "./fixtures/tool-results.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {ToolService} from "../src/tool-service.mjs";
@@ -36,7 +37,7 @@ test("send dB contract and mix workflow preserve named destinations and unsuppor
 });
 
 test("send dB tool is callable only in the all profile",async()=>{
-  const calls=[],service={call:async(name,input)=>{calls.push({name,input});return {dryRun:true};}};
+  const calls=[],service={call:async(name,input)=>{calls.push({name,input});return plannedResult();}};
   const all=createRouter(service),core=createRouter(service,{toolProfile:"core"});
   assert.ok((await all({id:1,method:"tools/list"})).result.tools.some(t=>t.name==="set_track_send_db"));
   assert.ok(!(await core({id:2,method:"tools/list"})).result.tools.some(t=>t.name==="set_track_send_db"));

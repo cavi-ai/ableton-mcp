@@ -190,6 +190,27 @@ test("Ollama continuation carries the actual prior reply once as assistant histo
   await assert.rejects(runtime.generate({ ...packet, progress: { previousResponse: { ...previousResponse, summary: "x".repeat(48000) } } }), /input.*limit/);
 });
 
+test("the final Ollama turn permits proposals or questions but no unfulfillable reads", async () => {
+  let format;
+  const runtime = createProducerRuntime({ type: "ollama", model: "local-model" }, { fetch: async (url, options) => {
+    if (String(url).endsWith("/api/show")) return new Response(JSON.stringify({ details: { format: "gguf" }, modelfile: "FROM local-file" }));
+    format = JSON.parse(options.body).format;
+    return new Response(JSON.stringify({ message: { content: JSON.stringify(reply) } }));
+  } });
+  const task = { ...packet, role: "functional", tools: { reads: [{ name: "get_track_mixer", inputSchema: toolContracts.get_track_mixer.inputSchema }],
+    operations: [{ name: "set_tempo", inputSchema: { type: "object", properties: { tempo: { type: "number" } }, required: ["tempo"], additionalProperties: false } }] } };
+  const read = { ...reply, reads: [{ tool: "get_track_mixer", args: { trackId: "track-0" } }] };
+  for (const maxTurns of [3, 6]) {
+    await runtime.generate({ ...task, progress: { turn: maxTurns - 1, maxTurns } });
+    assert.equal(new Ajv({ strict: true }).compile(format)(read), true);
+    await runtime.generate({ ...task, progress: { turn: maxTurns, maxTurns } });
+    const validate = new Ajv({ strict: true }).compile(format);
+    assert.equal(validate(read), false);
+    assert.equal(validate({ ...reply, operations: [{ tool: "set_tempo", args: { tempo: 120 } }] }), true);
+    assert.equal(validate({ ...reply, questions: ["Which tempo is intended?"] }), true);
+  }
+});
+
 test("embedded recursive snapshot operation schemas retain their local references", async () => {
   let format;
   const runtime = createProducerRuntime({ type: "ollama", model: "local-model" }, { fetch: async (url, options) => {
