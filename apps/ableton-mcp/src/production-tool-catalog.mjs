@@ -41,8 +41,10 @@ export function operationSchema(name) {
     if (node.not) stripGuardFields(node.not);
   };
   stripGuardFields(schema);
-  return { name, inputSchema: schema };
+  return { name, description: toolContracts[name].description, inputSchema: schema };
 }
+
+export const readSchema = name => ({ name, description: toolContracts[name].description, inputSchema: toolContracts[name].inputSchema });
 
 function rankedNames(query, kind) {
   const exact = catalog[kind].find(tool => tool.name === query);
@@ -67,7 +69,7 @@ export function discoverProductionTools(args, role) {
 export function productionSchemas({ role, initialReads, deferred = false, intent = "change", goal = "" }) {
   initialReads ??= deferred ? deferredReadNames : readNames;
   const canChange = role === "functional" && intent !== "inspect";
-  const tools = { reads: initialReads.filter(name => toolContracts[name]).map(name => ({ name, inputSchema: toolContracts[name].inputSchema })),
+  const tools = { reads: initialReads.filter(name => toolContracts[name]).map(readSchema),
     operations: canChange && !deferred ? operationNames.filter(eligibleOperation).map(operationSchema) : [],
     ...(deferred ? { available: { reads: namesFor("read"), operations: canChange ? namesFor("operation") : [] } } : {}),
     discovery: { tool: "discover_production_tools", args: { query: "words from the tool name or description", kind: "read or operation", offset: 0 },
@@ -82,7 +84,7 @@ export function productionSchemas({ role, initialReads, deferred = false, intent
       for (const name of rankedNames(goal.slice(0, 200), kind)) {
         const target = kind === "read" ? tools.reads : tools.operations;
         if (target.some(tool => tool.name === name)) continue;
-        const schema = kind === "read" ? { name, inputSchema: toolContracts[name].inputSchema } : operationSchema(name);
+        const schema = kind === "read" ? readSchema(name) : operationSchema(name);
         const cost = Buffer.byteLength(JSON.stringify(schema));
         if (bytes + cost > 8000) continue;
         target.push(schema); bytes += cost;

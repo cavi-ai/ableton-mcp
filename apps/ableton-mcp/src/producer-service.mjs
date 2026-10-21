@@ -1,5 +1,5 @@
 import { productionBoundaries } from "./production-capabilities.mjs";
-import { readNames, operationNames, deferredReadNames, eligibleOperation, operationSchema, discoverProductionTools, productionSchemas } from "./production-tool-catalog.mjs";
+import { readNames, operationNames, deferredReadNames, eligibleOperation, operationSchema, readSchema, discoverProductionTools, productionSchemas } from "./production-tool-catalog.mjs";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
@@ -278,8 +278,7 @@ export class ProducerService {
                 const allowed = read.args.kind === "read" ? allowedReads : allowedOperations;
                 for (const name of found.names) {
                   if (!allowed.includes(name)) allowed.push(name);
-                  if (!target.some(tool => tool.name === name)) target.push(read.args.kind === "operation" ? operationSchema(name)
-                    : { name, inputSchema: toolContracts[name].inputSchema });
+                  if (!target.some(tool => tool.name === name)) target.push(read.args.kind === "operation" ? operationSchema(name) : readSchema(name));
                 }
                 packet.context.push({ discovery: { ...read.args, ...found } });
                 packet.progress.completedReads.push({ ...read, discovery: found });

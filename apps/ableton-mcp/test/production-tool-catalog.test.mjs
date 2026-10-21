@@ -25,6 +25,7 @@ test("deferred discovery seeds relevant complete schemas without execution autho
       assert.equal(tool.inputSchema.properties[key], undefined);
     assert.ok(tools.available.operations.includes(expected));
     assert.ok(tools.operations.length <= 2); assert.ok(tools.reads.length <= 5);
+    for (const tool of [...tools.reads, ...tools.operations]) assert.equal(tool.description, toolContracts[tool.name].description);
   }
   assert.equal(JSON.stringify(toolContracts), before);
 });
