@@ -19,7 +19,7 @@ test("API-client configuration requires an explicit provider, model and remote c
   assert.deepEqual(parse(config), { creative: config });
   assert.deepEqual(parse({ ...config, apiKeyEnv: "SPECIALIST_KEY" }).creative.apiKeyEnv, "SPECIALIST_KEY");
   for (const invalid of [{ allowRemote: false }, { allowRemote: undefined }, { model: undefined },
-    { provider: undefined }, { provider: "codex" }, { endpoint: "https://example.com" },
+    { provider: undefined }, { provider: "unknown" }, { endpoint: "https://example.com" },
     { command: "agent" }, { args: [] }, { env: [] }, { apiKey: "secret" }, { apiKeyEnv: "bad-key" }]) {
     assert.throws(() => parse({ ...config, ...invalid }), /config/);
   }

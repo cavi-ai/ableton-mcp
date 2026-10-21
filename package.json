@@ -158,6 +158,7 @@
     "@cavi-ai/api-client": "0.22.0"
   },
   "devDependencies": {
-    "@cavi-ai/mcp-eval": "0.8.0"
+    "@cavi-ai/mcp-eval": "0.8.0",
+    "ws": "8.22.0"
   }
 }
