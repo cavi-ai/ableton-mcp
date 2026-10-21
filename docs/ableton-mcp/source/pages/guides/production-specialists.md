@@ -34,7 +34,60 @@ Use the command and arguments documented by your ACP agent. Provider and model s
 
 ACP receives a fresh session for each bounded request, an isolated temporary working directory, no MCP servers and no client filesystem or terminal capabilities. Permission requests are denied. Only the final agent message is collected; thought streams are not forwarded. ACP is a trusted subprocess connection, not an operating-system sandbox: use an agent whose own permissions you trust. A configured executable can access the machine independently of ACP client capabilities.
 
-Each runtime accepts `timeoutMs` from 1,000 to 180,000; the default is 60,000. A complete production task also has a 180,000 ms deadline, with at most two tasks active in one service. Cancellation stops pending model work and terminates the owned ACP process group on POSIX, or requests process-tree termination on Windows. Teardown is bounded independently of inherited process pipes. Specialist model turns do not hold the MCP control queue, so stop requests remain dispatchable.
+For Claude Messages through `@cavi-ai/api-client`:
+
+```json
+{
+  "functional": {
+    "type": "api-client",
+    "provider": "claude",
+    "model": "your-enabled-claude-model",
+    "allowRemote": true,
+    "apiKeyEnv": "ANTHROPIC_API_KEY"
+  }
+}
+```
+
+All API-client backends use the published `@cavi-ai/api-client` 0.22.0 dependency. Set credentials in the server environment; `apiKeyEnv` names a variable and never contains its value. Each role requires `allowRemote: true`, including roles connected to loopback agents, because those agents may forward project context to remote models. Provider billing and data handling apply. Claude and Codex use API credentials, independently of CLI logins or subscriptions.
+
+| Provider | Required selection | Default credential variable | Transport |
+| --- | --- | --- | --- |
+| `claude` | `model` enabled for the account | `ANTHROPIC_API_KEY` | Official Anthropic Messages HTTPS/SSE |
+| `codex` | `model` enabled for the account | `OPENAI_API_KEY` | Official OpenAI Responses HTTPS, background run retrieval |
+| `openclaw` | `endpoint`, `agentId` | `OPENCLAW_GATEWAY_TOKEN` | Native gateway WebSocket RPC and chat events |
+| `hermes` | `endpoint`, `agentId` | `HERMES_API_KEY` | Gateway run HTTP/SSE |
+| `opencode` | `endpoint`, `model` as `providerID/modelID` | `OPENCODE_SERVER_PASSWORD` | OpenCode 1.18.27 legacy HTTP/SSE |
+| `agy` | `endpoint`, `model` as the AGY agent ID | `AGY_API_KEY` | AGY orchestration HTTP/SSE |
+
+For example, use Codex for creative proposals and a dedicated OpenClaw agent for functional proposals:
+
+```json
+{
+  "creative": { "type": "api-client", "provider": "codex", "model": "your-enabled-openai-model", "allowRemote": true },
+  "functional": { "type": "api-client", "provider": "openclaw", "endpoint": "ws://127.0.0.1:18789", "agentId": "specialist", "allowRemote": true }
+}
+```
+
+Or configure Hermes and OpenCode:
+
+```json
+{
+  "creative": { "type": "api-client", "provider": "hermes", "endpoint": "http://127.0.0.1:8642", "agentId": "specialist", "allowRemote": true },
+  "functional": { "type": "api-client", "provider": "opencode", "endpoint": "http://127.0.0.1:4096", "model": "your-provider/your-model", "allowRemote": true }
+}
+```
+
+Replace endpoints, agents and model placeholders with your configured servers. OpenClaw and Hermes select the model through the named server-side agent; a `model` field is rejected for these backends. OpenClaw uses a fresh agent session for each request, disables channel delivery, requests operator read/write scopes for chat and cancellation, and closes its owned connection afterward. Hermes starts a fresh session and requires run-event SSE; it does not fall back to another transport.
+
+OpenCode creates a fresh session for each request and checks the server's supported version before prompting. Its directory defaults to the role's isolated temporary working directory on the MCP host. A remote server needs an explicit `directory` that exists on that server; use a dedicated empty workspace. Optional `username` defaults to `opencode`. A loopback server can run without a password when the default password variable is absent; an explicit `apiKeyEnv` or a remote endpoint requires the named credential. An AGY role uses the same shape as a model API, adding its configured `endpoint` and agent ID in `model`.
+
+Claude and Codex always use their official endpoints. Other endpoints must be loopback origins or remote TLS origins; URL credentials, query strings, paths and redirects are rejected. Native agents are trusted execution boundaries, not sandboxes. Configure dedicated agents with restricted tools and no direct Ableton MCP access; their own server-side tools and permissions are independent of the coordinator. The adapter does not grant native tools or approve permission requests. Only proposals validated by the coordinator can reach its guarded Live execution path.
+
+Collected output is limited to 16,000 bytes, HTTP response bodies to 128,000 bytes, and OpenClaw frames and relevant chat-event traffic to 128,000 bytes. A terminal completion is required before accepting JSON. The adapter requests JSON through instructions and validates it locally; provider-side schema-constrained decoding is not enabled. Claude requests at most 2,048 output tokens; other providers retain their configured model limits. Requests are not automatically retried and never fall back to another backend. No audio or images are transmitted.
+
+The published Codex client creates stored background responses. The adapter retrieves only its own run until a terminal outcome or the request deadline, and attempts cancellation after an interrupted or failed run. Hermes and OpenClaw also attempt to stop known unfinished runs; OpenCode performs its session-abort cleanup. Cleanup attempts are bounded. If a start request loses its acknowledgement, the run ID may be unknown and remote cancellation cannot be established. Provider sessions, transcripts and retention remain subject to that server's policy.
+
+Each runtime accepts `timeoutMs` from 1,000 to 180,000; the default is 60,000. A complete production task also has a 180,000 ms deadline, with at most two tasks active in one service. Cancellation aborts API-client requests and response streams, and terminates the owned ACP process group on POSIX, or requests process-tree termination on Windows. Aborting an API connection does not establish that provider billing or processing stopped. Teardown is bounded independently of inherited process pipes. Specialist model turns do not hold the MCP control queue, so stop requests remain dispatchable.
 
 ## Keep the main tool catalog small
 
@@ -74,9 +127,9 @@ Deferred mode permits up to six model requests per role and eight schema discove
 
 Every specialist request identifies its current turn, maximum turns and remaining task reads in `progress`. Its completed-read ledger identifies observations, discovered schemas and artifact-page continuation offsets from earlier turns of that role. Specialists can use these results before requesting more data; a tool discovered in one turn becomes available in the next. Repeated Live reads still perform fresh observations and consume the read budget.
 
-Continuation requests include only the immediately preceding validated reply from the same role and task, counted within the input-size budget. Ollama receives that actual reply as an assistant message followed by the current task and observations. ACP receives it in the bounded task packet. Neither runtime receives transcripts from older tasks automatically.
+Continuation requests include only the immediately preceding validated reply from the same role and task, counted within the input-size budget. Ollama and API-client backends receive that actual reply as an assistant message followed by the current task and observations. ACP receives it in the bounded task packet. No runtime receives transcripts from older tasks automatically.
 
-Ollama structured output restricts operations to the names and argument schemas supplied for that turn; creative requests permit no operations. The coordinator independently validates every proposal from either runtime, including argument schemas, scope and permissions.
+Ollama structured output restricts operations to the names and argument schemas supplied for that turn; creative requests permit no operations. The coordinator independently validates every proposal from every runtime, including argument schemas, scope and permissions.
 
 Scope checks cover target arrays, nested targets and source/destination aliases at proposal time and again before applying a saved operation. A scoped MIDI source may be copied into new slots on the same track; its source ID must still match. Imported snapshot/template provenance is data, not an additional Live target. A track send may reference its Return without modifying that Return. Scoped writes whose targets cannot be resolved are rejected; song tempo and musical-context proposals retain their existing song-level behavior.
 

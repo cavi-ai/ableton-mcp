@@ -59,7 +59,11 @@ function responseFormat(packet) {
   return schema;
 }
 const runtimeProperties = {
-  type: { enum: ["ollama", "acp"] }, model: { type: "string", minLength: 1, maxLength: 200 },
+  type: { enum: ["ollama", "acp", "api-client"] }, model: { type: "string", minLength: 1, maxLength: 200 },
+  provider: { enum: ["claude", "codex", "openclaw", "hermes", "opencode", "agy"] },
+  apiKeyEnv: { type: "string", pattern: "^[A-Za-z_][A-Za-z0-9_]*$", maxLength: 200 },
+  agentId: { type: "string", pattern: "^[A-Za-z0-9_-]+$", maxLength: 100 },
+  directory: { type: "string", minLength: 1, maxLength: 2000 }, username: { type: "string", minLength: 1, maxLength: 100 },
   toolDiscovery: { enum: ["eager", "deferred"] },
   endpoint: { type: "string", maxLength: 2000 }, allowRemote: { type: "boolean" },
   command: { type: "string", minLength: 1 }, args: list({ type: "string" }, 32),
@@ -87,6 +91,31 @@ export function parseProducerConfig(environment) {
   catch { throw new Error("producer config must be JSON"); }
   if (!validateConfig(config)) throw new Error(`invalid producer config: ${ajv.errorsText(validateConfig.errors)}`);
   for (const runtime of Object.values(config)) {
+    if (runtime.type === "api-client") {
+      const gateway = ["openclaw", "hermes"].includes(runtime.provider);
+      const cloud = ["claude", "codex"].includes(runtime.provider);
+      if (!runtime.provider || runtime.allowRemote !== true ||
+          ["command", "args", "env"].some(key => Object.hasOwn(runtime, key)) ||
+          (gateway ? !runtime.agentId || runtime.model !== undefined : !runtime.model?.trim() || runtime.agentId !== undefined) ||
+          (runtime.provider !== "opencode" && (runtime.directory !== undefined || runtime.username !== undefined)))
+        throw new Error("API-client config requires provider and allowRemote: true, model for model APIs or agentId for gateways; process settings are not supported");
+      if (cloud) {
+        if (runtime.endpoint !== undefined) throw new Error("cloud API-client config uses the official endpoint");
+      } else {
+        let url;
+        try { url = new URL(runtime.endpoint); } catch { throw new Error("API-client config requires an absolute endpoint origin"); }
+        const protocols = runtime.provider === "openclaw" ? ["http:", "https:", "ws:", "wss:"] : ["http:", "https:"];
+        const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+        if (url.username || url.password || url.search || url.hash || url.pathname !== "/" ||
+            !protocols.includes(url.protocol) || (!local && !["https:", "wss:"].includes(url.protocol)))
+          throw new Error("API-client config endpoint must be a loopback origin or a remote TLS origin without URL credentials");
+      }
+      if (runtime.provider === "opencode" && (!/^[^/\s]+\/\S+$/.test(runtime.model) || (runtime.directory !== undefined && !runtime.directory.trim())))
+        throw new Error("OpenCode config requires providerID/modelID and a nonblank directory when supplied");
+      continue;
+    }
+    if (["provider", "apiKeyEnv", "agentId", "directory", "username"].some(key => runtime[key] !== undefined))
+      throw new Error("provider credentials and scope require API-client config");
     if (runtime.type === "ollama") {
       if (!runtime.model || runtime.command || runtime.args || runtime.env) throw new Error("Ollama config requires model and cannot specify a command or environment");
       endpointFor(runtime);
@@ -146,6 +175,12 @@ export function createProducerRuntime(config, dependencies = {}) {
       );
       messages.push({ role: "user", content: previousResponse ? JSON.stringify({ ...packet, progress }) : encoded });
       const fetch = dependencies.fetch || globalThis.fetch;
+      if (config.type === "api-client") {
+        const { generateApiClientResponse } = await import("./producer-api-client.mjs");
+        return parseProducerResponse(await generateApiClientResponse(config, messages, {
+          signal: activeSignal, fetch, env: dependencies.env || process.env, cwd
+        }));
+      }
       const endpoint = endpointFor(config);
       if (!config.allowRemote) {
         // Cloud aliases need not contain "cloud". Inspect model-only metadata
