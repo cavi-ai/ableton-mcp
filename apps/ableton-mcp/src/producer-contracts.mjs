@@ -1,3 +1,5 @@
+import { producerOutputContracts } from "./tool-output-contracts.mjs";
+
 const string = (description, maxLength = 2000) => ({ type: "string", minLength: 1, maxLength, description });
 const projectId = { ...string("Private project namespace.", 80), pattern: "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$" };
 const artifact = { ...string("Artifact ID returned by a producer tool.", 64), pattern: "^[a-f0-9]{64}$" };
@@ -61,3 +63,4 @@ for (const name of ["get_production_context", "read_production_artifact", "recor
   producerToolContracts[name].annotations.openWorldHint = false;
 // Notes are content-addressed: repeating the same note creates no additional artifact.
 producerToolContracts.record_production_note.annotations.idempotentHint = true;
+for (const [name, outputSchema] of Object.entries(producerOutputContracts)) producerToolContracts[name].outputSchema = outputSchema;

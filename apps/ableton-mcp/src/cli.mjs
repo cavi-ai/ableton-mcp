@@ -9,7 +9,7 @@ import { createConfiguredService } from "./runtime.mjs";
 import { runStdio } from "./server.mjs";
 import { UnixBridgeClient, bridgeFailureDetails } from "./bridge-client.mjs";
 import { performance } from 'node:perf_hooks';
-import { validateToolArguments } from "./tool-validation.mjs";
+import { validateToolArguments, validateToolResult } from "./tool-validation.mjs";
 import { getPrompt, listPrompts } from "./prompts.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -152,6 +152,7 @@ export async function runCli(argv, dependencies = {}) {
     const runtime = runtimeFactory(env, { persistentConfirmations: true });
     try {
       const result = await runtime.service.call(name, args);
+      validateToolResult(name, result, args);
       print(result, parsed.json, stdout);
       return result;
     } finally { runtime.close(); }

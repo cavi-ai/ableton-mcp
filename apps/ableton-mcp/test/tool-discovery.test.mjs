@@ -4,6 +4,7 @@ import { createRouter } from "../src/server.mjs";
 import { ToolService } from "../src/tool-service.mjs";
 import { toolContracts } from "../src/tool-contracts.mjs";
 import { ProducerService } from "../src/producer-service.mjs";
+import { plannedResult } from "./fixtures/tool-results.mjs";
 
 test("MCP discovery exposes every contracted producer tool", async () => {
   const listed = await createRouter(new ToolService({}))({ id: 1, method: "tools/list" });
@@ -36,7 +37,7 @@ test("MCP discovery exposes every contracted producer tool", async () => {
 
 test("core discovery is bounded and cannot call tools it does not advertise", async () => {
   let calls = 0;
-  const route = createRouter({ call: async () => { calls++; return { ok: true }; } }, { toolProfile: "core" });
+  const route = createRouter({ call: async () => { calls++; return { stateVersion: 1, tracks: [], ok: true }; } }, { toolProfile: "core" });
   const tools = (await route({ id: 1, method: "tools/list" })).result.tools;
   assert.equal(tools.length, 63);
   const names = new Set(tools.map((tool) => tool.name));
@@ -68,7 +69,7 @@ test("core discovery is bounded and cannot call tools it does not advertise", as
 });
 
 test("MCP accepts the complete measured audio feel summary as a timing-only transfer template", async () => {
-  const route = createRouter({ call: async (_name, args) => args });
+  const route = createRouter({ call: async (_name, args) => plannedResult(args) });
   const template = { format: "cavi-audio-feel-v1", gridBeats: 0.25, bars: 1, barBeats: 4,
     cycleBeats: 4, slotCount: 16, nativeGrooveId: null,
     source: { trackId: "track-1", clipId: "track-1:clip-0", stateVersion: 4, sourcePath: "/audio/source.wav" },
@@ -124,7 +125,7 @@ test("every tool advertises MCP annotations matching its mutation class", async 
 
 test("directory profile exposes named native tools and rejects producer coordinators", async () => {
   let calls = 0;
-  const route = createRouter({ call: async () => { calls++; return { dryRun: true }; } }, { toolProfile: "directory" });
+  const route = createRouter({ call: async () => { calls++; return plannedResult(); } }, { toolProfile: "directory" });
   const tools = (await route({ id: 1, method: "tools/list" })).result.tools;
   const names = new Set(tools.map(tool => tool.name));
   for (const name of ["set_tempo", "set_bulk_track_mixer", "duplicate_midi_clip_variations", "transform_midi_notes"])

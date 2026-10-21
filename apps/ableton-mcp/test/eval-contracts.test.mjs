@@ -4,6 +4,47 @@ import Ajv from "ajv";
 import { createRouter } from "../src/server.mjs";
 import { ToolService } from "../src/tool-service.mjs";
 import { toolContracts } from "../src/tool-contracts.mjs";
+import { validateToolResult } from "../src/tool-validation.mjs";
+
+test("guarded results require a complete plan or an explicit execution receipt", () => {
+  const args = { expectedStateVersion: 1, tempo: 100 };
+  for (const value of [{}, { dryRun: true }, { dryRun: false },
+    { dryRun: true, plan: {}, confirmation: { token: "t" } }]) {
+    assert.throws(() => validateToolResult("set_tempo", value, args), /invalid tool result/);
+  }
+  const planned = { dryRun: true, plan: { tempo: 100 }, confirmation: { token: "t", planHash: "a".repeat(64), expiresAt: 1000 } };
+  assert.equal(validateToolResult("set_tempo", planned, args), planned);
+  const applied = { dryRun: false, operationOutcome: { schemaVersion: 1, status: "applied", reason: "execution_receipt", evidence: ["stateVersion"] } };
+  assert.equal(validateToolResult("set_tempo", applied, { ...args, dryRun: false }), applied);
+  assert.throws(() => validateToolResult("set_tempo", applied, args), /invalid tool result/);
+  assert.throws(() => validateToolResult("set_tempo", { ...applied, operationOutcome: { ...applied.operationOutcome, status: "success" } }, { ...args, dryRun: false }), /invalid tool result/);
+});
+
+test("important Live reads reject absent and malformed stable fields", () => {
+  for (const [name, value] of [["get_live_state", {}], ["list_tracks", { stateVersion: 1, tracks: "bad" }],
+    ["get_track_mixer", { stateVersion: 1, trackId: "track-0", volume: null }],
+    ["list_device_parameters", { stateVersion: 1, parameters: [{}] }],
+    ["get_midi_clip_notes_extended", { stateVersion: 1, notes: ["bad"] }]]) {
+    assert.throws(() => validateToolResult(name, value), /invalid tool result/, name);
+  }
+  const value = { stateVersion: 1, setFingerprint: "set-a", futureField: { supported: true } };
+  assert.equal(validateToolResult("get_live_state", value), value);
+});
+
+test("compact discovery cannot bypass full validation and invalid write receipts retain unknown outcomes", async () => {
+  for (const toolProfile of ["core", "all"]) {
+    let calls = 0;
+    const route = createRouter({ call: async () => { calls++; return {}; } }, { toolProfile });
+    const read = await route({ id: 1, method: "tools/call", params: { name: "get_live_state" } });
+    assert.equal(read.result.isError, true);
+    const write = await route({ id: 2, method: "tools/call", params: { name: "set_tempo",
+      arguments: { expectedStateVersion: 1, tempo: 100, dryRun: false, confirmationToken: "token", planHash: "hash" } } });
+    assert.equal(write.result.isError, true);
+    assert.equal(write.result.structuredContent.error.outcome, "unknown");
+    assert.equal(write.result.structuredContent.error.code, "INVALID_TOOL_RESULT");
+    assert.equal(calls, 2);
+  }
+});
 
 test("ping answers without accessing Live or a catalog", async () => {
   const reply = await createRouter({})({ id: 1, method: "ping" });

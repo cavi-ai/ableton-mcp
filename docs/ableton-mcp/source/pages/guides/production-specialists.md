@@ -40,6 +40,8 @@ Each runtime accepts `timeoutMs` from 1,000 to 180,000; the default is 60,000. A
 
 Set `ABLETON_MCP_TOOL_PROFILE=producer` in the MCP server environment. This profile advertises nine workflow tools plus `get_live_state`, `transport_stop` and `panic`. Existing `core` and `all` profiles remain available. The CLI's `call` command is independent of discovery profiles.
 
+The `all` and `directory` profiles publish detailed result contracts. The `core` and `producer` profiles retain compact result summaries for discovery; the server and CLI still validate the full contracts on every tool call. Guarded tools must return a complete dry-run plan and confirmation, or an explicit execution-outcome receipt matching the requested mode. Invalid write receipts report an unknown outcome; inspect Live before retrying.
+
 Use `ABLETON_MCP_TOOL_PROFILE=directory` for a surface where each native operation is listed individually for host review. It excludes the producer coordinator tools, including task execution and session advancement; hidden coordinator calls are rejected. The compact `producer` profile remains available for local specialist workflows. Choosing a profile does not establish directory approval or satisfy other submission requirements.
 
 1. `get_production_context` captures consistent Live selection and musical context, returning a bounded preview and `contextRef`. It does not call a model.
