@@ -1,3 +1,4 @@
+import { readNames, operationNames, deferredReadNames, eligibleOperation, operationSchema, discoverProductionTools, productionSchemas } from "./production-tool-catalog.mjs";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
@@ -13,21 +14,11 @@ import { assertProducerScope, validateProducerScope } from "./producer-scope.mjs
 import { classifyMutationOutcome } from "./mutation-outcomes.mjs";
 import { assessTaskCompletion } from "./production-task-completion.mjs";
 
-const readNames = ["get_live_state", "get_selection_context", "get_song_musical_context", "list_tracks", "list_clips",
-  "list_devices", "list_device_parameters", "get_device_parameter_edit_context", "get_clip_timing",
-  "get_midi_clip_notes_extended", "get_audio_clip_state", "get_track_mixer", "get_track_routing",
-  "get_factory_device_context", "get_plugin_integration_context", "analyze_midi_clip_scale", "analyze_midi_clip_chords"];
-const operationNames = ["set_tempo", "set_song_musical_context", "set_device_parameters", "set_track_mixer", "set_track_volume_db", "set_track_send_db",
-  "set_clip_timing", "set_audio_clip_state", "set_midi_note_properties", "transform_midi_notes",
-  "duplicate_midi_clip_variations", "create_midi_clip", "set_device_active", "set_session_clip_entry"];
-const deferredReadNames = ["get_live_state", "get_selection_context", "get_song_musical_context"];
-const executionFields = ["dryRun", "confirmationToken", "planHash", "expectedStateVersion"];
 const roles = ["creative", "functional"];
 const checkSignal = () => requestSignal()?.throwIfAborted();
 const identity = value => ({ stateVersion: value.stateVersion, setFingerprint: value.setFingerprint });
 const sameState = (left, right) => left.stateVersion === right.stateVersion && left.setFingerprint === right.setFingerprint;
-const eligibleOperation = name => !Object.hasOwn(producerToolContracts, name) &&
-  Boolean(toolContracts[name]?.inputSchema.properties.expectedStateVersion && toolContracts[name]?.inputSchema.properties.dryRun);
+
 const stableSessionObservation = value => JSON.parse(JSON.stringify(value, (key, item) =>
   ["stateVersion", "setFingerprint", "isPlaying", "isTriggered", "playingPosition"].includes(key) ? undefined : item));
 function validateSessionScope(scope = {}) {
@@ -35,12 +26,7 @@ function validateSessionScope(scope = {}) {
   if ((scope.clipId || scope.deviceId) && !scope.trackId) throw new Error("clip and device session scopes require trackId");
   if (scope.clipId && !scope.trackId.startsWith("track-")) throw new Error("clip session scope requires an ordinary track owner");
 }
-function operationSchema(name) {
-  const schema = structuredClone(toolContracts[name].inputSchema);
-  for (const key of executionFields) delete schema.properties[key];
-  schema.required = (schema.required || []).filter(key => !executionFields.includes(key));
-  return { name, inputSchema: schema };
-}
+
 
 export class ProducerService {
   #queue = Promise.resolve();
@@ -208,39 +194,7 @@ export class ProducerService {
     for (const check of result.checks) this.#validateRead(check, scope, allowedReads);
   }
 
-  #discover(args, role) {
-    if (Object.keys(args).some(key => !["query", "kind", "offset"].includes(key)) ||
-        typeof args.query !== "string" || args.query.trim().length < 2 || args.query.length > 120 ||
-        !["read", "operation"].includes(args.kind) ||
-        (args.offset !== undefined && (!Number.isInteger(args.offset) || args.offset < 0 || args.offset > 10000)))
-      throw new Error("invalid tool discovery arguments");
-    if (role === "creative" && args.kind !== "read") throw new Error("creative operation discovery is not allowed");
-    const words = args.query.toLowerCase().replaceAll("_", " ").split(/\s+/).filter(Boolean);
-    const matches = Object.entries(toolContracts).filter(([name, contract]) => {
-      if (Object.hasOwn(producerToolContracts, name)) return false;
-      if (args.kind === "operation" ? !eligibleOperation(name) : !contract.annotations.readOnlyHint) return false;
-      const text = `${name.replaceAll("_", " ")} ${contract.description}`.toLowerCase();
-      return words.every(word => text.includes(word));
-    }).map(([name]) => name).sort();
-    const offset = args.offset || 0;
-    return { names: matches.slice(offset, offset + 4), total: matches.length,
-      nextOffset: offset + 4 < matches.length ? offset + 4 : null };
-  }
-
-  #schemas(role, initialReads = readNames, deferred = false, intent = "change") {
-    const canChange = role === "functional" && intent !== "inspect";
-    const operations = canChange && !deferred ? operationNames.filter(eligibleOperation).map(operationSchema) : [];
-    return { reads: initialReads.filter(name => toolContracts[name]).map(name => ({ name, inputSchema: toolContracts[name].inputSchema })), operations,
-      ...(deferred ? { available: {
-        reads: Object.keys(toolContracts).filter(name => !Object.hasOwn(producerToolContracts, name) && toolContracts[name].annotations.readOnlyHint),
-        operations: canChange ? Object.keys(toolContracts).filter(eligibleOperation) : []
-      } } : {}),
-      discovery: { tool: "discover_production_tools", args: { query: "words from the tool name or description", kind: "read or operation", offset: 0 },
-        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-        description: "Find at most four additional tool schemas. Creative may discover reads only. Operations are proposed, never executed by a specialist." },
-      artifactRead: { tool: "read_production_artifact", args: { artifactId: "ID present in this task", offset: 0, limit: 4000 },
-        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } } };
-  }
+  #discover(args, role) { return discoverProductionTools(args, role); }
 
   async #run(args) {
     validateProducerScope(args.scope);
@@ -284,8 +238,10 @@ export class ProducerService {
           const packet = { role, intent, goal, scope, constraints, context: contextRefs.map(ref => this.#preview(projectId, ref)),
             ...(workflow?{workflow}:{}),
             ...(postconditions ? { postconditions: structuredClone(postconditions) } : {}),
-            tools: this.#schemas(role, roleReads, deferred, intent), progress: { completedReads: [] },
+            tools: productionSchemas({ role, initialReads: roleReads, deferred, intent, goal }), progress: { completedReads: [] },
             ...(role === "functional" && results.length ? { creativeProposal: results[0].result } : {}) };
+          for (const tool of packet.tools.reads) if (!allowedReads.includes(tool.name)) allowedReads.push(tool.name);
+          for (const tool of packet.tools.operations) if (!allowedOperations.includes(tool.name)) allowedOperations.push(tool.name);
           for (let round = 0; round < maxTurns; round++) {
             checkSignal();
             Object.assign(packet.progress, { turn: round + 1, maxTurns, readsRemaining: 8 - reads,
