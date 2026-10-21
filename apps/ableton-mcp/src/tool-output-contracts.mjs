@@ -1,3 +1,7 @@
+import { liveOutputContracts } from "./live-output-contracts.mjs";
+import { musicOutputContracts } from "./music-output-contracts.mjs";
+import { libraryOutputContracts } from "./library-output-contracts.mjs";
+
 // Live readbacks and guarded mutation receipts are extensible objects. Bundled
 // references have stable fields that can be validated more specifically.
 const result = (properties, required = Object.keys(properties)) => ({
@@ -12,7 +16,6 @@ const scale = result({ name: text, family: text, intervals: {
 const blueprint = result({ id: text, topology: text, summary: text });
 const version = { type: "integer", minimum: 1 };
 const records = { type: "array", items: { type: "object" } };
-const versioned = (properties) => result({ stateVersion: version, ...properties });
 export const mutationReceiptSchema = result({ schemaVersion: { const: 1 },
   status: { enum: ["applied", "outcome_unknown", "postconditions_failed", "pending_postconditions", "pending_user_action"] },
   reason: text, evidence: strings });
@@ -32,21 +35,6 @@ export const toolOutputContracts = {
   get_automation_capabilities: result({ sessionClipParameterEnvelopes: { type: "object" }, sessionClipMixerEnvelopes: { type: "object" },
     arrangementParameterAutomation: { type: "object" }, perNoteProperties: { type: "object" }, perNoteExpressionCurves: { type: "object" },
     productionBoundaries: { type: "object" }, handoffs: records }),
-  get_live_state: result({ stateVersion: version, setFingerprint: text }),
-  list_tracks: versioned({ tracks: { type: "array", items: result({ id: text, name: text, type: text }) } }),
-  list_scenes: versioned({ scenes: records }),
-  list_clips: versioned({ clips: records }),
-  list_arrangement_clips: versioned({ clips: records }),
-  list_devices: versioned({ devices: records }),
-  list_device_parameters: versioned({ parameters: { type: "array", items: result({ id: text, name: text, value: { type: "number" } }) } }),
-  get_device_parameter_edit_context: versioned({ parameters: records, editContext: { type: "object" } }),
-  get_midi_clip_notes_extended: versioned({ notes: records }),
-  get_midi_clip_notes: versioned({ notes: { type: "array" } }),
-  get_clip_timing: versioned({}),
-  get_audio_clip_state: versioned({ trackId: text, clipId: text }),
-  get_track_mixer: versioned({ trackId: text, volume: result({ value: { type: "number" } }) }),
-  get_track_routing: versioned({}),
-  get_song_musical_context: versioned({ timeSignature: { type: "object" } }),
   list_live_scales: result({ scales: { type: "array", items: scale } }),
   get_live_scale_reference: result({ scale: result({ ...scale.properties,
     rootNote: { type: "integer", minimum: 0, maximum: 11 }, rootName: text,
@@ -56,7 +44,8 @@ export const toolOutputContracts = {
   get_producer_chain_blueprint: result({ blueprint }),
   list_factory_device_profiles: result({ profiles: { type: "array", items: result({
     id: text, name: text, type: text, family: text, notes: strings, parameterRoles: strings
-  }, ["id", "name", "type", "family", "parameterRoles"]) } })
+  }, ["id", "name", "type", "family", "parameterRoles"]) } }),
+  ...liveOutputContracts, ...musicOutputContracts, ...libraryOutputContracts
 };
 
 export const extensibleToolResult = { type: "object" };

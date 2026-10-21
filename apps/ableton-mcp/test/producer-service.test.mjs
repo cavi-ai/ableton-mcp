@@ -1553,7 +1553,7 @@ test("acceptance rejects a version change during required outcome checks", async
   const original = base.call.bind(base);
   base.call = async (name, args) => {
     if (name !== "get_history_state") return original(name, args);
-    const result = { canUndo };
+    const result = { stateVersion: (await original("get_live_state")).stateVersion, canUndo };
     if (changeDuringCheck) { canUndo = false; change(); }
     return result;
   };

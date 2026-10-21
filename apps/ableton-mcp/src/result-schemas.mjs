@@ -1,0 +1,15 @@
+export const result = (properties, required = Object.keys(properties)) => ({ type: "object", properties, required });
+export const text = { type: "string" };
+export const numeric = { type: "number" };
+export const bool = { type: "boolean" };
+export const integer = { type: "integer" };
+export const version = { type: "integer", minimum: 1 };
+export const array = items => ({ type: "array", items });
+export const nullable = schema => ({ anyOf: [schema, { type: "null" }] });
+export const strings = array(text);
+export const integers = array(integer);
+export const records = array({ type: "object" });
+export const versioned = (properties = {}, required = Object.keys(properties)) => result({ stateVersion: version, ...properties }, ["stateVersion", ...required]);
+export const confirmation = result({ token: { type: "string", minLength: 1 }, planHash: { type: "string", pattern: "^[a-f0-9]{64}$" }, expiresAt: numeric });
+export const planned = result({ dryRun: { const: true }, plan: { type: "object" }, confirmation });
+export const localMutation = properties => ({ type: "object", oneOf: [planned, result({ dryRun: { const: false }, ...properties })] });

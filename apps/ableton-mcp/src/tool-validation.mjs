@@ -18,8 +18,7 @@ export function validateToolArguments(name, args) {
 export function validateToolResult(name, value, args = {}) {
   const invalid = message => {
     const error = new Error(`invalid tool result: ${message}`);
-    const input = toolContracts[name]?.inputSchema.properties;
-    if (input?.expectedStateVersion && input.dryRun) Object.assign(error, {
+    if (toolContracts[name]?.annotations.readOnlyHint === false) Object.assign(error, {
       code: "INVALID_TOOL_RESULT", outcome: "unknown"
     });
     return error;
@@ -28,7 +27,9 @@ export function validateToolResult(name, value, args = {}) {
   if (!validate || !validate(value)) {
     throw invalid(validate ? ajv.errorsText(validate.errors) : "unknown tool");
   }
-  if (toolContracts[name].outputSchema === guardedMutationResult && value.dryRun !== (args.dryRun !== false))
+  if ((toolContracts[name].outputSchema === guardedMutationResult ||
+      (toolContracts[name].inputSchema.properties.dryRun && Object.hasOwn(value, "dryRun"))) &&
+      value.dryRun !== (args.dryRun !== false))
     throw invalid("dryRun does not match the requested execution mode");
   return value;
 }
