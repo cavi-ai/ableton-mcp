@@ -42,6 +42,10 @@ test("compact discovery cannot bypass full validation and invalid write receipts
     assert.equal(write.result.isError, true);
     assert.equal(write.result.structuredContent.error.outcome, "unknown");
     assert.equal(write.result.structuredContent.error.code, "INVALID_TOOL_RESULT");
+    const tools = (await route({ id: 3, method: "tools/list" })).result.tools;
+    const schema = tools.find(tool => tool.name === "set_tempo").outputSchema;
+    const validate = new Ajv({ strict: true }).compile(schema);
+    assert.equal(validate(write.result.structuredContent), true, JSON.stringify(validate.errors));
     assert.equal(calls, 2);
   }
 });

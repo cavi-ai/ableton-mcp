@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { toolContracts } from "../src/tool-contracts.mjs";
 import { producerToolContracts } from "../src/producer-contracts.mjs";
 import { discoverProductionTools, productionSchemas, eligibleOperation } from "../src/production-tool-catalog.mjs";
+import { operationSchema } from "../src/production-tool-catalog.mjs";
+import Ajv from "ajv";
 
 test("every specialist capability remains discoverable by its exact name", () => {
   for (const [name, contract] of Object.entries(toolContracts)) {
@@ -43,4 +45,19 @@ test("search pages are deterministic and bounded without broadening permissions"
     assert.ok(second.names.every(name => !first.names.includes(name)));
   }
   assert.throws(() => discoverProductionTools({ ...args, offset: -1 }, "functional"), /invalid/);
+});
+
+test("proposal schemas strip conditional execution fields while preserving business constraints", () => {
+  const ajv = new Ajv({ strict: true });
+  const validate = ajv.compile(operationSchema("open_live_set").inputSchema);
+  assert.equal(validate({ path: "/scratch.als", expectedSetFingerprint: "set-a" }), true, ajv.errorsText(validate.errors));
+  assert.equal(validate({ path: "/scratch.als" }), false);
+  assert.equal(validate({ path: "/scratch.als", expectedStateVersion: 1, expectedSetFingerprint: "set-a" }), false);
+  const choices = ajv.compile(operationSchema("set_selected_parameter").inputSchema);
+  assert.equal(choices({ value: 0.5, targetDisplay: "50%" }), false);
+});
+
+test("every discoverable operation schema compiles after execution fields are removed", () => {
+  const ajv = new Ajv({ strict: true });
+  for (const name of Object.keys(toolContracts).filter(eligibleOperation)) assert.doesNotThrow(() => ajv.compile(operationSchema(name).inputSchema), name);
 });

@@ -23,8 +23,14 @@ const catalog = Object.fromEntries(["read", "operation"].map(kind => [kind, name
 
 export function operationSchema(name) {
   const schema = structuredClone(toolContracts[name].inputSchema);
-  for (const key of executionFields) delete schema.properties[key];
-  schema.required = (schema.required || []).filter(key => !executionFields.includes(key));
+  const stripGuardFields = node => {
+    if (!node || typeof node !== "object") return;
+    for (const key of executionFields) if (node.properties) delete node.properties[key];
+    if (node.required) node.required = node.required.filter(key => !executionFields.includes(key));
+    for (const key of ["allOf", "anyOf", "oneOf"]) for (const branch of node[key] || []) stripGuardFields(branch);
+    if (node.not) stripGuardFields(node.not);
+  };
+  stripGuardFields(schema);
   return { name, inputSchema: schema };
 }
 

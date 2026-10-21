@@ -60,6 +60,10 @@ export const toolOutputContracts = {
 };
 
 export const extensibleToolResult = { type: "object" };
+const toolErrorResult = result({ error: result({ message: text, outcome: { enum: ["unknown", "not_executed"] } }) });
+export const withToolErrorSchema = schema => schema === extensibleToolResult ? schema : {
+  type: "object", anyOf: [schema, toolErrorResult]
+};
 
 const artifactId = { type: "string", pattern: "^[a-f0-9]{64}$" };
 const checkSource = { enum: ["caller", "specialist"] };

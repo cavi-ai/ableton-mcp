@@ -10,6 +10,7 @@ import { withRequestSignal } from "../src/request-context.mjs";
 import { ToolService } from "../src/tool-service.mjs";
 import { toolContracts } from "../src/tool-contracts.mjs";
 import { producerToolContracts } from "../src/producer-contracts.mjs";
+import { withMutationOutcome } from "../src/mutation-outcomes.mjs";
 
 const response = (extra = {}) => ({ summary: "Use a quieter bass.", reads: [], operations: [], checks: [], questions: [], alternatives: [], ...extra });
 async function setup(t, generate) {
@@ -27,9 +28,16 @@ async function setup(t, generate) {
       if (args.dryRun !== false) return { dryRun: true, plan, confirmation: confirmations.issue(plan) };
       confirmations.consume(args.confirmationToken, args.planHash);
       tempo = args.tempo; version++;
-      return { dryRun: false, stateVersion: version, tempo };
+      return withMutationOutcome(name, args, { dryRun: false, stateVersion: version, tempo });
     }
-    return { stateVersion: version, data: "x".repeat(12000) };
+    const fields = { get_song_musical_context: { timeSignature: { numerator: 4, denominator: 4 } },
+      list_tracks: { tracks: [] }, list_scenes: { scenes: [] }, list_clips: { clips: [] }, list_arrangement_clips: { clips: [] },
+      list_devices: { devices: [] }, list_device_parameters: { parameters: [] },
+      get_device_parameter_edit_context: { parameters: [], editContext: {} },
+      get_midi_clip_notes: { notes: [] }, get_midi_clip_notes_extended: { notes: [] },
+      get_audio_clip_state: { trackId: args.trackId, clipId: args.clipId },
+      get_track_mixer: { trackId: args.trackId, volume: { value: 0.85, decibels: 0 } } }[name] || {};
+    return { stateVersion: version, ...fields, data: "x".repeat(12000) };
   }, readResource: async uri => ({ uri }) };
   const artifacts = new ProducerArtifacts(directory);
   const service = new ProducerService({ service: base, artifacts, config: { creative: {}, functional: {} },
@@ -89,6 +97,35 @@ test("specialist-selected checks cannot certify a requested no-op", async t => {
   const { service } = await setup(t, () => response({ checks: [{ tool: "get_live_state", args: {}, path: ["tempo"], expected: 120 }] }));
   const task = await service.call("run_production_task", { projectId: "song", goal: "Set a different tempo" });
   assert.equal(task.status, "incomplete"); assert.equal(task.stopReason, "missing_operations");
+});
+
+test("internal postcondition reads cannot certify malformed observations", async t => {
+  const { service, base } = await setup(t, () => response());
+  const original = base.call;
+  base.call = (name, args) => name === "get_track_mixer" ? { stateVersion: 1, trackId: "track-0", volume: null } : original(name, args);
+  const task = await service.call("run_production_task", { projectId: "song", goal: "Resolve the required mixer state",
+    postconditions: [{ tool: "get_track_mixer", args: { trackId: "track-0" }, path: ["volume"], expected: null }] });
+  assert.equal(task.status, "incomplete"); assert.equal(task.stopReason, "postconditions_unavailable");
+});
+
+test("internal planning and execution validate original receipts and retain invalid write evidence", async t => {
+  for (const execute of [false, true]) {
+    const { service, base, artifacts } = await setup(t, () => response({ operations: [{ tool: "set_tempo", args: { tempo: 100 } }] }));
+    const task = await service.call("run_production_task", { projectId: "song", goal: "Set tempo" });
+    const original = base.call; let writes = 0;
+    base.call = (name, args) => {
+      if (name === "set_tempo") { writes++; return { dryRun: !execute }; }
+      return original(name, args);
+    };
+    const args = { projectId: "song", taskId: task.taskId, operationIndex: 0, expectedStateVersion: 1 };
+    if (!execute) await assert.rejects(service.call("apply_production_operation", args), /invalid tool result/);
+    else {
+      const receipt = await service.call("apply_production_operation", { ...args, dryRun: false, confirmationToken: "token", planHash: "hash" });
+      assert.equal(receipt.status, "outcome_unknown"); assert.ok(receipt.resultRef);
+      assert.deepEqual(artifacts.get("song", receipt.resultRef).value, { dryRun: false });
+    }
+    assert.equal(writes, 1);
+  }
 });
 
 test("unavailable or changing no-op evidence cannot complete a change task", async t => {
@@ -715,7 +752,7 @@ test("an operation awaiting user action is not reported as applied", async t => 
   const { service, base } = await setup(t, () => response({ operations: [{ tool: "set_tempo", args: { tempo: 100 } }] }));
   const task = await service.call("run_production_task", { projectId: "song", goal: "tempo", roles: "functional" });
   const original = base.call;
-  base.call = (name, args) => name === "set_tempo" ? Promise.resolve({ dryRun: false, pendingUserAction: true }) : original(name, args);
+  base.call = (name, args) => name === "set_tempo" ? Promise.resolve(withMutationOutcome(name, args, { dryRun: false, pendingUserAction: true })) : original(name, args);
   const result = await service.call("apply_production_operation", { projectId: "song", taskId: task.taskId,
     operationIndex: 0, expectedStateVersion: 1, dryRun: false, confirmationToken: "token", planHash: "hash" });
   assert.equal(result.status, "pending_user_action");
@@ -1083,7 +1120,7 @@ test('musical changes during durable observation refuse a mixed snapshot', async
     const original = base.call.bind(base); let reads = 0;
     base.call = async (name, args) => {
       if (kind === 'tempo' && name === 'get_live_state') return { ...await original(name, args), tempo: ++reads === 1 ? 120 : 97 };
-      if (kind === 'musical' && name === 'get_song_musical_context') return { timeSignature: { numerator: ++reads === 1 ? 4 : 3, denominator: 4 } };
+      if (kind === 'musical' && name === 'get_song_musical_context') return { stateVersion: 1, timeSignature: { numerator: ++reads === 1 ? 4 : 3, denominator: 4 } };
       return original(name, args);
     };
     await assert.rejects(service.call('start_production_session', { projectId: 'song', goal: 'Keep the phrase' }), /changed/);

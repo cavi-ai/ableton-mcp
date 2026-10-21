@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { toolContracts } from "./tool-contracts.mjs";
 import { producerToolContracts } from "./producer-contracts.mjs";
-import { validateToolArguments } from "./tool-validation.mjs";
+import { validateToolArguments, validateToolResult } from "./tool-validation.mjs";
 import { createProducerRuntime, parseProducerResponse } from "./producer-runtime.mjs";
 import { requestSignal, withRequestSignal } from "./request-context.mjs";
 import { getProducerWorkflow } from "./prompts.mjs";
@@ -78,6 +78,7 @@ export class ProducerService {
   async #live() {
     checkSignal();
     const live = await this.service.call("get_live_state", {});
+    validateToolResult("get_live_state", live);
     if (!Number.isInteger(live.stateVersion) || typeof live.setFingerprint !== "string") throw new Error("Live did not return a versioned Set identity");
     return live;
   }
@@ -86,6 +87,7 @@ export class ProducerService {
     const before = await this.#live();
     const selection = await this.service.call("get_selection_context", {});
     const musical = await this.service.call("get_song_musical_context", {});
+    validateToolResult("get_song_musical_context", musical);
     const after = await this.#live();
     if (!sameState(before, after)) throw new Error("Live context changed during observation; read again");
     const contextRef = this.artifacts.put(projectId, "context", { live: before, selection, musical });
@@ -141,6 +143,7 @@ export class ProducerService {
     for (const check of checks) {
       checkSignal();
       const observed = await this.service.call(check.tool, check.args);
+      validateToolResult(check.tool, observed, check.args);
       let field = observed;
       for (const key of check.path) field = field !== null && typeof field === "object" && Object.hasOwn(field, key) ? field[key] : undefined;
       results.push({ tool: check.tool, path: check.path, matches: isDeepStrictEqual(field, check.expected),
@@ -291,6 +294,7 @@ export class ProducerService {
                 packet.progress.completedReads.push({ ...read, nextOffset: page.nextOffset });
               } else {
                 const value = await this.service.call(read.tool, read.args);
+                validateToolResult(read.tool, value, read.args);
                 const ref = this.artifacts.put(projectId, "observation", { tool: read.tool, args: read.args, value });
                 contextRefs.push(ref); packet.context.push(this.#preview(projectId, ref));
                 packet.progress.completedReads.push({ ...read, artifactId: ref });
@@ -363,13 +367,14 @@ export class ProducerService {
     validateToolArguments(operation.tool, callArgs);
     checkSignal();
     let value;
-    try { value = await this.service.call(operation.tool, callArgs); }
+    try { value = await this.service.call(operation.tool, callArgs); validateToolResult(operation.tool, value, callArgs); }
     catch (error) {
       if (args.dryRun !== false) throw error;
       const status = error.outcome === "not_executed" ? "rejected" : "outcome_unknown";
-      const receiptId = this.artifacts.put(projectId, "receipt", { taskId, operationIndex, status, ...checkMetadata,
+      const invalidResult = value === undefined ? {} : { resultRef: this.artifacts.put(projectId, "operation-result", value) };
+      const receiptId = this.artifacts.put(projectId, "receipt", { taskId, operationIndex, status, ...checkMetadata, ...invalidResult,
         error: error.message, outcome: error.outcome || null });
-      return { taskId, operationIndex, status, ...checkMetadata, outcome: error.outcome || "unknown", receiptId,
+      return { taskId, operationIndex, status, ...checkMetadata, ...invalidResult, outcome: error.outcome || "unknown", receiptId,
         message: "Inspect Live and the receipt before proposing further changes; execution is not retried." };
     }
     const resultRef = this.artifacts.put(projectId, "operation-result", value);
