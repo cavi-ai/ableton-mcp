@@ -47,6 +47,9 @@ for (const [name, field] of [["capture_session_scene", "captureVerified"], ["dup
 }
 const help = execFileSync(bin, ["help"], { encoding: "utf8" });
 assert.match(help, /"serve"/u);
+const identity = JSON.parse(execFileSync(bin, ["identity", "--json"], { encoding: "utf8" }));
+const sourceIdentity = JSON.parse(execFileSync(process.execPath, [path.join(repoRoot, "apps/ableton-mcp/src/cli.mjs"), "identity", "--json"], { encoding: "utf8" }));
+assert.deepEqual(identity, sourceIdentity, "installed package must identify the same runtime code as its source");
 const previewPlan = JSON.parse(execFileSync(process.execPath,
   [path.join(installed, "packages/nks-pipeline/scripts/process-preview.mjs"),
     "--raw", path.join(work, "raw.wav"), "--out", path.join(work, "preview.wav")], { encoding: "utf8" }));
@@ -82,6 +85,7 @@ const listing = await exchange(bin, ["serve"], { ABLETON_MCP_BRIDGE_SOCKET: path
 ]);
 assert.equal(listing[0].result.serverInfo.name, "ableton-mcp");
 assert.equal(listing[0].result.serverInfo.version, packageVersion);
+assert.deepEqual(listing[0].result._meta["ai.cavi/runtime"], identity);
 assert.equal(listing[1].result.tools.length, Object.keys(toolContracts).length);
 assert.equal(listing[2].result.resources.length, 9);
 assert.equal(listing[3].result.resourceTemplates.length, 13);
@@ -143,6 +147,7 @@ const doctor = JSON.parse(execFileSync(bin, ["doctor", "--json"], {
   env: { ...process.env, ABLETON_MCP_BRIDGE_SOCKET: path.join(work, "absent.sock") }
 }));
 assert.equal(doctor.ok, false);
+assert.deepEqual(doctor.serverIdentity, identity);
 assert.match(doctor.bridge.reason, /ENOENT/u);
 assert.ok(!existsSync(path.join(installed, "apps/ableton-mcp/test")));
 

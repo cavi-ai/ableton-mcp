@@ -1,6 +1,7 @@
 import { createInterface } from "node:readline";
 import { ToolService } from "./tool-service.mjs";
 import { PACKAGE_VERSION, isMainModule } from "./paths.mjs";
+import { runtimeIdentity, withRuntimeIdentity } from "./runtime-identity.mjs";
 import { createConfiguredProducerService, createConfiguredService } from "./runtime.mjs";
 import { toolContracts } from "./tool-contracts.mjs";
 import { compactOutputNames, extensibleToolResult, withToolErrorSchema } from "./tool-output-contracts.mjs";
@@ -399,7 +400,8 @@ export function createRouter(service, { toolProfile = "all" } = {}) {
         result = {
           protocolVersion: SUPPORTED_PROTOCOL_VERSION,
           capabilities: { resources: {}, tools: {}, prompts: { listChanged: false } },
-          serverInfo: { name: "ableton-mcp", version: PACKAGE_VERSION }
+          serverInfo: { name: "ableton-mcp", version: PACKAGE_VERSION },
+          _meta: { "ai.cavi/runtime": runtimeIdentity() }
         };
       } else if (method === "ping") result = {};
       else if (method === "resources/list") result = { resources };
@@ -420,7 +422,8 @@ export function createRouter(service, { toolProfile = "all" } = {}) {
         try {
           const value = await service.call(params.name, args);
           validateToolResult(params.name, value, args);
-          result = { content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value };
+          const output = withRuntimeIdentity(params.name, value);
+          result = { content: [{ type: "text", text: JSON.stringify(output) }], structuredContent: output };
         } catch (error) {
           result = { content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }], isError: true };
           const failure = requestFailure(error);
