@@ -24,6 +24,21 @@ test("runtime config is explicit, role specific, and rejects unknown or unsafe s
   }
 });
 
+test("schema discovery is opt-in per specialist and rejects unsupported modes", () => {
+  for (const type of ["ollama", "acp"]) {
+    const runtime = type === "ollama" ? { type, model: "local-model" } : { type, command: "agent" };
+    for (const toolDiscovery of ["eager", "deferred"]) {
+      const functional = { ...runtime, toolDiscovery };
+      assert.deepEqual(parseProducerConfig({ ABLETON_MCP_PRODUCER_CONFIG: JSON.stringify({ functional }) }), { functional });
+    }
+    for (const toolDiscovery of [true, "automatic", null]) {
+      assert.throws(() => parseProducerConfig({ ABLETON_MCP_PRODUCER_CONFIG: JSON.stringify({
+        functional: { ...runtime, toolDiscovery }
+      }) }), /config/);
+    }
+  }
+});
+
 test("Ollama sends only the bounded task, requests structured output and validates it", async t => {
   let body;
   const server = createServer(async (req, res) => {

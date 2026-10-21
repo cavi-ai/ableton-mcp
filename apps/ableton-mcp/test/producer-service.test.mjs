@@ -8,6 +8,8 @@ import { ProducerArtifacts } from "../src/producer-artifacts.mjs";
 import { ConfirmationStore } from "../src/confirmation-store.mjs";
 import { withRequestSignal } from "../src/request-context.mjs";
 import { ToolService } from "../src/tool-service.mjs";
+import { toolContracts } from "../src/tool-contracts.mjs";
+import { producerToolContracts } from "../src/producer-contracts.mjs";
 
 const response = (extra = {}) => ({ summary: "Use a quieter bass.", reads: [], operations: [], checks: [], questions: [], alternatives: [], ...extra });
 async function setup(t, generate) {
@@ -309,6 +311,101 @@ test("common gain proposals receive native dB schemas without an extra discovery
   assert.equal(packets.length, 1);assert.equal(task.readsUsed, 0);
   const schema = packets[0].tools.operations.find(tool => tool.name === "set_track_volume_db").inputSchema;
   assert.equal(schema.properties.volumeDb.type, "number");assert.equal(schema.properties.expectedStateVersion, undefined);
+});
+
+test("deferred schemas preserve a guarded proposal with a smaller initial context", async t => {
+  const { service, packets, calls, artifacts } = await setup(t, packet => {
+    const turn = packet.progress.turn;
+    if (turn === 1) return response({ reads: [{ tool: "discover_production_tools", args: { query: "get_track_mixer", kind: "read" } }] });
+    if (turn === 2) return response({ reads: [{ tool: "get_track_mixer", args: { trackId: "track-0" } }] });
+    if (turn === 3) return response({ reads: [{ tool: "discover_production_tools", args: { query: "set_tempo", kind: "operation" } }] });
+    return response({ operations: [{ tool: "set_tempo", args: { tempo: 100 } }] });
+  });
+  service.config.functional.toolDiscovery = "deferred";
+  const task = await service.call("run_production_task", { projectId: "song", goal: "Inspect the mixer and propose 100 BPM" });
+  assert.equal(task.status, "proposed"); assert.equal(task.operationCount, 1);
+  assert.equal(task.readsUsed, 1); assert.equal(task.discoveriesUsed, 2);
+  assert.deepEqual(packets[0].tools.reads.map(tool => tool.name), ["get_live_state", "get_selection_context", "get_song_musical_context"]);
+  assert.deepEqual(packets[0].tools.operations, []);
+  assert.deepEqual(packets[0].tools.available.reads, Object.keys(toolContracts).filter(name =>
+    !Object.hasOwn(producerToolContracts, name) && toolContracts[name].annotations.readOnlyHint));
+  assert.deepEqual(packets[0].tools.available.operations, Object.keys(toolContracts).filter(name =>
+    !Object.hasOwn(producerToolContracts, name) && toolContracts[name].inputSchema.properties.expectedStateVersion && toolContracts[name].inputSchema.properties.dryRun));
+  assert.equal(packets[2].progress.readsRemaining, 7);
+  assert.equal(packets[3].progress.discoveriesRemaining, 6);
+  assert.equal(packets[3].progress.maxTurns, 6);
+  assert.equal(calls.some(call => call.name === "set_tempo"), false);
+  const planned = await service.call("apply_production_operation", { projectId: "song", taskId: task.taskId,
+    operationIndex: 0, expectedStateVersion: 1 });
+  assert.equal(planned.status, "planned");
+  const plan = artifacts.get("song", planned.planRef).value;
+  assert.equal(plan.dryRun, true); assert.ok(planned.confirmationToken); assert.ok(planned.planHash);
+  const eager = await setup(t, () => response());
+  await eager.service.call("run_production_task", { projectId: "song", goal: "Inspect the mixer and propose 100 BPM" });
+  assert.ok(Buffer.byteLength(JSON.stringify(packets[0].tools)) < Buffer.byteLength(JSON.stringify(eager.packets[0].tools)) / 2);
+});
+
+test("deferred specialists cannot use schemas before loading them or escape scope", async t => {
+  for (const result of [
+    response({ reads: [{ tool: "get_track_mixer", args: { trackId: "track-0" } }] }),
+    response({ operations: [{ tool: "set_tempo", args: { tempo: 100 } }] })
+  ]) {
+    const { service } = await setup(t, () => result);
+    service.config.functional.toolDiscovery = "deferred";
+    await assert.rejects(service.call("run_production_task", { projectId: "song", goal: "Inspect" }), /not allowed/);
+  }
+  const { service, calls } = await setup(t, packet => packet.progress.turn === 1
+    ? response({ reads: [{ tool: "discover_production_tools", args: { query: "set_track_volume_db", kind: "operation" } }] })
+    : response({ operations: [{ tool: "set_track_volume_db", args: { trackId: "track-1", volumeDb: -12 } }] }));
+  service.config.functional.toolDiscovery = "deferred";
+  await assert.rejects(service.call("run_production_task", { projectId: "song", goal: "Lower the target", scope: { trackId: "track-0" } }), /scope/);
+  assert.equal(calls.some(call => call.name === "set_track_volume_db"), false);
+});
+
+test("deferred discovery has its own bounded budget and preserves eight observation reads", async t => {
+  const { service } = await setup(t, packet => packet.progress.turn === 1
+    ? response({ reads: [{ tool: "discover_production_tools", args: { query: "get_track_mixer", kind: "read" } }] })
+    : packet.progress.turn < 4
+      ? response({ reads: Array.from({ length: 4 }, () => ({ tool: "get_live_state", args: {} })) }) : response());
+  service.config.functional.toolDiscovery = "deferred";
+  const task = await service.call("run_production_task", { projectId: "song", goal: "Inspect" });
+  assert.equal(task.status, "proposed"); assert.equal(task.readsUsed, 8); assert.equal(task.discoveriesUsed, 1);
+  const limited = await setup(t, () => response({ reads: Array.from({ length: 4 }, () => ({
+    tool: "discover_production_tools", args: { query: "mixer", kind: "read" }
+  })) }));
+  limited.service.config.functional.toolDiscovery = "deferred";
+  const exhausted = await limited.service.call("run_production_task", { projectId: "song", goal: "Inspect" });
+  assert.equal(exhausted.status, "budget_exhausted"); assert.equal(exhausted.stopReason, "discovery_limit");
+  assert.equal(exhausted.discoveriesUsed, 8); assert.equal(exhausted.readsUsed, 0); assert.equal(exhausted.operationCount, 0);
+});
+
+test("deferred roles retain caller check schemas without sharing newly loaded permissions", async t => {
+  const { service, packets } = await setup(t, packet => packet.role === "creative" && packet.progress.turn === 1
+    ? response({ reads: [{ tool: "discover_production_tools", args: { query: "get_track_signal_activity", kind: "read" } }] })
+    : response());
+  for (const role of ["creative", "functional"]) service.config[role].toolDiscovery = "deferred";
+  const task = await service.call("run_production_task", { projectId: "song", goal: "Inspect", roles: "both",
+    postconditions: [{ tool: "get_track_mixer", args: { trackId: "track-0" }, path: ["volume", "decibels"], expected: -12 }] });
+  assert.equal(task.status, "proposed");
+  for (const packet of packets) assert.ok(packet.tools.reads.some(tool => tool.name === "get_track_mixer"));
+  assert.deepEqual(packets[0].tools.available.operations, []);
+  assert.equal(packets.at(-1).tools.reads.some(tool => tool.name === "get_track_signal_activity"), false);
+  assert.equal(packets.at(-1).progress.discoveriesRemaining, 7);
+  service.runtimeFactory = () => ({ generate: async packet => packet.role === "creative"
+    ? packet.progress.turn === 1 ? response({ reads: [{ tool: "discover_production_tools", args: { query: "get_track_signal_activity", kind: "read" } }] }) : response()
+    : response({ reads: [{ tool: "get_track_signal_activity", args: { trackId: "track-0" } }] }) });
+  await assert.rejects(service.call("run_production_task", { projectId: "song", goal: "Inspect", roles: "both" }), /not allowed/);
+});
+
+test("deferred mode retains creative restrictions and a bounded model-turn limit", async t => {
+  const creative = await setup(t, () => response({ reads: [{ tool: "discover_production_tools", args: { query: "set_tempo", kind: "operation" } }] }));
+  creative.service.config.creative.toolDiscovery = "deferred";
+  await assert.rejects(creative.service.call("run_production_task", { projectId: "song", goal: "Inspect", roles: "creative" }), /creative operation discovery/);
+  const limited = await setup(t, () => response({ reads: [{ tool: "get_live_state", args: {} }] }));
+  limited.service.config.functional.toolDiscovery = "deferred";
+  const task = await limited.service.call("run_production_task", { projectId: "song", goal: "Inspect" });
+  assert.equal(task.status, "budget_exhausted"); assert.equal(task.stopReason, "model_turn_limit");
+  assert.equal(task.turnRefs.length, 6); assert.equal(task.readsUsed, 5); assert.equal(task.operationCount, 0);
 });
 
 test("exhausted tasks retain intermediate replies and an explicit stopping reason without executable operations", async t => {
