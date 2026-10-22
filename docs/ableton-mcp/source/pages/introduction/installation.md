@@ -44,3 +44,5 @@ npm run cli -- doctor --json
 ```
 
 `ok: true` means the bridge answered on the socket, reports version {{PRODUCT_VERSION}}, and advertises every capability the server needs. If it doesn't, see [Troubleshooting](../guides/troubleshooting.md).
+
+Run `ableton-mcp identity --json` to read the server package version and `sourceSha256` without connecting to Live. This fingerprint covers the packaged runtime code and package manifest. It is independent of the installation path and documentation. The same identity appears in `doctor`, MCP initialization metadata (`ai.cavi/runtime`), and `get_live_state.serverIdentity`. After changing a host's server entrypoint, restart that MCP connection and compare its identity with the intended package; the package version alone cannot distinguish different builds of that version.

@@ -1,3 +1,5 @@
+import { createExecution, recordExecution, executionSummary, executionStarted } from "./production-execution.mjs";
+
 const sameState = (a, b) => a?.stateVersion === b?.stateVersion && a?.setFingerprint === b?.setFingerprint;
 const completedPhases = new Set(["audition", "evaluate", "complete"]);
 
@@ -8,6 +10,20 @@ export class ProductionSessions {
     Object.assign(this, { artifacts, context, run, apply, verify });
   }
 
+  #execution(s) {
+    if (s.execution || !s.taskId) return s.execution;
+    const task = this.artifacts.get(s.projectId, s.taskId);
+    if (task.kind !== "task") throw new Error("session task reference is invalid");
+    let execution = createExecution(s.taskId, task.value, s.operationIndex || 0);
+    if (s.receiptId) {
+      const record = this.artifacts.get(s.projectId, s.receiptId), receipt = record.value;
+      if (record.kind === "receipt" && receipt.taskId === s.taskId && execution.operations[receipt.operationIndex])
+        execution = recordExecution(execution, receipt.operationIndex, { status: receipt.status, receiptId: s.receiptId,
+          ...(receipt.resultRef ? { resultRef: receipt.resultRef } : {}) });
+    }
+    return execution;
+  }
+
   summary(record) {
     const { value: s, sessionRef } = record;
     return { sessionId: s.sessionId, sessionRef, revision: s.revision, phase: s.phase,
@@ -15,6 +31,7 @@ export class ProductionSessions {
       roles: s.roles || "both", completion: s.completion || "listening",
       basis: s.basis, contextRef: s.contextRef, targetRef: s.targetRef, selectedRef: s.selectedRef, feedbackRef: s.feedbackRef,
       taskId: s.taskId, receiptId: s.receiptId, operationIndex: s.operationIndex,
+      execution: executionSummary(this.#execution(s)), recoveryRef: s.recoveryRef, recoveryRequired: s.phase === "needs_inspection",
       status: s.status, stateChanged: s.stateChanged || false, userDecision: s.userDecision, evaluationRef: s.evaluationRef,
       alternatives: s.alternatives?.map(({ name, description }) => ({ name: name.slice(0, 160), nameTruncated: name.length > 160,
         description: description.slice(0, 300), descriptionTruncated: description.length > 300 })),
@@ -40,7 +57,7 @@ export class ProductionSessions {
     let s = record.value;
     if (s.revision !== expectedRevision) throw new Error("session revision conflict; read the current session");
     const allowed = {
-      resume: [], propose: [], choose: ["alternativeIndex"],
+      resume: [], replan: ["text", "constraints"], propose: [], choose: ["alternativeIndex"],
       apply: ["expectedStateVersion", "dryRun", "confirmationToken", "planHash"],
       feedback: ["text"], evaluate: ["decision"]
     }[action];
@@ -67,19 +84,25 @@ export class ProductionSessions {
     const fresh = async (retainCompletedWork = false) => {
       const observed = await observe();
       if (!sameState(observed, s.basis) || observed.targetHash !== s.targetHash) {
-        if (!retainCompletedWork || !canRetainCompletedWork(observed)) throw new Error("session state changed; resume and propose again");
+        if (!retainCompletedWork || !canRetainCompletedWork(observed)) throw new Error("session state changed; resume and inspect before continuing");
         s = { ...withObservation(observed), stateChanged: true };
       }
       return observed;
     };
-    const restart = observed => ({ ...s, phase: "inspect", taskId: undefined, receiptId: undefined, operationIndex: undefined,
+    const restart = observed => ({ ...s, phase: "inspect", taskId: undefined, receiptId: undefined, operationIndex: undefined, execution: undefined,
       alternatives: undefined, userDecision: undefined, evaluationRef: undefined, status: "requires_proposal",
       basis: { stateVersion: observed.stateVersion, setFingerprint: observed.setFingerprint }, targetHash: observed.targetHash,
       targetRef: observed.targetRef, contextRef: observed.contextRef });
 
     if (action === "resume") {
       const observed = await observe();
+      s = { ...s, execution: this.#execution(s) };
       const changed = !sameState(observed, s.basis) || observed.targetHash !== s.targetHash;
+      if (["execution_pending", "needs_inspection"].includes(s.phase) || changed && s.phase === "apply" && executionStarted(s.execution)) {
+        const execution = s.phase === "execution_pending" && s.execution
+          ? recordExecution(s.execution, s.operationIndex, { status: "outcome_unknown" }) : s.execution;
+        return save({ ...withObservation(observed), execution, phase: "needs_inspection", stateChanged: changed, status: "requires_recovery" });
+      }
       const interrupted = ["execution_pending", "proposing", "needs_inspection"].includes(s.phase);
       const retained = changed && canRetainCompletedWork(observed);
       const reevaluate = s.phase === "complete" && (!changed || retained);
@@ -87,6 +110,17 @@ export class ProductionSessions {
         ...(reevaluate ? { phase: "evaluate", evaluationRef: undefined, userDecision: undefined } : {}),
         stateChanged: changed, status: interrupted ? "interrupted_inspect_before_proposing" : changed && !retained ? "requires_proposal"
           : reevaluate ? "requires_evaluation" : s.status });
+    }
+    if (action === "replan") {
+      const unexecutedRecovery = s.recoveryRef && ["inspect", "propose", "apply"].includes(s.phase) && !executionStarted(this.#execution(s));
+      if (!unexecutedRecovery) phase("needs_inspection");
+      const observed = await fresh();
+      const recoveryRef = this.artifacts.put(projectId, "production-recovery", { taskId: s.taskId,
+        receiptId: s.receiptId, execution: s.execution, previousRecoveryRef: s.recoveryRef,
+        contextRef: observed.contextRef, targetRef: observed.targetRef, basis: observed,
+        previousGoal: s.goal, previousConstraints: s.constraints || [],
+        instruction: "Inspect current observations and prior execution. Propose only work still required; do not replay earlier operations or assume rollback." });
+      return save({ ...restart(observed), recoveryRef, goal: args.text ?? s.goal, constraints: args.constraints ?? s.constraints });
     }
     if (action === "feedback") {
       phase("audition", "evaluate");
@@ -118,7 +152,7 @@ export class ProductionSessions {
       if (!alternative) throw new Error("choose an alternativeIndex from the saved proposal");
       await fresh();
       const selectedRef = this.artifacts.put(projectId, "selection", { alternative, creativeTaskId: s.taskId, alternativeIndex: args.alternativeIndex });
-      return save({ ...s, phase: "propose", selectedRef, alternatives: undefined, taskId: undefined });
+      return save({ ...s, phase: "propose", selectedRef, alternatives: undefined, taskId: undefined, execution: undefined });
     }
     if (action === "propose") {
       phase("inspect", "propose");
@@ -129,7 +163,7 @@ export class ProductionSessions {
       try {
         task = await this.run({ projectId, goal: s.goal, scope: s.scope, constraints: s.constraints,
           workflow: s.workflow, postconditions: s.postconditions, roles: role,
-          contextRefs: [s.contextRef, s.targetRef, s.selectedRef, s.feedbackRef].filter(Boolean) });
+          contextRefs: [s.contextRef, s.targetRef, s.selectedRef, s.feedbackRef, s.recoveryRef].filter(Boolean) });
       } catch (error) {
         save({ ...s, phase: role === "creative" ? "inspect" : "propose", status: "proposal_failed" });
         throw error;
@@ -139,7 +173,7 @@ export class ProductionSessions {
       const nextPhase = !["proposed", "no_change_needed"].includes(task.status) ? "inspect" : role === "creative" ? (alternatives?.length ? "choose" : "inspect")
         : task.operationCount ? "apply" : finishedOperationsPhase;
       return { ...save({ ...s, phase: nextPhase, status: task.status, taskId: task.taskId,
-        alternatives, operationIndex: 0, receiptId: undefined }), task };
+        alternatives, operationIndex: 0, receiptId: undefined, execution: createExecution(task.taskId, savedTask) }), task };
     }
     phase("apply");
     if (!Number.isInteger(args.expectedStateVersion)) throw new Error("expectedStateVersion is required for apply");
@@ -148,7 +182,13 @@ export class ProductionSessions {
       previousReceiptId: s.receiptId, expectedStateVersion: args.expectedStateVersion,
       dryRun: args.dryRun, confirmationToken: args.confirmationToken, planHash: args.planHash };
     if (args.dryRun !== false) return { ...this.summary(record), operation: await this.apply(operationArgs) };
-    save({ ...s, phase: "execution_pending", status: "outcome_unknown" });
+    const task = this.artifacts.get(projectId, s.taskId).value;
+    const attemptRef = this.artifacts.put(projectId, "operation-attempt", { taskId: s.taskId, operationIndex: s.operationIndex,
+      tool: task.operations[s.operationIndex].tool, expectedStateVersion: args.expectedStateVersion, planHash: args.planHash,
+      startedAt: new Date().toISOString() });
+    const execution = this.#execution(s);
+    save({ ...s, phase: "execution_pending", status: "outcome_unknown",
+      execution: recordExecution(execution, s.operationIndex, { status: "execution_pending", attemptRef }) });
     let operation;
     try { operation = await this.apply(operationArgs); }
     catch (error) { operation = { status: "outcome_unknown", error: error.message }; }
@@ -160,9 +200,14 @@ export class ProductionSessions {
       }
       catch (error) { operation = { ...operation, status: "outcome_unknown", observationError: error.message }; }
     }
-    const task = this.artifacts.get(projectId, s.taskId).value;
     const applied = operation.status === "applied";
+    const recordedExecution = recordExecution(s.execution, s.operationIndex, { status: operation.status,
+      ...(operation.receiptId ? { receiptId: operation.receiptId } : {}),
+      ...(operation.resultRef ? { resultRef: operation.resultRef } : {}),
+      ...(operation.operationOutcome ? { nativeStatus: operation.operationOutcome.status } : {}),
+      ...(operation.error || operation.observationError ? { error: String(operation.error || operation.observationError).slice(0, 300) } : {}) });
     return { ...save({ ...s, phase: applied ? (s.operationIndex + 1 < task.operations.length ? "apply" : finishedOperationsPhase) : "needs_inspection",
+      execution: recordedExecution,
       operationIndex: applied ? s.operationIndex + 1 : s.operationIndex, receiptId: operation.receiptId,
       basis: applied ? { stateVersion: observed.stateVersion, setFingerprint: observed.setFingerprint } : s.basis,
       ...(applied ? { targetHash: observed.targetHash, targetRef: observed.targetRef, contextRef: observed.contextRef } : {}),

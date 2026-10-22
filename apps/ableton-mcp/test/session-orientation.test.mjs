@@ -57,7 +57,7 @@ test("tonal evidence rejects malformed notes and invalid windows rather than fab
 });
 
 function snapshot(status = "available") {
-  return { stateVersion: 4, setFingerprint: "set", live: { tempo: 120 },
+  return { stateVersion: 4, setFingerprint: "set", live: { tempo: 120 }, tracks: [],
     musicalContext: { key }, selection: { detailClip: { trackId: "track-0", clipId: "track-0:clip-0" } },
     focus: { status, trackId: "track-0", clipId: "track-0:clip-0", range, notes: [note(60), note(64), note(67)], devices: [] } };
 }

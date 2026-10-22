@@ -129,7 +129,8 @@ test("Avenger profile describes its expansion-aware preset navigation without cl
 test("plugin integration context is exposed as a read-only MCP tool", async () => {
   const service = { async call(name) {
     assert.equal(name, "get_plugin_integration_context");
-    return { profile: { productSlug: "vps-avenger" } };
+    return { stateVersion: 1, trackId: "track-0", device: {}, profile: { productSlug: "vps-avenger" },
+      installedVariants: [], recommendedVariant: null, parameterExposure: {} };
   } };
   const reply = await createRouter(service)({ id: 1, method: "tools/call", params: {
     name: "get_plugin_integration_context", arguments: { trackId: "track-0", deviceId: "track-0:device-0" }

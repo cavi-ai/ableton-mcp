@@ -6,11 +6,13 @@ import { fileURLToPath } from "node:url";
 import { homedir, platform as currentPlatform } from "node:os";
 import { PACKAGE_VERSION, defaultRemoteScriptRoots, isMainModule, resolveRuntimeConfig } from "./paths.mjs";
 import { createConfiguredService } from "./runtime.mjs";
+import { runtimeIdentity, withRuntimeIdentity } from "./runtime-identity.mjs";
 import { runStdio } from "./server.mjs";
 import { UnixBridgeClient, bridgeFailureDetails } from "./bridge-client.mjs";
 import { performance } from 'node:perf_hooks';
 import { validateToolArguments, validateToolResult } from "./tool-validation.mjs";
 import { getPrompt, listPrompts } from "./prompts.mjs";
+import { serveManaged, restartManaged } from "./server-lifecycle.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const requiredCapabilities = JSON.parse(readFileSync(new URL("../../../ableton/Remote Scripts/CaviMcpBridge/capabilities.json", import.meta.url), "utf8"));
@@ -67,6 +69,17 @@ export async function runCli(argv, dependencies = {}) {
   const stdout = dependencies.stdout || ((line) => process.stdout.write(`${line}\n`));
   const sourceRoot = dependencies.sourceRoot || repositoryRoot;
   const runtimeFactory = dependencies.runtimeFactory || createConfiguredService;
+  if (parsed.command === "restart") {
+    const selected = option(parsed.args, "--pid");
+    if (parsed.args.length && (parsed.args.length !== 2 || parsed.args[0] !== "--pid" || !/^\d+$/.test(selected || "") || Number(selected) <= 1))
+      throw new Error("restart accepts an optional --pid identifying one managed server");
+    const result = await restartManaged({ env, ...(selected === undefined ? {} : { pid: Number(selected) }) });
+    print(result, parsed.json, stdout); return result;
+  }
+  if (parsed.command === "identity") {
+    const result = runtimeIdentity();
+    print(result, parsed.json, stdout); return result;
+  }
   if (parsed.command === "install") {
     const destinationRoot = option(parsed.args, "--destination") || defaultRemoteScriptRoots({ platform, home })[0];
     const destination = join(destinationRoot, "CaviMcpBridge");
@@ -102,6 +115,7 @@ export async function runCli(argv, dependencies = {}) {
       probeFailure?.code === 'BRIDGE_UPGRADE_REQUIRED' ? 'incompatible' : 'unconfirmed';
     const result = {
       ok: Boolean(bridgeState) && !reason,
+      serverIdentity: runtimeIdentity(),
       bridge: {
         socket: config.socketPath,
         connected: bridgeState ? true : probeFailure?.bridgeProgress?.socketConnected ?? null,
@@ -132,6 +146,7 @@ export async function runCli(argv, dependencies = {}) {
     return result;
   }
   if (parsed.command === "serve") {
+    if (!dependencies.runtimeFactory) { await serveManaged({ env }); return { served: true }; }
     const runtime = runtimeFactory(env);
     try { await runStdio({ service: runtime.service, toolProfile: env.ABLETON_MCP_TOOL_PROFILE || "all" }); } finally { runtime.close(); }
     return { served: true };
@@ -139,7 +154,7 @@ export async function runCli(argv, dependencies = {}) {
   if (parsed.command === "status") {
     const runtime = runtimeFactory(env);
     try {
-      const result = await runtime.service.call("get_live_state");
+      const result = withRuntimeIdentity("get_live_state", await runtime.service.call("get_live_state"));
       print(result, parsed.json, stdout);
       return result;
     } finally { runtime.close(); }
@@ -151,8 +166,9 @@ export async function runCli(argv, dependencies = {}) {
     const args = validateToolArguments(name, JSON.parse(encodedArgs));
     const runtime = runtimeFactory(env, { persistentConfirmations: true });
     try {
-      const result = await runtime.service.call(name, args);
-      validateToolResult(name, result, args);
+      const value = await runtime.service.call(name, args);
+      validateToolResult(name, value, args);
+      const result = withRuntimeIdentity(name, value);
       print(result, parsed.json, stdout);
       return result;
     } finally { runtime.close(); }
@@ -181,7 +197,7 @@ export async function runCli(argv, dependencies = {}) {
     print(result, parsed.json, stdout);
     return result;
   }
-  const result = { commands: ["install", "uninstall", "doctor", "serve", "status", "call", "resource", "prompts", "prompt"], usage: "ableton-mcp <command> [--json]" };
+  const result = { commands: ["install", "uninstall", "doctor", "identity", "serve", "restart", "status", "call", "resource", "prompts", "prompt"], usage: "ableton-mcp <command> [--json]" };
   print(result, parsed.json, stdout);
   return result;
 }
