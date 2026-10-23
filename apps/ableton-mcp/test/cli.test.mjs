@@ -136,7 +136,7 @@ test("doctor rejects a stale bridge handshake", async () => {
     stdout: () => {}
   });
   assert.equal(result.ok, false);
-  assert.equal(result.bridge.reason, "outdated bridge: expected 0.3.1");
+  assert.equal(result.bridge.reason, "outdated bridge: expected 0.4.0");
 });
 
 test('doctor cannot report health when a failed probe provides no error message',async()=>{
