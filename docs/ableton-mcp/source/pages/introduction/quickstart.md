@@ -2,14 +2,14 @@
 
 ## Register the server with an MCP client
 
-Point the client at `cli.mjs serve` in your checkout. Use an absolute path:
+After [installing](installation.md), point the client at `ableton-mcp serve`:
 
 ```json
 {
   "mcpServers": {
     "ableton": {
-      "command": "node",
-      "args": ["/path/to/ableton-mcp/apps/ableton-mcp/src/cli.mjs", "serve"]
+      "command": "ableton-mcp",
+      "args": ["serve"]
     }
   }
 }
@@ -22,9 +22,9 @@ The server speaks MCP over stdio. It publishes tools, resources and prompts.
 The CLI calls the same service:
 
 ```bash
-npm run cli -- status --json
-npm run cli -- resource ableton://set/tracks --json
-npm run cli -- call list_devices --args '{"trackId":"track-0"}' --json
+ableton-mcp status --json
+ableton-mcp resource ableton://set/tracks --json
+ableton-mcp call list_devices --args '{"trackId":"track-0"}' --json
 ```
 
 ## Make a change
@@ -35,13 +35,13 @@ Every Live mutation is planned first, then executed.
 2. Call the tool with `expectedStateVersion`. The result is a dry-run plan with a `confirmation`.
 
 ```bash
-npm run cli -- call set_tempo --args '{"expectedStateVersion":12,"tempo":124}' --json
+ableton-mcp call set_tempo --args '{"expectedStateVersion":12,"tempo":124}' --json
 ```
 
 3. Execute the reviewed plan with its single-use token and plan hash:
 
 ```bash
-npm run cli -- call set_tempo --args '{"expectedStateVersion":12,"tempo":124,"dryRun":false,"confirmationToken":"<token>","planHash":"<hash>"}' --json
+ableton-mcp call set_tempo --args '{"expectedStateVersion":12,"tempo":124,"dryRun":false,"confirmationToken":"<token>","planHash":"<hash>"}' --json
 ```
 
 If the Set changed after the plan was made, execution is refused. [Guarded mutations](../guides/guarded-mutations.md) covers the full contract.

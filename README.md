@@ -1,5 +1,6 @@
 # ableton-mcp
 
+[![npm](https://img.shields.io/npm/v/@cavi-ai/ableton-mcp)](https://www.npmjs.com/package/@cavi-ai/ableton-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![M8ven Score](https://m8ven.ai/badge/mcp/cavi-ai/ableton-mcp)](https://m8ven.ai/mcp/cavi-ai/ableton-mcp)
 
@@ -19,6 +20,8 @@ In Live's preferences, select **CaviMcpBridge** as a Control Surface. Then check
 ```bash
 ableton-mcp doctor --json
 ```
+
+To update, run the same `npm install -g` command, then `ableton-mcp install`, and restart Live so the bridge matches the server.
 
 To run from a source checkout instead, clone the repository, run `npm ci`, and use `npm run cli --` in place of `ableton-mcp`.
 
@@ -54,7 +57,7 @@ ableton-mcp call get_producer_workflow --args '{"query":"silent part","limit":3}
 
 Search returns keyword candidates with their required arguments. Retrieve a chosen reference by its exact `workflow` name and named string `arguments`. Searching and reading guidance do not execute Live operations.
 
-To try client wiring without Live, run `ABLETON_MCP_FIXTURE=1 npm start`.
+To try client wiring without Live, run `ABLETON_MCP_FIXTURE=1 ableton-mcp serve`.
 
 For a smaller initial tool catalog, set `ABLETON_MCP_TOOL_PROFILE=core` in the MCP server's environment. It advertises 63 common tools instead of the full catalog. Use the default `all` profile when an agent needs the complete MIDI, audio, rack, or snapshot toolset; restart the server after changing profiles. The CLI's direct `call` command remains independent of the discovery profile.
 
@@ -118,7 +121,7 @@ It publishes 328 tools, 9 concrete resources, 13 resource templates and 89 promp
 | `ABLETON_MCP_SPLICE_ROOTS` | Existing macOS `~/Splice/Sounds` and `~/Library/Splice/Plug-in/samples` directories; otherwise `[]` | Override with a JSON array of absolute local Splice folders. Set `[]` to disable discovery. Local cache files are not proof of a download license; cloud search and sync are not supported. |
 | `ABLETON_MCP_CONFIRMATION_DIR` | `~/.cavi/ableton-mcp/confirmations` | Confirmation tokens for CLI `call`. |
 | `ABLETON_MCP_SNAPSHOT_DIR` | `~/.cavi/ableton-mcp/snapshots` | Saved track, device-chain, group-system, and MIDI-feel snapshots in separate subdirectories. |
-| `ABLETON_MCP_FIXTURE` | unset | `1` makes `npm start` serve fixture data without Live. |
+| `ABLETON_MCP_FIXTURE` | unset | `1` makes `ableton-mcp serve` serve fixture data without Live. |
 | `ABLETON_MCP_TOOL_PROFILE` | `all` | `core`: 63 common tools; `producer`: 12 specialist/session tools; `directory`: named native tools without coordinators; `all`: every tool. Compact profiles retain full runtime result validation. |
 
 ## Security
