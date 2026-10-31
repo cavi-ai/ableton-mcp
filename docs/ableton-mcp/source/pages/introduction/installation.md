@@ -12,6 +12,12 @@
 ## Install the server
 
 ```bash
+npm install -g @cavi-ai/ableton-mcp
+```
+
+This installs the `ableton-mcp` command. To run from a source checkout instead, use `npm run cli --` in place of `ableton-mcp`:
+
+```bash
 git clone https://github.com/cavi-ai/ableton-mcp.git
 cd ableton-mcp
 npm ci
@@ -20,19 +26,19 @@ npm ci
 ## Install the bridge
 
 ```bash
-npm run cli -- install
+ableton-mcp install
 ```
 
 This copies `CaviMcpBridge` into `~/Music/Ableton/User Library/Remote Scripts`. It copies nothing else. Then open Live's preferences, go to **Link, Tempo & MIDI**, and select **CaviMcpBridge** as a Control Surface.
 
-Pass `--destination <Remote Scripts path>` if your User Library is somewhere else. `npm run cli -- uninstall` removes only the installed `CaviMcpBridge` directory.
+Pass `--destination <Remote Scripts path>` if your User Library is somewhere else. `ableton-mcp uninstall` removes only the installed `CaviMcpBridge` directory.
 
 ### An older copy inside the application bundle
 
 An older copy of the script inside the application bundle can take precedence over the User Library copy. If `doctor` reports an outdated bridge after installing, check and update that copy:
 
 ```bash
-npm run cli -- install --destination "/Applications/Ableton Live 12 Suite.app/Contents/App-Resources/MIDI Remote Scripts"
+ableton-mcp install --destination "/Applications/Ableton Live 12 Suite.app/Contents/App-Resources/MIDI Remote Scripts"
 ```
 
 Then restart Live. This modifies the application bundle; the default install does not. A Live update can replace the copy, so run `doctor` again after updating Live.
@@ -40,7 +46,7 @@ Then restart Live. This modifies the application bundle; the default install doe
 ## Check the connection
 
 ```bash
-npm run cli -- doctor --json
+ableton-mcp doctor --json
 ```
 
 `ok: true` means the bridge answered on the socket, reports version {{PRODUCT_VERSION}}, and advertises every capability the server needs. If it doesn't, see [Troubleshooting](../guides/troubleshooting.md).
