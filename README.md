@@ -10,44 +10,46 @@ Local-first Ableton Live control for MCP clients. It has three parts: a Remote S
 Requirements: macOS, Ableton Live 12 (tested with 12.4.6), Node.js 22.13 or newer, and `ffmpeg` for the audio analysis tools.
 
 ```bash
-git clone https://github.com/cavi-ai/ableton-mcp.git
-cd ableton-mcp
-npm ci
-npm run cli -- install
+npm install -g @cavi-ai/ableton-mcp
+ableton-mcp install
 ```
 
 In Live's preferences, select **CaviMcpBridge** as a Control Surface. Then check the connection:
 
 ```bash
-npm run cli -- doctor --json
+ableton-mcp doctor --json
 ```
+
+To run from a source checkout instead, clone the repository, run `npm ci`, and use `npm run cli --` in place of `ableton-mcp`.
 
 ## Quickstart
 
-Register the stdio server with your MCP client, using the absolute path of your checkout:
+Register the stdio server with your MCP client:
 
 ```json
 {
   "mcpServers": {
     "ableton": {
-      "command": "node",
-      "args": ["/path/to/ableton-mcp/apps/ableton-mcp/src/cli.mjs", "serve"]
+      "command": "ableton-mcp",
+      "args": ["serve"]
     }
   }
 }
 ```
 
+If your client does not inherit your shell's `PATH`, use the absolute path printed by `which ableton-mcp`.
+
 Or call tools from the shell:
 
 ```bash
-npm run cli -- status --json
-npm run cli -- call list_devices --args '{"trackId":"track-0"}' --json
+ableton-mcp status --json
+ableton-mcp call list_devices --args '{"trackId":"track-0"}' --json
 ```
 
 Find workflow guidance before choosing individual tools:
 
 ```bash
-npm run cli -- call get_producer_workflow --args '{"query":"silent part","limit":3}' --json
+ableton-mcp call get_producer_workflow --args '{"query":"silent part","limit":3}' --json
 ```
 
 Search returns keyword candidates with their required arguments. Retrieve a chosen reference by its exact `workflow` name and named string `arguments`. Searching and reading guidance do not execute Live operations.

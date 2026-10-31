@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Publish `@cavi-ai/ableton-mcp` to npm from each GitHub release with trusted publishing and provenance.
+
 ## 0.4.0
 
 - Preserve per-operation production attempts and receipts across interruptions, add explicit recovery proposals, and expose runtime fingerprints with guarded CLI server restart.

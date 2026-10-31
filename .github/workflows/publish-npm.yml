@@ -1,0 +1,72 @@
+name: Publish npm package
+
+on:
+  release:
+    types: [published]
+
+permissions: {}
+
+concurrency:
+  group: publish-npm-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    permissions:
+      contents: read
+      # npm exchanges this OIDC token for a short-lived publish credential; no npm token is stored.
+      id-token: write
+    runs-on: macos-latest
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      # Node 24.18.1 bundles npm 11.16.0; trusted publishing needs npm 11.5.1 or newer.
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.18.1
+          registry-url: https://registry.npmjs.org
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Resolve release version
+        id: release
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Could not resolve a stable package.json version"
+            exit 1
+          fi
+          if [[ "$RELEASE_TAG" != "v$version" ]]; then
+            echo "::error::Expected release tag v$version (package.json version), got $RELEASE_TAG"
+            exit 1
+          fi
+          if npm view "@cavi-ai/ableton-mcp@$version" version >/dev/null 2>&1; then
+            echo "::notice::@cavi-ai/ableton-mcp@$version is already published"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Test package
+        if: steps.release.outputs.publish == 'true'
+        run: |
+          brew install imagemagick ffmpeg
+          npm ci
+          npm test
+          npm run verify:package
+
+      # The trusted publisher for @cavi-ai/ableton-mcp on npmjs.com names this repository and the
+      # workflow filename publish-npm.yml; renaming this file stops publishing until it is updated.
+      - name: Publish
+        if: steps.release.outputs.publish == 'true'
+        run: npm publish --access public --provenance
