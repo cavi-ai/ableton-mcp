@@ -159,6 +159,6 @@
   },
   "devDependencies": {
     "@cavi-ai/mcp-eval": "0.8.0",
-    "ws": "8.22.0"
+    "ws": "8.22.1"
   }
 }
