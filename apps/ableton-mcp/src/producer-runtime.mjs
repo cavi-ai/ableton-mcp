@@ -60,7 +60,7 @@ function responseFormat(packet) {
 }
 const runtimeProperties = {
   type: { enum: ["ollama", "acp", "api-client"] }, model: { type: "string", minLength: 1, maxLength: 200 },
-  provider: { enum: ["claude", "codex", "openclaw", "hermes", "opencode", "agy"] },
+  provider: { enum: ["claude", "codex", "openclaw", "hermes", "opencode", "agy", "mlx-agent"] },
   apiKeyEnv: { type: "string", pattern: "^[A-Za-z_][A-Za-z0-9_]*$", maxLength: 200 },
   agentId: { type: "string", pattern: "^[A-Za-z0-9_-]+$", maxLength: 100 },
   directory: { type: "string", minLength: 1, maxLength: 2000 }, username: { type: "string", minLength: 1, maxLength: 100 },
@@ -94,11 +94,14 @@ export function parseProducerConfig(environment) {
     if (runtime.type === "api-client") {
       const gateway = ["openclaw", "hermes"].includes(runtime.provider);
       const cloud = ["claude", "codex"].includes(runtime.provider);
-      if (!runtime.provider || runtime.allowRemote !== true ||
+      // An mlx-agent gateway serves only its own local model, so it needs no remote consent or model name.
+      const mlx = runtime.provider === "mlx-agent";
+      const model = mlx ? runtime.model === undefined || runtime.model.trim() : runtime.model?.trim();
+      if (!runtime.provider || (runtime.allowRemote !== true && !mlx) ||
           ["command", "args", "env"].some(key => Object.hasOwn(runtime, key)) ||
-          (gateway ? !runtime.agentId || runtime.model !== undefined : !runtime.model?.trim() || runtime.agentId !== undefined) ||
+          (gateway ? !runtime.agentId || runtime.model !== undefined : !model || runtime.agentId !== undefined) ||
           (runtime.provider !== "opencode" && (runtime.directory !== undefined || runtime.username !== undefined)))
-        throw new Error("API-client config requires provider and allowRemote: true, model for model APIs or agentId for gateways; process settings are not supported");
+        throw new Error("API-client config requires provider and allowRemote: true (except mlx-agent), model for model APIs or agentId for gateways; process settings are not supported");
       if (cloud) {
         if (runtime.endpoint !== undefined) throw new Error("cloud API-client config uses the official endpoint");
       } else {
@@ -109,6 +112,7 @@ export function parseProducerConfig(environment) {
         if (url.username || url.password || url.search || url.hash || url.pathname !== "/" ||
             !protocols.includes(url.protocol) || (!local && !["https:", "wss:"].includes(url.protocol)))
           throw new Error("API-client config endpoint must be a loopback origin or a remote TLS origin without URL credentials");
+        if (mlx && !local) throw new Error("mlx-agent config endpoint must be a loopback origin");
       }
       if (runtime.provider === "opencode" && (!/^[^/\s]+\/\S+$/.test(runtime.model) || (runtime.directory !== undefined && !runtime.directory.trim())))
         throw new Error("OpenCode config requires providerID/modelID and a nonblank directory when supplied");
@@ -178,7 +182,7 @@ export function createProducerRuntime(config, dependencies = {}) {
       if (config.type === "api-client") {
         const { generateApiClientResponse } = await import("./producer-api-client.mjs");
         return parseProducerResponse(await generateApiClientResponse(config, messages, {
-          signal: activeSignal, fetch, env: dependencies.env || process.env, cwd
+          signal: activeSignal, fetch, env: dependencies.env || process.env, cwd, format: responseFormat(packet)
         }));
       }
       const endpoint = endpointFor(config);

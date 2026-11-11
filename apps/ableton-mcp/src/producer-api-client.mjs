@@ -38,12 +38,29 @@ async function runCodex(options, body, signal, onEvent) {
   }
 }
 
-export async function generateApiClientResponse(config, messages, { signal, fetch, env, cwd }) {
+// Chat Completions carries the chat template's thinking switch; Messages requests reason before answering.
+// The turn's response schema goes to the gateway as a json_schema response_format.
+async function generateMlxAgentResponse(config, messages, { apiKey, fetch, signal, format }) {
+  const response = await fetch(new URL("/v1/chat/completions", config.endpoint), {
+    method: "POST", signal,
+    headers: { "Content-Type": "application/json", ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
+    body: JSON.stringify({ model: config.model || "default_model", messages, max_tokens: 2048, stream: false,
+      chat_template_kwargs: { enable_thinking: false },
+      ...(format ? { response_format: { type: "json_schema", json_schema: { name: "producer_response", schema: format } } } : {}) })
+  });
+  if (!response.ok) throw new Error("specialist API request failed");
+  const content = (await response.json()).choices?.[0]?.message?.content;
+  if (typeof content !== "string" || !content.trim()) throw new Error("specialist API run did not complete");
+  return content;
+}
+
+export async function generateApiClientResponse(config, messages, { signal, fetch, env, cwd, format }) {
   signal.throwIfAborted();
   const keyName = config.apiKeyEnv || keyNames[config.provider];
   const apiKey = env[keyName]?.trim();
-  const optionalPassword = config.provider === "opencode" && !config.apiKeyEnv &&
-    ["localhost", "127.0.0.1", "[::1]"].includes(new URL(config.endpoint).hostname);
+  const optionalPassword = (config.provider === "mlx-agent" && !config.apiKeyEnv) ||
+    (config.provider === "opencode" && !config.apiKeyEnv &&
+      ["localhost", "127.0.0.1", "[::1]"].includes(new URL(config.endpoint).hostname));
   if (!apiKey && !optionalPassword) throw new Error(`specialist API key is missing from ${keyName}`);
   let failure;
   const boundedFetch = async (url, init) => {
@@ -91,7 +108,14 @@ export async function generateApiClientResponse(config, messages, { signal, fetc
   };
   try {
     const body = { instructions: messages[0].content, input: messages.slice(1) };
-    if (["openclaw", "hermes"].includes(config.provider)) {
+    if (config.provider === "mlx-agent") {
+      output = await generateMlxAgentResponse(config, messages, { apiKey, fetch: boundedFetch, signal, format });
+      if (Buffer.byteLength(output) > 16000) {
+        failure = new Error("specialist output limit exceeded");
+        throw failure;
+      }
+      outcome = "completed";
+    } else if (["openclaw", "hermes"].includes(config.provider)) {
       await generateGatewayResponse(config, messages, { apiKey, fetch: boundedFetch, signal, handlers });
     } else if (config.provider === "codex") {
       await runCodex(options, body, signal, handlers.onEvent);
