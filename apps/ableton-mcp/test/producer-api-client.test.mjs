@@ -42,15 +42,14 @@ test("mlx-agent specialists use a loopback gateway without remote consent or cre
   }
 });
 
-test("mlx-agent specialists stream Messages from the gateway's served model", { timeout: 5000 }, async t => {
+test("mlx-agent specialists ask the gateway's served model for an answer without reasoning", { timeout: 5000 }, async t => {
   const requests = [];
   const server = createServer(async (request, response) => {
     let body = "";
     for await (const chunk of request) body += chunk;
-    requests.push({ path: request.url, key: request.headers["x-api-key"], body: JSON.parse(body) });
-    response.writeHead(200, { "Content-Type": "text/event-stream" });
-    response.end(event("message_start", { message: { id: "message-1" } }) +
-      event("content_block_delta", { delta: { type: "text_delta", text: JSON.stringify(reply) } }) + event("message_stop", {}));
+    requests.push({ path: request.url, authorization: request.headers.authorization, body: JSON.parse(body) });
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: JSON.stringify(reply) } }] }));
   });
   t.after(() => { server.closeAllConnections(); server.close(); });
   server.listen(0, "127.0.0.1");
@@ -58,11 +57,17 @@ test("mlx-agent specialists stream Messages from the gateway's served model", { 
   const local = { type: "api-client", provider: "mlx-agent", endpoint: `http://127.0.0.1:${server.address().port}` };
   assert.deepEqual(await createProducerRuntime(local, { env: {} }).generate(packet), reply);
   assert.equal(requests.length, 1);
-  assert.equal(requests[0].path, "/v1/messages");
-  assert.equal(requests[0].key, undefined);
+  assert.equal(requests[0].path, "/v1/chat/completions");
+  assert.equal(requests[0].authorization, undefined);
   assert.equal(requests[0].body.model, "default_model");
-  assert.equal(requests[0].body.stream, true);
+  assert.deepEqual(requests[0].body.chat_template_kwargs, { enable_thinking: false });
+  assert.equal(requests[0].body.stream, false);
   assert.equal(requests[0].body.tools, undefined);
+  assert.equal(requests[0].body.messages[0].role, "system");
+  const format = requests[0].body.response_format;
+  assert.equal(format.type, "json_schema");
+  assert.equal(format.json_schema.schema.properties.reads.maxItems, 4);
+  assert.equal(format.json_schema.schema.properties.operations.maxItems, 0);
 });
 
 test("the published client sends bounded history to the official API with no native tools or redirects", async () => {

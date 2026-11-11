@@ -15,7 +15,7 @@ For the local model served by an [mlx-agent](https://github.com/cavi-ai/mlx-agen
 }
 ```
 
-The endpoint must be the gateway's loopback origin. Requests use its Anthropic Messages API at `/v1/messages` with the model `default_model`, which the gateway resolves to the model it serves; an optional `model` names that model explicitly. The gateway serves only its configured local model, so `allowRemote` and credentials are not required; an optional `apiKeyEnv` sends that variable's value as `x-api-key`. Output is requested as JSON through instructions and validated locally, as for other API clients. The configured gateway is a trusted boundary.
+The endpoint must be the gateway's loopback origin. Requests use its Chat Completions API at `/v1/chat/completions` with the model `default_model`, which the gateway resolves to the model it serves; an optional `model` names that model explicitly. Each request sets `chat_template_kwargs.enable_thinking` to `false`, so reasoning models answer directly within the 2,048-token budget. The gateway serves only its configured local model, so `allowRemote` and credentials are not required; an optional `apiKeyEnv` sends that variable's value as a bearer token. Each request also sends the turn's response schema as a `json_schema` `response_format`. The output is validated locally, as for other API clients. The configured gateway is a trusted boundary.
 
 For an installed local Ollama model:
 

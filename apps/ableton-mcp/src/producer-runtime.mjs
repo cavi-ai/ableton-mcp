@@ -182,7 +182,7 @@ export function createProducerRuntime(config, dependencies = {}) {
       if (config.type === "api-client") {
         const { generateApiClientResponse } = await import("./producer-api-client.mjs");
         return parseProducerResponse(await generateApiClientResponse(config, messages, {
-          signal: activeSignal, fetch, env: dependencies.env || process.env, cwd
+          signal: activeSignal, fetch, env: dependencies.env || process.env, cwd, format: responseFormat(packet)
         }));
       }
       const endpoint = endpointFor(config);
