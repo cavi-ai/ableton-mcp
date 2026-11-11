@@ -6,6 +6,17 @@ Production specialists keep detailed musical and operational context outside the
 
 Specialists are optional. Set `ABLETON_MCP_PRODUCER_CONFIG` to a JSON object with a `creative` entry, a `functional` entry, or both. Each role has its own runtime configuration. Nothing starts until `run_production_task` requests that role.
 
+For the local model served by an [mlx-agent](https://github.com/cavi-ai/mlx-agent) gateway:
+
+```json
+{
+  "creative": { "type": "api-client", "provider": "mlx-agent", "endpoint": "http://127.0.0.1:8080" },
+  "functional": { "type": "api-client", "provider": "mlx-agent", "endpoint": "http://127.0.0.1:8080" }
+}
+```
+
+The endpoint must be the gateway's loopback origin. Requests use its Anthropic Messages API at `/v1/messages` with the model `default_model`, which the gateway resolves to the model it serves; an optional `model` names that model explicitly. The gateway serves only its configured local model, so `allowRemote` and credentials are not required; an optional `apiKeyEnv` sends that variable's value as `x-api-key`. Output is requested as JSON through instructions and validated locally, as for other API clients. The configured gateway is a trusted boundary.
+
 For an installed local Ollama model:
 
 ```json

@@ -31,6 +31,40 @@ test("API-client configuration requires an explicit provider, model and remote c
   }
 });
 
+test("mlx-agent specialists use a loopback gateway without remote consent or credentials", () => {
+  const parse = creative => parseProducerConfig({ ABLETON_MCP_PRODUCER_CONFIG: JSON.stringify({ creative }) });
+  const local = { type: "api-client", provider: "mlx-agent", endpoint: "http://127.0.0.1:19080" };
+  assert.deepEqual(parse(local), { creative: local });
+  assert.equal(parse({ ...local, model: "served-model" }).creative.model, "served-model");
+  for (const invalid of [{ endpoint: undefined }, { endpoint: "https://example.com" }, { endpoint: "http://127.0.0.1:19080/v1" },
+    { model: " " }, { agentId: "specialist" }, { directory: "/tmp" }, { command: "agent" }]) {
+    assert.throws(() => parse({ ...local, ...invalid }), /config/);
+  }
+});
+
+test("mlx-agent specialists stream Messages from the gateway's served model", { timeout: 5000 }, async t => {
+  const requests = [];
+  const server = createServer(async (request, response) => {
+    let body = "";
+    for await (const chunk of request) body += chunk;
+    requests.push({ path: request.url, key: request.headers["x-api-key"], body: JSON.parse(body) });
+    response.writeHead(200, { "Content-Type": "text/event-stream" });
+    response.end(event("message_start", { message: { id: "message-1" } }) +
+      event("content_block_delta", { delta: { type: "text_delta", text: JSON.stringify(reply) } }) + event("message_stop", {}));
+  });
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const local = { type: "api-client", provider: "mlx-agent", endpoint: `http://127.0.0.1:${server.address().port}` };
+  assert.deepEqual(await createProducerRuntime(local, { env: {} }).generate(packet), reply);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].path, "/v1/messages");
+  assert.equal(requests[0].key, undefined);
+  assert.equal(requests[0].body.model, "default_model");
+  assert.equal(requests[0].body.stream, true);
+  assert.equal(requests[0].body.tools, undefined);
+});
+
 test("the published client sends bounded history to the official API with no native tools or redirects", async () => {
   let calls = 0;
   const generate = runtime(async (url, init) => {

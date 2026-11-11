@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add `mlx-agent` production specialists that run on the local model served by an mlx-agent gateway, with no remote consent or credentials required.
 - Publish `@cavi-ai/ableton-mcp` to npm from each GitHub release with trusted publishing and provenance.
 
 ## 0.4.0

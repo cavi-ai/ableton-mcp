@@ -42,8 +42,9 @@ export async function generateApiClientResponse(config, messages, { signal, fetc
   signal.throwIfAborted();
   const keyName = config.apiKeyEnv || keyNames[config.provider];
   const apiKey = env[keyName]?.trim();
-  const optionalPassword = config.provider === "opencode" && !config.apiKeyEnv &&
-    ["localhost", "127.0.0.1", "[::1]"].includes(new URL(config.endpoint).hostname);
+  const optionalPassword = (config.provider === "mlx-agent" && !config.apiKeyEnv) ||
+    (config.provider === "opencode" && !config.apiKeyEnv &&
+      ["localhost", "127.0.0.1", "[::1]"].includes(new URL(config.endpoint).hostname));
   if (!apiKey && !optionalPassword) throw new Error(`specialist API key is missing from ${keyName}`);
   let failure;
   const boundedFetch = async (url, init) => {
@@ -98,6 +99,8 @@ export async function generateApiClientResponse(config, messages, { signal, fetc
     } else {
       let client;
       if (config.provider === "claude") client = new ClaudeApiClient({ ...options, defaultMaxTokens: 2048 });
+      else if (config.provider === "mlx-agent") client = new ClaudeApiClient({ ...options, baseUrl: config.endpoint,
+        defaultModel: config.model || "default_model", defaultMaxTokens: 2048 });
       else if (config.provider === "agy") client = new AgyApiClient({ ...options, baseUrl: config.endpoint });
       else {
         const directory = config.directory || cwd;
