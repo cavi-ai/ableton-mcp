@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 328 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 329 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (138)
 
@@ -183,7 +183,7 @@ The server publishes 328 tools. Mutations of the Live Set require `expectedState
 | `start_production_session` | Capture a durable production brief and current Set identity. Starts at inspect; does not call a model or change Live. Keep the returned sessionId for later conversations. | `projectId`, `goal` |
 | `store_rack_macro_variation` | Plan or store a new native variation of mapped rack macros. Binds exact rack and parameter state, reports the observed count and appended storedVariationIndex independently of selection; variation contents are not exposed by Live's API. | `expectedStateVersion`, `trackId`, `deviceId` |
 
-## Destructive mutations (159)
+## Destructive mutations (160)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -191,6 +191,7 @@ The server publishes 328 tools. Mutations of the Live Set require `expectedState
 | `adjust_rack_macro_count` | Plan or invoke one native add/remove macro action on an exact rack, then report the observed count. Removal is refused while any macro mapping exists because Live does not expose the affected mapping target. | `expectedStateVersion`, `trackId`, `deviceId`, `action` |
 | `adopt_instrument_comparison` | Plan or bind a new runtime comparison handle to two explicitly chosen existing MIDI parts, including after restart. Binds current notes, timing, devices, routing and topology; no tracks, notes, mutes or playback are changed. Restore uses both adoption-time mutes, not an unknown prior baseline. Refuses active pairs, recording, solo, live-input conflicts and two unmuted tracks. Does not prove historical identity or matching copies. | `expectedStateVersion`, `original`, `variation` |
 | `advance_production_session` | Advance one durable session phase with optimistic revision checks. propose runs a bounded specialist; choose selects a saved creative alternative; apply retains original dry-run and confirmation guards. resume inspects fresh state and preserves uncertain or partially failed execution. replan explicitly starts a new proposal from that inspection and its saved ledger. evaluate uses listening or caller-postcondition completion. Interrupted execution is never replayed. | `projectId`, `sessionId`, `expectedRevision`, `action` |
+| `answer_live_recovery_prompt` | Plan/answer Live's startup crash-recovery prompt on macOS; needs no bridge. | `answer` |
 | `apply_drum_variation` | Plan or apply a guarded deterministic drum variation with exact native context and complete note readback. | `expectedStateVersion`, `trackId`, `clipId`, `grid`, `startBar`, `bars`, `laneNotes`, `seed`, `timingAmount`, `velocityAmount`, `preserveAccentsAbove` |
 | `apply_midi_chord_arpeggiation` | Plan or apply guarded chord arpeggiation with stable native note IDs and complete readback verification. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `mode`, `stepBeats`, `gate`, `seed` |
 | `apply_midi_chord_doubling` | Plan or apply guarded chord doublings while preserving existing notes and verifying every native addition. | `expectedStateVersion`, `trackId`, `clipId`, `noteIds`, `mode` |

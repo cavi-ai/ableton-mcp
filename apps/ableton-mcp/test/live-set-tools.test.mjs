@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { ToolService } from "../src/tool-service.mjs";
-import { validateToolArguments } from "../src/tool-validation.mjs";
+import { validateToolArguments, validateToolResult } from "../src/tool-validation.mjs";
 import { toolContracts } from "../src/tool-contracts.mjs";
 import { withRequestSignal } from "../src/request-context.mjs";
 
@@ -155,6 +155,14 @@ test("launch mode plans without a bridge and confirms exact app/file identity be
   assert.deepEqual(calls, [["/Applications/Ableton Live 12 Suite.app", args.path]]);
   await assert.rejects(service.call("open_live_set", { ...args, dryRun: false,
     confirmationToken: plan.confirmation.token, planHash: plan.confirmation.planHash }));
+});
+
+test("an executed launch returns a receipt that satisfies the open_live_set result contract", async () => {
+  const { service } = launchFixture();
+  const args = { mode: "launch", path: "/tmp/Launch.als" }, plan = await service.call("open_live_set", args);
+  const execute = { ...args, dryRun: false, confirmationToken: plan.confirmation.token, planHash: plan.confirmation.planHash };
+  const result = validateToolResult("open_live_set", await service.call("open_live_set", execute), execute);
+  assert.equal(result.opened, true);assert.equal(result.operationOutcome.status, "applied");
 });
 
 test("launch mode refuses running Live and stale app, file or source path without starting another instance", async () => {

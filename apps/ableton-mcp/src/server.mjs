@@ -90,6 +90,7 @@ const toolNames = [
   "get_instrument_comparison", "prepare_instrument_comparison", "adopt_instrument_comparison", "select_instrument_comparison",
   "duplicate_midi_clip_variations",
   "open_live_set",
+  "answer_live_recovery_prompt",
   "save_live_set",
   "export_audio_mix",
   "export_audio_track",
