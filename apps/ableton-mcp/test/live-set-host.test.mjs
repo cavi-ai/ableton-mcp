@@ -159,7 +159,7 @@ test("Save As resolves a configured app symlink before comparison and dispatch",
   } });
   host.runningProcesses = async () => [{ pid: 42, path: app + "/Contents/MacOS/Live" }];
   await host.saveAs(alias, { name: "Working.als", parent: { path: "/tmp" } }, { beforeSave: async () => {} });
-  assert.deepEqual(calls[0], ["/usr/bin/open", ["-a", app]]);
+  assert.equal(JSON.parse(calls.find(([command, args]) => command === "/usr/bin/osascript" && focusing(args))[1].at(-1)).appPath, app);
 });
 
 test("Save As preserves the native refusal reason instead of a truncated command line", async t => {
@@ -172,42 +172,39 @@ test("Save As preserves the native refusal reason instead of a truncated command
   await assert.rejects(host.saveAs(app, { parent: { path: "/tmp" }, name: "New.als" }, { beforeSave: async () => {} }), /existing Live dialog/);
 });
 
-test("Save As reports a refused preparation that left no panel open",async t=>{
-  const app=await saveAppFixture(t);
-  for(const status of ["not_opened","cancelled"]){
-    const calls=[],host=new MacLiveSetHost({platform:"darwin",run:async(command,args)=>{
-      if(command!=="/usr/bin/osascript")return {stdout:""};
-      if(focusing(args))return {stdout:JSON.stringify({focused:true})};
-      calls.push(JSON.parse(args.at(-1)).action);
-      return {stdout:JSON.stringify({prepared:false,error:"Live's window is not on the visible Space",recovery:{status,savePressed:false}})};
-    }});
-    host.runningProcesses=async()=>[{pid:42,path:app+"/Contents/MacOS/Live"}];
-    await assert.rejects(host.saveAs(app,{name:"New.als",parent:{path:"/tmp/work"}},{beforeSave:async()=>{}}),error=>{
-      assert.match(error.message,/visible Space/);assert.deepEqual(error.saveAsRecovery,{status,savePressed:false});return true;
-    });
-    assert.deepEqual(calls,["prepare"]);
-  }
+test("Save As reports a refused preparation that closed its own panel",async t=>{
+  const app=await saveAppFixture(t),calls=[];
+  const host=new MacLiveSetHost({platform:"darwin",run:async(command,args)=>{
+    if(command!=="/usr/bin/osascript")return {stdout:""};
+    if(focusing(args))return {stdout:JSON.stringify({focused:true})};
+    calls.push(JSON.parse(args.at(-1)).action);
+    return {stdout:JSON.stringify({prepared:false,error:"Native Save window identity is unavailable or ambiguous",recovery:{status:"cancelled",savePressed:false}})};
+  }});
+  host.runningProcesses=async()=>[{pid:42,path:app+"/Contents/MacOS/Live"}];
+  await assert.rejects(host.saveAs(app,{name:"New.als",parent:{path:"/tmp/work"}},{beforeSave:async()=>{}}),error=>{
+    assert.match(error.message,/identity/);assert.deepEqual(error.saveAsRecovery,{status:"cancelled",savePressed:false});return true;
+  });
+  assert.deepEqual(calls,["prepare"]);
 });
 
-test("Save As brings Live onto the visible desktop before its panel opens and before Save",async t=>{
+test("Save As opens its panel without showing Live and shows Live only to complete it",async t=>{
   const app=await saveAppFixture(t);
-  for(const failure of [null,"prepare","commit"]){
+  for(const shown of [true,false]){
     const sent=[],host=new MacLiveSetHost({platform:"darwin",run:async(command,args)=>{
-      if(command!=="/usr/bin/osascript")return {stdout:""};
+      if(command!=="/usr/bin/osascript"){sent.push(command);return {stdout:""};}
       const input=JSON.parse(args.at(-1));
-      if(focusing(args)){const index=sent.push(`focus:${input.windowId??"live"}`);
-        return {stdout:JSON.stringify({focused:failure!==(index===1?"prepare":"commit")})};}
+      if(focusing(args)){sent.push(`show:${input.windowId}`);return {stdout:JSON.stringify({focused:shown})};}
       sent.push(input.action);
       return {stdout:JSON.stringify(input.action==="prepare"?{prepared:true,windowId:123,purpose:"Save Live Set As:",panelState:{name:"Original.als",folder:"work"}}
         :input.action==="cancel"?{cancelled:true,savePressed:false,windowId:123}:{savePressed:true})};
     }});
     host.runningProcesses=async()=>[{pid:42,path:app+"/Contents/MacOS/Live"}];
     const save=host.saveAs(app,{name:"New.als",parent:{path:"/tmp/work"}},{beforeSave:async()=>{}});
-    if(!failure){await save;assert.deepEqual(sent,["focus:live","prepare","focus:123","commit"]);continue;}
+    if(shown){await save;assert.deepEqual(sent,["prepare","show:123","commit"]);continue;}
     await assert.rejects(save,error=>{
-      assert.deepEqual(error.saveAsRecovery,failure==="prepare"?{status:"not_opened",savePressed:false}:{status:"cancelled",windowId:123,savePressed:false});return true;
+      assert.deepEqual(error.saveAsRecovery,{status:"cancelled",windowId:123,savePressed:false});return true;
     });
-    assert.deepEqual(sent,failure==="prepare"?["focus:live"]:["focus:live","prepare","focus:123","cancel"]);
+    assert.deepEqual(sent,["prepare","show:123","cancel"]);
   }
 });
 

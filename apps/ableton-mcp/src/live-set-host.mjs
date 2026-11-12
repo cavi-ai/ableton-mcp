@@ -5,8 +5,8 @@ import { isAbsolute, dirname, basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const saveDialogScript = fileURLToPath(new URL("./live-set-save-dialog.js", import.meta.url));
-const saveStateScript = fileURLToPath(new URL("./live-set-save-state.js", import.meta.url));
 const focusScript = fileURLToPath(new URL("./live-app-focus.js", import.meta.url));
+const saveStateScript = fileURLToPath(new URL("./live-set-save-state.js", import.meta.url));
 const execFileAsync = promisify(execFile);
 const scriptDirectorySuffix = "/Contents/App-Resources/MIDI Remote Scripts/CaviMcpBridge";
 const saveScript = `tell application "System Events"
@@ -138,8 +138,9 @@ export class MacLiveSetHost {
     const processes = await this.runningProcesses();
     if (processes.length !== 1 || processes[0].path !== executable)
       throw new Error("Save As requires exactly one running instance of the requested Live app");
+    // The panel opens and is bound with Live in the background. It enables Save only while it is on
+    // the visible desktop, so Live is brought there just before the commit.
     const input = { pid: processes[0].pid, parent: destination.parent.path, name: destination.name };
-    await this.run("/usr/bin/open", ["-a", canonicalApp], { timeout: 5000, signal });
     const dialog = async (action, prepared = {}, operationSignal = signal) => {
       operationSignal?.throwIfAborted();
       try {
@@ -151,20 +152,8 @@ export class MacLiveSetHost {
         throw new Error(`Live Save As dialog: ${String(error.stderr || error.message).trim().slice(0, 600)}`);
       }
     };
-    // Native input needs Live on the visible desktop, as in the other native dialog flows.
-    const focus = async windowId => {
-      const result = await this.run("/usr/bin/osascript", ["-l", "JavaScript", focusScript,
-        JSON.stringify({ pid: input.pid, appPath: canonicalApp, ...(windowId ? { windowId } : {}) })], { timeout: 10000, maxBuffer: 65536, signal });
-      if (JSON.parse(result.stdout).focused !== true) throw new Error("Live did not become visible");
-    };
-    try { await focus(); }
-    catch (error) {
-      signal?.throwIfAborted();
-      throw Object.assign(new Error(`Live Save As focus: ${String(error.stderr || error.message).trim().slice(0, 600)}`),
-        { saveAsRecovery: { status: "not_opened", savePressed: false } });
-    }
     const prepared = await dialog("prepare");
-    if (prepared.prepared === false && ["not_opened", "cancelled"].includes(prepared.recovery?.status) && prepared.recovery.savePressed === false)
+    if (prepared.prepared === false && prepared.recovery?.status === "cancelled" && prepared.recovery.savePressed === false)
       throw Object.assign(new Error(`Live Save As dialog: ${String(prepared.error).slice(0, 600)}`),
         { saveAsRecovery: { status: prepared.recovery.status, savePressed: false } });
     if (prepared.prepared !== true || !Number.isInteger(prepared.windowId) || prepared.windowId < 1 || prepared.purpose !== "Save Live Set As:" ||
@@ -174,7 +163,9 @@ export class MacLiveSetHost {
     try {
       await beforeSave();
       signal?.throwIfAborted();
-      await focus(prepared.windowId);
+      const shown = await this.run("/usr/bin/osascript", ["-l", "JavaScript", focusScript,
+        JSON.stringify({ pid: input.pid, appPath: canonicalApp, windowId: prepared.windowId })], { timeout: 10000, maxBuffer: 65536, signal });
+      if (JSON.parse(shown.stdout).focused !== true) throw new Error("Live did not show its Save panel");
     } catch (error) {
       try {
         // Cancellation ends only this prepared panel; it must still run after
