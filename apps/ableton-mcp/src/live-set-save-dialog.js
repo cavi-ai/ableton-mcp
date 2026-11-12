@@ -42,11 +42,34 @@ function run(argv) {
     return wrapped;
   }
   function nativeWindows() { return nativeItems(nativeRead($.AXUIElementCreateApplication(input.pid), "AXWindows")); }
+  // Off the visible Space, System Events and AXWindows omit Live's windows; its focused window stays readable.
+  function focusedDialog() {
+    var focused = nativeRead($.AXUIElementCreateApplication(input.pid), "AXFocusedWindow");
+    return focused && (ObjC.unwrap(nativeRead(focused, "AXModal")) === true || ObjC.unwrap(nativeRead(focused, "AXSubrole")) === "AXDialog") ? focused : null;
+  }
+  function focusedSavePanel() {
+    var focused = focusedDialog();
+    return focused && ObjC.unwrap(nativeRead(focused, "AXIdentifier")) === "save-panel" ? nativeElement(focused) : null;
+  }
+  function listedSavePanels() {
+    return nativeWindows().filter(function (window) { return ObjC.unwrap(nativeRead(window, "AXIdentifier")) === "save-panel"; });
+  }
+  // The Set Save panel is bound natively, so it stays readable while Live is behind other apps or on another Space.
+  function livePanel() {
+    var listed = listedSavePanels(), focused = listed.length ? null : focusedSavePanel();
+    if (focused) return focused;
+    if (listed.length !== 1 || ObjC.unwrap(nativeRead(listed[0], "AXModal")) !== true) throw Error("Expected one native Save panel");
+    return nativeElement(listed[0]);
+  }
+  function livePanelOpen() { return listedSavePanels().length > 0 || !!focusedSavePanel(); }
   function attribute(element, key) {
     try { return element.attributes.byName(key).value(); } catch (error) { return null; }
   }
   function foreground() {
-    if (!process.frontmost()) throw Error("Live is not frontmost; no key was sent");
+    if (process.frontmost()) return;
+    var front = "another app";
+    try { front = ObjC.unwrap($.NSWorkspace.sharedWorkspace.frontmostApplication.bundleIdentifier) || front; } catch (error) { /* Keep the refusal. */ }
+    throw Error("Live is not frontmost (" + front + " is); no key was sent");
   }
   function waitFor(read, message, background) {
     for (var i = 0; i < 40; i++) {
@@ -59,40 +82,22 @@ function run(argv) {
   }
   function panel(background) {
     if (!background) foreground();
-    if (exporting) {
-      var nativeMatches = nativeWindows().filter(function (window) { return ObjC.unwrap(nativeRead(window, "AXIdentifier")) === "save-panel"; });
-      if (nativeMatches.length !== 1 || ObjC.unwrap(nativeRead(nativeMatches[0], "AXModal")) !== true) throw Error("Expected one native export Save panel");
-      return nativeElement(nativeMatches[0]);
-    }
-    var matches = process.windows().filter(function (window) { return attribute(window, "AXIdentifier") === "save-panel"; });
-    if (matches.length !== 1 || attribute(matches[0], "AXModal") !== true)
-      throw Error("Expected one native Save panel");
-    return matches[0];
+    if (!exporting) return livePanel();
+    var nativeMatches = listedSavePanels();
+    if (nativeMatches.length !== 1 || ObjC.unwrap(nativeRead(nativeMatches[0], "AXModal")) !== true) throw Error("Expected one native export Save panel");
+    return nativeElement(nativeMatches[0]);
   }
   function windowIdentity(window, background) {
-    if (window.native) {
-      var title = window.name(), named = nativeWindows().filter(function (item) { return ObjC.unwrap(nativeRead(item, "AXTitle")) === title; });
-      if (named.length !== 1 || !$.CFEqual(named[0], window.native)) throw Error("Native export Save window changed");
-      var nativeList = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(background ? 0 : 1, 0))).filter(function (item) {
-        return item.kCGWindowOwnerPID === input.pid && item.kCGWindowName === title;
-      });
-      var visibleMatches=nativeList.filter(function (item) { return item.kCGWindowIsOnscreen===true; });
-      if (visibleMatches.length) nativeList=visibleMatches;
-      if (nativeList.length !== 1) throw Error("Native export Save window identity is unavailable or ambiguous");
-      return nativeList[0].kCGWindowNumber;
-    }
-    var position = window.position(), size = window.size();
-    var windows = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(0, 0)));
-    var matches = windows.filter(function (item) {
-      var bounds = item.kCGWindowBounds;
-      return item.kCGWindowOwnerPID === input.pid &&
-        bounds.X === position[0] && bounds.Y === position[1] && bounds.Width === size[0] && bounds.Height === size[1];
+    var title = window.name(), named = nativeWindows().filter(function (item) { return ObjC.unwrap(nativeRead(item, "AXTitle")) === title; });
+    if (!named.length && !exporting) { var focused = focusedDialog(); if (focused) named = [focused]; }
+    if (named.length !== 1 || !$.CFEqual(named[0], window.native)) throw Error("Native Save window changed");
+    var nativeList = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(background ? 0 : 1, 0))).filter(function (item) {
+      return item.kCGWindowOwnerPID === input.pid && item.kCGWindowName === title;
     });
-    var onscreen = matches.filter(function (item) { return item.kCGWindowIsOnscreen === true; });
-    if (onscreen.length) matches = onscreen;
-    else if (!background) throw Error("Native Save window is not onscreen");
-    if (matches.length !== 1) throw Error("Native Save window identity is unavailable or ambiguous");
-    return matches[0].kCGWindowNumber;
+    var visibleMatches=nativeList.filter(function (item) { return item.kCGWindowIsOnscreen===true; });
+    if (visibleMatches.length) nativeList=visibleMatches;
+    if (nativeList.length !== 1) throw Error("Native Save window identity is unavailable or ambiguous");
+    return nativeList[0].kCGWindowNumber;
   }
   function purpose(window) {
     var text = find(window, "_messageTextField", "AXStaticText").value();
@@ -144,9 +149,13 @@ function run(argv) {
       if (["AXScrollArea", "AXOutline", "AXTable", "AXBrowser"].indexOf(text(element, "AXRole")) !== -1) return [];
       return items(read(element, "AXChildren")).reduce(function (out, child) { return out.concat(browser(child, depth + 1)); }, []);
     }
-    var windows = items(read($.AXUIElementCreateApplication(input.pid), "AXWindows")).filter(function (window) {
+    var app = $.AXUIElementCreateApplication(input.pid), windows = items(read(app, "AXWindows")).filter(function (window) {
       return text(window, "AXIdentifier") === "save-panel";
     });
+    if (!windows.length && !exporting) {
+      var focused = read(app, "AXFocusedWindow");
+      if (focused && text(focused, "AXIdentifier") === "save-panel") windows = [focused];
+    }
     if (windows.length !== 1) throw Error("Save directory window is unavailable");
     var browsers = browser(windows[0], 0);
     if (browsers.length !== 1) throw Error("Save directory requires the native column view");
@@ -193,7 +202,7 @@ function run(argv) {
     if (!button.enabled()) throw Error("Cancel is disabled");
     button.actions.byName("AXPress").perform();
     waitFor(function () {
-      if (process.windows().some(function (window) { return attribute(window, "AXIdentifier") === "save-panel"; })) return false;
+      if (process.windows().some(function (window) { return attribute(window, "AXIdentifier") === "save-panel"; }) || !exporting && livePanelOpen()) return false;
       // AppKit can retain a closed, offscreen native window in the all-windows
       // list. Require accessibility removal and absence from onscreen windows.
       var windows = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1, 0)));
@@ -229,21 +238,29 @@ function run(argv) {
     return JSON.stringify({ prepared: true, windowId: input.windowId, purpose: purpose(exportSave), panelState: panelState(exportSave) });
   }
   if (input.action === "prepare") {
-    foreground();
     if (process.windows().some(function (window) {
       return attribute(window, "AXModal") === true || window.sheets().length > 0;
-    })) throw Error("Dismiss the existing Live dialog before Save As");
+    }) || focusedDialog()) throw Error("Dismiss the existing Live dialog before Save As");
     var menu = process.menuBars()[0].menuBarItems.byName("File").menus()[0].menuItems.byName("Save Live Set As...");
     if (!menu.exists() || !menu.enabled()) throw Error("Live Set Save As menu is unavailable (requires English Live)");
     menu.actions.byName("AXPress").perform();
-    var save = waitFor(function () {
-      return process.windows().some(function (window) { return attribute(window, "AXIdentifier") === "save-panel"; });
-    }, "Save As panel did not appear");
-    save = panel();focusPanel(save);
-    var windowId = waitFor(function () {
-      try { return windowIdentity(save); } catch (error) { return null; }
-    }, "Native Save window identity is unavailable or ambiguous");
-    return JSON.stringify({ prepared: true, windowId: windowId, purpose: purpose(save), panelState: panelState(save) });
+    var save;
+    try {
+      save = waitFor(function () { try { return livePanel(); } catch (error) { return null; } }, "Save As panel did not appear", true);
+      var windowId = waitFor(function () {
+        try { return windowIdentity(save, true); } catch (error) { return null; }
+      }, "Native Save window identity is unavailable or ambiguous", true);
+      return JSON.stringify({ prepared: true, windowId: windowId, purpose: purpose(save), panelState: panelState(save) });
+    } catch (error) {
+      // No dialog was open before the menu press, so a Save panel open now belongs to this request.
+      var own = waitFor(function () { try { return livePanel(); } catch (busy) { return null; } },
+        "Save As panel is not observable and may still be open", true);
+      find(own, "CancelButton", "AXButton").actions.byName("AXPress").perform();
+      waitFor(function () {
+        try { return !livePanelOpen(); } catch (busy) { return false; }
+      }, "Save As panel closure is unverified", true);
+      return JSON.stringify({ prepared: false, error: error.message, recovery: { status: "cancelled", savePressed: false } });
+    }
   }
   if (input.action !== "commit") throw Error("Unknown Save As action");
   var ownedState = input.panelState, ownedFolderPath = null, saveAttempted = false;
@@ -270,11 +287,13 @@ function run(argv) {
     ownedFolderPath = null;ownedState = panelState(save);
     var name = find(save, "saveAsNameTextField", "AXTextField");
     name.value = input.name;
-    if (name.value() !== input.name) throw Error("Save filename readback mismatch");
+    // Own the edit before checking it, so a mismatch still closes this panel.
     ownedState = panelState(save);
+    if (ownedState.name !== input.name) throw Error("Save filename readback mismatch");
     noSheet(save);
     var button = find(save, "OKButton", "AXButton");
-    if (!button.enabled()) throw Error("Save is disabled");
+    // The panel enables Save only while it is on the visible desktop, shortly after it appears there.
+    waitFor(function () { return button.enabled(); }, "Save is disabled");
     if (windowIdentity(save) !== input.windowId || purpose(save) !== input.purpose)
       throw Error("Prepared Save As window changed; no Save was pressed");
     if (exporting) {

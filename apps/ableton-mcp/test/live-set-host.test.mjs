@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MacLiveSetHost } from "../src/live-set-host.mjs";
 
+const focusing = args => args[2].endsWith("/live-app-focus.js");
+
 test("open resolves an existing Live Set and targets the bridge's exact app bundle", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cavi-live-set-"));
   const path = join(directory, "Song.als");
@@ -128,12 +130,13 @@ test("Save As guards the exact process and binds the prepared window before pres
   const host = new MacLiveSetHost({ platform: "darwin", run: async (command, args) => {
     calls.push([command, args]);
     if(command!=="/usr/bin/osascript")return {stdout:""};
+    if(focusing(args))return {stdout:JSON.stringify({focused:true})};
     return { stdout: JSON.stringify(JSON.parse(args.at(-1)).action==="prepare" ? { prepared: true, windowId: 123, purpose: "Save Live Set As:", panelState:{name:"Original.als",folder:"work"} } : JSON.parse(args.at(-1)).action==="cancel" ? {cancelled:true,savePressed:false,windowId:123} : {savePressed:true}) };
   } });
   host.runningProcesses = async () => [{ pid: 42, path: app + "/Contents/MacOS/Live" }];
   const destination = { name: "It's a $song.als", parent: { path: "/tmp" }, path: "/tmp/It's a $song.als" };
   await host.saveAs(app, destination, { beforeSave: async () => { calls.push(["revalidate"]); } });
-  const scriptCalls = calls.filter(([command]) => command === "/usr/bin/osascript");
+  const scriptCalls = calls.filter(([command, args]) => command === "/usr/bin/osascript" && !focusing(args));
   assert.deepEqual(scriptCalls.map(([,args]) => JSON.parse(args.at(-1)).action), ["prepare", "commit"]);
   assert.equal(JSON.parse(scriptCalls[0][1].at(-1)).name, destination.name);
   assert.equal(JSON.parse(scriptCalls[1][1].at(-1)).windowId, 123);
@@ -141,7 +144,7 @@ test("Save As guards the exact process and binds the prepared window before pres
   assert.ok(calls.findIndex(([command]) => command === "revalidate") > calls.indexOf(scriptCalls[0]));
   calls.length = 0;
   await assert.rejects(host.saveAs(app, destination, { beforeSave: async () => { throw Error("Set changed"); } }), /Set changed/);
-  assert.equal(calls.filter(([command]) => command === "/usr/bin/osascript").length, 2);
+  assert.equal(calls.filter(([command, args]) => command === "/usr/bin/osascript" && !focusing(args)).length, 2);
   host.runningProcesses = async () => [{ pid: 43, path: "/Other.app/Contents/MacOS/Live" }];
   await assert.rejects(host.saveAs(app, destination), /exactly one/);
 });
@@ -151,26 +154,65 @@ test("Save As resolves a configured app symlink before comparison and dispatch",
   await symlink(app, alias);
   const host = new MacLiveSetHost({ platform: "darwin", run: async (command,args) => {
     calls.push([command,args]);if(command!=="/usr/bin/osascript")return {stdout:""};
+    if(focusing(args))return {stdout:JSON.stringify({focused:true})};
     return { stdout: JSON.stringify(JSON.parse(args.at(-1)).action==="prepare" ? { prepared: true, windowId: 123, purpose: "Save Live Set As:", panelState:{name:"Original.als",folder:"work"} } : JSON.parse(args.at(-1)).action==="cancel" ? {cancelled:true,savePressed:false,windowId:123} : {savePressed:true}) };
   } });
   host.runningProcesses = async () => [{ pid: 42, path: app + "/Contents/MacOS/Live" }];
   await host.saveAs(alias, { name: "Working.als", parent: { path: "/tmp" } }, { beforeSave: async () => {} });
-  assert.deepEqual(calls[0], ["/usr/bin/open", ["-a", app]]);
+  assert.equal(JSON.parse(calls.find(([command, args]) => command === "/usr/bin/osascript" && focusing(args))[1].at(-1)).appPath, app);
 });
 
 test("Save As preserves the native refusal reason instead of a truncated command line", async t => {
   const app = await saveAppFixture(t);
-  const host = new MacLiveSetHost({ platform: "darwin", run: async command => {
+  const host = new MacLiveSetHost({ platform: "darwin", run: async (command, args) => {
+    if (command === "/usr/bin/osascript" && focusing(args)) return { stdout: JSON.stringify({ focused: true }) };
     if (command === "/usr/bin/osascript") throw Object.assign(Error("long command"), { stderr: "execution error: existing Live dialog" });
   } });
   host.runningProcesses = async () => [{ pid: 42, path: app + "/Contents/MacOS/Live" }];
   await assert.rejects(host.saveAs(app, { parent: { path: "/tmp" }, name: "New.als" }, { beforeSave: async () => {} }), /existing Live dialog/);
 });
 
+test("Save As reports a refused preparation that closed its own panel",async t=>{
+  const app=await saveAppFixture(t),calls=[];
+  const host=new MacLiveSetHost({platform:"darwin",run:async(command,args)=>{
+    if(command!=="/usr/bin/osascript")return {stdout:""};
+    if(focusing(args))return {stdout:JSON.stringify({focused:true})};
+    calls.push(JSON.parse(args.at(-1)).action);
+    return {stdout:JSON.stringify({prepared:false,error:"Native Save window identity is unavailable or ambiguous",recovery:{status:"cancelled",savePressed:false}})};
+  }});
+  host.runningProcesses=async()=>[{pid:42,path:app+"/Contents/MacOS/Live"}];
+  await assert.rejects(host.saveAs(app,{name:"New.als",parent:{path:"/tmp/work"}},{beforeSave:async()=>{}}),error=>{
+    assert.match(error.message,/identity/);assert.deepEqual(error.saveAsRecovery,{status:"cancelled",savePressed:false});return true;
+  });
+  assert.deepEqual(calls,["prepare"]);
+});
+
+test("Save As opens its panel without showing Live and shows Live only to complete it",async t=>{
+  const app=await saveAppFixture(t);
+  for(const shown of [true,false]){
+    const sent=[],host=new MacLiveSetHost({platform:"darwin",run:async(command,args)=>{
+      if(command!=="/usr/bin/osascript"){sent.push(command);return {stdout:""};}
+      const input=JSON.parse(args.at(-1));
+      if(focusing(args)){sent.push(`show:${input.windowId}`);return {stdout:JSON.stringify({focused:shown})};}
+      sent.push(input.action);
+      return {stdout:JSON.stringify(input.action==="prepare"?{prepared:true,windowId:123,purpose:"Save Live Set As:",panelState:{name:"Original.als",folder:"work"}}
+        :input.action==="cancel"?{cancelled:true,savePressed:false,windowId:123}:{savePressed:true})};
+    }});
+    host.runningProcesses=async()=>[{pid:42,path:app+"/Contents/MacOS/Live"}];
+    const save=host.saveAs(app,{name:"New.als",parent:{path:"/tmp/work"}},{beforeSave:async()=>{}});
+    if(shown){await save;assert.deepEqual(sent,["prepare","show:123","commit"]);continue;}
+    await assert.rejects(save,error=>{
+      assert.deepEqual(error.saveAsRecovery,{status:"cancelled",windowId:123,savePressed:false});return true;
+    });
+    assert.deepEqual(sent,["prepare","show:123","cancel"]);
+  }
+});
+
 test("Save As cancels its prepared panel after revalidation or cancellation failure",async t=>{
   const app=await saveAppFixture(t),controller=new AbortController(),calls=[];
   const host=new MacLiveSetHost({platform:"darwin",run:async(command,args,options)=>{
     if(command!=="/usr/bin/osascript")return {stdout:""};
+    if(focusing(args))return {stdout:JSON.stringify({focused:true})};
     const input=JSON.parse(args.at(-1));calls.push({input,signal:options.signal});
     return {stdout:JSON.stringify(input.action==="prepare"
       ?{prepared:true,windowId:123,purpose:"Save Live Set As:",panelState:{name:"Original.als",folder:"work"}}
@@ -191,6 +233,7 @@ test("Save As preserves revalidation errors when cleanup fails and leaves unknow
   for(const phase of ["revalidation","commit"]){
     const calls=[],host=new MacLiveSetHost({platform:"darwin",run:async(command,args)=>{
       if(command!=="/usr/bin/osascript")return {stdout:""};
+      if(focusing(args))return {stdout:JSON.stringify({focused:true})};
       const {action}=JSON.parse(args.at(-1));calls.push(action);
       if(action!=="prepare")throw Error(action==="cancel"?"panel replaced":"reply lost");
       return {stdout:JSON.stringify({prepared:true,windowId:123,purpose:"Save Live Set As:",panelState:{name:"Original.als",folder:"work"}})};
