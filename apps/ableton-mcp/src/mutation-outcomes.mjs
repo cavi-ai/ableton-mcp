@@ -67,6 +67,7 @@ declare(["exportVerified"], "export_midi_clip export_audio_mix export_audio_trac
 declare(["presetSaveVerified"], "save_native_device_preset");
 declare(["sampleCollectionVerified"], "collect_project_media");
 declare(["opened"], "open_live_set");
+declare(["dismissed"], "answer_live_recovery_prompt");
 declare(["saved"], "save_live_set");
 declare(["sessionRecordVerified", "scopeVerified"], "set_session_midi_overdub");
 for (const fields of Object.values(mutationOutcomeContracts)) Object.freeze(fields);
@@ -141,7 +142,8 @@ export function classifyMutationOutcome(name, args, value) {
   return receipt("applied", "execution_receipt", evidence);
 }
 
+// Declared Live tools that run before a bridge exists, such as launch, have no stateVersion guard.
 export function withMutationOutcome(name, args, value) {
-  if (args.dryRun !== false || !Number.isInteger(args.expectedStateVersion)) return value;
+  if (args.dryRun !== false || !Number.isInteger(args.expectedStateVersion) && !Object.hasOwn(mutationOutcomeContracts, name)) return value;
   return { ...value, operationOutcome: classifyMutationOutcome(name, args, value) };
 }

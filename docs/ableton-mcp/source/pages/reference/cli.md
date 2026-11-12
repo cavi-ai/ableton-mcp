@@ -46,6 +46,16 @@ Launch mode uses the configured app identity, Set file version and observed OS p
 
 The configured bridge socket is passed to a new app instance through Launch Services. Cold launch does not send the Set to an intervening existing process. If another instance appears concurrently, running-app identity remains unverified; inspect the apps before retrying. The tool waits for bridge readiness for up to 45 seconds, subject to individual request timeouts, and reports `opened:true` only when the requested Set path and configured running app are both observed. `launchRequested:true` alone is not success. A lost launch reply or failed process observation returns `startupStatus: "unverified"` with the launch request retained. Live may still be loading or waiting at a dialog. The tool does not close apps or dismiss dialogs. After successful opening, use `get_session_orientation` to understand the actual Set before editing.
 
+### Answer Live's crash-recovery prompt
+
+After Live quits unexpectedly, its next start waits at a prompt asking whether to recover the unsaved work, before the bridge loads. `answer_live_recovery_prompt` answers it without the bridge:
+
+```bash
+npm run cli -- call answer_live_recovery_prompt --args '{"answer":"No"}' --json
+```
+
+The plan reports the prompt's message, its Set name, and the running Live app and process. It requires exactly one running Live app, matching `ABLETON_MCP_LIVE_APP_PATH` when set. Execute the reviewed plan with the same `answer`, plus its token/hash and `dryRun:false`. `No` declines recovery; `Yes` asks Live to recover. The tool presses the button once and reports `dismissed:true` only after the prompt closes. It answers no other dialog. The full and directory tool profiles include it; the core profile does not.
+
 These host-side operations may need macOS Automation and Accessibility access for the terminal or MCP host. Live may display missing-media, version, or overwrite dialogs; these are not accepted automatically. `open_live_set` reports `opened:true` only after bridge readback identifies the requested path. `save_live_set` reports `saved:true` only after an on-disk change or a clean-state readback. If Live opens a dialog instead, `saved:false` means the save is not verified. An untitled Set requires an explicit Save As destination.
 
 When the bridge's dirty state is unavailable, an ordinary save of a named Set can also use Live's English File menu: Save Live Set is disabled while Save Live Set As remains enabled. This requires the sole configured Live process, its foreground main document URL matching the exact file, no modal or sheet, and matching bridge identity before and after observation. An explicit dirty state, missing permissions, unfamiliar menus, a different document or ambiguous UI provide no menu-based clean-state evidence. Normal file-write and bridge-clean verification remain available.

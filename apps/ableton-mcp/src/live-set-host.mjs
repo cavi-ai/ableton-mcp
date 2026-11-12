@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const saveDialogScript = fileURLToPath(new URL("./live-set-save-dialog.js", import.meta.url));
 const saveStateScript = fileURLToPath(new URL("./live-set-save-state.js", import.meta.url));
+const recoveryPromptScript = fileURLToPath(new URL("./live-recovery-prompt.js", import.meta.url));
 const execFileAsync = promisify(execFile);
 const scriptDirectorySuffix = "/Contents/App-Resources/MIDI Remote Scripts/CaviMcpBridge";
 const saveScript = `tell application "System Events"
@@ -91,6 +92,27 @@ export class MacLiveSetHost {
       running.push({ pid: Number(match[1]), path: executable });
     }
     return running;
+  }
+
+  // Live's crash-recovery prompt blocks startup before the bridge loads.
+  async recoveryPrompt({ answer, message, signal } = {}) {
+    this.#requireMac();
+    signal?.throwIfAborted();
+    const processes = await this.runningProcesses(), binary = "/Contents/MacOS/Live";
+    if (processes.length !== 1 || !processes[0].path.endsWith(`.app${binary}`))
+      throw new Error("Live's recovery prompt requires exactly one running Live app");
+    const appPath = processes[0].path.slice(0, -binary.length);
+    if (this.configuredAppPath && await realpath(this.configuredAppPath) !== appPath)
+      throw new Error("the running Live is not the configured ABLETON_MCP_LIVE_APP_PATH app");
+    const input = { pid: processes[0].pid, appPath, ...(answer === undefined ? {} : { answer, message }) };
+    try {
+      const result = await this.run("/usr/bin/osascript", ["-l", "JavaScript", recoveryPromptScript, JSON.stringify(input)],
+        { timeout: 20000, maxBuffer: 65536, signal });
+      return { pid: input.pid, appPath, ...JSON.parse(result.stdout) };
+    } catch (error) {
+      signal?.throwIfAborted();
+      throw new Error(`Live recovery prompt: ${String(error.stderr || error.message).trim().slice(0, 600)}`);
+    }
   }
 
   async saveAsDestination(path) {
