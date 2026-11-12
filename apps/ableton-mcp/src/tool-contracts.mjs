@@ -496,6 +496,10 @@ const contracts = {
   }), required: ["path"], anyOf: [{ required: ["expectedStateVersion", "expectedSetFingerprint"],
     properties: { expectedStateVersion: {}, expectedSetFingerprint: {} } },
     { required: ["mode"], properties: { mode: { const: "launch" } } }] } },
+  answer_live_recovery_prompt: { description: "Plan/answer Live's startup crash-recovery prompt on macOS; needs no bridge.", inputSchema: object({
+    answer: { type: "string", enum: ["No", "Yes"], description: "No declines recovery; Yes recovers." },
+    dryRun: confirmation.dryRun, confirmationToken: confirmation.confirmationToken, planHash: confirmation.planHash
+  }, ["answer"]) },
   save_live_set: { description: "Save macOS Set; verify write or clean state. Path: Save As without overwrite.", inputSchema: guarded({
     path: string("New absolute .als; parent must exist."),
     expectedSetFingerprint: string("Current setFingerprint.")

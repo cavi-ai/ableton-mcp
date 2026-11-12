@@ -753,6 +753,7 @@ export class ToolService {
 
     if (name === "duplicate_midi_clip_variations") return duplicateMidiClipVariations(this.bridge, this.confirmations, args);
     if (name === "open_live_set") return this.#openLiveSet(args);
+    if (name === "answer_live_recovery_prompt") return this.#answerLiveRecoveryPrompt(args);
     if (name === "save_live_set") return this.#saveLiveSet(args);
 
     if (name === "get_looper_export_context") return this.#readLooperExport(args);
@@ -3051,7 +3052,31 @@ export class ToolService {
     return { dryRun: false, requested: plan, launchRequested: true, opened, pendingUserAction: !opened,
       startupStatus: opened ? "opened" : "unverified", observed, running: after?.running ?? null,
       ...(observationError ? { observationError } : {}), ...(!opened ? { limitation:
-        "Launch was requested, but the configured app and requested Set are not both verified. Live may still be loading or displaying a dialog; inspect it before retrying. No app was closed or dialog dismissed." } : {}) };
+        "Launch was requested, but the configured app and requested Set are not both verified. Live may still be loading or displaying a dialog. Answer its crash-recovery prompt with answer_live_recovery_prompt; inspect any other dialog before retrying. No app was closed or dialog dismissed." } : {}) };
+  }
+
+  // Needs no bridge: the prompt blocks Live's startup before the Remote Script loads.
+  async #answerLiveRecoveryPrompt(args) {
+    const observe = async () => {
+      const observed = await this.liveSetHost.recoveryPrompt({ signal: requestSignal() });
+      if (!observed.prompt) throw new Error("Live is not showing its crash-recovery prompt");
+      return { method: "answer_live_recovery_prompt", answer: args.answer, pid: observed.pid, appPath: observed.appPath, prompt: observed.prompt };
+    };
+    const plan = await observe();
+    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan), warning: args.answer === "No"
+      ? "No declines recovery; Live continues starting without the unsaved work." : "Yes asks Live to recover the unsaved work." };
+    this.#consumeConfirmation(await observe(), args);
+    let result;
+    try { result = await this.liveSetHost.recoveryPrompt({ answer: args.answer, message: plan.prompt.message, signal: requestSignal() }); }
+    catch (error) {
+      requestSignal()?.throwIfAborted();
+      return { dryRun: false, requested: plan, answered: null, dismissed: false, observationError: String(error.message ?? error).slice(0, 600),
+        limitation: "The answer was not verified. Read the prompt again before answering; the error states whether a button was pressed." };
+    }
+    const dismissed = result.answered === args.answer && result.dismissed === true;
+    return { dryRun: false, requested: plan, answered: result.answered, dismissed,
+      ...(result.observationError ? { observationError: result.observationError } : {}),
+      ...(!dismissed ? { limitation: "The button was pressed once, but the prompt's closure was not observed. Read the prompt again before answering; it was not pressed twice." } : {}) };
   }
 
   async #saveLiveSet(args) {

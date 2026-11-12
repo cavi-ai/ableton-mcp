@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Save As opens and binds its panel with Live in the background, shows Live only to complete it, and closes a panel it opened but could not bind or complete.
+- Add `answer_live_recovery_prompt`, which answers Live's startup crash-recovery prompt without the bridge, and return a valid receipt from an executed `open_live_set` launch.
 - Add `mlx-agent` production specialists that run on the local model served by an mlx-agent gateway, with no remote consent or credentials required.
 - Publish `@cavi-ai/ableton-mcp` to npm from each GitHub release with trusted publishing and provenance.
 
