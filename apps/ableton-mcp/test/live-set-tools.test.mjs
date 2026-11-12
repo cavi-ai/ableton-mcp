@@ -309,3 +309,12 @@ test("Save As reports verified panel cancellation separately from an unverified 
   assert.equal(result.saveAsRecovery.status,"cancelled");assert.match(result.observationError,/Set changed/);
   assert.match(result.limitation,/fresh|re-read/i);
 });
+
+test("Save As that opened no panel leaves nothing for the user to dismiss",async()=>{
+  const f=saveAsFixture(),plan=await f.service.call("save_live_set",f.args);
+  f.host.saveAs=async()=>{throw Object.assign(Error("Live's window is not on the visible Space"),{
+    saveAsRecovery:{status:"not_opened",savePressed:false}});};
+  const result=await f.apply(plan);
+  assert.equal(result.saved,false);assert.equal(result.pendingUserAction,false);
+  assert.equal(result.saveAsRecovery.status,"not_opened");assert.match(result.limitation,/no panel/);
+});

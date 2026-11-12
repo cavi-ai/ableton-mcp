@@ -3139,10 +3139,12 @@ export class ToolService {
     }
     const saved = Boolean(observed && after?.path === destination.path && after.size > 0 && !observationError);
     return { dryRun: false, requested: plan, saveAsRequested: true, saved,
-      pendingUserAction: !saved && saveAsRecovery?.status !== "cancelled", observed, after,
+      pendingUserAction: !saved && !["cancelled", "not_opened"].includes(saveAsRecovery?.status), observed, after,
       ...(saveAsRecovery ? { saveAsRecovery } : {}),
       ...(observationError ? { observationError } : {}), ...(!saved ? { limitation:
-        saveAsRecovery?.status === "cancelled"
+        saveAsRecovery?.status === "not_opened"
+          ? "Save As opened no panel because Live's window could not be brought onto the visible desktop. Re-read the current Set, then make a fresh plan."
+          : saveAsRecovery?.status === "cancelled"
           ? "Save As stopped before Save and closed its prepared panel. Re-read the current Set and destination, then make a fresh plan."
           : "Save As was requested but the new file and loaded Set path are not both verified. Inspect Live and the destination before retrying. No overwrite or unexpected dialog was accepted." } : {}) };
   }

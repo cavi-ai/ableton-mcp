@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const saveDialogScript = fileURLToPath(new URL("./live-set-save-dialog.js", import.meta.url));
 const saveStateScript = fileURLToPath(new URL("./live-set-save-state.js", import.meta.url));
+const focusScript = fileURLToPath(new URL("./live-app-focus.js", import.meta.url));
 const execFileAsync = promisify(execFile);
 const scriptDirectorySuffix = "/Contents/App-Resources/MIDI Remote Scripts/CaviMcpBridge";
 const saveScript = `tell application "System Events"
@@ -150,7 +151,22 @@ export class MacLiveSetHost {
         throw new Error(`Live Save As dialog: ${String(error.stderr || error.message).trim().slice(0, 600)}`);
       }
     };
+    // Native input needs Live on the visible desktop, as in the other native dialog flows.
+    const focus = async windowId => {
+      const result = await this.run("/usr/bin/osascript", ["-l", "JavaScript", focusScript,
+        JSON.stringify({ pid: input.pid, appPath: canonicalApp, ...(windowId ? { windowId } : {}) })], { timeout: 10000, maxBuffer: 65536, signal });
+      if (JSON.parse(result.stdout).focused !== true) throw new Error("Live did not become visible");
+    };
+    try { await focus(); }
+    catch (error) {
+      signal?.throwIfAborted();
+      throw Object.assign(new Error(`Live Save As focus: ${String(error.stderr || error.message).trim().slice(0, 600)}`),
+        { saveAsRecovery: { status: "not_opened", savePressed: false } });
+    }
     const prepared = await dialog("prepare");
+    if (prepared.prepared === false && ["not_opened", "cancelled"].includes(prepared.recovery?.status) && prepared.recovery.savePressed === false)
+      throw Object.assign(new Error(`Live Save As dialog: ${String(prepared.error).slice(0, 600)}`),
+        { saveAsRecovery: { status: prepared.recovery.status, savePressed: false } });
     if (prepared.prepared !== true || !Number.isInteger(prepared.windowId) || prepared.windowId < 1 || prepared.purpose !== "Save Live Set As:" ||
         typeof prepared.panelState?.name !== "string" || typeof prepared.panelState?.folder !== "string")
       throw new Error("Save As preparation did not identify its native window");
@@ -158,6 +174,7 @@ export class MacLiveSetHost {
     try {
       await beforeSave();
       signal?.throwIfAborted();
+      await focus(prepared.windowId);
     } catch (error) {
       try {
         // Cancellation ends only this prepared panel; it must still run after

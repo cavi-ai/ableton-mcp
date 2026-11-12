@@ -7,9 +7,12 @@ const source = readFileSync(new URL("../src/live-set-save-dialog.js", import.met
 
 function dialog({ windowId = 123, purpose = "Save Live Set As:", frontmost = true, bundle = "com.ableton.live",
   filename = "Original.als", directory = "/tmp/work", folderUnavailable = false, retainedClosedWindow = false,
-  unexpectedSheet = false, saveEnabled = true, windowOrderChanges = false, staleRole = false } = {}) {
-  const keys = [], saves = [];
-  let visible = true;
+  unexpectedSheet = false, saveEnabled = true, windowOrderChanges = false, staleRole = false,
+  panelOpen = true, liveOnscreen = true, panelOnscreen = true, offSpaceAfterOpen = false, hiddenWindows = false } = {}) {
+  const keys = [], saves = [], menuPresses = [];
+  // offSpaceAfterOpen: Live leaves the visible Space once its new panel has been seen.
+  let visible = panelOpen, panelSeen = false;
+  const listed = () => visible && !hiddenWindows && !(offSpaceAfterOpen && panelSeen);
   const element = (role, id, value, children = []) => {
     const attributes = { AXIdentifier: id, AXMain: true, AXModal: true, AXFocused: false };
     const result = { name: () => "Save", role: () => role, uiElements: () => children, position: () => [10,20], size: () => [800,400],
@@ -32,8 +35,11 @@ function dialog({ windowId = 123, purpose = "Save Live Set As:", frontmost = tru
   let navigating = false;
   panel.sheets = () => unexpectedSheet ? [element("AXSheet", "Replace", "")] : navigating ? [sheet] : [];
   const indexedPanel=new Proxy(panel,{get(target,key){if(windowOrderChanges&&navigating)throw Error("Window index changed");return target[key];}});
-  const windows=Object.assign(()=>visible?[indexedPanel]:[],{byName:()=>panel});
-  const process = { bundleIdentifier: () => bundle, frontmost: () => frontmost, windows };
+  const windows=Object.assign(()=>{if(!listed())return [];panelSeen=true;return [indexedPanel];},{byName:()=>panel});
+  const saveAsItem = { exists: () => true, enabled: () => true,
+    actions: { byName: () => ({ perform: () => { menuPresses.push("Save Live Set As...");visible = true; } }) } };
+  const menuBars = () => [{ menuBarItems: { byName: () => ({ menus: () => [{ menuItems: { byName: () => saveAsItem } }] }) } }];
+  const process = { bundleIdentifier: () => bundle, frontmost: () => frontmost && !(offSpaceAfterOpen && panelSeen), windows, menuBars };
   const events = { applicationProcesses: { whose: () => () => [process] },
     keystroke: key => { keys.push(key);navigating = true; }, keyCode: key => { keys.push(key);navigating = false; } };
   const array = items => ({ count: items.length, objectAtIndex: index => items[index] });
@@ -52,7 +58,8 @@ function dialog({ windowId = 123, purpose = "Save Live Set As:", frontmost = tru
     Object.defineProperty(node,"AXSheets",{get:()=>array(element.sheets().map(asNative))});
     node.perform=action=>element.actions.byName(action).perform();return node;
   }
-  const nativePanel=asNative(panel),nativeApp={get AXWindows(){return array(visible?[nativePanel]:[]);}};
+  const nativePanel=asNative(panel),nativeApp={get AXWindows(){return array(listed()?[nativePanel]:[]);},
+    get AXFocusedWindow(){return visible?nativePanel:{AXModal:false,AXSubrole:"AXStandardWindow"};}};
   const native = Object.assign(value => value, {
     NSRunningApplication: { runningApplicationWithProcessIdentifier: () => ({ activateWithOptions() {} }) },
     AXUIElementCreateApplication: () => nativeApp,
@@ -65,15 +72,17 @@ function dialog({ windowId = 123, purpose = "Save Live Set As:", frontmost = tru
     AXUIElementPerformAction:(element,action)=>{element.perform(action);return 0;},
     CFEqual:(a,b)=>a===b,
     CGWindowListCopyWindowInfo: option => [
-      ...(visible ? [{ kCGWindowOwnerPID: 42, kCGWindowNumber: windowId, kCGWindowName:"Save", kCGWindowIsOnscreen: true,
-        kCGWindowBounds: { X: 10, Y: 20, Width: 800, Height: 400 } }] : []),
+      ...(liveOnscreen || option === 0 ? [{ kCGWindowOwnerPID: 42, kCGWindowNumber: 7, kCGWindowLayer: 0, kCGWindowName: "Untitled",
+        kCGWindowIsOnscreen: liveOnscreen, kCGWindowBounds: { X: 0, Y: 0, Width: 1600, Height: 1000 } }] : []),
+      ...(visible && (panelOnscreen || option === 0) ? [{ kCGWindowOwnerPID: 42, kCGWindowNumber: windowId, kCGWindowName:"Save",
+        kCGWindowIsOnscreen: panelOnscreen, kCGWindowBounds: { X: 10, Y: 20, Width: 800, Height: 400 } }] : []),
       ...(retainedClosedWindow && option === 0 ? [{ kCGWindowOwnerPID: 42, kCGWindowNumber: 122, kCGWindowName:"Save",
         kCGWindowBounds: { X: 10, Y: 20, Width: 800, Height: 400 } }] : [])] });
   const run = vm.runInNewContext(`${source}\nrun`, { Application: () => events, Ref: () => [],
     ObjC: { import() {}, unwrap: value => value, deepUnwrap: value => value, castRefToObject: value => value },
     $: native, delay() {} });
   return { execute: (action,overrides={}) => run([JSON.stringify({ pid: 42, action, windowId: 123, purpose: "Save Live Set As:",
-    panelState: {name:"Original.als",folder:"/tmp/work"},parent: "/tmp/work", name: "Working.als",...overrides })]), keys, saves };
+    panelState: {name:"Original.als",folder:"/tmp/work"},parent: "/tmp/work", name: "Working.als",...overrides })]), keys, saves, menuPresses };
 }
 
 test("Save As refuses a replacement window, other Save purpose, wrong app or lost focus before input", () => {
@@ -88,6 +97,38 @@ test("Save As refuses a preexisting modal and never accepts Replace", () => {
   const native = dialog();
   assert.throws(() => native.execute("prepare"), /existing Live dialog/);
   assert.deepEqual(native.keys, []);assert.deepEqual(native.saves, []);
+});
+
+test("Save As opens no panel while Live's window is off the visible Space", () => {
+  const native = dialog({ panelOpen: false, liveOnscreen: false });
+  const result = JSON.parse(native.execute("prepare"));
+  assert.equal(result.prepared, false);assert.match(result.error, /visible Space/);
+  assert.deepEqual(result.recovery, { status: "not_opened", savePressed: false });
+  assert.deepEqual(native.menuPresses, []);assert.deepEqual(native.keys, []);assert.deepEqual(native.saves, []);
+});
+
+test("Save As closes its own panel through Live's focused window after Live leaves the visible Space", () => {
+  const native = dialog({ panelOpen: false, offSpaceAfterOpen: true });
+  const result = JSON.parse(native.execute("prepare"));
+  assert.equal(result.prepared, false);assert.match(result.error, /not frontmost/);
+  assert.deepEqual(result.recovery, { status: "cancelled", savePressed: false });
+  assert.deepEqual(native.menuPresses, ["Save Live Set As..."]);assert.deepEqual(native.saves, ["CancelButton"]);
+  assert.deepEqual(native.keys, []);
+});
+
+test("Save As refuses a Live dialog that only Live's focused window exposes", () => {
+  const native = dialog({ hiddenWindows: true });
+  assert.throws(() => native.execute("prepare"), /existing Live dialog/);
+  assert.deepEqual(native.menuPresses, []);assert.deepEqual(native.saves, []);
+});
+
+test("Save As closes the panel it opened when that panel cannot be bound", () => {
+  const native = dialog({ panelOpen: false, panelOnscreen: false });
+  const result = JSON.parse(native.execute("prepare"));
+  assert.equal(result.prepared, false);assert.match(result.error, /identity/);
+  assert.deepEqual(result.recovery, { status: "cancelled", savePressed: false });
+  assert.deepEqual(native.menuPresses, ["Save Live Set As..."]);assert.deepEqual(native.saves, ["CancelButton"]);
+  assert.deepEqual(native.keys, []);
 });
 
 test("audio export binds its exact Save purpose and window before preparing the requested directory",()=>{

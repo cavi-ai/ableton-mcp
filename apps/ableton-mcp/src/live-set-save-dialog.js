@@ -42,11 +42,23 @@ function run(argv) {
     return wrapped;
   }
   function nativeWindows() { return nativeItems(nativeRead($.AXUIElementCreateApplication(input.pid), "AXWindows")); }
+  // Off the visible Space, System Events and AXWindows omit Live's windows; its focused window stays readable.
+  function focusedDialog() {
+    var focused = nativeRead($.AXUIElementCreateApplication(input.pid), "AXFocusedWindow");
+    return focused && (ObjC.unwrap(nativeRead(focused, "AXModal")) === true || ObjC.unwrap(nativeRead(focused, "AXSubrole")) === "AXDialog") ? focused : null;
+  }
+  function focusedSavePanel() {
+    var focused = focusedDialog();
+    return focused && ObjC.unwrap(nativeRead(focused, "AXIdentifier")) === "save-panel" ? nativeElement(focused) : null;
+  }
   function attribute(element, key) {
     try { return element.attributes.byName(key).value(); } catch (error) { return null; }
   }
   function foreground() {
-    if (!process.frontmost()) throw Error("Live is not frontmost; no key was sent");
+    if (process.frontmost()) return;
+    var front = "another app";
+    try { front = ObjC.unwrap($.NSWorkspace.sharedWorkspace.frontmostApplication.bundleIdentifier) || front; } catch (error) { /* Keep the refusal. */ }
+    throw Error("Live is not frontmost (" + front + " is); no key was sent");
   }
   function waitFor(read, message, background) {
     for (var i = 0; i < 40; i++) {
@@ -232,18 +244,40 @@ function run(argv) {
     foreground();
     if (process.windows().some(function (window) {
       return attribute(window, "AXModal") === true || window.sheets().length > 0;
-    })) throw Error("Dismiss the existing Live dialog before Save As");
+    }) || focusedDialog()) throw Error("Dismiss the existing Live dialog before Save As");
+    // The panel opens on Live's Space and is bound only while onscreen.
+    var onscreen = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1, 0))).filter(function (item) {
+      return item.kCGWindowOwnerPID === input.pid && item.kCGWindowLayer === 0;
+    });
+    if (!onscreen.length) return JSON.stringify({ prepared: false,
+      error: "Live's window is not on the visible Space; no Save As panel was opened",
+      recovery: { status: "not_opened", savePressed: false } });
     var menu = process.menuBars()[0].menuBarItems.byName("File").menus()[0].menuItems.byName("Save Live Set As...");
     if (!menu.exists() || !menu.enabled()) throw Error("Live Set Save As menu is unavailable (requires English Live)");
     menu.actions.byName("AXPress").perform();
-    var save = waitFor(function () {
-      return process.windows().some(function (window) { return attribute(window, "AXIdentifier") === "save-panel"; });
-    }, "Save As panel did not appear");
-    save = panel();focusPanel(save);
-    var windowId = waitFor(function () {
-      try { return windowIdentity(save); } catch (error) { return null; }
-    }, "Native Save window identity is unavailable or ambiguous");
-    return JSON.stringify({ prepared: true, windowId: windowId, purpose: purpose(save), panelState: panelState(save) });
+    var save;
+    try {
+      waitFor(function () {
+        return process.windows().some(function (window) { return attribute(window, "AXIdentifier") === "save-panel"; });
+      }, "Save As panel did not appear");
+      save = panel();focusPanel(save);
+      var windowId = waitFor(function () {
+        try { return windowIdentity(save); } catch (error) { return null; }
+      }, "Native Save window identity is unavailable or ambiguous");
+      return JSON.stringify({ prepared: true, windowId: windowId, purpose: purpose(save), panelState: panelState(save) });
+    } catch (error) {
+      // No dialog was open before the menu press, so a Save panel open now belongs to this request.
+      var own = waitFor(function () {
+        try { return panel(true); } catch (missing) { try { return focusedSavePanel(); } catch (busy) { return null; } }
+      }, "Save As panel is not observable and may still be open", true);
+      find(own, "CancelButton", "AXButton").actions.byName("AXPress").perform();
+      waitFor(function () {
+        try {
+          return !process.windows().some(function (window) { return attribute(window, "AXIdentifier") === "save-panel"; }) && !focusedSavePanel();
+        } catch (busy) { return false; }
+      }, "Save As panel closure is unverified", true);
+      return JSON.stringify({ prepared: false, error: error.message, recovery: { status: "cancelled", savePressed: false } });
+    }
   }
   if (input.action !== "commit") throw Error("Unknown Save As action");
   var ownedState = input.panelState, ownedFolderPath = null, saveAttempted = false;
