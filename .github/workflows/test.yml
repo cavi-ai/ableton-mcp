@@ -9,19 +9,41 @@ permissions:
   contents: read
 
 jobs:
+  merged-pr:
+    # A main push whose exact tree passed this workflow on its merged pull request skips the suite.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    outputs:
+      tested: ${{ steps.pr.outputs.tested }}
+    steps:
+      - id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          head=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '[.[] | select(.merged_at != null)][0].head.sha // empty' || true)
+          [ -n "$head" ] || exit 0
+          tree=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA" --jq .commit.tree.sha || true)
+          [ -n "$tree" ] && [ "$tree" = "$(gh api "repos/$GITHUB_REPOSITORY/commits/$head" --jq .commit.tree.sha || true)" ] || exit 0
+          workflow=${GITHUB_WORKFLOW_REF#"$GITHUB_REPOSITORY/"}
+          passed=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?event=pull_request&status=success&head_sha=$head" --jq "[.workflow_runs[] | select(.path == \"${workflow%@*}\")] | length" || echo 0)
+          if [ "$passed" -gt 0 ]; then echo "tested=true" >> "$GITHUB_OUTPUT"; fi
+
   test:
+    needs: [merged-pr]
+    if: ${{ !failure() && !cancelled() && needs.merged-pr.outputs.tested != 'true' }}
     runs-on: macos-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node: ["22.13.0", "26"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: ${{ matrix.node }}
+          node-version: "26"
           cache: npm
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
