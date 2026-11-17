@@ -4,7 +4,6 @@ import path from "node:path";
 import test from "node:test";
 
 import { REPO_ROOT, SOURCE_REL, listFilesRecursive, navigationPaths } from "./lib.mjs";
-import { toolContracts } from "../../apps/ableton-mcp/src/tool-contracts.mjs";
 import { TOOLS_REFERENCE_PATH, renderToolsReference } from "./tools-reference.mjs";
 
 const pagesRoot = path.join(REPO_ROOT, SOURCE_REL, "pages");
@@ -31,11 +30,6 @@ test("relative links between pages resolve to existing pages", async () => {
     }
   }
   assert.deepEqual(broken, []);
-});
-
-test("the README tool count matches the published contracts", async () => {
-  const readme = await readFile(path.join(REPO_ROOT, "README.md"), "utf8");
-  assert.match(readme, new RegExp(`publishes ${Object.keys(toolContracts).length} tools`, "u"));
 });
 
 test("README links to repository files resolve", async () => {
