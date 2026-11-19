@@ -1,8 +1,10 @@
 # Ableton MCP
 
-[![npm version](https://img.shields.io/npm/v/@cavi-ai/ableton-mcp)](https://www.npmjs.com/package/@cavi-ai/ableton-mcp) [![npm weekly downloads](https://img.shields.io/npm/dw/@cavi-ai/ableton-mcp?label=npm%20downloads%2Fweek)](https://www.npmjs.com/package/@cavi-ai/ableton-mcp) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+**Make it. Make it yours.**
 
 ![Make it. Make it yours. A rabbit producer and octopus co-producer debate a very large cowbell.](assets/ableton-mcp-hero.png)
+
+[![npm version](https://img.shields.io/npm/v/@cavi-ai/ableton-mcp)](https://www.npmjs.com/package/@cavi-ai/ableton-mcp) [![npm weekly downloads](https://img.shields.io/npm/dw/@cavi-ai/ableton-mcp?label=npm%20downloads%2Fweek)](https://www.npmjs.com/package/@cavi-ai/ableton-mcp) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Work with an AI assistant on the music in your Ableton Live Set. Start from a brief or bring a track you’re already making. Develop the parts, change the sound, reshape the arrangement and keep refining it together.
 
