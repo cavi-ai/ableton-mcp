@@ -1,3 +1,4 @@
+import Ajv from "ajv";
 import { toolContracts } from "./tool-contracts.mjs";
 import { producerToolContracts } from "./producer-contracts.mjs";
 import { rankNamedMetadata } from "./workflow-search.mjs";
@@ -53,12 +54,15 @@ function rankedNames(query, kind) {
   catch (error) { if (/needs searchable words/.test(error.message)) return []; throw error; }
 }
 
+export const discoveryArguments = { type: "object", properties: { query: { type: "string", minLength: 2, maxLength: 120 },
+  kind: { type: "string", enum: ["read", "operation"] }, offset: { type: "integer", minimum: 0, maximum: 10000 } },
+  required: ["query", "kind"], additionalProperties: false };
+const validDiscovery = new Ajv({ strict: true }).compile(discoveryArguments);
+
 export function discoverProductionTools(args, role) {
-  if (!args || typeof args !== "object" || Array.isArray(args) ||
-      Object.keys(args).some(key => !["query", "kind", "offset"].includes(key)) ||
-      typeof args.query !== "string" || args.query.trim().length < 2 || args.query.length > 120 ||
-      !["read", "operation"].includes(args.kind) ||
-      (args.offset !== undefined && (!Number.isInteger(args.offset) || args.offset < 0 || args.offset > 10000)))
+  const { minLength, maxLength } = discoveryArguments.properties.query;
+  // JSON Schema string lengths count code points; the coordinator bounds UTF-16 length and ignores surrounding spaces.
+  if (!validDiscovery(args) || args.query.trim().length < minLength || args.query.length > maxLength)
     throw new Error("invalid tool discovery arguments");
   if (role === "creative" && args.kind !== "read") throw new Error("creative operation discovery is not allowed");
   const matches = rankedNames(args.query, args.kind);
