@@ -63,9 +63,14 @@ export const pendingExecution = (execution, index, attemptRef) => ({ phase: "exe
   execution: recordExecution(execution, index, { status: "execution_pending", attemptRef }) });
 
 // An operation is applied only when its receipt says so and Live still matches that receipt.
+const failureText = value => {
+  const message = typeof value === "string" ? value : value?.message;
+  return message || (value == null ? "" : String(value)) || "failed";
+};
+
 export function operationTransition({ execution, index, operationCount, checkedCompletion, operation, error, observationError }) {
-  const outcome = error ? { status: "outcome_unknown", error: error.message }
-    : observationError ? { ...operation, status: "outcome_unknown", observationError } : operation;
+  const outcome = error ? { status: "outcome_unknown", error: failureText(error) }
+    : observationError !== undefined ? { ...operation, status: "outcome_unknown", observationError: failureText(observationError) } : operation;
   const applied = outcome.status === "applied";
   return { operation: outcome, applied, status: outcome.status,
     phase: applied ? (index + 1 < operationCount ? "apply" : finishedOperationsPhase(checkedCompletion)) : "needs_inspection",

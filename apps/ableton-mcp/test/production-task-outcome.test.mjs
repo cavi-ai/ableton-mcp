@@ -48,7 +48,10 @@ test("a lost write stays unknown in its receipt, ledger and resumed session", ()
   const resumed = resumeRecovery({ phase: pending.phase, changed: false, execution: pending.execution, operationIndex: 1 });
   assert.equal(resumed.phase, "needs_inspection"); assert.equal(resumed.status, "requires_recovery");
   assert.deepEqual(resumed.execution.operations[1], { index: 1, tool: "set_tempo", status: "outcome_unknown", attemptRef: "attempt" });
-  for (const facts of [{ error: new Error("connection lost") }, { operation: { status: "applied", receiptId: "r" }, observationError: "Live changed" }]) {
+  for (const facts of [{ error: new Error("connection lost") }, { error: new Error("") },
+    { operation: { status: "applied", receiptId: "r" }, observationError: "Live changed" },
+    { operation: { status: "applied", receiptId: "r" }, observationError: "" },
+    { operation: { status: "applied", receiptId: "r" }, observationError: new Error("") }]) {
     const next = operationTransition({ execution: pending.execution, index: 1, operationCount: 2, checkedCompletion: true, ...facts });
     assert.equal(next.status, "outcome_unknown"); assert.equal(next.phase, "needs_inspection"); assert.equal(next.applied, false);
     assert.equal(next.execution.operations[1].status, "outcome_unknown");

@@ -190,7 +190,7 @@ export class ProductionSessions {
         observed = await observe();
         if (!sameState(observed, operation)) throw new Error("Live changed after the operation receipt; resume before continuing");
       }
-      catch (caught) { observationError = caught.message; }
+      catch (caught) { observationError = caught; }
     }
     const next = operationTransition({ execution: s.execution, index: s.operationIndex, operationCount: task.operations.length,
       checkedCompletion, operation, error, observationError });
