@@ -48,7 +48,7 @@ test('uncertain command outcomes preserve actual native status and are never rep
  const f=fixture();f.host.commit=async()=>{f.grouped=true;throw Object.assign(Error('reply lost'),{groupRequested:null});};const p=await f.service.call('group_tracks',args),r=await confirmed(f,p);assert.equal(r.groupRequested,null);assert.equal(r.groupVerified,false);assert.equal(r.observed.groupVerified,true);assert.equal(f.counts.cancels,0);assert.equal((await f.service.call('get_track_grouping_status',{groupingId:'handle'})).groupVerified,true);
 });
 test('incomplete verification cannot claim native grouping success',async()=>{
- for(const corrupt of [r=>delete r.group,r=>r.group=null,r=>delete r.members,r=>r.members={}]){
+ for(const corrupt of [r=>delete r.group,r=>r.group=null,r=>delete r.members,r=>r.members={},r=>r.members[0]=null]){
  const f=fixture(),original=f.bridge.request;f.bridge.request=async(...a)=>{const r=await original(...a);if(a[0]==='get_track_grouping_status'&&r.groupVerified)corrupt(r);return r;};const p=await f.service.call('group_tracks',args),r=await confirmed(f,p);assert.equal(r.groupVerified,false);assert.equal(r.observed.inspectionRequired,true);assert.equal(r.observed.bridgeReportedGroupVerified,true);
  }
 });

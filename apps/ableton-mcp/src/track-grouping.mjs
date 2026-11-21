@@ -8,8 +8,9 @@ import {MacLiveSetHost} from './live-set-host.mjs';
 const execute=promisify(execFile),script=fileURLToPath(new URL('./live-track-grouping.js',import.meta.url)),focusScript=fileURLToPath(new URL('./live-app-focus.js',import.meta.url));
 const trackId=/^track-(0|[1-9][0-9]*)$/;
 function validIds(ids){return Array.isArray(ids)&&ids.length>=2&&ids.length<=64&&ids.every((id,i)=>typeof id==='string'&&trackId.test(id)&&(i===0||Number(id.slice(6))===Number(ids[i-1].slice(6))+1));}
+function memberRecords(members){return Array.isArray(members)&&members.every(member=>member!==null&&typeof member==='object');}
 function checkedStatus(observed,groupingId){
- const intact=observed?.groupingId===groupingId&&(observed.groupVerified!==true||observed.group!==null&&typeof observed.group==='object'&&Array.isArray(observed.members));
+ const intact=observed?.groupingId===groupingId&&(observed.groupVerified!==true||observed.group!==null&&typeof observed.group==='object'&&memberRecords(observed.members));
  if(!intact)return {...observed,bridgeReportedGroupVerified:observed?.groupVerified,groupVerified:false,inspectionRequired:true,verificationError:'Incomplete native grouping receipt; inspect current tracks and retained handle'};
  return observed;
 }
@@ -35,7 +36,7 @@ export async function groupTracks(bridge,confirmations,host,args){
  try{observed=await getTrackGroupingStatus(bridge,{groupingId:before.groupingId});}catch(failure){error??=failure;}
  const requested=error?error.groupRequested??ui?.groupRequested??null:ui?.groupRequested??null;
  const verified=!error&&ui?.groupRequested===true&&ui.popupClosed===true&&ui.uiIdle===true&&observed?.groupVerified===true&&observed.stateVersion===before.stateVersion+1&&
-  observed.members.length===args.trackIds.length&&observed.members.every((m,i)=>m.sourceTrackId===args.trackIds[i]);
+  observed.members?.length===args.trackIds.length&&observed.members.every((m,i)=>m?.sourceTrackId===args.trackIds[i]);
  return {dryRun:false,requested:plan,groupingId:before.groupingId,groupRequested:requested,groupVerified:verified,observed:observed??null,ui,dialogCleanup:cleanup,
   pendingUserAction:!verified&&(requested!==false||!!prepared&&cleanup?.cancelled!==true||error?.requiresInspection===true&&!prepared),
   ...(!verified?{verificationError:error?.message??observed?.verificationError??'Native grouping postconditions did not verify; inspect retained handle'}:{})};
@@ -55,7 +56,7 @@ export class MacTrackGroupingHost{
 }
 
 function checkedUngroupStatus(observed,ungroupingId){
- const intact=observed?.ungroupingId===ungroupingId&&(observed.ungroupVerified!==true||typeof observed.removedGroupId==='string'&&Array.isArray(observed.members));
+ const intact=observed?.ungroupingId===ungroupingId&&(observed.ungroupVerified!==true||typeof observed.removedGroupId==='string'&&memberRecords(observed.members));
  if(!intact)return {...observed,bridgeReportedUngroupVerified:observed?.ungroupVerified,ungroupVerified:false,inspectionRequired:true,verificationError:'Incomplete native ungrouping receipt; inspect current tracks and retained handle'};
  return observed;
 }
@@ -92,7 +93,7 @@ export async function ungroupTracks(bridge,confirmations,host,args){
  try{observed=await getTrackUngroupingStatus(bridge,{ungroupingId:before.ungroupingId});}catch(failure){error??=failure;}
  const requested=error?error.groupRequested??ui?.groupRequested??null:ui?.groupRequested??null;
  const verified=!error&&ui?.groupRequested===true&&ui.popupClosed===true&&ui.uiIdle===true&&observed?.ungroupVerified===true&&observed.removedGroupId===args.groupTrackId&&observed.stateVersion===before.stateVersion+1&&
-  observed.members.length===before.members.length&&observed.members.every((m,i)=>m.sourceTrackId===before.members[i].sourceTrackId);
+  observed.members?.length===before.members.length&&observed.members.every((m,i)=>m?.sourceTrackId===before.members[i]?.sourceTrackId);
  const publicUi=ui?{ungroupRequested:ui.groupRequested,popupClosed:ui.popupClosed,uiIdle:ui.uiIdle}:undefined;
  return {dryRun:false,requested:plan,ungroupingId:before.ungroupingId,ungroupRequested:requested,ungroupVerified:verified,observed:observed??null,ui:publicUi,dialogCleanup:cleanup,
   pendingUserAction:!verified&&(requested!==false||!!prepared&&cleanup?.cancelled!==true||error?.requiresInspection===true&&!prepared),

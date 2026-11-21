@@ -41,6 +41,10 @@ test('an incomplete bridge write passes through unchanged',async()=>{
  const f=fixture(),original=f.bridge.request;let receipt;f.bridge.request=async(...a)=>{const r=await original(...a);if(a[0]==='set_live_object_colors'){r.writeCompleted=false;r.inspectionRequired=true;r.objects.pop();receipt=structuredClone(r);}return r;};
  const p=await f.service.call('set_live_object_colors',args),r=await f.service.call('set_live_object_colors',{...args,dryRun:false,confirmationToken:p.confirmation.token,planHash:p.confirmation.planHash});assert.deepEqual(r.observed,receipt);
 });
+test('an honest failed color write keeps the bridge verdict',async()=>{
+ const f=fixture(),original=f.bridge.request;let receipt;f.bridge.request=async(...a)=>{const r=await original(...a);if(a[0]==='set_live_object_colors'){r.writeCompleted=false;r.identityRetained=false;r.selectionUnchanged=false;r.inspectionRequired=true;receipt=structuredClone(r);}return r;};
+ const p=await f.service.call('set_live_object_colors',args),r=await f.service.call('set_live_object_colors',{...args,dryRun:false,confirmationToken:p.confirmation.token,planHash:p.confirmation.planHash});assert.deepEqual(r.observed,receipt);
+});
 test('organization workflow resolves explicit roles and preserves manually chosen content and focus',()=>{
  assert.throws(()=>getPrompt('organize-session'),/required/);
  const text=getPrompt('organize-session',{request:'Make the named bass track blue'}).messages[0].content.text;

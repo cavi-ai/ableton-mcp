@@ -53,7 +53,7 @@ test('incomplete member receipts, wrong identities or version advances never ver
  }
 });
 test('a verified Ungroup receipt missing members or the removed Group requires inspection',async()=>{
- for(const corrupt of [r=>delete r.members,r=>delete r.removedGroupId]){
+ for(const corrupt of [r=>delete r.members,r=>delete r.removedGroupId,r=>r.members[0]=null]){
   const f=fixture(),request=f.bridge.request;f.bridge.request=async(...a)=>{const r=await request(...a);if(a[0]==='get_track_ungrouping_status'&&r.ungroupVerified)corrupt(r);return r;};
   const p=await f.service.call('ungroup_tracks',args),r=await execute(f,p);assert.equal(r.ungroupVerified,false);assert.equal(r.observed.inspectionRequired,true);assert.equal(r.observed.bridgeReportedUngroupVerified,true);
  }
