@@ -7,6 +7,7 @@ import {isAbsolute,dirname,basename,join} from "node:path";
 import {fileURLToPath} from "node:url";
 import {setTimeout as pause} from "node:timers/promises";
 import {hashPlan} from "./confirmation-store.mjs";
+import {beginGuardedWrite} from "./guarded-write.mjs";
 import {requestSignal} from "./request-context.mjs";
 import {MacLiveSetHost} from "./live-set-host.mjs";
 
@@ -71,9 +72,7 @@ async function exportAudio(bridge,confirmations,host,args,trackMode){
   const appPath=host.appPathFor(before),destination=await host.destination(args.path);
   const plan={method:trackMode?'export_audio_track':"export_audio_mix",appPath,settings,destination,before,
     warning:(trackMode?`Exports the selected native track output as stereo WAV without solo or mute changes. Include Return and Main Effects: ${settings.includeReturnMainEffects}. Group output can overlap child exports; effects-inclusive files need not sum to the mix. `:"Exports Main as stereo WAV through Live's native dialog. Includes current Session overrides and Main processing. ")+"Current Session overrides and mute/solo state apply. Export preferences are updated. Note, device and automation contents are not bound; the mix controls and document are rechecked. No normalization, loop rendering, MP3, video or analysis file is requested. Existing files are never overwritten."};
-  if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan)};
-  if(args.planHash!==hashPlan(plan))throw Error("confirmation plan hash mismatch: export context changed");
-  confirmations.consume(args.confirmationToken,args.planHash);
+  const reply=beginGuardedWrite(confirmations,plan,args,{mismatch:"confirmation plan hash mismatch: export context changed"});if(reply)return reply;
   const recheck=async()=>{
     requestSignal()?.throwIfAborted();
     if(hashPlan(await readSource())!==hashPlan(before))throw Error("audio export context changed before render");

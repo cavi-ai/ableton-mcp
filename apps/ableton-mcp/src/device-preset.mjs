@@ -8,6 +8,7 @@ import {homedir} from 'node:os';
 import {fileURLToPath} from 'node:url';
 import {XMLParser,XMLValidator} from 'fast-xml-parser';
 import {hashPlan} from './confirmation-store.mjs';
+import {beginGuardedWrite} from './guarded-write.mjs';
 import {requestSignal} from './request-context.mjs';
 import {MacLiveSetHost} from './live-set-host.mjs';
 
@@ -79,8 +80,7 @@ export async function saveNativeDevicePreset(bridge,confirmations,host,args){
   if(!isAbsolute(before.filePath??'')||!before.identityToken)throw Error('preset saving requires a saved Set and updated bridge');
   const destination=await host.destination(before,name,{signal:requestSignal()}),plan={method:'save_native_device_preset',before,destination,name,
     warning:'Sets the intended preset name on the native device and changes selection/focus before Save Preset. Live may rename the source; partial preparation can leave that naming change even if saving fails. Creates a new preset in native User Library save locations; existing names refuse and overwrite prompts are never accepted. Saving can copy samples according to Live preferences. Audio Unit artifact verification is unavailable. Does not save the Set, start playback, prove recall or audible equivalence, or certify opaque plug-in/sample dependencies. Unknown saves are never replayed, undone or deleted automatically.'};
-  if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan)};
-  if(args.planHash!==hashPlan(plan))throw Error('preset confirmation context changed');confirmations.consume(args.confirmationToken,args.planHash);
+  const reply=beginGuardedWrite(confirmations,plan,args,{mismatch:'preset confirmation context changed'});if(reply)return reply;
   let working=before,after,ui,artifact,error,selectionRequested=false,saveDispatched=false;
   const unchanged=async expected=>{try{requestSignal()?.throwIfAborted();if(hashPlan(await read())!==hashPlan(expected)||hashPlan(await host.destination(expected,name,{signal:requestSignal()}))!==hashPlan(destination))throw Error('preset source or destination changed before Save');}catch(failure){throw Object.assign(failure,{saveRequested:false});}};
   try{

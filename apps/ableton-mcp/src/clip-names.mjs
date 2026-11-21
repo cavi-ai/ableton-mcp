@@ -1,5 +1,5 @@
 import {assertExpectedState} from './bridge-protocol.mjs';
-import {hashPlan} from './confirmation-store.mjs';
+import {guardedWrite} from './guarded-write.mjs';
 
 export const renameArrangementClip=(bridge,confirmations,args)=>renameClip(bridge,confirmations,args,false);
 export const renameSessionClip=(bridge,confirmations,args)=>renameClip(bridge,confirmations,args,true);
@@ -13,8 +13,5 @@ async function renameClip(bridge,confirmations,args,session){
     (session&&(before.clip?.id!==ids.clipId||before.clip?.hasClip!==true)))throw Error('updated native clip identity required');
  const plan={method:session?'rename_session_object':'rename_arrangement_clip',...ids,expectedStateVersion:args.expectedStateVersion,name:args.name,before,
   ...(session?{target:{targetType:'clip',trackId:ids.trackId,targetId:ids.clipId,previousName:before.clip.name,name:args.name}}:{})};
- if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan)};
- if(args.planHash!==hashPlan(plan))throw Error('clip name confirmation context changed');
- confirmations.consume(args.confirmationToken,args.planHash);
- return {dryRun:false,requested:plan,observed:await bridge.request(plan.method,plan)};
+ return guardedWrite(confirmations,plan,args,{mismatch:'clip name confirmation context changed',execute:()=>bridge.request(plan.method,plan)});
 }

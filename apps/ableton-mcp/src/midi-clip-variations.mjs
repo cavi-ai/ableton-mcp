@@ -1,4 +1,4 @@
-import { hashPlan } from "./confirmation-store.mjs";
+import { guardedWrite } from "./guarded-write.mjs";
 
 export async function duplicateMidiClipVariations(bridge, confirmations, args) {
   if (!Number.isInteger(args.expectedStateVersion)) throw new Error("expectedStateVersion is required");
@@ -23,10 +23,6 @@ export async function duplicateMidiClipVariations(bridge, confirmations, args) {
   }
   const plan = { method: "duplicate_midi_clip_variations", expectedStateVersion: args.expectedStateVersion,
     trackId: args.trackId, sourceClipId: args.sourceClipId, variants: args.variants, before };
-  if (args.dryRun !== false) return { dryRun: true, plan, confirmation: confirmations.issue(plan) };
-  const planHash = hashPlan(plan);
-  if (args.planHash !== planHash) throw new Error("confirmation plan hash mismatch: source or destinations changed");
-  confirmations.consume(args.confirmationToken, planHash);
-  const observed = await bridge.request("duplicate_midi_clip_variations", plan);
-  return { dryRun: false, requested: plan, observed };
+  return guardedWrite(confirmations, plan, args, { mismatch: "confirmation plan hash mismatch: source or destinations changed",
+    execute: () => bridge.request("duplicate_midi_clip_variations", plan) });
 }

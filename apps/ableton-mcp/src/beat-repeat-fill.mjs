@@ -1,4 +1,4 @@
-import {hashPlan} from "./confirmation-store.mjs";
+import {guardedWrite} from "./guarded-write.mjs";
 
 export async function beatRepeatFill(bridge,confirmations,name,args){
   if(name==="get_beat_repeat_fill")return bridge.request(name,args);
@@ -15,10 +15,7 @@ export async function beatRepeatFill(bridge,confirmations,name,args){
     throw Error("fill identity or state changed; re-read before retrying");
   const plan={method:name,...target,expectedStateVersion:args.expectedStateVersion,
     ...(starting?{durationSeconds:args.durationSeconds}:{cancel:args.cancel??false}),before};
-  if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan),warning:starting
+  return guardedWrite(confirmations,plan,args,{mismatch:"confirmation plan hash mismatch: fill context changed",execute:()=>bridge.request(name,plan),preview:{warning:starting
     ?"Sets Repeat On now and requests Off after a wall-clock duration on Live display ticks, even without this client. Not beat-scheduled or a hard real-time bound. Only Repeat is owned, not bypass or automatic Chance/Gate repeats. Manual Repeat changes relinquish ownership. Inspect retained handles after uncertainty; never replay a start blindly."
-    :"Releases the runtime handle. Cancel explicitly attempts early Repeat Off only while ownership remains valid; manual edits are preserved. Terminal cleanup failures remain explicit and releasing a handle does not fix them."};
-  if(args.planHash!==hashPlan(plan))throw Error("confirmation plan hash mismatch: fill context changed");
-  confirmations.consume(args.confirmationToken,args.planHash);
-  return {dryRun:false,requested:plan,observed:await bridge.request(name,plan)};
+    :"Releases the runtime handle. Cancel explicitly attempts early Repeat Off only while ownership remains valid; manual edits are preserved. Terminal cleanup failures remain explicit and releasing a handle does not fix them."}});
 }

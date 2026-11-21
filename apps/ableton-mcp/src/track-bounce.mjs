@@ -3,6 +3,7 @@ import {promisify} from 'node:util';
 import {realpath,stat} from 'node:fs/promises';
 import {isAbsolute} from 'node:path';
 import {hashPlan} from './confirmation-store.mjs';
+import {beginGuardedWrite} from './guarded-write.mjs';
 import {requestSignal} from './request-context.mjs';
 import {MacTrackMenuHost} from './track-menu.mjs';
 const run=promisify(execFile);
@@ -16,9 +17,7 @@ export async function trackBounce(bridge,confirmations,host,args){
   if(before.realtimeDevices?.length||before.monitoring?.value===0)throw Error('resolve external hardware or live input monitoring before bouncing');
   const plan={method:'bounce_track_in_place',trackId:args.trackId,expectedStateVersion:args.expectedStateVersion,before,
     warning:'Replaces the entire target with audio and removes its devices in both Session and Arrangement. Duplicate and mute a copy first to preserve an editable original. Includes device processing before mixer volume/pan/sends; mixer settings remain on the converted track. Uses macOS English Live on a saved Set, changes focus and navigates track headers. Exposed material and native identities are bound; automation envelopes, hidden plug-in state and external file bytes are not. No automatic undo, deletion, replay, save or playback.'};
-  if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan)};
-  if(args.planHash!==hashPlan(plan))throw Error('bounce confirmation context changed');
-  confirmations.consume(args.confirmationToken,args.planHash);
+  const reply=beginGuardedWrite(confirmations,plan,args,{mismatch:'bounce confirmation context changed'});if(reply)return reply;
   const recheck=async()=>{try{requestSignal()?.throwIfAborted();if(hashPlan(await read())!==hashPlan(before))throw Error('bounce context changed before native command');}catch(error){throw Object.assign(error,{operationRequested:false});}};
   let prepared,ui,error,cleanup;
   try{

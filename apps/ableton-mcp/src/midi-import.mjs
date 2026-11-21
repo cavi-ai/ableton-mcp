@@ -6,6 +6,7 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {fileURLToPath} from 'node:url';
 import {hashPlan} from './confirmation-store.mjs';
+import {beginGuardedWrite} from './guarded-write.mjs';
 import {requestSignal} from './request-context.mjs';
 import {MacLiveSetHost} from './live-set-host.mjs';
 
@@ -29,8 +30,7 @@ export async function importMidiFile(bridge,confirmations,host,args){
  if(before.stateVersion!==args.expectedStateVersion||before.setFingerprint!==args.expectedSetFingerprint)throw Error('MIDI import Set or state changed');
  const file=await host.source(args.sourcePath,{signal:requestSignal()}),document=await host.context(before,{signal:requestSignal()}),plan={method:'import_midi_file',before,file,document,
   warning:'Selects the entire empty final MIDI staging track and Session slot, then imports the chosen local file through native Create > Import MIDI File. Multitrack files may add tracks/scenes with Live defaults. Changes selection/focus; does not save the Set. Binds native object structure and rechecks file identity/hash before Open, but not an atomic read by Live, note/controller/tempo-map contents or audible equivalence. Unknown imports are never replayed, undone or deleted.'};
- if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan)};
- if(args.planHash!==hashPlan(plan))throw Error('MIDI import confirmation context changed');confirmations.consume(args.confirmationToken,args.planHash);
+ const reply=beginGuardedWrite(confirmations,plan,args,{mismatch:'MIDI import confirmation context changed'});if(reply)return reply;
  let working=before,selectionRequested=false,renderDispatched=false,ui,observed,error,fileAfter;
  const unchanged=async()=>{requestSignal()?.throwIfAborted();if(hashPlan(await read())!==hashPlan(working))throw Object.assign(Error('MIDI import target changed'),{importRequested:false});if(hashPlan(await host.source(args.sourcePath,{signal:requestSignal()}))!==hashPlan(file))throw Object.assign(Error('MIDI source file changed'),{importRequested:false});const selection=await bridge.request('get_selection_context',{});if(selection.selectedTrack?.id!==params.trackId||selection.highlightedClipSlot?.trackId!==params.trackId||selection.highlightedClipSlot?.clipId!==params.clipId||selection.highlightedClipSlot.hasClip!==false)throw Object.assign(Error('Native MIDI destination selection changed'),{importRequested:false});};
  try{

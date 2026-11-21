@@ -1,4 +1,4 @@
-import {hashPlan} from './confirmation-store.mjs';
+import {guardedWrite} from './guarded-write.mjs';
 
 export async function sessionArrangementRecording(bridge,confirmations,name,args){
   if(name==='get_session_arrangement_recording')return bridge.request(name,args);
@@ -14,10 +14,7 @@ export async function sessionArrangementRecording(bridge,confirmations,name,args
     throw Error('Session Arrangement context changed or updated bridge required');
   const before=starting?current:{stateVersion:current.stateVersion,recordingId:current.recordingId,controlContext:current.controlContext};
   const plan={method:name,...input,expectedStateVersion:args.expectedStateVersion,before};
-  if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan),warning:starting
+  return guardedWrite(confirmations,plan,args,{mismatch:'Session Arrangement confirmation context changed',execute:()=>bridge.request(name,plan),preview:{warning:starting
     ?'Sets and verifies the insert marker at the already prepared playhead after every existing Arrangement clip, then starts global Arrangement recording and playback. Leaves the marker at the requested start. All track arms must remain off. Records native Session clip choices, not input or requested knob/mixer automation. Requests global record/transport stop at endBeats or a 300-second wall-clock limit on Live display ticks while scope remains owned, including without this client. Not sample-accurate; partial clips and endpoint overhang remain. Changed scope relinquishes cleanup; inspect retained handles after uncertainty, never replay a start.'
-    :'Releases a settled runtime handle and retains all clips. Cancel true explicitly requests early global Arrangement recording and transport stop under the current unchanged recording scope. Incoming clip lengths do not invalidate stop confirmation. Changed arms/topology/recording controls are preserved; unresolved recording remains explicit.'};
-  if(args.planHash!==hashPlan(plan))throw Error('Session Arrangement confirmation context changed');
-  confirmations.consume(args.confirmationToken,args.planHash);
-  return {dryRun:false,requested:plan,observed:await bridge.request(name,plan)};
+    :'Releases a settled runtime handle and retains all clips. Cancel true explicitly requests early global Arrangement recording and transport stop under the current unchanged recording scope. Incoming clip lengths do not invalidate stop confirmation. Changed arms/topology/recording controls are preserved; unresolved recording remains explicit.'}});
 }

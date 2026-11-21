@@ -3,6 +3,7 @@ import {promisify} from 'node:util';
 import {realpath} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {hashPlan} from './confirmation-store.mjs';
+import {beginGuardedWrite} from './guarded-write.mjs';
 import {requestSignal} from './request-context.mjs';
 import {MacLiveSetHost} from './live-set-host.mjs';
 const execute=promisify(execFile),script=fileURLToPath(new URL('./live-recording-setup.js',import.meta.url)),focusScript=fileURLToPath(new URL('./live-app-focus.js',import.meta.url));
@@ -14,9 +15,7 @@ export async function recordingSetup(bridge,confirmations,host,args,{observed,ch
   const target={countInDuration:changes.countInDuration.value,metronome:changes.metronome?.value??before.transport.metronome};
   const plan={method:'set_transport_context',expectedStateVersion:args.expectedStateVersion,before,changes,
     warning:'Count-in preparation uses macOS English Live menus on a saved Set. Changes focus and requested count-in/metronome settings only. Does not start playback or recording. Partial changes are reported without rollback.'};
-  if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan)};
-  if(args.planHash!==hashPlan(plan))throw Error('recording setup confirmation context changed');
-  confirmations.consume(args.confirmationToken,args.planHash);
+  const reply=beginGuardedWrite(confirmations,plan,args,{mismatch:'recording setup confirmation context changed'});if(reply)return reply;
   const recheck=async()=>{requestSignal()?.throwIfAborted();if(hashPlan(await read())!==hashPlan(before))throw Error('recording setup context changed before native input');};
   let prepared,ui,error,cleanup;
   try{

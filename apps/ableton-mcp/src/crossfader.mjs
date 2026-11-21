@@ -1,4 +1,4 @@
-import {hashPlan} from './confirmation-store.mjs';
+import {guardedWrite} from './guarded-write.mjs';
 
 function request(args) {
   if (('position' in args) === ('assignments' in args)) throw Error('request assignments or position in separate confirmed steps');
@@ -33,9 +33,6 @@ export async function crossfaderState(bridge, confirmations, name, args) {
   if (before.stateVersion!==args.expectedStateVersion) throw Error('crossfader state changed');
   assertEditable(before,input);
   const plan={method:'set_crossfader_state',...input,expectedStateVersion:args.expectedStateVersion,before};
-  if (args.dryRun!==false) return {dryRun:true,plan,confirmation:confirmations.issue(plan),warning:
-    'The Main crossfader affects every assigned track, Group and Return. Review all existing A/B members and hierarchy; assignment changes at the current position can change sound immediately. Setup and position movement require separate confirmations. Requests are immediate, not a timed fade, atomic audio transition or audible-balance proof. No transport, volume, pan, routing, send or curve changes are requested. Partial work is retained without automatic rollback or replay.'};
-  if (args.planHash!==hashPlan(plan)) throw Error('confirmation plan hash mismatch: crossfader context changed');
-  confirmations.consume(args.confirmationToken,args.planHash);
-  return {dryRun:false,requested:plan,observed:await bridge.request(plan.method,plan)};
+  return guardedWrite(confirmations,plan,args,{mismatch:'confirmation plan hash mismatch: crossfader context changed',execute:()=>bridge.request(plan.method,plan),preview:{warning:
+    'The Main crossfader affects every assigned track, Group and Return. Review all existing A/B members and hierarchy; assignment changes at the current position can change sound immediately. Setup and position movement require separate confirmations. Requests are immediate, not a timed fade, atomic audio transition or audible-balance proof. No transport, volume, pan, routing, send or curve changes are requested. Partial work is retained without automatic rollback or replay.'}});
 }

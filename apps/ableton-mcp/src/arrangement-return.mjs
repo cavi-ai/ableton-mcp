@@ -1,4 +1,4 @@
-import {hashPlan} from './confirmation-store.mjs';
+import {guardedWrite} from './guarded-write.mjs';
 
 export async function returnTracksToArrangement(bridge, confirmations, args) {
   const ids = args.trackIds;
@@ -10,9 +10,6 @@ export async function returnTracksToArrangement(bridge, confirmations, args) {
   if (before.stateVersion !== args.expectedStateVersion || !before.identityToken ||
       JSON.stringify(before.trackIds) !== JSON.stringify(ids)) throw new Error('Arrangement return identity or state changed');
   const plan = {method: 'return_tracks_to_arrangement', trackIds: ids, expectedStateVersion: args.expectedStateVersion, before};
-  if (args.dryRun !== false) return {dryRun: true, plan, confirmation: confirmations.issue(plan), warning:
-    'Immediately returns only the named ordinary tracks from Session override. This can stop their Session clips and reveal Arrangement material or silence. Global playback and loop settings are retained; no seek is requested. Other tracks retain their overrides. This is not beat scheduling or audible verification. Earlier Session phase is not restored. Inspect partial results before retrying; never blindly replay an uncertain return.'};
-  if (args.planHash !== hashPlan(plan)) throw new Error('confirmation plan hash mismatch: Arrangement return context changed');
-  confirmations.consume(args.confirmationToken, args.planHash);
-  return {dryRun: false, requested: plan, observed: await bridge.request(plan.method, plan)};
+  return guardedWrite(confirmations, plan, args, {mismatch: 'confirmation plan hash mismatch: Arrangement return context changed', execute: () => bridge.request(plan.method, plan), preview: {warning:
+    'Immediately returns only the named ordinary tracks from Session override. This can stop their Session clips and reveal Arrangement material or silence. Global playback and loop settings are retained; no seek is requested. Other tracks retain their overrides. This is not beat scheduling or audible verification. Earlier Session phase is not restored. Inspect partial results before retrying; never blindly replay an uncertain return.'}});
 }

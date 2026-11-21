@@ -7,6 +7,7 @@ import {isAbsolute} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {MacLiveSetHost} from './live-set-host.mjs';
 import {hashPlan} from './confirmation-store.mjs';
+import {beginGuardedWrite} from './guarded-write.mjs';
 import {requestSignal} from './request-context.mjs';
 const run=promisify(execFile),maxBytes=64*1024*1024;
 const script=fileURLToPath(new URL('./live-audio-reverse.js',import.meta.url));
@@ -58,8 +59,7 @@ export async function reverseAudioClip(bridge,confirmations,host,args){
  if(before.stateVersion!==args.expectedStateVersion||before.trackId!==ids.trackId||before.clipId!==ids.clipId||typeof before.ownerIdentityToken!=='string'||!before.ownerIdentityToken)throw Error('audio reversal source identity or version changed');
  const native=await host.context(before,{signal:requestSignal()}),plan={method:'reverse_audio_clip',...ids,expectedStateVersion:args.expectedStateVersion,before,native,
   warning:'Selects this exact clip and presses native Reverse once. Reverses its whole source, with Live changing loop/region and warp placement while envelopes remain at their clip times. Changes focus and source reference; no rollback or retry. The source file is preserved. Verification covers bounded decoded source audio, not complete envelope contents, audible outcome or saved media. Duplicate first to preserve the original clip.'};
- if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan)};
- if(args.planHash!==hashPlan(plan))throw Error('audio reversal confirmation context changed');confirmations.consume(args.confirmationToken,args.planHash);
+ const reply=beginGuardedWrite(confirmations,plan,args,{mismatch:'audio reversal confirmation context changed'});if(reply)return reply;
  let working=before,selectionRequested=false,reverseRequested=false,ui,after,verification,error;
  const recheck=async()=>{
   requestSignal()?.throwIfAborted();

@@ -3,6 +3,7 @@ import {promisify} from 'node:util';
 import {realpath} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {hashPlan} from './confirmation-store.mjs';
+import {beginGuardedWrite} from './guarded-write.mjs';
 import {requestSignal} from './request-context.mjs';
 import {readTakeLaneContext} from './take-lanes.mjs';
 import {MacLiveSetHost} from './live-set-host.mjs';
@@ -52,9 +53,7 @@ export async function takeLaneAudition(method,bridge,confirmations,host,args){
     ...(method==='select_take_lane_audition'?{laneId:args.laneId}:{}),before,
     warning:method==='show_take_lanes'?'Shows Arrangement and this track take lanes; changes visible UI and focus. Unfold ancestor groups separately.':
       'Selects audition for the entire lane, or returns this track to the comp with null. Does not start playback or change comp selections, track mutes, solos or routing. Other tracks may sound. Notes, envelopes and source-file bytes are not compared.'};
-  if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan)};
-  if(args.planHash!==hashPlan(plan))throw Error('take audition confirmation context changed');
-  confirmations.consume(args.confirmationToken,args.planHash);
+  const reply=beginGuardedWrite(confirmations,plan,args,{mismatch:'take audition confirmation context changed'});if(reply)return reply;
   let attempted=false,ui;
   const beforeAction=async()=>{
     requestSignal()?.throwIfAborted();

@@ -1,4 +1,4 @@
-import { hashPlan } from "./confirmation-store.mjs";
+import { guardedWrite } from "./guarded-write.mjs";
 import { capturedFileEvidence } from "./capture-file-evidence.mjs";
 
 export async function liveAudioCapture(bridge, confirmations, name, args) {
@@ -22,12 +22,8 @@ export async function liveAudioCapture(bridge, confirmations, name, args) {
     throw new Error("Live audio capture state changed; re-read");
   const plan = { method: name, expectedStateVersion: args.expectedStateVersion,
     ...(starting ? { beats: args.beats, name: args.name } : { captureId: args.captureId, cancel: args.cancel ?? false }), before };
-  if (args.dryRun !== false) return { dryRun: true, plan, confirmation: confirmations.issue(plan),
-    warning: starting
+  return guardedWrite(confirmations, plan, args, { mismatch: "confirmation plan hash mismatch: capture state changed",
+    execute: async () => capturedFileEvidence(await bridge.request(name, plan)), preview: { warning: starting
       ? "Records Live's current Resampling signal into a new muted, monitor-off audio track. Source playback continues. Only the capture is stopped and disarmed automatically. A lost client does not cancel the recording; list captures before retrying."
-      : "Ends the runtime handle and keeps the recording and track. Cancel stops an active capture early; partial audio is not verified as a completed capture." };
-  const planHash = hashPlan(plan);
-  if (args.planHash !== planHash) throw new Error("confirmation plan hash mismatch: capture state changed");
-  confirmations.consume(args.confirmationToken, planHash);
-  return { dryRun: false, requested: plan, observed: await capturedFileEvidence(await bridge.request(name, plan)) };
+      : "Ends the runtime handle and keeps the recording and track. Cancel stops an active capture early; partial audio is not verified as a completed capture." } });
 }

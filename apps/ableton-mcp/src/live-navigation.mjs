@@ -1,5 +1,6 @@
 import {assertExpectedState} from './bridge-protocol.mjs';
 import {hashPlan} from './confirmation-store.mjs';
+import {beginGuardedWrite} from './guarded-write.mjs';
 
 export async function showLiveObject(bridge, confirmations, args) {
   if (typeof args.trackId !== 'string' || !/^(?:(?:track|return)-(?:0|[1-9][0-9]*)|master)$/.test(args.trackId)) {
@@ -43,10 +44,7 @@ export async function showLiveObject(bridge, confirmations, args) {
   const warning = 'Changes selection, native views and control-surface focus; may unfold Group ancestors, expand devices and reveal Rack chains. '
     + 'Requests no playback, note, routing or device-parameter edits. Does not activate the desktop app or open a plug-in editor. '
     + 'Partial UI changes remain for inspection; do not replay a lost request or restore an old view over manual navigation.';
-  if (args.dryRun !== false) return {dryRun: true, plan, warning, confirmation: confirmations.issue(plan)};
-  const hash = hashPlan(plan);
-  if (args.planHash !== hash) throw Error('Live navigation context changed; review a fresh plan');
-  confirmations.consume(args.confirmationToken, hash);
+  const reply = beginGuardedWrite(confirmations, plan, args, {mismatch: 'Live navigation context changed; review a fresh plan', preview: {warning}}); if (reply) return reply;
   const observed = await bridge.request('show_live_object', plan);
   const intact = observed !== null && typeof observed === 'object' && (observed.showVerified !== true ||
     observed.stateVersion === args.expectedStateVersion + 1 && observed.target != null && hashPlan(observed.target) === hashPlan(before.target));

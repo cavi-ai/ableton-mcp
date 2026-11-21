@@ -64,6 +64,7 @@ import { analyzeMidiFeel, planMidiFeelTransfer, midiFeelClipEndBeats } from "./m
 import {inspectProducerAudioBus} from "./producer-audio-bus.mjs";
 import {removeClipGroove, MacClipGrooveHost} from "./clip-groove-removal.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
+import { consumeConfirmation, guardedWrite } from "./guarded-write.mjs";
 import { MacLiveSetHost } from "./live-set-host.mjs";
 import {MacAudioExportHost,exportAudioMix,exportAudioTrack} from "./audio-export.mjs";
 import { CatalogService } from "./catalog-service.mjs";
@@ -104,6 +105,8 @@ import {crossfaderState} from './crossfader.mjs';
 import {mixerPanning,assertStereoPan} from './panning.mjs';
 import {returnTracksToArrangement} from './arrangement-return.mjs';
 import { auditionArrangementPassage } from "./arrangement-audition.mjs";
+
+const observedPlanChanged = "confirmation plan hash mismatch: observed plan changed";
 
 function canonicalLocalSpliceMetadataItem(item, configuredRoots) {
   const root = configuredRoots.roots.filter(candidate => candidate.available &&
@@ -3033,17 +3036,13 @@ export class ToolService {
     }, args);
   }
 
+  // Built-in tools accept an omitted planHash; the token still binds the plan.
+  #confirmationArgs(plan, args) {
+    return args.planHash === undefined ? { ...args, planHash: hashPlan(plan) } : args;
+  }
+
   #consumeConfirmation(plan, args) {
-    try {
-      requestSignal()?.throwIfAborted();
-      const currentHash = hashPlan(plan);
-      if (args.planHash !== undefined && args.planHash !== currentHash) throw new Error("confirmation plan hash mismatch: observed plan changed");
-      return this.confirmations.consume(args.confirmationToken, currentHash);
-    } catch (error) {
-      error.outcome = "not_executed";
-      error.code ||= "CONFIRMATION_REJECTED";
-      throw error;
-    }
+    return consumeConfirmation(this.confirmations, plan, this.#confirmationArgs(plan, args), observedPlanChanged);
   }
 
   async #liveSetState(args) {
@@ -3282,10 +3281,8 @@ export class ToolService {
   }
 
   async #confirmedMutation(plan, args) {
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
-    const observed = await this.bridge.request(plan.method, plan);
-    return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString() };
+    return guardedWrite(this.confirmations, plan, this.#confirmationArgs(plan, args),
+      { mismatch: observedPlanChanged, execute: () => this.bridge.request(plan.method, plan) });
   }
 
   async #setPresetMetadata(args) {

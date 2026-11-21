@@ -3,6 +3,7 @@ import {promisify} from 'node:util';
 import {realpath} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {hashPlan} from './confirmation-store.mjs';
+import {beginGuardedWrite,consumeConfirmation} from './guarded-write.mjs';
 import {requestSignal} from './request-context.mjs';
 import {MacLiveSetHost} from './live-set-host.mjs';
 const execute=promisify(execFile),script=fileURLToPath(new URL('./live-track-grouping.js',import.meta.url)),focusScript=fileURLToPath(new URL('./live-app-focus.js',import.meta.url));
@@ -27,8 +28,7 @@ export async function groupTracks(bridge,confirmations,host,args){
   before.targets.some((t,i)=>t.trackId!==args.trackIds[i]||typeof t.name!=='string'||!/^\.Track\[(0|[1-9][0-9]*)\]$/.test(t.uiPath)||typeof t.contentSha256!=='string'))throw Error('updated saved-Set grouping context required');
  const warning='Creates a real Group on macOS English Live from stopped, unarmed, unfrozen consecutive root tracks currently feeding Main. Changes native selection and routes requested outputs through the new Group to Main. Track IDs at and after insertion shift; re-read every affected ID. Exposed target material and existing mixer/routing controls are checked; automation, hidden plug-in state and file bytes are excluded. No playback, saving, deletion, automatic undo or ungrouping. Retain groupingId to inspect a lost response; never repeat an uncertain command.';
  const plan={method:'group_tracks',trackIds:args.trackIds,expectedStateVersion:args.expectedStateVersion,before,warning};
- if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan)};
- const hash=hashPlan(plan);if(args.planHash!==hash)throw Error('grouping context changed; review a fresh plan');confirmations.consume(args.confirmationToken,hash);
+ const reply=beginGuardedWrite(confirmations,plan,args,{mismatch:'grouping context changed; review a fresh plan'});if(reply)return reply;
  const recheck=async()=>{try{requestSignal()?.throwIfAborted();if(hashPlan(await read())!==hashPlan(before))throw Error('grouping context changed before native command');}catch(error){throw Object.assign(error,{groupRequested:false});}};
  let prepared,ui,error,cleanup,observed;
  try{prepared=await host.prepare(before,{beforePrepare:recheck,signal:requestSignal()});ui=await host.commit(before,prepared,{beforeCommit:recheck,signal:requestSignal()});}
@@ -82,7 +82,7 @@ export async function ungroupTracks(bridge,confirmations,host,args){
  const plan={method:'ungroup_tracks',groupTrackId:args.groupTrackId,allowContent:args.allowContent===true,expectedStateVersion:args.expectedStateVersion,before,warning};
  if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan)};
  if(before.hasGroupDevices&&args.allowContent!==true)throw Error('Group devices require allowContent:true in a fresh reviewed plan');
- const hash=hashPlan(plan);if(args.planHash!==hash)throw Error('ungrouping context or content permission changed; review a fresh plan');confirmations.consume(args.confirmationToken,hash);
+ consumeConfirmation(confirmations,plan,args,'ungrouping context or content permission changed; review a fresh plan');
  const recheck=async(selection=false)=>{try{
   requestSignal()?.throwIfAborted();if(hashPlan(await read())!==hashPlan(before))throw Error('ungrouping context changed before native command');
   if(selection){const selected=await bridge.request('get_selection_context',{});if(selected.stateVersion!==before.stateVersion||selected.setFingerprint!==before.setFingerprint||selected.selectedTrack?.id!==args.groupTrackId)throw Error('native selected Group did not verify');}

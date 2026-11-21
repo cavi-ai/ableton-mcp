@@ -8,6 +8,7 @@ import {dirname,join,resolve,relative,isAbsolute} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {XMLParser,XMLValidator} from 'fast-xml-parser';
 import {hashPlan} from './confirmation-store.mjs';
+import {beginGuardedWrite} from './guarded-write.mjs';
 import {requestSignal} from './request-context.mjs';
 import {MacLiveSetHost} from './live-set-host.mjs';
 
@@ -103,9 +104,7 @@ export async function collectProjectMedia(bridge,confirmations,host,args){
   };
   const before=await read(),plan={method:'collect_project_media',before,
     warning:'Collects all four native media categories, including Factory Packs, and saves this Set. Copies files into its existing Project and can use substantial disk space. Saves current native state; no automatic deletion, undo or replay. Sample checks do not certify plug-ins, licenses, Max dependencies or every Set in the Project.'};
-  if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan)};
-  if(args.planHash!==hashPlan(plan))throw Error('collection confirmation context changed');
-  confirmations.consume(args.confirmationToken,args.planHash);
+  const reply=beginGuardedWrite(confirmations,plan,args,{mismatch:'collection confirmation context changed'});if(reply)return reply;
   let prepared,ui,error,cleanup,after;
   const recheck=async native=>{try{requestSignal()?.throwIfAborted();const expected=native?before:{live:before.live,media:before.media};if(hashPlan(await read(native))!==hashPlan(expected))throw Error('collection context changed before native command');}catch(failure){throw Object.assign(failure,{collectionRequested:false});}};
   try{prepared=await host.prepare(before,{beforePrepare:()=>recheck(true),signal:requestSignal()});ui=await host.commit(before,prepared,{beforeCommit:()=>recheck(false),signal:requestSignal()});}

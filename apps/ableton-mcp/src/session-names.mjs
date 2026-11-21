@@ -1,5 +1,5 @@
 import {assertExpectedState} from './bridge-protocol.mjs';
-import {hashPlan} from './confirmation-store.mjs';
+import {guardedWrite} from './guarded-write.mjs';
 
 export async function renameSessionObject(bridge,confirmations,args){
   if(!['track','return','scene'].includes(args.targetType)||!Number.isSafeInteger(args.expectedStateVersion))throw Error('exact session object type and fresh expectedStateVersion required');
@@ -10,8 +10,5 @@ export async function renameSessionObject(bridge,confirmations,args){
   if(before.targetType!==ids.targetType||before.targetId!==ids.targetId||before.object?.id!==ids.targetId||typeof before.object?.name!=='string'||typeof before.identityToken!=='string'||!before.identityToken)throw Error('updated native session object identity required');
   const plan={method:'rename_session_object',expectedStateVersion:args.expectedStateVersion,before,
     target:{...ids,previousName:before.object.name,name:args.name}};
-  if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan)};
-  if(args.planHash!==hashPlan(plan))throw Error('session object name confirmation context changed');
-  confirmations.consume(args.confirmationToken,args.planHash);
-  return {dryRun:false,requested:plan,observed:await bridge.request(plan.method,plan)};
+  return guardedWrite(confirmations,plan,args,{mismatch:'session object name confirmation context changed',execute:()=>bridge.request(plan.method,plan)});
 }

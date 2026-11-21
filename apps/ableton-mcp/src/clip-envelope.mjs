@@ -1,5 +1,5 @@
 import {assertExpectedState} from "./bridge-protocol.mjs";
-import {hashPlan} from "./confirmation-store.mjs";
+import {guardedWrite} from "./guarded-write.mjs";
 
 export async function createClipParameterEnvelope(bridge,confirmations,args){
   return createEnvelope(bridge,confirmations,args,false);
@@ -34,14 +34,12 @@ async function createEnvelope(bridge,confirmations,args,mixer){
   if(keys.some(key=>before[key]!==args[key])||
     ["identityToken","contentDigest","parametersDigest"].some(key=>typeof before[key]!=="string")||!Array.isArray(before.points)||before.points.length!==args.points.length)throw Error("updated bridge envelope creation context required");
   const plan={method,...request,expectedStateVersion:args.expectedStateVersion,before};
-  if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan),warning:`Creates only an absent Session ${mixer?'track mixer':'device-parameter'} envelope. Samples verify requested steps, not a complete curve, other envelopes, hidden state or audible output. Parameter ownership/value may change. Playback and saving are separate.`};
-  const hash=hashPlan(plan);
-  if(args.planHash!==hash)throw Error("confirmation plan hash mismatch: clip envelope context changed");
-  confirmations.consume(args.confirmationToken,hash);
-  const observed=await bridge.request(method,plan);
-  if(observed.stateVersion!==args.expectedStateVersion+1||observed.created!==true||observed.verified!==true||observed.verificationScope!=="sampled_steps"||
-    keys.some(key=>observed[key]!==args[key]))throw Error("envelope creation readback mismatch; inspect current lane before retrying");
-  return {dryRun:false,requested:plan,observed};
+  return guardedWrite(confirmations,plan,args,{mismatch:"confirmation plan hash mismatch: clip envelope context changed",execute:async()=>{
+    const observed=await bridge.request(method,plan);
+    if(observed.stateVersion!==args.expectedStateVersion+1||observed.created!==true||observed.verified!==true||observed.verificationScope!=="sampled_steps"||
+      keys.some(key=>observed[key]!==args[key]))throw Error("envelope creation readback mismatch; inspect current lane before retrying");
+    return observed;
+  },preview:{warning:`Creates only an absent Session ${mixer?'track mixer':'device-parameter'} envelope. Samples verify requested steps, not a complete curve, other envelopes, hidden state or audible output. Parameter ownership/value may change. Playback and saving are separate.`}});
 }
 
 export async function replaceClipParameterEnvelope(bridge,confirmations,args){
@@ -56,16 +54,14 @@ export async function replaceClipParameterEnvelope(bridge,confirmations,args){
     ["trackId","clipId","deviceId","parameterId"].some(key=>before[key]!==args[key])||
     ["identityToken","contentDigest","parametersDigest"].some(key=>typeof before[key]!=="string")||!Array.isArray(before.points)||before.points.length!==args.points.length)throw Error("updated bridge envelope replacement context required");
   const plan={method:"set_clip_parameter_envelope",...request,expectedStateVersion:args.expectedStateVersion,points:before.points.map(({time,duration,requestedValue,value})=>({time,duration,requestedValue,value})),before};
-  if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan),warning:before.envelopeExists?
+  return guardedWrite(confirmations,plan,args,{mismatch:"confirmation plan hash mismatch: clip envelope replacement context changed",execute:async()=>{
+    // Keep the original request values for the native preflight. The plan also
+    // exposes their clamped targets; sending only targets would change its hash.
+    const observed=await bridge.request("set_clip_parameter_envelope",{...plan,points:request.points});
+    if(observed.stateVersion!==args.expectedStateVersion+1||observed.replaced!==true||observed.replacedExisting!==before.envelopeExists||observed.verified!==true||observed.verificationScope!=="sampled_steps"||
+      ["trackId","clipId","deviceId","parameterId"].some(key=>observed[key]!==args[key]))throw Error("envelope replacement readback mismatch; inspect current lane before retrying");
+    return observed;
+  },preview:{warning:before.envelopeExists?
     "Discards the entire existing envelope, including unsampled edits. Native identity and sampled context are rechecked, but the complete curve is not captured or backed up. Failure after clearing cannot restore it; inspect partial state before retrying.":
-    "Creates an absent lane with guarded native context. Numeric values retain native clamping. Verification covers sampled step interiors; exact boundaries are reported separately."};
-  const hash=hashPlan(plan);
-  if(args.planHash!==hash)throw Error("confirmation plan hash mismatch: clip envelope replacement context changed");
-  confirmations.consume(args.confirmationToken,hash);
-  // Keep the original request values for the native preflight. The plan also
-  // exposes their clamped targets; sending only targets would change its hash.
-  const observed=await bridge.request("set_clip_parameter_envelope",{...plan,points:request.points});
-  if(observed.stateVersion!==args.expectedStateVersion+1||observed.replaced!==true||observed.replacedExisting!==before.envelopeExists||observed.verified!==true||observed.verificationScope!=="sampled_steps"||
-    ["trackId","clipId","deviceId","parameterId"].some(key=>observed[key]!==args[key]))throw Error("envelope replacement readback mismatch; inspect current lane before retrying");
-  return {dryRun:false,requested:plan,observed};
+    "Creates an absent lane with guarded native context. Numeric values retain native clamping. Verification covers sampled step interiors; exact boundaries are reported separately."}});
 }
