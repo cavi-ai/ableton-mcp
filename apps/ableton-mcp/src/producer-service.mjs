@@ -14,12 +14,11 @@ import { getProducerWorkflow } from "./prompts.mjs";
 import { ProductionSessions } from "./production-sessions.mjs";
 import { assertProducerScope, validateProducerScope } from "./producer-scope.mjs";
 import { classifyMutationOutcome } from "./mutation-outcomes.mjs";
-import { assessTaskCompletion } from "./production-task-completion.mjs";
+import { assessTaskCompletion, receiptStatus, sameState, taskStatus } from "./production-task-outcome.mjs";
 
 const roles = ["creative", "functional"];
 const checkSignal = () => requestSignal()?.throwIfAborted();
 const identity = value => ({ stateVersion: value.stateVersion, setFingerprint: value.setFingerprint });
-const sameState = (left, right) => left.stateVersion === right.stateVersion && left.setFingerprint === right.setFingerprint;
 
 const stableSessionObservation = value => JSON.parse(JSON.stringify(value, (key, item) =>
   ["stateVersion", "setFingerprint", "isPlaying", "isTriggered", "playingPosition"].includes(key) ? undefined : item));
@@ -305,8 +304,8 @@ export class ProducerService {
         verify: checks => this.#checks(projectId, checks) }) : {};
       const after = await this.#live();
       const stale = !sameState(observed, after);
-      const status = exhausted ? "budget_exhausted" : stale ? "stale_context" : questions.length ? "needs_input" : completion.status;
-      if (status === "incomplete") stopReason = completion.stopReason;
+      const outcome = taskStatus({ exhausted, stale, questions, completion }), { status } = outcome;
+      if (status === "incomplete") stopReason = outcome.stopReason;
       if (completion.checks || completion.error) checkMetadata.completionRef = this.artifacts.put(projectId, "task-completion", {
         ...completion, status, basis: identity(observed), observedAfter: identity(after) });
       checkMetadata.suggestedCheckCount = functional?.checks.length || 0;
@@ -365,7 +364,7 @@ export class ProducerService {
     try { value = await this.service.call(operation.tool, callArgs); validateToolResult(operation.tool, value, callArgs); }
     catch (error) {
       if (args.dryRun !== false) throw error;
-      const status = error.outcome === "not_executed" ? "rejected" : "outcome_unknown";
+      const status = receiptStatus({ error });
       const invalidResult = value === undefined ? {} : { resultRef: this.artifacts.put(projectId, "operation-result", value) };
       const receiptId = this.artifacts.put(projectId, "receipt", { taskId, operationIndex, status, ...checkMetadata, ...invalidResult,
         error: error.message, outcome: error.outcome || null });
@@ -388,8 +387,7 @@ export class ProducerService {
     const operationOutcome = classifyMutationOutcome(operation.tool, callArgs, value);
     const nativeVerificationFailed = operationOutcome.status === "outcome_unknown";
     const nativeMetadata = nativeVerificationFailed ? {nativeVerificationFailed:true} : {};
-    const status = observationError ? "outcome_unknown" : operationOutcome.status !== "applied" ? operationOutcome.status
-      : checks.some(check => !check.matches) ? "postconditions_failed" : "applied";
+    const status = receiptStatus({ observationError, operationOutcome, checks });
     const receiptId = this.artifacts.put(projectId, "receipt", { taskId, operationIndex, status, ...checkMetadata, ...nativeMetadata, operationOutcome, after, checks, resultRef, observationError });
     return { taskId, operationIndex, status, ...checkMetadata, ...nativeMetadata, receiptId, resultRef, ...(after ? identity(after) : {}), checks,
       operationOutcome, verification: checks.length ? "declared_field_checks" : "operation_response_and_state_readback", audibleQualityVerified: false };

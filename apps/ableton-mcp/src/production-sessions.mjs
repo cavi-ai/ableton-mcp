@@ -1,6 +1,6 @@
-import { createExecution, recordExecution, executionSummary, executionStarted } from "./production-execution.mjs";
+import { createExecution, recordExecution, executionSummary, executionStarted, sameState, phaseAfterTask, pendingExecution,
+  operationTransition, resumeRecovery, evaluationOutcome } from "./production-task-outcome.mjs";
 
-const sameState = (a, b) => a?.stateVersion === b?.stateVersion && a?.setFingerprint === b?.setFingerprint;
 const completedPhases = new Set(["audition", "evaluate", "complete"]);
 
 // Session revisions are immutable. Publishing the next revision is a cross-process
@@ -65,7 +65,6 @@ export class ProductionSessions {
       throw new Error("arguments do not match the session action");
     const phase = (...phases) => { if (!phases.includes(s.phase)) throw new Error(`action ${action} is invalid in session phase ${s.phase}`); };
     const checkedCompletion = s.completion === "postconditions";
-    const finishedOperationsPhase = checkedCompletion ? "evaluate" : "audition";
     const save = value => {
       record = this.artifacts.advanceSession(projectId, sessionId, s.revision, value);
       s = record.value;
@@ -98,11 +97,8 @@ export class ProductionSessions {
       const observed = await observe();
       s = { ...s, execution: this.#execution(s) };
       const changed = !sameState(observed, s.basis) || observed.targetHash !== s.targetHash;
-      if (["execution_pending", "needs_inspection"].includes(s.phase) || changed && s.phase === "apply" && executionStarted(s.execution)) {
-        const execution = s.phase === "execution_pending" && s.execution
-          ? recordExecution(s.execution, s.operationIndex, { status: "outcome_unknown" }) : s.execution;
-        return save({ ...withObservation(observed), execution, phase: "needs_inspection", stateChanged: changed, status: "requires_recovery" });
-      }
+      const recovery = resumeRecovery({ phase: s.phase, changed, execution: s.execution, operationIndex: s.operationIndex });
+      if (recovery) return save({ ...withObservation(observed), ...recovery, stateChanged: changed });
       const interrupted = ["execution_pending", "proposing", "needs_inspection"].includes(s.phase);
       const retained = changed && canRetainCompletedWork(observed);
       const reevaluate = s.phase === "complete" && (!changed || retained);
@@ -140,9 +136,9 @@ export class ProductionSessions {
         await fresh();
         const evaluationRef = this.artifacts.put(projectId, "evaluation", { taskId: s.taskId, receiptId: s.receiptId,
           feedbackRef: s.feedbackRef, checks, decision: args.decision, basis: checkedCompletion ? "postconditions" : "listening" });
-        if (checks.some(check => !check.matches)) return { ...save({ ...s, evaluationRef, status: "postconditions_failed" }), checks };
-        return save({ ...s, evaluationRef, phase: "complete", userDecision: checkedCompletion ? undefined : "accept",
-          status: checkedCompletion ? "postconditions_met" : "accepted" });
+        const outcome = evaluationOutcome({ checks, checkedCompletion });
+        if (outcome.phase !== "complete") return { ...save({ ...s, evaluationRef, ...outcome }), checks };
+        return save({ ...s, evaluationRef, ...outcome, userDecision: checkedCompletion ? undefined : "accept" });
       }
       return save({ ...restart(observed), feedbackRef: s.feedbackRef, userDecision: checkedCompletion ? undefined : "revise" });
     }
@@ -170,8 +166,7 @@ export class ProductionSessions {
       }
       const savedTask = this.artifacts.get(projectId, task.taskId).value;
       const alternatives = savedTask.results.find(item => item.role === "creative")?.result.alternatives;
-      const nextPhase = !["proposed", "no_change_needed"].includes(task.status) ? "inspect" : role === "creative" ? (alternatives?.length ? "choose" : "inspect")
-        : task.operationCount ? "apply" : finishedOperationsPhase;
+      const nextPhase = phaseAfterTask({ status: task.status, operationCount: task.operationCount, role, alternatives, checkedCompletion });
       return { ...save({ ...s, phase: nextPhase, status: task.status, taskId: task.taskId,
         alternatives, operationIndex: 0, receiptId: undefined, execution: createExecution(task.taskId, savedTask) }), task };
     }
@@ -186,31 +181,24 @@ export class ProductionSessions {
     const attemptRef = this.artifacts.put(projectId, "operation-attempt", { taskId: s.taskId, operationIndex: s.operationIndex,
       tool: task.operations[s.operationIndex].tool, expectedStateVersion: args.expectedStateVersion, planHash: args.planHash,
       startedAt: new Date().toISOString() });
-    const execution = this.#execution(s);
-    save({ ...s, phase: "execution_pending", status: "outcome_unknown",
-      execution: recordExecution(execution, s.operationIndex, { status: "execution_pending", attemptRef }) });
-    let operation;
+    save({ ...s, ...pendingExecution(this.#execution(s), s.operationIndex, attemptRef) });
+    let operation, error, observed, observationError;
     try { operation = await this.apply(operationArgs); }
-    catch (error) { operation = { status: "outcome_unknown", error: error.message }; }
-    let observed;
-    if (operation.status === "applied") {
+    catch (caught) { error = caught; }
+    if (operation?.status === "applied") {
       try {
         observed = await observe();
         if (!sameState(observed, operation)) throw new Error("Live changed after the operation receipt; resume before continuing");
       }
-      catch (error) { operation = { ...operation, status: "outcome_unknown", observationError: error.message }; }
+      catch (caught) { observationError = caught.message; }
     }
-    const applied = operation.status === "applied";
-    const recordedExecution = recordExecution(s.execution, s.operationIndex, { status: operation.status,
-      ...(operation.receiptId ? { receiptId: operation.receiptId } : {}),
-      ...(operation.resultRef ? { resultRef: operation.resultRef } : {}),
-      ...(operation.operationOutcome ? { nativeStatus: operation.operationOutcome.status } : {}),
-      ...(operation.error || operation.observationError ? { error: String(operation.error || operation.observationError).slice(0, 300) } : {}) });
-    return { ...save({ ...s, phase: applied ? (s.operationIndex + 1 < task.operations.length ? "apply" : finishedOperationsPhase) : "needs_inspection",
-      execution: recordedExecution,
-      operationIndex: applied ? s.operationIndex + 1 : s.operationIndex, receiptId: operation.receiptId,
+    const next = operationTransition({ execution: s.execution, index: s.operationIndex, operationCount: task.operations.length,
+      checkedCompletion, operation, error, observationError });
+    const { applied } = next;
+    return { ...save({ ...s, phase: next.phase, execution: next.execution,
+      operationIndex: applied ? s.operationIndex + 1 : s.operationIndex, receiptId: next.operation.receiptId,
       basis: applied ? { stateVersion: observed.stateVersion, setFingerprint: observed.setFingerprint } : s.basis,
       ...(applied ? { targetHash: observed.targetHash, targetRef: observed.targetRef, contextRef: observed.contextRef } : {}),
-      status: operation.status }), operation };
+      status: next.status }), operation: next.operation };
   }
 }
