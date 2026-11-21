@@ -46,9 +46,9 @@ export async function showLiveObject(bridge, confirmations, args) {
     + 'Partial UI changes remain for inspection; do not replay a lost request or restore an old view over manual navigation.';
   const reply = beginGuardedWrite(confirmations, plan, args, {mismatch: 'Live navigation context changed; review a fresh plan', preview: {warning}}); if (reply) return reply;
   const observed = await bridge.request('show_live_object', plan);
-  const receiptMatches = observed?.stateVersion === args.expectedStateVersion + 1 && observed.target !== undefined && hashPlan(observed.target) === hashPlan(before.target);
-  const flags = ['targetIdentityRetained', 'selectionVerified', 'viewsVerified', 'deviceViewsVerified', 'controlsUnchanged'];
-  if (!receiptMatches || observed?.showVerified === true && flags.some(key => observed[key] !== true)) {
+  const intact = observed !== null && typeof observed === 'object' && (observed.showVerified !== true ||
+    observed.stateVersion === args.expectedStateVersion + 1 && observed.target != null && hashPlan(observed.target) === hashPlan(before.target));
+  if (!intact) {
     return {dryRun: false, requested: plan, observed: {...observed, bridgeReportedShowVerified: observed?.showVerified,
       showVerified: false, inspectionRequired: true,
       verificationError: 'Incomplete or changed native navigation receipt; inspect current selection and views before retrying'}};

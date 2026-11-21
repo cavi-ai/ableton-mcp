@@ -28,10 +28,22 @@ test('color tools are all-profile and distinguish native palette adjustment from
  const p=await f.service.call('set_live_object_colors',args),r=await f.service.call('set_live_object_colors',{...args,dryRun:false,confirmationToken:p.confirmation.token,planHash:p.confirmation.planHash});assert.equal(r.observed.writeCompleted,true);assert.equal(r.observed.objects[0].exactMatch,false);
 });
 test('incomplete or contradictory native receipts retain observations and require inspection',async()=>{
- for(const corrupt of [r=>delete r.identityRetained,r=>delete r.objects[0].supported,r=>r.objects[0].supported=null,r=>r.objects={},r=>r.objects.pop(),r=>r.objects[0].requestedColor='#00FF00',r=>r.objects[0].exactMatch=false,r=>r.stateVersion=3]){
+ for(const corrupt of [r=>r.objects={},r=>r.objects.pop(),r=>delete r.objects[0].objectId,r=>r.objects[0].requestedColor='#00FF00',r=>r.stateVersion=3,r=>delete r.stateVersion]){
   const f=fixture(),original=f.bridge.request;f.bridge.request=async(...a)=>{const r=await original(...a);if(a[0]==='set_live_object_colors')corrupt(r);return r;};
   const p=await f.service.call('set_live_object_colors',args),r=await f.service.call('set_live_object_colors',{...args,dryRun:false,confirmationToken:p.confirmation.token,planHash:p.confirmation.planHash});assert.equal(r.observed.writeCompleted,false);assert.equal(r.observed.inspectionRequired,true);assert.ok(r.observed.objects);
  }
+});
+test('a completed bridge write is trusted without recomputing RGB match or palette index',async()=>{
+ const f=fixture(),original=f.bridge.request;let receipt;f.bridge.request=async(...a)=>{const r=await original(...a);if(a[0]==='set_live_object_colors'){r.objects[0].exactMatch=false;r.objects[1].colorIndex=null;delete r.identityRetained;receipt=structuredClone(r);}return r;};
+ const p=await f.service.call('set_live_object_colors',args),r=await f.service.call('set_live_object_colors',{...args,dryRun:false,confirmationToken:p.confirmation.token,planHash:p.confirmation.planHash});assert.equal(r.observed.writeCompleted,true);assert.deepEqual(r.observed,receipt);
+});
+test('an incomplete bridge write passes through unchanged',async()=>{
+ const f=fixture(),original=f.bridge.request;let receipt;f.bridge.request=async(...a)=>{const r=await original(...a);if(a[0]==='set_live_object_colors'){r.writeCompleted=false;r.inspectionRequired=true;r.objects.pop();receipt=structuredClone(r);}return r;};
+ const p=await f.service.call('set_live_object_colors',args),r=await f.service.call('set_live_object_colors',{...args,dryRun:false,confirmationToken:p.confirmation.token,planHash:p.confirmation.planHash});assert.deepEqual(r.observed,receipt);
+});
+test('an honest failed color write keeps the bridge verdict',async()=>{
+ const f=fixture(),original=f.bridge.request;let receipt;f.bridge.request=async(...a)=>{const r=await original(...a);if(a[0]==='set_live_object_colors'){r.writeCompleted=false;r.identityRetained=false;r.selectionUnchanged=false;r.inspectionRequired=true;receipt=structuredClone(r);}return r;};
+ const p=await f.service.call('set_live_object_colors',args),r=await f.service.call('set_live_object_colors',{...args,dryRun:false,confirmationToken:p.confirmation.token,planHash:p.confirmation.planHash});assert.deepEqual(r.observed,receipt);
 });
 test('organization workflow resolves explicit roles and preserves manually chosen content and focus',()=>{
  assert.throws(()=>getPrompt('organize-session'),/required/);

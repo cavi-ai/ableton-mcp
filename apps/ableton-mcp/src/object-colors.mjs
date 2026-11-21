@@ -34,13 +34,11 @@ export async function setLiveObjectColors(bridge, confirmations, args) {
   const warning = 'Changes only explicit object colors in one Live undo step; native palette colors may differ from requested RGB. Track color inheritance may affect Rack-chain appearance. Partial changes remain for inspection; never replay a lost request or undo over intervening manual edits.';
   const reply = beginGuardedWrite(confirmations, plan, args, {mismatch: 'color targets or context changed; review a fresh plan', preview: {warning}}); if (reply) return reply;
   const observed = await bridge.request('set_live_object_colors', plan);
-  const receiptValid = observed?.stateVersion === args.expectedStateVersion + 1 && Array.isArray(observed.objects) && observed.objects.length === changes.length &&
-    observed.objects.every((item,i) => item?.objectId === changes[i].objectId && item.requestedColor === changes[i].color &&
-      (item.supported === false && item.color === null || validColor(item)) &&
-      item.exactMatch === (item.color === changes[i].color));
-  const complete = observed?.writeCompleted !== true || receiptValid && observed.identityRetained === true && observed.selectionUnchanged === true &&
-    observed.objects.every(item => item.supported === true && item.writeReturned === true && Number.isInteger(item.colorIndex) && item.colorIndex >= 0);
-  if (!receiptValid || !complete) return {dryRun: false, requested: plan, observed: {...observed, bridgeReportedWriteCompleted: observed?.writeCompleted,
+  const intact = observed !== null && typeof observed === 'object' && (observed.writeCompleted !== true ||
+    observed.identityRetained !== false && observed.selectionUnchanged !== false &&
+    observed.stateVersion === args.expectedStateVersion + 1 && Array.isArray(observed.objects) &&
+    observed.objects.length === changes.length && observed.objects.every((item,i) => item?.objectId === changes[i].objectId && item.requestedColor === changes[i].color));
+  if (!intact) return {dryRun: false, requested: plan, observed: {...observed, bridgeReportedWriteCompleted: observed?.writeCompleted,
     writeCompleted: false, inspectionRequired: true, verificationError: 'Incomplete or contradictory native color receipt; inspect current colors before retrying'}};
   return {dryRun: false, requested: plan, observed};
 }

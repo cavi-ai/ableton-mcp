@@ -7,18 +7,18 @@ import { isDeepStrictEqual } from "node:util";
 import { toolContracts } from "./tool-contracts.mjs";
 import { producerToolContracts } from "./producer-contracts.mjs";
 import { validateToolArguments, validateToolResult } from "./tool-validation.mjs";
-import { createProducerRuntime, parseProducerResponse } from "./producer-runtime.mjs";
+import { createProducerRuntime } from "./producer-runtime.mjs";
+import { parseProducerResponse, turnLimit, turnOutcome, turnProgress } from "./specialist-turn.mjs";
 import { requestSignal, withRequestSignal } from "./request-context.mjs";
 import { getProducerWorkflow } from "./prompts.mjs";
 import { ProductionSessions } from "./production-sessions.mjs";
 import { assertProducerScope, validateProducerScope } from "./producer-scope.mjs";
 import { classifyMutationOutcome } from "./mutation-outcomes.mjs";
-import { assessTaskCompletion } from "./production-task-completion.mjs";
+import { assessTaskCompletion, receiptStatus, sameState, taskStatus } from "./production-task-outcome.mjs";
 
 const roles = ["creative", "functional"];
 const checkSignal = () => requestSignal()?.throwIfAborted();
 const identity = value => ({ stateVersion: value.stateVersion, setFingerprint: value.setFingerprint });
-const sameState = (left, right) => left.stateVersion === right.stateVersion && left.setFingerprint === right.setFingerprint;
 
 const stableSessionObservation = value => JSON.parse(JSON.stringify(value, (key, item) =>
   ["stateVersion", "setFingerprint", "isPlaying", "isTriggered", "playingPosition"].includes(key) ? undefined : item));
@@ -237,7 +237,6 @@ export class ProducerService {
         try {
           const runtime = this.runtimeFactory(this.config[role]);
           const deferred = this.config[role].toolDiscovery === "deferred";
-          const maxTurns = deferred ? 6 : 3;
           const roleReads = deferred ? [...new Set([...deferredReadNames, ...(postconditions || []).map(check => check.tool)])] : initialReads;
           const packet = { role, intent, goal, scope, constraints, capabilities: { ...productionBoundaries }, context: contextRefs.map(ref => this.#preview(projectId, ref)),
             ...(workflow?{workflow}:{}),
@@ -246,10 +245,10 @@ export class ProducerService {
             ...(role === "functional" && results.length ? { creativeProposal: results[0].result } : {}) };
           for (const tool of packet.tools.reads) if (!allowedReads.includes(tool.name)) allowedReads.push(tool.name);
           for (const tool of packet.tools.operations) if (!allowedOperations.includes(tool.name)) allowedOperations.push(tool.name);
-          for (let round = 0; round < maxTurns; round++) {
+          for (let round = 0; round < turnLimit(deferred); round++) {
             checkSignal();
-            Object.assign(packet.progress, { turn: round + 1, maxTurns, readsRemaining: 8 - reads,
-              ...(deferred ? { discoveriesRemaining: 8 - discoveries } : {}) });
+            const progress = turnProgress({ round, deferred, reads, discoveries });
+            Object.assign(packet.progress, progress);
             if (Buffer.byteLength(JSON.stringify(packet)) > 48000) { exhausted = true; stopReason = "input_limit"; break; }
             const inputRef = this.artifacts.put(projectId, "specialist-input", packet);
             const result = await runtime.generate(packet, { signal: taskSignal, cwd });
@@ -261,13 +260,9 @@ export class ProducerService {
             turnRefs.push({ role, turn: round + 1, inputRef, resultRef });
             packet.progress.previousResultRef = resultRef;
             packet.progress.previousResponse = result;
-            if (!result.reads.length) { results.push({ role, result, resultRef }); break; }
-            const discoveryCount = deferred ? result.reads.filter(read => read.tool === "discover_production_tools").length : 0;
-            const readCount = result.reads.length - discoveryCount;
-            if (round === maxTurns - 1 || reads + readCount > 8 || discoveries + discoveryCount > 8) {
-              exhausted = true; stopReason = round === maxTurns - 1 ? "model_turn_limit"
-                : reads + readCount > 8 ? "read_limit" : "discovery_limit"; break;
-            }
+            const outcome = turnOutcome(result, progress);
+            if (outcome.next === "finish") { results.push({ role, result, resultRef }); break; }
+            if (outcome.next === "stop") { exhausted = true; stopReason = outcome.stopReason; break; }
             for (const read of result.reads) {
               checkSignal();
               if (deferred && read.tool === "discover_production_tools") discoveries++;
@@ -309,8 +304,8 @@ export class ProducerService {
         verify: checks => this.#checks(projectId, checks) }) : {};
       const after = await this.#live();
       const stale = !sameState(observed, after);
-      const status = exhausted ? "budget_exhausted" : stale ? "stale_context" : questions.length ? "needs_input" : completion.status;
-      if (status === "incomplete") stopReason = completion.stopReason;
+      const outcome = taskStatus({ exhausted, stale, questions, completion }), { status } = outcome;
+      if (status === "incomplete") stopReason = outcome.stopReason;
       if (completion.checks || completion.error) checkMetadata.completionRef = this.artifacts.put(projectId, "task-completion", {
         ...completion, status, basis: identity(observed), observedAfter: identity(after) });
       checkMetadata.suggestedCheckCount = functional?.checks.length || 0;
@@ -369,7 +364,7 @@ export class ProducerService {
     try { value = await this.service.call(operation.tool, callArgs); validateToolResult(operation.tool, value, callArgs); }
     catch (error) {
       if (args.dryRun !== false) throw error;
-      const status = error.outcome === "not_executed" ? "rejected" : "outcome_unknown";
+      const status = receiptStatus({ error });
       const invalidResult = value === undefined ? {} : { resultRef: this.artifacts.put(projectId, "operation-result", value) };
       const receiptId = this.artifacts.put(projectId, "receipt", { taskId, operationIndex, status, ...checkMetadata, ...invalidResult,
         error: error.message, outcome: error.outcome || null });
@@ -392,8 +387,7 @@ export class ProducerService {
     const operationOutcome = classifyMutationOutcome(operation.tool, callArgs, value);
     const nativeVerificationFailed = operationOutcome.status === "outcome_unknown";
     const nativeMetadata = nativeVerificationFailed ? {nativeVerificationFailed:true} : {};
-    const status = observationError ? "outcome_unknown" : operationOutcome.status !== "applied" ? operationOutcome.status
-      : checks.some(check => !check.matches) ? "postconditions_failed" : "applied";
+    const status = receiptStatus({ observationError, operationOutcome, checks });
     const receiptId = this.artifacts.put(projectId, "receipt", { taskId, operationIndex, status, ...checkMetadata, ...nativeMetadata, operationOutcome, after, checks, resultRef, observationError });
     return { taskId, operationIndex, status, ...checkMetadata, ...nativeMetadata, receiptId, resultRef, ...(after ? identity(after) : {}), checks,
       operationOutcome, verification: checks.length ? "declared_field_checks" : "operation_response_and_state_readback", audibleQualityVerified: false };

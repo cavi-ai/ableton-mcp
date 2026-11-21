@@ -4736,7 +4736,7 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual([note["velocity"] for note in result["notes"]], [100, 100])
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
-    def test_guarded_strum_pattern_rederives_timing_and_preserves_complete_note_state(self):
+    def test_guarded_strum_pattern_applies_declared_timing_and_preserves_complete_note_state(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip
         high, low, middle = MidiNote(7), MidiNote(8), MidiNote(9)
@@ -4767,9 +4767,10 @@ class DispatchTest(unittest.TestCase):
                   "strumPattern": {"noteIds": [7, 8, 9], "direction": "up",
                                    "spreadBeats": 0.12, "changes": changes},
                   "changes": changes, "newNotes": []}
-        tampered = {**params, "changes": [{**changes[0], "start": 0.01}, *changes[1:]]}
-        with self.assertRaisesRegex(ValueError, "signed plan"):
-            dispatch_request(song, {"method": "transform_midi_notes", "params": tampered}, 3)
+        stale = {**params, "changes": [{**changes[0], "previous": {**changes[0]["previous"], "start": 0.01}},
+                                       *changes[1:]]}
+        with self.assertRaisesRegex(ValueError, "target changed since observation"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": stale}, 3)
         result = dispatch_request(song, {"method": "transform_midi_notes", "params": params}, 3)
         observed = {note["noteId"]: note for note in result["notes"]}
         self.assertEqual([(observed[note_id]["start"], observed[note_id]["duration"])
@@ -4778,7 +4779,7 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual([observed[note_id]["velocityDeviation"] for note_id in (8, 9, 7)], [-3] * 3)
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
-    def test_guarded_chord_inversion_rederives_pitch_and_preserves_complete_note_state(self):
+    def test_guarded_chord_inversion_applies_declared_pitch_and_preserves_complete_note_state(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip
         high, low, middle = MidiNote(7), MidiNote(8), MidiNote(9)
@@ -4808,9 +4809,10 @@ class DispatchTest(unittest.TestCase):
                   "chordInversion": {"noteIds": [7, 8, 9], "direction": "up",
                                      "steps": 1, "changes": changes},
                   "changes": changes, "newNotes": []}
-        tampered = {**params, "changes": [{**changes[0], "pitch": 71}, *changes[1:]]}
-        with self.assertRaisesRegex(ValueError, "signed plan"):
-            dispatch_request(song, {"method": "transform_midi_notes", "params": tampered}, 3)
+        stale = {**params, "changes": [{**changes[0], "previous": {**changes[0]["previous"], "pitch": 59}},
+                                       *changes[1:]]}
+        with self.assertRaisesRegex(ValueError, "target changed since observation"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": stale}, 3)
         result = dispatch_request(song, {"method": "transform_midi_notes", "params": params}, 3)
         observed = {note["noteId"]: note for note in result["notes"]}
         self.assertEqual([observed[note_id]["pitch"] for note_id in (8, 9, 7)], [72, 64, 67])
@@ -4818,7 +4820,7 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual([observed[note_id]["velocityDeviation"] for note_id in (8, 9, 7)], [-3] * 3)
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
-    def test_guarded_drop_voicing_rederives_pitch_and_rejects_tampering(self):
+    def test_guarded_drop_voicing_applies_declared_pitch_and_rejects_stale_targets(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip
         notes = [MidiNote(note_id) for note_id in (7, 8, 9, 10)]
@@ -4840,16 +4842,17 @@ class DispatchTest(unittest.TestCase):
                   "operation": "apply_midi_drop_voicing",
                   "dropVoicing": {"noteIds": [7, 8, 9, 10], "mode": "drop_2", "changes": changes},
                   "changes": changes, "newNotes": []}
-        tampered = {**params, "changes": [{**changes[0], "pitch": 59}, *changes[1:]]}
-        with self.assertRaisesRegex(ValueError, "signed plan"):
-            dispatch_request(song, {"method": "transform_midi_notes", "params": tampered}, 3)
+        stale = {**params, "changes": [{**changes[0], "previous": {**changes[0]["previous"], "pitch": 59}},
+                                       *changes[1:]]}
+        with self.assertRaisesRegex(ValueError, "target changed since observation"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": stale}, 3)
         result = dispatch_request(song, {"method": "transform_midi_notes", "params": params}, 3)
         observed = {note["noteId"]: note for note in result["notes"]}
         self.assertEqual([observed[note_id]["pitch"] for note_id in (7, 8, 9, 10)], [60, 64, 55, 71])
         self.assertEqual([observed[note_id]["probability"] for note_id in (7, 8, 9, 10)], [0.75] * 4)
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
-    def test_guarded_chord_voice_leading_rederives_pitch_and_rejects_tampering(self):
+    def test_guarded_chord_voice_leading_applies_declared_pitch_and_rejects_stale_targets(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip
         notes = [MidiNote(note_id) for note_id in range(7, 15)]
@@ -4875,9 +4878,10 @@ class DispatchTest(unittest.TestCase):
                   "chordVoiceLeading": {"noteIds": note_ids, "mode": "all_voices", "minPitch": 48,
                                          "maxPitch": 84, "totalMovementSemitones": 20, "changes": changes},
                   "changes": changes, "newNotes": []}
-        tampered = {**params, "changes": [*changes[:4], {**changes[4], "pitch": 53}, *changes[5:]]}
-        with self.assertRaisesRegex(ValueError, "signed plan"):
-            dispatch_request(song, {"method": "transform_midi_notes", "params": tampered}, 3)
+        stale = {**params, "changes": [*changes[:4], {**changes[4], "previous": {**changes[4]["previous"], "pitch": 52}},
+                                       *changes[5:]]}
+        with self.assertRaisesRegex(ValueError, "target changed since observation"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": stale}, 3)
         result = dispatch_request(song, {"method": "transform_midi_notes", "params": params}, 3)
         observed = {note["noteId"]: note for note in result["notes"]}
         self.assertEqual([observed[note_id]["pitch"] for note_id in note_ids], list(expected))
@@ -5186,10 +5190,29 @@ class DispatchTest(unittest.TestCase):
             dispatch_request(stale_song, {"method": "transform_midi_notes", "params": {
                 **stale, "gridReference": {**stale["gridReference"], "setFingerprint": "wrong"}
             }}, 3)
-        with self.assertRaisesRegex(ValueError, "signed plan"):
+        with self.assertRaisesRegex(ValueError, "MIDI clip changed since observation"):
             dispatch_request(stale_song, {"method": "transform_midi_notes", "params": {
-                **stale, "changes": [{**stale["changes"][0], "velocity": 107}, stale["changes"][1]]
+                **stale, "before": {**stale["before"], "notes": [
+                    {**stale["before"]["notes"][0], "velocity": 99}, stale["before"]["notes"][1]]}
             }}, 3)
+        with self.assertRaisesRegex(ValueError, "target changed since observation"):
+            dispatch_request(stale_song, {"method": "transform_midi_notes", "params": {
+                **stale, "changes": [{**stale["changes"][0], "previous": {**stale["changes"][0]["previous"], "velocity": 99}},
+                                     stale["changes"][1]]
+            }}, 3)
+        with self.assertRaisesRegex(ValueError, "unsupported note field"):
+            dispatch_request(stale_song, {"method": "transform_midi_notes", "params": {
+                **stale, "changes": [{**stale["changes"][0], "pitch": 61}, stale["changes"][1]]
+            }}, 3)
+        self.assertEqual(stale_song.undo_boundaries, [])
+
+        declared_song, declared_clip, declared = fixture()
+        result = dispatch_request(declared_song, {"method": "transform_midi_notes", "params": {
+            **declared, "changes": [{**declared["changes"][0], "velocity": 107}, declared["changes"][1]]
+        }}, 3)
+        self.assertEqual(result["notes"][0]["velocity"], 107)
+        self.assertEqual(declared_clip.extended_notes[0].velocity, 107)
+        self.assertEqual(declared_song.undo_boundaries[-2:], ["begin", "end"])
 
         failing_song, failing_clip, failing = fixture()
         apply_calls = 0
@@ -5206,7 +5229,7 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(failing_clip.extended_notes[0].velocity, 100)
         self.assertEqual(failing_song.undo_boundaries[-2:], ["begin", "end"])
 
-    def test_guarded_midi_velocity_curve_recomputes_plan_and_rolls_back_atomically(self):
+    def test_guarded_midi_velocity_curve_applies_declared_plan_and_rolls_back_atomically(self):
         def fixture():
             song = Song()
             clip = song.tracks[0].clip_slots[0].clip
@@ -5246,21 +5269,17 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual([note["velocity"] for note in result["notes"]], [60, 60, 90, 120])
         self.assertEqual(song.undo_boundaries[-2:], ["begin", "end"])
 
-        tampered_song, _, tampered = fixture()
-        with self.assertRaisesRegex(ValueError, "signed plan"):
-            dispatch_request(tampered_song, {"method": "transform_midi_notes", "params": {
-                **tampered, "changes": [{**tampered["changes"][0], "velocity": 61},
-                                         *tampered["changes"][1:]]
+        stale_song, _, stale = fixture()
+        with self.assertRaisesRegex(ValueError, "unsupported note field"):
+            dispatch_request(stale_song, {"method": "transform_midi_notes", "params": {
+                **stale, "changes": [{**stale["changes"][0], "duration": .25}, *stale["changes"][1:]]
             }}, 3)
 
-        partial_song, _, partial = fixture()
-        partial_changes = [partial["changes"][0], partial["changes"][2]]
-        with self.assertRaisesRegex(ValueError, "complete onset"):
-            dispatch_request(partial_song, {"method": "transform_midi_notes", "params": {
-                **partial, "changes": partial_changes,
-                "velocityCurve": {**partial["velocityCurve"], "noteIds": [1, 3, 4],
-                                  "changes": partial_changes}
-            }}, 3)
+        declared_song, _, declared = fixture()
+        result = dispatch_request(declared_song, {"method": "transform_midi_notes", "params": {
+            **declared, "changes": [{**declared["changes"][0], "velocity": 61}, *declared["changes"][1:]]
+        }}, 3)
+        self.assertEqual([note["velocity"] for note in result["notes"]], [61, 60, 90, 120])
 
         failing_song, failing_clip, failing = fixture()
         apply_calls = 0
@@ -5446,9 +5465,9 @@ class DispatchTest(unittest.TestCase):
                                     "setFingerprint": dispatch_request(song, {"method": "get_live_state"}, 3)["setFingerprint"]},
                   "operation": "apply_midi_ratchet_pattern", "ratchet": ratchet,
                   "removeNoteIds": [7], "newNotes": new_notes}
-        tampered = {**params, "newNotes": [{**new_notes[0], "probability": 1}, new_notes[1]]}
-        with self.assertRaisesRegex(ValueError, "signed plan"):
-            dispatch_request(song, {"method": "replace_midi_notes", "params": tampered}, 3)
+        stale = {**params, "before": {**before, "notes": [{**before["notes"][0], "velocity": 90}]}}
+        with self.assertRaisesRegex(ValueError, "changed since observation"):
+            dispatch_request(song, {"method": "replace_midi_notes", "params": stale}, 3)
         events = []
         native_remove = clip.remove_notes_by_id
         native_add = clip.add_new_notes
@@ -5468,7 +5487,34 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual([note["velocityDeviation"] for note in result["notes"]], [-3, -3])
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
-    def test_guarded_chord_doubling_rederives_additions_and_rejects_tampering(self):
+    def test_guarded_replace_writes_declared_notes_without_regenerating_them(self):
+        song = Song()
+        clip = song.tracks[0].clip_slots[0].clip
+        low, high = MidiNote(7), MidiNote(8)
+        high.pitch = 64
+        clip.extended_notes = [low, high]
+        target = {"trackId": "track-0", "clipId": "track-0:clip-0"}
+        before = dispatch_request(song, {"method": "get_midi_clip_notes_extended", "params": target}, 3)
+        timing = dispatch_request(song, {"method": "get_clip_timing", "params": target}, 3)
+        declared = [{"sourceNoteId": 7, "pitch": 47, "start": 0.0, "duration": before["notes"][0]["duration"],
+                     "velocity": 100, "velocityDeviation": 0, "releaseVelocity": before["notes"][0]["releaseVelocity"],
+                     "probability": 1.0, "mute": False}]
+        params = {**target, "expectedStateVersion": 3, "before": before, "clipTiming": timing,
+                  "gridReference": {"tempoBpm": 120.0, "timeSignature": {"numerator": 4, "denominator": 4},
+                                    "setFingerprint": dispatch_request(song, {"method": "get_live_state"}, 3)["setFingerprint"]},
+                  "operation": "apply_midi_chord_doubling",
+                  "chordDoubling": {"noteIds": [7, 8], "mode": "bass_octave_down",
+                                    "newNotes": declared, "preservedNotes": before["notes"]},
+                  "removeNoteIds": [], "newNotes": declared}
+        with self.assertRaisesRegex(ValueError, "cannot remove notes"):
+            dispatch_request(song, {"method": "replace_midi_notes", "params": {**params, "removeNoteIds": [8]}}, 3)
+        result = dispatch_request(song, {"method": "replace_midi_notes", "params": params}, 3)
+        added = {note["noteId"]: note for note in result["notes"]}
+        self.assertEqual(result["addedNoteIds"], [100])
+        self.assertEqual(added[100]["pitch"], 47)
+        self.assertEqual(song.undo_boundaries, ["begin", "end"])
+
+    def test_guarded_chord_doubling_applies_declared_additions_and_rejects_stale_clip(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip
         notes = [MidiNote(note_id) for note_id in (7, 8, 9, 10)]
@@ -5498,9 +5544,9 @@ class DispatchTest(unittest.TestCase):
                                     "setFingerprint": dispatch_request(song, {"method": "get_live_state"}, 3)["setFingerprint"]},
                   "operation": "apply_midi_chord_doubling", "chordDoubling": doubling,
                   "removeNoteIds": [], "newNotes": new_notes}
-        tampered = {**params, "newNotes": [{**new_notes[0], "pitch": 47}, new_notes[1]]}
-        with self.assertRaisesRegex(ValueError, "signed plan"):
-            dispatch_request(song, {"method": "replace_midi_notes", "params": tampered}, 3)
+        stale = {**params, "before": {**before, "notes": [{**before["notes"][0], "pitch": 59}, *before["notes"][1:]]}}
+        with self.assertRaisesRegex(ValueError, "changed since observation"):
+            dispatch_request(song, {"method": "replace_midi_notes", "params": stale}, 3)
         result = dispatch_request(song, {"method": "replace_midi_notes", "params": params}, 3)
         self.assertEqual(result["removedNoteIds"], [])
         self.assertEqual(result["addedNoteIds"], [100, 101])
@@ -5509,7 +5555,7 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual([added[note_id]["probability"] for note_id in (100, 101)], [0.75, 0.75])
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
-    def test_guarded_chord_arpeggiation_rederives_transform_and_rejects_tampering(self):
+    def test_guarded_chord_arpeggiation_applies_declared_transform_and_rejects_stale_targets(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip
         notes = [MidiNote(note_id) for note_id in (7, 8, 9, 10)]
@@ -5541,11 +5587,10 @@ class DispatchTest(unittest.TestCase):
                                     "setFingerprint": dispatch_request(song, {"method": "get_live_state"}, 3)["setFingerprint"]},
                   "operation": "apply_midi_chord_arpeggiation", "chordArpeggiation": arpeggiation,
                   "changes": changes, "newNotes": new_notes}
-        tampered = copy.deepcopy(params)
-        tampered["changes"][1]["start"] = 0.3
-        tampered["chordArpeggiation"]["changes"][1]["start"] = 0.3
-        with self.assertRaisesRegex(ValueError, "arpeggiation changes"):
-            dispatch_request(song, {"method": "transform_midi_notes", "params": tampered}, 3)
+        stale = copy.deepcopy(params)
+        stale["changes"][1]["previous"] = {**stale["changes"][1]["previous"], "start": 0.3}
+        with self.assertRaisesRegex(ValueError, "target changed since observation"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": stale}, 3)
         result = dispatch_request(song, {"method": "transform_midi_notes", "params": params}, 3)
         self.assertEqual(result["addedNoteIds"], [100, 101])
         added = {note["noteId"]: note for note in result["notes"]}
@@ -5555,7 +5600,7 @@ class DispatchTest(unittest.TestCase):
                          [0.0, 0.25, 0.5, 0.75, 1.0, 1.25])
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
-    def test_guarded_midi_transposition_rederives_pitch_changes_and_rejects_tampering(self):
+    def test_guarded_midi_transposition_applies_declared_pitch_changes_and_rejects_stale_targets(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip
         notes = [MidiNote(note_id) for note_id in (7, 8, 9, 10)]
@@ -5579,11 +5624,10 @@ class DispatchTest(unittest.TestCase):
                                     "setFingerprint": dispatch_request(song, {"method": "get_live_state"}, 3)["setFingerprint"]},
                   "operation": "apply_midi_transposition", "midiTransposition": transposition,
                   "changes": changes, "newNotes": []}
-        tampered = copy.deepcopy(params)
-        tampered["changes"][1]["pitch"] = 70
-        tampered["midiTransposition"]["changes"][1]["pitch"] = 70
-        with self.assertRaisesRegex(ValueError, "transposition changes"):
-            dispatch_request(song, {"method": "transform_midi_notes", "params": tampered}, 3)
+        stale = copy.deepcopy(params)
+        stale["changes"][1]["previous"] = {**stale["changes"][1]["previous"], "pitch": 63}
+        with self.assertRaisesRegex(ValueError, "target changed since observation"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": stale}, 3)
         result = dispatch_request(song, {"method": "transform_midi_notes", "params": params}, 3)
         self.assertEqual(result["addedNoteIds"], [])
         changed = {note["noteId"]: note for note in result["notes"]}
@@ -5591,7 +5635,7 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual([changed[note_id]["probability"] for note_id in (7, 8, 9)], [0.75, 0.75, 0.75])
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
-    def test_guarded_diatonic_transposition_binds_live_scale_and_rejects_tampering(self):
+    def test_guarded_diatonic_transposition_binds_live_scale_and_rejects_stale_targets(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip
         notes = [MidiNote(note_id) for note_id in (7, 8, 9)]
@@ -5618,11 +5662,10 @@ class DispatchTest(unittest.TestCase):
                                     "setFingerprint": dispatch_request(song, {"method": "get_live_state"}, 3)["setFingerprint"]},
                   "operation": "apply_midi_diatonic_transposition",
                   "midiDiatonicTransposition": diatonic, "changes": changes, "newNotes": []}
-        tampered = copy.deepcopy(params)
-        tampered["changes"][2]["pitch"] = 74
-        tampered["midiDiatonicTransposition"]["changes"][2]["pitch"] = 74
-        with self.assertRaisesRegex(ValueError, "diatonic-transposition changes"):
-            dispatch_request(song, {"method": "transform_midi_notes", "params": tampered}, 3)
+        stale = copy.deepcopy(params)
+        stale["changes"][2]["previous"] = {**stale["changes"][2]["previous"], "pitch": 72}
+        with self.assertRaisesRegex(ValueError, "target changed since observation"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": stale}, 3)
         changed_scale = copy.deepcopy(params)
         changed_scale["musicalContext"]["key"]["rootNote"] = 2
         with self.assertRaisesRegex(ValueError, "musical context changed"):
@@ -5633,7 +5676,7 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual([observed[note_id]["probability"] for note_id in (7, 8, 9)], [0.75, 0.75, 0.75])
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
-    def test_guarded_diatonic_harmony_rederives_scale_voices_and_rejects_tampering(self):
+    def test_guarded_diatonic_harmony_applies_declared_voices_and_rejects_stale_clip(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip
         notes = [MidiNote(note_id) for note_id in (7, 8)]
@@ -5667,11 +5710,10 @@ class DispatchTest(unittest.TestCase):
                                     "setFingerprint": dispatch_request(song, {"method": "get_live_state"}, 3)["setFingerprint"]},
                   "operation": "apply_midi_diatonic_harmony", "midiDiatonicHarmony": harmony,
                   "removeNoteIds": [], "newNotes": new_notes}
-        tampered = copy.deepcopy(params)
-        tampered["newNotes"][0]["pitch"] = 65
-        tampered["midiDiatonicHarmony"]["newNotes"][0]["pitch"] = 65
-        with self.assertRaisesRegex(ValueError, "diatonic-harmony new notes"):
-            dispatch_request(song, {"method": "replace_midi_notes", "params": tampered}, 3)
+        stale = copy.deepcopy(params)
+        stale["before"]["notes"][0]["pitch"] = 62
+        with self.assertRaisesRegex(ValueError, "changed since observation"):
+            dispatch_request(song, {"method": "replace_midi_notes", "params": stale}, 3)
         result = dispatch_request(song, {"method": "replace_midi_notes", "params": params}, 3)
         self.assertEqual(result["removedNoteIds"], [])
         self.assertEqual(result["addedNoteIds"], [100, 101, 102, 103])
@@ -5680,7 +5722,7 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual([added[note_id]["probability"] for note_id in (100, 101, 102, 103)], [0.75] * 4)
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
-    def test_guarded_scale_chord_remapping_rederives_complete_onsets_and_rejects_tampering(self):
+    def test_guarded_scale_chord_remapping_applies_declared_onsets_and_rejects_stale_targets(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip
         notes = [MidiNote(note_id) for note_id in (7, 8, 9, 10, 11, 12)]
@@ -5716,18 +5758,17 @@ class DispatchTest(unittest.TestCase):
                                     "setFingerprint": dispatch_request(song, {"method": "get_live_state"}, 3)["setFingerprint"]},
                   "operation": "apply_midi_scale_chord_remapping",
                   "midiScaleChordRemapping": remapping, "changes": changes, "newNotes": []}
-        tampered = copy.deepcopy(params)
-        tampered["changes"][0]["pitch"] = 63
-        tampered["midiScaleChordRemapping"]["changes"][0]["pitch"] = 63
-        with self.assertRaisesRegex(ValueError, "chord-remapping changes"):
-            dispatch_request(song, {"method": "transform_midi_notes", "params": tampered}, 3)
+        stale = copy.deepcopy(params)
+        stale["changes"][0]["previous"] = {**stale["changes"][0]["previous"], "pitch": 61}
+        with self.assertRaisesRegex(ValueError, "target changed since observation"):
+            dispatch_request(song, {"method": "transform_midi_notes", "params": stale}, 3)
         result = dispatch_request(song, {"method": "transform_midi_notes", "params": params}, 3)
         observed = {note["noteId"]: note for note in result["notes"]}
         self.assertEqual([observed[note_id]["pitch"] for note_id in (7, 8, 9, 10, 11, 12)], list(pitches))
         self.assertEqual([observed[note_id]["probability"] for note_id in (7, 8, 9, 10, 11, 12)], [0.75] * 6)
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
-    def test_guarded_diatonic_chord_quality_rederives_changes_removals_and_additions(self):
+    def test_guarded_diatonic_chord_quality_applies_declared_changes_removals_and_additions(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip
         notes = [MidiNote(note_id) for note_id in (7, 8, 9, 10, 11, 12, 13)]
@@ -5779,11 +5820,10 @@ class DispatchTest(unittest.TestCase):
                                     "setFingerprint": dispatch_request(song, {"method": "get_live_state"}, 3)["setFingerprint"]},
                   "operation": "apply_midi_diatonic_chord_quality", "midiDiatonicChordQuality": quality,
                   "changes": changes, "removeNoteIds": [12, 13], "newNotes": new_notes}
-        tampered = copy.deepcopy(params)
-        tampered["newNotes"][0]["pitch"] = 70
-        tampered["midiDiatonicChordQuality"]["newNotes"][0]["pitch"] = 70
-        with self.assertRaisesRegex(ValueError, "chord-quality new notes"):
-            dispatch_request(song, {"method": "replace_midi_notes", "params": tampered}, 3)
+        stale = copy.deepcopy(params)
+        stale["changes"][1]["previous"] = {**stale["changes"][1]["previous"], "pitch": 63}
+        with self.assertRaisesRegex(ValueError, "target changed since observation"):
+            dispatch_request(song, {"method": "replace_midi_notes", "params": stale}, 3)
         result = dispatch_request(song, {"method": "replace_midi_notes", "params": params}, 3)
         self.assertEqual(result["removedNoteIds"], [12, 13])
         self.assertEqual(result["addedNoteIds"], [100])
@@ -5792,7 +5832,7 @@ class DispatchTest(unittest.TestCase):
                          [62, 65, 69, 67, 71, 74])
         self.assertEqual(song.undo_boundaries, ["begin", "end"])
 
-    def test_guarded_chord_quality_rederives_explicit_altered_dominant_voicing(self):
+    def test_guarded_chord_quality_applies_explicit_altered_dominant_voicing(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip
         notes = [MidiNote(7), MidiNote(8), MidiNote(9), MidiNote(10)]

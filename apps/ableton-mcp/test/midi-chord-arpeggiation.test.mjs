@@ -70,6 +70,9 @@ test("arpeggiation readback verifies stable modified IDs and additions", () => {
 function fixture() {
   let applied = false;
   const bridge = { async request(method, args) {
+    if (method === "get_live_state") return { stateVersion: applied ? 5 : 4, setFingerprint: "set-1", tempo: 120 };
+    if (method === "get_song_musical_context") return { stateVersion: applied ? 5 : 4,
+      timeSignature: { numerator: 4, denominator: 4 } };
     if (method === "get_midi_clip_notes_extended") return {
       stateVersion: applied ? 5 : 4, trackId: args.trackId, clipId: args.clipId, ...clip,
     };
@@ -91,11 +94,6 @@ function fixture() {
     throw new Error(`unexpected ${method}`);
   } };
   const service = new ToolService({ bridge, catalog: {} });
-  const call = service.call.bind(service);
-  service.call = async (name, args) => name === "get_song_grid_reference" ? {
-    stateVersion: applied ? 5 : 4, setFingerprint: "set-1", tempoBpm: 120,
-    timeSignature: { numerator: 4, denominator: 4 },
-  } : call(name, args);
   return { service, applied: () => applied };
 }
 

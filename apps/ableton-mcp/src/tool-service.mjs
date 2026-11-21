@@ -499,6 +499,86 @@ function normalizeBrowserSearch(args) {
   return { ...browserPath, query: args.query.trim(), maxDepth, limit };
 }
 
+const changeEdits = plan => ({ changes: plan.changes, newNotes: [] });
+const additionEdits = plan => ({ removeNoteIds: [], newNotes: plan.newNotes });
+const changeReadback = match => (beforeNotes, plan, observed) => match(beforeNotes, plan.changes, observed.notes);
+const planReadback = match => (beforeNotes, plan, observed) => match(beforeNotes, plan, observed.notes);
+const replacementReadback = match => (beforeNotes, plan, observed) => match(plan, observed, observed.notes);
+
+const MIDI_TRANSFORMS = {
+  humanization: { operation: "apply_midi_humanization", method: "transform_midi_notes", planKey: "humanization",
+    planning: "MIDI humanization", label: "MIDI humanization", verification: "matchesRequestedChanges",
+    plan: (before, args) => planMidiHumanization(before, args), edits: changeEdits,
+    matches: changeReadback(matchMidiHumanizationReadback) },
+  velocityCurve: { operation: "apply_midi_velocity_curve", method: "transform_midi_notes", planKey: "velocityCurve",
+    planning: "MIDI velocity", label: "MIDI velocity curve", verification: "matchesRequestedChanges",
+    plan: (before, args) => planMidiVelocityCurve(before, args), edits: changeEdits,
+    matches: changeReadback(matchMidiVelocityCurveReadback) },
+  gatePattern: { operation: "apply_midi_gate_pattern", method: "transform_midi_notes", planKey: "gatePattern",
+    planning: "MIDI gate", label: "MIDI gate pattern", verification: "matchesRequestedChanges",
+    plan: (before, args) => planMidiGatePattern(before, args), edits: changeEdits,
+    matches: changeReadback(matchMidiGatePatternReadback) },
+  probabilityPattern: { operation: "apply_midi_probability_pattern", method: "transform_midi_notes",
+    planKey: "probabilityPattern", planning: "MIDI probability", label: "MIDI probability pattern",
+    verification: "matchesRequestedChanges", plan: (before, args) => planMidiProbabilityPattern(before, args),
+    edits: changeEdits, matches: changeReadback(matchMidiProbabilityPatternReadback) },
+  ratchetPattern: { operation: "apply_midi_ratchet_pattern", method: "replace_midi_notes", planKey: "ratchet",
+    planning: "MIDI ratchet", label: "MIDI ratchet", verification: "matchesExpectedNotes",
+    plan: (before, args) => planMidiRatchetPattern(before, args),
+    edits: plan => ({ removeNoteIds: plan.removeNoteIds, newNotes: plan.newNotes }),
+    matches: replacementReadback(matchMidiRatchetReadback) },
+  strumPattern: { operation: "apply_midi_strum_pattern", method: "transform_midi_notes", planKey: "strumPattern",
+    planning: "MIDI strum", label: "MIDI strum pattern", verification: "matchesExpectedNotes",
+    plan: (before, args) => planMidiStrumPattern(before, args), edits: changeEdits,
+    matches: changeReadback(matchMidiStrumReadback) },
+  chordInversion: { operation: "apply_midi_chord_inversion", method: "transform_midi_notes", planKey: "chordInversion",
+    planning: "MIDI chord inversion", label: "MIDI chord inversion", verification: "matchesExpectedNotes",
+    plan: (before, args) => planMidiChordInversion(before, args), edits: changeEdits,
+    matches: changeReadback(matchMidiChordInversionReadback) },
+  dropVoicing: { operation: "apply_midi_drop_voicing", method: "transform_midi_notes", planKey: "dropVoicing",
+    planning: "MIDI drop voicing", label: "MIDI drop voicing", verification: "matchesExpectedNotes",
+    plan: (before, args) => planMidiDropVoicing(before, args), edits: changeEdits,
+    matches: changeReadback(matchMidiDropVoicingReadback) },
+  chordVoiceLeading: { operation: "apply_midi_chord_voice_leading", method: "transform_midi_notes",
+    planKey: "chordVoiceLeading", planning: "MIDI chord voice-leading", label: "MIDI chord voice-leading",
+    verification: "matchesExpectedNotes", plan: (before, args) => planMidiChordVoiceLeading(before, args),
+    edits: changeEdits, matches: changeReadback(matchMidiChordVoiceLeadingReadback) },
+  chordDoubling: { operation: "apply_midi_chord_doubling", method: "replace_midi_notes", planKey: "chordDoubling",
+    planning: "MIDI chord-doubling", label: "MIDI chord-doubling", verification: "matchesExpectedNotes",
+    plan: (before, args) => planMidiChordDoubling(before, args), edits: additionEdits,
+    matches: replacementReadback(matchMidiChordDoublingReadback) },
+  chordArpeggiation: { operation: "apply_midi_chord_arpeggiation", method: "transform_midi_notes",
+    planKey: "chordArpeggiation", planning: "MIDI chord-arpeggiation", label: "MIDI chord-arpeggiation",
+    verification: "matchesExpectedNotes", plan: (before, args) => planMidiChordArpeggiation(before, args),
+    edits: plan => ({ changes: plan.changes, newNotes: plan.newNotes }),
+    matches: (beforeNotes, plan, observed) => matchMidiChordArpeggiationReadback(beforeNotes, plan, observed, observed.notes) },
+  transposition: { operation: "apply_midi_transposition", method: "transform_midi_notes", planKey: "midiTransposition",
+    planning: "MIDI transposition", label: "MIDI-transposition", verification: "matchesExpectedNotes",
+    noAdditions: true, plan: (before, args) => planMidiTransposition(before, args), edits: changeEdits,
+    matches: planReadback(matchMidiTranspositionReadback) },
+  diatonicTransposition: { operation: "apply_midi_diatonic_transposition", method: "transform_midi_notes",
+    planKey: "midiDiatonicTransposition", planning: "diatonic transposition", label: "MIDI diatonic-transposition",
+    verification: "matchesExpectedNotes", musical: true, noAdditions: true,
+    plan: (before, args, key) => planMidiDiatonicTransposition(before, key, args), edits: changeEdits,
+    matches: planReadback(matchMidiDiatonicTranspositionReadback) },
+  diatonicHarmony: { operation: "apply_midi_diatonic_harmony", method: "replace_midi_notes",
+    planKey: "midiDiatonicHarmony", planning: "diatonic harmony", label: "MIDI diatonic-harmony",
+    verification: "matchesExpectedNotes", musical: true,
+    plan: (before, args, key) => planMidiDiatonicHarmony(before, key, args), edits: additionEdits,
+    matches: replacementReadback(matchMidiDiatonicHarmonyReadback) },
+  scaleChordRemapping: { operation: "apply_midi_scale_chord_remapping", method: "transform_midi_notes",
+    planKey: "midiScaleChordRemapping", planning: "chord remapping", label: "MIDI scale-chord-remapping",
+    verification: "matchesExpectedNotes", musical: true, noAdditions: true,
+    plan: (before, args, key) => planMidiScaleChordRemapping(before, key, args), edits: changeEdits,
+    matches: planReadback(matchMidiScaleChordRemappingReadback) },
+  diatonicChordQuality: { operation: "apply_midi_diatonic_chord_quality", method: "replace_midi_notes",
+    planKey: "midiDiatonicChordQuality", planning: "chord-quality", label: "MIDI diatonic-chord-quality",
+    verification: "matchesExpectedNotes", musical: true,
+    plan: (before, args, key) => planMidiDiatonicChordQuality(before, key, args),
+    edits: plan => ({ changes: plan.changes, removeNoteIds: plan.removeNoteIds, newNotes: plan.newNotes }),
+    matches: replacementReadback(matchMidiDiatonicChordQualityReadback) },
+};
+
 export class ToolService {
   constructor({ bridge, catalog, confirmations = new ConfirmationStore(), snapshotLibrary, deviceChainLibrary, groupSystemLibrary, midiFeelLibrary, browserMetadata, spliceRoots = [], generationQueuePath,
     liveSetHost = new MacLiveSetHost(), audioExportHost, projectMediaHost, devicePresetHost, trackGroupingHost, liveSetOpenTimeoutMs = 15000, liveSetSaveTimeoutMs = 5000, liveSetLaunchTimeoutMs = 45000, midiExportHost, trackFreezeHost, trackBounceHost, recordingSetupHost, midiImportHost, takeLaneAuditionHost, grooveRemovalHost, audioReverseHost }) {
@@ -772,27 +852,13 @@ export class ToolService {
       return { scale: getLiveScaleReference(args.scaleName, args.rootNote) };
     }
     if (name === "list_live_scales") return { scales: listLiveScaleReferences() };
-    if (name === "get_song_grid_reference") {
-      const methods = ["get_live_state", "get_song_musical_context", "get_song_musical_context", "get_live_state"];
-      const observations = [];
-      if (typeof this.bridge.requestMany === "function") {
-        observations.push(...await this.bridge.requestMany(methods.map(method => ({ method, params: {} }))));
-      } else {
-        for (const method of methods) observations.push(await this.bridge.request(method, {}));
-      }
-      const [live, context, afterContext, afterLive] = observations;
-      if (live.stateVersion !== context.stateVersion || JSON.stringify(context) !== JSON.stringify(afterContext) ||
-        live.stateVersion !== afterLive.stateVersion || live.setFingerprint !== afterLive.setFingerprint ||
-        live.tempo !== afterLive.tempo) throw new Error("song grid context changed; retry");
-      return { stateVersion: live.stateVersion, setFingerprint: live.setFingerprint,
-        ...buildSongGridReference(context.timeSignature, live.tempo) };
-    }
+    if (name === "get_song_grid_reference") return this.#songGridReference();
     if (name === "plan_grid_envelope_pattern") {
-      const reference = await this.call("get_song_grid_reference", {});
+      const reference = await this.#songGridReference();
       return planGridEnvelopePattern(reference, args);
     }
     if (name === "plan_drum_pattern") {
-      const reference = await this.call("get_song_grid_reference", {});
+      const reference = await this.#songGridReference();
       return { stateVersion: reference.stateVersion, gridReference: reference,
         plan: planDrumPattern(reference, args) };
     }
@@ -862,34 +928,34 @@ export class ToolService {
     }
     if (name === "plan_scale_melody") {
       const beforeContext = await this.bridge.request("get_song_musical_context", {});
-      const beforeGrid = await this.call("get_song_grid_reference", {});
+      const beforeGrid = await this.#songGridReference();
       if (beforeContext.stateVersion !== beforeGrid.stateVersion)
         throw new Error("musical and grid context changed during melody planning; retry");
       const plan = planScaleMelody(beforeContext.key, beforeGrid, args);
       const afterContext = await this.bridge.request("get_song_musical_context", {});
-      const afterGrid = await this.call("get_song_grid_reference", {});
+      const afterGrid = await this.#songGridReference();
       if (JSON.stringify(beforeContext) !== JSON.stringify(afterContext) ||
           JSON.stringify(beforeGrid) !== JSON.stringify(afterGrid))
         throw new Error("musical or grid context changed during melody planning; retry");
       return { stateVersion: beforeContext.stateVersion, musicalContext: beforeContext,
         gridReference: beforeGrid, plan };
     }
-    if (name === "plan_midi_humanization") return this.#planMidiHumanization(args);
-    if (name === "plan_midi_velocity_curve") return this.#planMidiVelocityCurve(args);
-    if (name === "plan_midi_gate_pattern") return this.#planMidiGatePattern(args);
-    if (name === "plan_midi_probability_pattern") return this.#planMidiProbabilityPattern(args);
-    if (name === "plan_midi_ratchet_pattern") return this.#planMidiRatchetPattern(args);
-    if (name === "plan_midi_strum_pattern") return this.#planMidiStrumPattern(args);
-    if (name === "plan_midi_chord_inversion") return this.#planMidiChordInversion(args);
-    if (name === "plan_midi_drop_voicing") return this.#planMidiDropVoicing(args);
-    if (name === "plan_midi_chord_voice_leading") return this.#planMidiChordVoiceLeading(args);
-    if (name === "plan_midi_chord_doubling") return this.#planMidiChordDoubling(args);
-    if (name === "plan_midi_chord_arpeggiation") return this.#planMidiChordArpeggiation(args);
-    if (name === "plan_midi_transposition") return this.#planMidiTransposition(args);
-    if (name === "plan_midi_diatonic_transposition") return this.#planMidiDiatonicTransposition(args);
-    if (name === "plan_midi_diatonic_harmony") return this.#planMidiDiatonicHarmony(args);
-    if (name === "plan_midi_scale_chord_remapping") return this.#planMidiScaleChordRemapping(args);
-    if (name === "plan_midi_diatonic_chord_quality") return this.#planMidiDiatonicChordQuality(args);
+    if (name === "plan_midi_humanization") return this.#planMidiTransform(MIDI_TRANSFORMS.humanization, args);
+    if (name === "plan_midi_velocity_curve") return this.#planMidiTransform(MIDI_TRANSFORMS.velocityCurve, args);
+    if (name === "plan_midi_gate_pattern") return this.#planMidiTransform(MIDI_TRANSFORMS.gatePattern, args);
+    if (name === "plan_midi_probability_pattern") return this.#planMidiTransform(MIDI_TRANSFORMS.probabilityPattern, args);
+    if (name === "plan_midi_ratchet_pattern") return this.#planMidiTransform(MIDI_TRANSFORMS.ratchetPattern, args);
+    if (name === "plan_midi_strum_pattern") return this.#planMidiTransform(MIDI_TRANSFORMS.strumPattern, args);
+    if (name === "plan_midi_chord_inversion") return this.#planMidiTransform(MIDI_TRANSFORMS.chordInversion, args);
+    if (name === "plan_midi_drop_voicing") return this.#planMidiTransform(MIDI_TRANSFORMS.dropVoicing, args);
+    if (name === "plan_midi_chord_voice_leading") return this.#planMidiTransform(MIDI_TRANSFORMS.chordVoiceLeading, args);
+    if (name === "plan_midi_chord_doubling") return this.#planMidiTransform(MIDI_TRANSFORMS.chordDoubling, args);
+    if (name === "plan_midi_chord_arpeggiation") return this.#planMidiTransform(MIDI_TRANSFORMS.chordArpeggiation, args);
+    if (name === "plan_midi_transposition") return this.#planMidiTransform(MIDI_TRANSFORMS.transposition, args);
+    if (name === "plan_midi_diatonic_transposition") return this.#planMidiTransform(MIDI_TRANSFORMS.diatonicTransposition, args);
+    if (name === "plan_midi_diatonic_harmony") return this.#planMidiTransform(MIDI_TRANSFORMS.diatonicHarmony, args);
+    if (name === "plan_midi_scale_chord_remapping") return this.#planMidiTransform(MIDI_TRANSFORMS.scaleChordRemapping, args);
+    if (name === "plan_midi_diatonic_chord_quality") return this.#planMidiTransform(MIDI_TRANSFORMS.diatonicChordQuality, args);
 
 
 
@@ -1743,22 +1809,22 @@ export class ToolService {
     if (name === "create_drum_pattern_clip") return this.#createDrumPatternClip(args);
     if (name === "edit_drum_pattern_clip") return this.#editDrumPatternClip(args);
     if (name === "apply_drum_variation") return this.#applyDrumVariation(args);
-    if (name === "humanize_midi_notes") return this.#humanizeMidiNotes(args);
-    if (name === "apply_midi_velocity_curve") return this.#applyMidiVelocityCurve(args);
-    if (name === "apply_midi_gate_pattern") return this.#applyMidiGatePattern(args);
-    if (name === "apply_midi_probability_pattern") return this.#applyMidiProbabilityPattern(args);
-    if (name === "apply_midi_ratchet_pattern") return this.#applyMidiRatchetPattern(args);
-    if (name === "apply_midi_strum_pattern") return this.#applyMidiStrumPattern(args);
-    if (name === "apply_midi_chord_inversion") return this.#applyMidiChordInversion(args);
-    if (name === "apply_midi_drop_voicing") return this.#applyMidiDropVoicing(args);
-    if (name === "apply_midi_chord_voice_leading") return this.#applyMidiChordVoiceLeading(args);
-    if (name === "apply_midi_chord_doubling") return this.#applyMidiChordDoubling(args);
-    if (name === "apply_midi_chord_arpeggiation") return this.#applyMidiChordArpeggiation(args);
-    if (name === "apply_midi_transposition") return this.#applyMidiTransposition(args);
-    if (name === "apply_midi_diatonic_transposition") return this.#applyMidiDiatonicTransposition(args);
-    if (name === "apply_midi_diatonic_harmony") return this.#applyMidiDiatonicHarmony(args);
-    if (name === "apply_midi_scale_chord_remapping") return this.#applyMidiScaleChordRemapping(args);
-    if (name === "apply_midi_diatonic_chord_quality") return this.#applyMidiDiatonicChordQuality(args);
+    if (name === "humanize_midi_notes") return this.#applyMidiTransform(MIDI_TRANSFORMS.humanization, args);
+    if (name === "apply_midi_velocity_curve") return this.#applyMidiTransform(MIDI_TRANSFORMS.velocityCurve, args);
+    if (name === "apply_midi_gate_pattern") return this.#applyMidiTransform(MIDI_TRANSFORMS.gatePattern, args);
+    if (name === "apply_midi_probability_pattern") return this.#applyMidiTransform(MIDI_TRANSFORMS.probabilityPattern, args);
+    if (name === "apply_midi_ratchet_pattern") return this.#applyMidiTransform(MIDI_TRANSFORMS.ratchetPattern, args);
+    if (name === "apply_midi_strum_pattern") return this.#applyMidiTransform(MIDI_TRANSFORMS.strumPattern, args);
+    if (name === "apply_midi_chord_inversion") return this.#applyMidiTransform(MIDI_TRANSFORMS.chordInversion, args);
+    if (name === "apply_midi_drop_voicing") return this.#applyMidiTransform(MIDI_TRANSFORMS.dropVoicing, args);
+    if (name === "apply_midi_chord_voice_leading") return this.#applyMidiTransform(MIDI_TRANSFORMS.chordVoiceLeading, args);
+    if (name === "apply_midi_chord_doubling") return this.#applyMidiTransform(MIDI_TRANSFORMS.chordDoubling, args);
+    if (name === "apply_midi_chord_arpeggiation") return this.#applyMidiTransform(MIDI_TRANSFORMS.chordArpeggiation, args);
+    if (name === "apply_midi_transposition") return this.#applyMidiTransform(MIDI_TRANSFORMS.transposition, args);
+    if (name === "apply_midi_diatonic_transposition") return this.#applyMidiTransform(MIDI_TRANSFORMS.diatonicTransposition, args);
+    if (name === "apply_midi_diatonic_harmony") return this.#applyMidiTransform(MIDI_TRANSFORMS.diatonicHarmony, args);
+    if (name === "apply_midi_scale_chord_remapping") return this.#applyMidiTransform(MIDI_TRANSFORMS.scaleChordRemapping, args);
+    if (name === "apply_midi_diatonic_chord_quality") return this.#applyMidiTransform(MIDI_TRANSFORMS.diatonicChordQuality, args);
     if (name === "create_arrangement_audio_clip") return this.#createArrangementAudioClip(args);
     if (name === "create_audio_clip") return this.#createAudioClip(args);
     if (name === "set_clip_parameter_envelope") return replaceClipParameterEnvelope(this.bridge,this.confirmations,args);
@@ -3651,7 +3717,7 @@ export class ToolService {
   async #createScaleMelodyClip(args) {
     requireExpectedState(args);
     const beforeContext = await this.bridge.request("get_song_musical_context", {});
-    const beforeGrid = await this.call("get_song_grid_reference", {});
+    const beforeGrid = await this.#songGridReference();
     if (beforeContext.stateVersion !== args.expectedStateVersion || beforeGrid.stateVersion !== args.expectedStateVersion)
       throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${beforeContext.stateVersion}`);
     const melody = planScaleMelody(beforeContext.key, beforeGrid, args);
@@ -3661,7 +3727,7 @@ export class ToolService {
     if (!slot) throw new Error(`unknown clip slot ${args.clipId}`);
     if (slot.hasClip) throw new Error(`clip slot ${args.clipId} already contains a clip`);
     const afterContext = await this.bridge.request("get_song_musical_context", {});
-    const afterGrid = await this.call("get_song_grid_reference", {});
+    const afterGrid = await this.#songGridReference();
     if (JSON.stringify(beforeContext) !== JSON.stringify(afterContext) ||
         JSON.stringify(beforeGrid) !== JSON.stringify(afterGrid))
       throw new Error("musical or grid context changed during melody creation; retry");
@@ -3686,7 +3752,7 @@ export class ToolService {
 
   async #createDrumPatternClip(args) {
     requireExpectedState(args);
-    const beforeReference = await this.call("get_song_grid_reference", {});
+    const beforeReference = await this.#songGridReference();
     if (beforeReference.stateVersion !== args.expectedStateVersion)
       throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${beforeReference.stateVersion}`);
     const pattern = planDrumPattern(beforeReference, args);
@@ -3695,7 +3761,7 @@ export class ToolService {
     const slot = clips.clips.find(clip => clip.id === args.clipId);
     if (!slot) throw new Error(`unknown clip slot ${args.clipId}`);
     if (slot.hasClip) throw new Error(`clip slot ${args.clipId} already contains a clip`);
-    const afterReference = await this.call("get_song_grid_reference", {});
+    const afterReference = await this.#songGridReference();
     if (JSON.stringify(beforeReference) !== JSON.stringify(afterReference))
       throw new Error("song grid context changed during drum pattern creation; retry");
     const plan = { method: "create_midi_clip", operation: "create_drum_pattern_clip",
@@ -3709,7 +3775,7 @@ export class ToolService {
         observed.clip?.id !== args.clipId || !observed.clip?.hasClip)
       throw new Error("drum pattern clip creation readback mismatch");
     const notes = await this.bridge.request("get_midi_clip_notes_extended", { trackId: args.trackId, clipId: args.clipId });
-    const finalReference = await this.call("get_song_grid_reference", {});
+    const finalReference = await this.#songGridReference();
     const withoutState = ({ stateVersion, ...value }) => value;
     if (notes.stateVersion !== observed.stateVersion || finalReference.stateVersion !== observed.stateVersion ||
         notes.trackId !== args.trackId || notes.clipId !== args.clipId ||
@@ -3724,7 +3790,7 @@ export class ToolService {
   }
 
   async #planDrumPatternEdit(args) {
-    const beforeReference = await this.call("get_song_grid_reference", {});
+    const beforeReference = await this.#songGridReference();
     const clipTiming = await this.bridge.request("get_clip_timing", {
       trackId: args.trackId, clipId: args.clipId
     });
@@ -3737,7 +3803,7 @@ export class ToolService {
     const clipReference = { ...buildSongGridReference(clipTiming.timeSignature, beforeReference.tempoBpm),
       stateVersion: beforeReference.stateVersion };
     const edit = planDrumPatternEdit(clipReference, before, args);
-    const afterReference = await this.call("get_song_grid_reference", {});
+    const afterReference = await this.#songGridReference();
     const afterClipTiming = await this.bridge.request("get_clip_timing", {
       trackId: args.trackId, clipId: args.clipId
     });
@@ -3765,7 +3831,7 @@ export class ToolService {
     const notes = await this.bridge.request("get_midi_clip_notes_extended", {
       trackId: args.trackId, clipId: args.clipId
     });
-    const finalReference = await this.call("get_song_grid_reference", {});
+    const finalReference = await this.#songGridReference();
     const finalClipTiming = await this.bridge.request("get_clip_timing", {
       trackId: args.trackId, clipId: args.clipId
     });
@@ -3783,7 +3849,7 @@ export class ToolService {
   }
 
   async #planDrumVariation(args) {
-    const gridReference = await this.call("get_song_grid_reference", {});
+    const gridReference = await this.#songGridReference();
     const clipTiming = await this.bridge.request("get_clip_timing", {
       trackId: args.trackId, clipId: args.clipId
     });
@@ -3797,7 +3863,7 @@ export class ToolService {
     const clipReference = { ...buildSongGridReference(clipTiming.timeSignature, gridReference.tempoBpm),
       stateVersion: gridReference.stateVersion };
     const variation = planDrumVariation(clipReference, before, args);
-    const afterGrid = await this.call("get_song_grid_reference", {});
+    const afterGrid = await this.#songGridReference();
     const afterTiming = await this.bridge.request("get_clip_timing", {
       trackId: args.trackId, clipId: args.clipId
     });
@@ -4089,625 +4155,59 @@ export class ToolService {
     return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
   }
 
-  async #planMidiHumanization(args) {
-    const before = await this.bridge.request("get_midi_clip_notes_extended", {
-      trackId: args.trackId, clipId: args.clipId
-    });
-    const clipTiming = await this.bridge.request("get_clip_timing", {
-      trackId: args.trackId, clipId: args.clipId
-    });
-    const gridReference = await this.call("get_song_grid_reference", {});
-    const after = await this.bridge.request("get_midi_clip_notes_extended", {
-      trackId: args.trackId, clipId: args.clipId
-    });
+  async #songGridReference() {
+    const methods = ["get_live_state", "get_song_musical_context", "get_song_musical_context", "get_live_state"];
+    const observations = [];
+    if (typeof this.bridge.requestMany === "function") {
+      observations.push(...await this.bridge.requestMany(methods.map(method => ({ method, params: {} }))));
+    } else {
+      for (const method of methods) observations.push(await this.bridge.request(method, {}));
+    }
+    const [live, context, afterContext, afterLive] = observations;
+    if (live.stateVersion !== context.stateVersion || JSON.stringify(context) !== JSON.stringify(afterContext) ||
+      live.stateVersion !== afterLive.stateVersion || live.setFingerprint !== afterLive.setFingerprint ||
+      live.tempo !== afterLive.tempo) throw new Error("song grid context changed; retry");
+    return { stateVersion: live.stateVersion, setFingerprint: live.setFingerprint,
+      ...buildSongGridReference(context.timeSignature, live.tempo) };
+  }
+
+  async #planMidiTransform(spec, args) {
+    const target = { trackId: args.trackId, clipId: args.clipId };
+    const musicalContext = spec.musical ? await this.bridge.request("get_song_musical_context", {}) : undefined;
+    const before = await this.bridge.request("get_midi_clip_notes_extended", target);
+    const clipTiming = await this.bridge.request("get_clip_timing", target);
+    const gridReference = await this.#songGridReference();
+    const after = await this.bridge.request("get_midi_clip_notes_extended", target);
+    const finalContext = spec.musical ? await this.bridge.request("get_song_musical_context", {}) : undefined;
     if (before.stateVersion !== clipTiming.stateVersion || before.stateVersion !== gridReference.stateVersion ||
         JSON.stringify(before) !== JSON.stringify(after) || before.trackId !== args.trackId ||
-        before.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
-      throw new Error("clip, timing, or song grid changed during MIDI humanization planning; retry");
-    const plan = planMidiHumanization(before, args);
+        before.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId ||
+        (spec.musical && (musicalContext.stateVersion !== before.stateVersion ||
+          JSON.stringify(musicalContext) !== JSON.stringify(finalContext))))
+      throw new Error(`clip, ${spec.musical ? "scale, " : ""}timing, or song context changed during ${spec.planning} planning; retry`);
+    const context = spec.musical ? { before, musicalContext, clipTiming, gridReference } : { before, clipTiming, gridReference };
     return { stateVersion: before.stateVersion, trackId: before.trackId, clipId: before.clipId,
-      context: { before, clipTiming, gridReference }, plan };
+      context, plan: spec.plan(before, args, musicalContext?.key) };
   }
 
-  async #humanizeMidiNotes(args) {
+  async #applyMidiTransform(spec, args) {
     requireExpectedState(args);
-    const planned = await this.#planMidiHumanization(args);
+    const planned = await this.#planMidiTransform(spec, args);
     if (planned.stateVersion !== args.expectedStateVersion)
       throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${planned.stateVersion}`);
-    const plan = {
-      method: "transform_midi_notes", operation: "apply_midi_humanization",
+    const plan = { method: spec.method, operation: spec.operation,
       trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
-      before: planned.context.before, clipTiming: planned.context.clipTiming,
-      gridReference: planned.context.gridReference, humanization: planned.plan,
-      changes: planned.plan.changes, newNotes: []
-    };
+      ...planned.context, [spec.planKey]: planned.plan, ...spec.edits(planned.plan) };
     if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
     this.#consumeConfirmation(plan, args);
-    const observed = await this.bridge.request("transform_midi_notes", plan);
+    const observed = await this.bridge.request(spec.method, plan);
     if (!Number.isInteger(observed.stateVersion) || observed.stateVersion <= args.expectedStateVersion ||
         observed.trackId !== args.trackId || observed.clipId !== args.clipId ||
-        !matchMidiHumanizationReadback(plan.before.notes, plan.changes, observed.notes))
-      throw new Error("MIDI humanization native readback mismatch");
+        (spec.noAdditions && observed.addedNoteIds?.length !== 0) ||
+        !spec.matches(planned.context.before.notes, planned.plan, observed))
+      throw new Error(`${spec.label} native readback mismatch`);
     return { dryRun: false, requested: plan, observed,
-      verification: { matchesRequestedChanges: true }, timestamp: new Date().toISOString() };
-  }
-
-  async #planMidiVelocityCurve(args) {
-    const before = await this.bridge.request("get_midi_clip_notes_extended", {
-      trackId: args.trackId, clipId: args.clipId
-    });
-    const clipTiming = await this.bridge.request("get_clip_timing", {
-      trackId: args.trackId, clipId: args.clipId
-    });
-    const gridReference = await this.call("get_song_grid_reference", {});
-    const after = await this.bridge.request("get_midi_clip_notes_extended", {
-      trackId: args.trackId, clipId: args.clipId
-    });
-    if (before.stateVersion !== clipTiming.stateVersion || before.stateVersion !== gridReference.stateVersion ||
-        JSON.stringify(before) !== JSON.stringify(after) || before.trackId !== args.trackId ||
-        before.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
-      throw new Error("clip, timing, or song context changed during MIDI velocity planning; retry");
-    const plan = planMidiVelocityCurve(before, args);
-    return { stateVersion: before.stateVersion, trackId: before.trackId, clipId: before.clipId,
-      context: { before, clipTiming, gridReference }, plan };
-  }
-
-  async #applyMidiVelocityCurve(args) {
-    requireExpectedState(args);
-    const planned = await this.#planMidiVelocityCurve(args);
-    if (planned.stateVersion !== args.expectedStateVersion)
-      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${planned.stateVersion}`);
-    const plan = {
-      method: "transform_midi_notes", operation: "apply_midi_velocity_curve",
-      trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
-      before: planned.context.before, clipTiming: planned.context.clipTiming,
-      gridReference: planned.context.gridReference, velocityCurve: planned.plan,
-      changes: planned.plan.changes, newNotes: []
-    };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
-    const observed = await this.bridge.request("transform_midi_notes", plan);
-    if (!Number.isInteger(observed.stateVersion) || observed.stateVersion <= args.expectedStateVersion ||
-        observed.trackId !== args.trackId || observed.clipId !== args.clipId ||
-        !matchMidiVelocityCurveReadback(plan.before.notes, plan.changes, observed.notes))
-      throw new Error("MIDI velocity curve native readback mismatch");
-    return { dryRun: false, requested: plan, observed,
-      verification: { matchesRequestedChanges: true }, timestamp: new Date().toISOString() };
-  }
-
-  async #planMidiGatePattern(args) {
-    const before = await this.bridge.request("get_midi_clip_notes_extended", {
-      trackId: args.trackId, clipId: args.clipId
-    });
-    const clipTiming = await this.bridge.request("get_clip_timing", {
-      trackId: args.trackId, clipId: args.clipId
-    });
-    const gridReference = await this.call("get_song_grid_reference", {});
-    const after = await this.bridge.request("get_midi_clip_notes_extended", {
-      trackId: args.trackId, clipId: args.clipId
-    });
-    if (before.stateVersion !== clipTiming.stateVersion || before.stateVersion !== gridReference.stateVersion ||
-        JSON.stringify(before) !== JSON.stringify(after) || before.trackId !== args.trackId ||
-        before.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
-      throw new Error("clip, timing, or song context changed during MIDI gate planning; retry");
-    const plan = planMidiGatePattern(before, args);
-    return { stateVersion: before.stateVersion, trackId: before.trackId, clipId: before.clipId,
-      context: { before, clipTiming, gridReference }, plan };
-  }
-
-  async #applyMidiGatePattern(args) {
-    requireExpectedState(args);
-    const planned = await this.#planMidiGatePattern(args);
-    if (planned.stateVersion !== args.expectedStateVersion)
-      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${planned.stateVersion}`);
-    const plan = {
-      method: "transform_midi_notes", operation: "apply_midi_gate_pattern",
-      trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
-      before: planned.context.before, clipTiming: planned.context.clipTiming,
-      gridReference: planned.context.gridReference, gatePattern: planned.plan,
-      changes: planned.plan.changes, newNotes: []
-    };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
-    const observed = await this.bridge.request("transform_midi_notes", plan);
-    if (!Number.isInteger(observed.stateVersion) || observed.stateVersion <= args.expectedStateVersion ||
-        observed.trackId !== args.trackId || observed.clipId !== args.clipId ||
-        !matchMidiGatePatternReadback(plan.before.notes, plan.changes, observed.notes))
-      throw new Error("MIDI gate pattern native readback mismatch");
-    return { dryRun: false, requested: plan, observed,
-      verification: { matchesRequestedChanges: true }, timestamp: new Date().toISOString() };
-  }
-
-  async #planMidiProbabilityPattern(args) {
-    const before = await this.bridge.request("get_midi_clip_notes_extended", {
-      trackId: args.trackId, clipId: args.clipId
-    });
-    const clipTiming = await this.bridge.request("get_clip_timing", {
-      trackId: args.trackId, clipId: args.clipId
-    });
-    const gridReference = await this.call("get_song_grid_reference", {});
-    const after = await this.bridge.request("get_midi_clip_notes_extended", {
-      trackId: args.trackId, clipId: args.clipId
-    });
-    if (before.stateVersion !== clipTiming.stateVersion || before.stateVersion !== gridReference.stateVersion ||
-        JSON.stringify(before) !== JSON.stringify(after) || before.trackId !== args.trackId ||
-        before.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
-      throw new Error("clip, timing, or song context changed during MIDI probability planning; retry");
-    const plan = planMidiProbabilityPattern(before, args);
-    return { stateVersion: before.stateVersion, trackId: before.trackId, clipId: before.clipId,
-      context: { before, clipTiming, gridReference }, plan };
-  }
-
-  async #applyMidiProbabilityPattern(args) {
-    requireExpectedState(args);
-    const planned = await this.#planMidiProbabilityPattern(args);
-    if (planned.stateVersion !== args.expectedStateVersion)
-      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${planned.stateVersion}`);
-    const plan = {
-      method: "transform_midi_notes", operation: "apply_midi_probability_pattern",
-      trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
-      before: planned.context.before, clipTiming: planned.context.clipTiming,
-      gridReference: planned.context.gridReference, probabilityPattern: planned.plan,
-      changes: planned.plan.changes, newNotes: []
-    };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
-    const observed = await this.bridge.request("transform_midi_notes", plan);
-    if (!Number.isInteger(observed.stateVersion) || observed.stateVersion <= args.expectedStateVersion ||
-        observed.trackId !== args.trackId || observed.clipId !== args.clipId ||
-        !matchMidiProbabilityPatternReadback(plan.before.notes, plan.changes, observed.notes))
-      throw new Error("MIDI probability pattern native readback mismatch");
-    return { dryRun: false, requested: plan, observed,
-      verification: { matchesRequestedChanges: true }, timestamp: new Date().toISOString() };
-  }
-
-  async #planMidiRatchetPattern(args) {
-    const before = await this.bridge.request("get_midi_clip_notes_extended", {
-      trackId: args.trackId, clipId: args.clipId
-    });
-    const clipTiming = await this.bridge.request("get_clip_timing", {
-      trackId: args.trackId, clipId: args.clipId
-    });
-    const gridReference = await this.call("get_song_grid_reference", {});
-    const after = await this.bridge.request("get_midi_clip_notes_extended", {
-      trackId: args.trackId, clipId: args.clipId
-    });
-    if (before.stateVersion !== clipTiming.stateVersion || before.stateVersion !== gridReference.stateVersion ||
-        JSON.stringify(before) !== JSON.stringify(after) || before.trackId !== args.trackId ||
-        before.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
-      throw new Error("clip, timing, or song context changed during MIDI ratchet planning; retry");
-    const plan = planMidiRatchetPattern(before, args);
-    return { stateVersion: before.stateVersion, trackId: before.trackId, clipId: before.clipId,
-      context: { before, clipTiming, gridReference }, plan };
-  }
-
-  async #applyMidiRatchetPattern(args) {
-    requireExpectedState(args);
-    const planned = await this.#planMidiRatchetPattern(args);
-    if (planned.stateVersion !== args.expectedStateVersion)
-      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${planned.stateVersion}`);
-    const plan = {
-      method: "replace_midi_notes", operation: "apply_midi_ratchet_pattern",
-      trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
-      before: planned.context.before, clipTiming: planned.context.clipTiming,
-      gridReference: planned.context.gridReference, ratchet: planned.plan,
-      removeNoteIds: planned.plan.removeNoteIds, newNotes: planned.plan.newNotes
-    };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
-    const observed = await this.bridge.request("replace_midi_notes", plan);
-    if (!Number.isInteger(observed.stateVersion) || observed.stateVersion <= args.expectedStateVersion ||
-        observed.trackId !== args.trackId || observed.clipId !== args.clipId ||
-        !matchMidiRatchetReadback(planned.plan, observed, observed.notes))
-      throw new Error("MIDI ratchet native readback mismatch");
-    return { dryRun: false, requested: plan, observed,
-      verification: { matchesExpectedNotes: true }, timestamp: new Date().toISOString() };
-  }
-
-  async #planMidiStrumPattern(args) {
-    const before = await this.bridge.request("get_midi_clip_notes_extended", {
-      trackId: args.trackId, clipId: args.clipId,
-    });
-    const clipTiming = await this.bridge.request("get_clip_timing", {
-      trackId: args.trackId, clipId: args.clipId,
-    });
-    const gridReference = await this.call("get_song_grid_reference", {});
-    const after = await this.bridge.request("get_midi_clip_notes_extended", {
-      trackId: args.trackId, clipId: args.clipId,
-    });
-    if (before.stateVersion !== clipTiming.stateVersion || before.stateVersion !== gridReference.stateVersion ||
-        JSON.stringify(before) !== JSON.stringify(after) || before.trackId !== args.trackId ||
-        before.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
-      throw new Error("clip, timing, or song context changed during MIDI strum planning; retry");
-    const plan = planMidiStrumPattern(before, args);
-    return { stateVersion: before.stateVersion, trackId: before.trackId, clipId: before.clipId,
-      context: { before, clipTiming, gridReference }, plan };
-  }
-
-  async #applyMidiStrumPattern(args) {
-    requireExpectedState(args);
-    const planned = await this.#planMidiStrumPattern(args);
-    if (planned.stateVersion !== args.expectedStateVersion)
-      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${planned.stateVersion}`);
-    const plan = {
-      method: "transform_midi_notes", operation: "apply_midi_strum_pattern",
-      trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
-      before: planned.context.before, clipTiming: planned.context.clipTiming,
-      gridReference: planned.context.gridReference, strumPattern: planned.plan,
-      changes: planned.plan.changes, newNotes: []
-    };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
-    const observed = await this.bridge.request("transform_midi_notes", plan);
-    if (!Number.isInteger(observed.stateVersion) || observed.stateVersion <= args.expectedStateVersion ||
-        observed.trackId !== args.trackId || observed.clipId !== args.clipId ||
-        !matchMidiStrumReadback(plan.before.notes, plan.changes, observed.notes))
-      throw new Error("MIDI strum pattern native readback mismatch");
-    return { dryRun: false, requested: plan, observed,
-      verification: { matchesExpectedNotes: true }, timestamp: new Date().toISOString() };
-  }
-
-  async #planMidiChordInversion(args) {
-    const before = await this.bridge.request("get_midi_clip_notes_extended", {
-      trackId: args.trackId, clipId: args.clipId,
-    });
-    const clipTiming = await this.bridge.request("get_clip_timing", {
-      trackId: args.trackId, clipId: args.clipId,
-    });
-    const gridReference = await this.call("get_song_grid_reference", {});
-    const after = await this.bridge.request("get_midi_clip_notes_extended", {
-      trackId: args.trackId, clipId: args.clipId,
-    });
-    if (before.stateVersion !== clipTiming.stateVersion || before.stateVersion !== gridReference.stateVersion ||
-        JSON.stringify(before) !== JSON.stringify(after) || before.trackId !== args.trackId ||
-        before.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
-      throw new Error("clip, timing, or song context changed during MIDI chord inversion planning; retry");
-    const plan = planMidiChordInversion(before, args);
-    return { stateVersion: before.stateVersion, trackId: before.trackId, clipId: before.clipId,
-      context: { before, clipTiming, gridReference }, plan };
-  }
-
-  async #applyMidiChordInversion(args) {
-    requireExpectedState(args);
-    const planned = await this.#planMidiChordInversion(args);
-    if (planned.stateVersion !== args.expectedStateVersion)
-      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${planned.stateVersion}`);
-    const plan = {
-      method: "transform_midi_notes", operation: "apply_midi_chord_inversion",
-      trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
-      before: planned.context.before, clipTiming: planned.context.clipTiming,
-      gridReference: planned.context.gridReference, chordInversion: planned.plan,
-      changes: planned.plan.changes, newNotes: []
-    };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
-    const observed = await this.bridge.request("transform_midi_notes", plan);
-    if (!Number.isInteger(observed.stateVersion) || observed.stateVersion <= args.expectedStateVersion ||
-        observed.trackId !== args.trackId || observed.clipId !== args.clipId ||
-        !matchMidiChordInversionReadback(plan.before.notes, plan.changes, observed.notes))
-      throw new Error("MIDI chord inversion native readback mismatch");
-    return { dryRun: false, requested: plan, observed,
-      verification: { matchesExpectedNotes: true }, timestamp: new Date().toISOString() };
-  }
-
-  async #planMidiDropVoicing(args) {
-    const before = await this.bridge.request("get_midi_clip_notes_extended", { trackId: args.trackId, clipId: args.clipId });
-    const clipTiming = await this.bridge.request("get_clip_timing", { trackId: args.trackId, clipId: args.clipId });
-    const gridReference = await this.call("get_song_grid_reference", {});
-    const after = await this.bridge.request("get_midi_clip_notes_extended", { trackId: args.trackId, clipId: args.clipId });
-    if (before.stateVersion !== clipTiming.stateVersion || before.stateVersion !== gridReference.stateVersion ||
-        JSON.stringify(before) !== JSON.stringify(after) || before.trackId !== args.trackId || before.clipId !== args.clipId ||
-        clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
-      throw new Error("clip, timing, or song context changed during MIDI drop voicing planning; retry");
-    return { stateVersion: before.stateVersion, trackId: before.trackId, clipId: before.clipId,
-      context: { before, clipTiming, gridReference }, plan: planMidiDropVoicing(before, args) };
-  }
-
-  async #applyMidiDropVoicing(args) {
-    requireExpectedState(args);
-    const planned = await this.#planMidiDropVoicing(args);
-    if (planned.stateVersion !== args.expectedStateVersion)
-      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${planned.stateVersion}`);
-    const plan = { method: "transform_midi_notes", operation: "apply_midi_drop_voicing",
-      trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
-      before: planned.context.before, clipTiming: planned.context.clipTiming, gridReference: planned.context.gridReference,
-      dropVoicing: planned.plan, changes: planned.plan.changes, newNotes: [] };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
-    const observed = await this.bridge.request("transform_midi_notes", plan);
-    if (!Number.isInteger(observed.stateVersion) || observed.stateVersion <= args.expectedStateVersion ||
-        observed.trackId !== args.trackId || observed.clipId !== args.clipId ||
-        !matchMidiDropVoicingReadback(plan.before.notes, plan.changes, observed.notes))
-      throw new Error("MIDI drop voicing native readback mismatch");
-    return { dryRun: false, requested: plan, observed,
-      verification: { matchesExpectedNotes: true }, timestamp: new Date().toISOString() };
-  }
-
-  async #planMidiChordVoiceLeading(args) {
-    const before = await this.bridge.request("get_midi_clip_notes_extended", { trackId: args.trackId, clipId: args.clipId });
-    const clipTiming = await this.bridge.request("get_clip_timing", { trackId: args.trackId, clipId: args.clipId });
-    const gridReference = await this.call("get_song_grid_reference", {});
-    const after = await this.bridge.request("get_midi_clip_notes_extended", { trackId: args.trackId, clipId: args.clipId });
-    if (before.stateVersion !== clipTiming.stateVersion || before.stateVersion !== gridReference.stateVersion ||
-        JSON.stringify(before) !== JSON.stringify(after) || before.trackId !== args.trackId || before.clipId !== args.clipId ||
-        clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
-      throw new Error("clip, timing, or song context changed during MIDI chord voice-leading planning; retry");
-    return { stateVersion: before.stateVersion, trackId: before.trackId, clipId: before.clipId,
-      context: { before, clipTiming, gridReference }, plan: planMidiChordVoiceLeading(before, args) };
-  }
-
-  async #applyMidiChordVoiceLeading(args) {
-    requireExpectedState(args);
-    const planned = await this.#planMidiChordVoiceLeading(args);
-    if (planned.stateVersion !== args.expectedStateVersion)
-      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${planned.stateVersion}`);
-    const plan = { method: "transform_midi_notes", operation: "apply_midi_chord_voice_leading",
-      trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
-      before: planned.context.before, clipTiming: planned.context.clipTiming, gridReference: planned.context.gridReference,
-      chordVoiceLeading: planned.plan, changes: planned.plan.changes, newNotes: [] };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
-    const observed = await this.bridge.request("transform_midi_notes", plan);
-    if (!Number.isInteger(observed.stateVersion) || observed.stateVersion <= args.expectedStateVersion ||
-        observed.trackId !== args.trackId || observed.clipId !== args.clipId ||
-        !matchMidiChordVoiceLeadingReadback(plan.before.notes, plan.changes, observed.notes))
-      throw new Error("MIDI chord voice-leading native readback mismatch");
-    return { dryRun: false, requested: plan, observed,
-      verification: { matchesExpectedNotes: true }, timestamp: new Date().toISOString() };
-  }
-
-  async #planMidiChordDoubling(args) {
-    const before = await this.bridge.request("get_midi_clip_notes_extended", { trackId: args.trackId, clipId: args.clipId });
-    const clipTiming = await this.bridge.request("get_clip_timing", { trackId: args.trackId, clipId: args.clipId });
-    const gridReference = await this.call("get_song_grid_reference", {});
-    const after = await this.bridge.request("get_midi_clip_notes_extended", { trackId: args.trackId, clipId: args.clipId });
-    if (before.stateVersion !== clipTiming.stateVersion || before.stateVersion !== gridReference.stateVersion ||
-        JSON.stringify(before) !== JSON.stringify(after) || before.trackId !== args.trackId || before.clipId !== args.clipId ||
-        clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
-      throw new Error("clip, timing, or song context changed during MIDI chord-doubling planning; retry");
-    return { stateVersion: before.stateVersion, trackId: before.trackId, clipId: before.clipId,
-      context: { before, clipTiming, gridReference }, plan: planMidiChordDoubling(before, args) };
-  }
-
-  async #applyMidiChordDoubling(args) {
-    requireExpectedState(args);
-    const planned = await this.#planMidiChordDoubling(args);
-    if (planned.stateVersion !== args.expectedStateVersion)
-      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${planned.stateVersion}`);
-    const plan = { method: "replace_midi_notes", operation: "apply_midi_chord_doubling",
-      trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
-      before: planned.context.before, clipTiming: planned.context.clipTiming, gridReference: planned.context.gridReference,
-      chordDoubling: planned.plan, removeNoteIds: [], newNotes: planned.plan.newNotes };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
-    const observed = await this.bridge.request("replace_midi_notes", plan);
-    if (!Number.isInteger(observed.stateVersion) || observed.stateVersion <= args.expectedStateVersion ||
-        observed.trackId !== args.trackId || observed.clipId !== args.clipId ||
-        !matchMidiChordDoublingReadback(planned.plan, observed, observed.notes))
-      throw new Error("MIDI chord-doubling native readback mismatch");
-    return { dryRun: false, requested: plan, observed,
-      verification: { matchesExpectedNotes: true }, timestamp: new Date().toISOString() };
-  }
-
-  async #planMidiChordArpeggiation(args) {
-    const before = await this.bridge.request("get_midi_clip_notes_extended", { trackId: args.trackId, clipId: args.clipId });
-    const clipTiming = await this.bridge.request("get_clip_timing", { trackId: args.trackId, clipId: args.clipId });
-    const gridReference = await this.call("get_song_grid_reference", {});
-    const after = await this.bridge.request("get_midi_clip_notes_extended", { trackId: args.trackId, clipId: args.clipId });
-    if (before.stateVersion !== clipTiming.stateVersion || before.stateVersion !== gridReference.stateVersion ||
-        JSON.stringify(before) !== JSON.stringify(after) || before.trackId !== args.trackId || before.clipId !== args.clipId ||
-        clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
-      throw new Error("clip, timing, or song context changed during MIDI chord-arpeggiation planning; retry");
-    return { stateVersion: before.stateVersion, trackId: before.trackId, clipId: before.clipId,
-      context: { before, clipTiming, gridReference }, plan: planMidiChordArpeggiation(before, args) };
-  }
-
-  async #applyMidiChordArpeggiation(args) {
-    requireExpectedState(args);
-    const planned = await this.#planMidiChordArpeggiation(args);
-    if (planned.stateVersion !== args.expectedStateVersion)
-      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${planned.stateVersion}`);
-    const plan = { method: "transform_midi_notes", operation: "apply_midi_chord_arpeggiation",
-      trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
-      before: planned.context.before, clipTiming: planned.context.clipTiming, gridReference: planned.context.gridReference,
-      chordArpeggiation: planned.plan, changes: planned.plan.changes, newNotes: planned.plan.newNotes };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
-    const observed = await this.bridge.request("transform_midi_notes", plan);
-    if (!Number.isInteger(observed.stateVersion) || observed.stateVersion <= args.expectedStateVersion ||
-        observed.trackId !== args.trackId || observed.clipId !== args.clipId ||
-        !matchMidiChordArpeggiationReadback(planned.context.before.notes, planned.plan, observed, observed.notes))
-      throw new Error("MIDI chord-arpeggiation native readback mismatch");
-    return { dryRun: false, requested: plan, observed,
-      verification: { matchesExpectedNotes: true }, timestamp: new Date().toISOString() };
-  }
-
-  async #planMidiTransposition(args) {
-    const before = await this.bridge.request("get_midi_clip_notes_extended", { trackId: args.trackId, clipId: args.clipId });
-    const clipTiming = await this.bridge.request("get_clip_timing", { trackId: args.trackId, clipId: args.clipId });
-    const gridReference = await this.call("get_song_grid_reference", {});
-    const after = await this.bridge.request("get_midi_clip_notes_extended", { trackId: args.trackId, clipId: args.clipId });
-    if (before.stateVersion !== clipTiming.stateVersion || before.stateVersion !== gridReference.stateVersion ||
-        JSON.stringify(before) !== JSON.stringify(after) || before.trackId !== args.trackId || before.clipId !== args.clipId ||
-        clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
-      throw new Error("clip, timing, or song context changed during MIDI transposition planning; retry");
-    return { stateVersion: before.stateVersion, trackId: before.trackId, clipId: before.clipId,
-      context: { before, clipTiming, gridReference }, plan: planMidiTransposition(before, args) };
-  }
-
-  async #applyMidiTransposition(args) {
-    requireExpectedState(args);
-    const planned = await this.#planMidiTransposition(args);
-    if (planned.stateVersion !== args.expectedStateVersion)
-      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${planned.stateVersion}`);
-    const plan = { method: "transform_midi_notes", operation: "apply_midi_transposition",
-      trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
-      before: planned.context.before, clipTiming: planned.context.clipTiming, gridReference: planned.context.gridReference,
-      midiTransposition: planned.plan, changes: planned.plan.changes, newNotes: [] };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
-    const observed = await this.bridge.request("transform_midi_notes", plan);
-    if (!Number.isInteger(observed.stateVersion) || observed.stateVersion <= args.expectedStateVersion ||
-        observed.trackId !== args.trackId || observed.clipId !== args.clipId ||
-        observed.addedNoteIds?.length !== 0 ||
-        !matchMidiTranspositionReadback(planned.context.before.notes, planned.plan, observed.notes))
-      throw new Error("MIDI-transposition native readback mismatch");
-    return { dryRun: false, requested: plan, observed,
-      verification: { matchesExpectedNotes: true }, timestamp: new Date().toISOString() };
-  }
-
-  async #planMidiDiatonicTransposition(args) {
-    const musicalContext = await this.bridge.request("get_song_musical_context", {});
-    const before = await this.bridge.request("get_midi_clip_notes_extended", { trackId: args.trackId, clipId: args.clipId });
-    const clipTiming = await this.bridge.request("get_clip_timing", { trackId: args.trackId, clipId: args.clipId });
-    const gridReference = await this.call("get_song_grid_reference", {});
-    const after = await this.bridge.request("get_midi_clip_notes_extended", { trackId: args.trackId, clipId: args.clipId });
-    const finalContext = await this.bridge.request("get_song_musical_context", {});
-    if (musicalContext.stateVersion !== before.stateVersion || before.stateVersion !== clipTiming.stateVersion ||
-        before.stateVersion !== gridReference.stateVersion || JSON.stringify(before) !== JSON.stringify(after) ||
-        JSON.stringify(musicalContext) !== JSON.stringify(finalContext) || before.trackId !== args.trackId ||
-        before.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
-      throw new Error("clip, scale, timing, or song context changed during diatonic transposition planning; retry");
-    return { stateVersion: before.stateVersion, trackId: before.trackId, clipId: before.clipId,
-      context: { before, musicalContext, clipTiming, gridReference },
-      plan: planMidiDiatonicTransposition(before, musicalContext.key, args) };
-  }
-
-  async #applyMidiDiatonicTransposition(args) {
-    requireExpectedState(args);
-    const planned = await this.#planMidiDiatonicTransposition(args);
-    if (planned.stateVersion !== args.expectedStateVersion)
-      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${planned.stateVersion}`);
-    const plan = { method: "transform_midi_notes", operation: "apply_midi_diatonic_transposition",
-      trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
-      before: planned.context.before, musicalContext: planned.context.musicalContext,
-      clipTiming: planned.context.clipTiming, gridReference: planned.context.gridReference,
-      midiDiatonicTransposition: planned.plan, changes: planned.plan.changes, newNotes: [] };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
-    const observed = await this.bridge.request("transform_midi_notes", plan);
-    if (!Number.isInteger(observed.stateVersion) || observed.stateVersion <= args.expectedStateVersion ||
-        observed.trackId !== args.trackId || observed.clipId !== args.clipId ||
-        observed.addedNoteIds?.length !== 0 ||
-        !matchMidiDiatonicTranspositionReadback(planned.context.before.notes, planned.plan, observed.notes))
-      throw new Error("MIDI diatonic-transposition native readback mismatch");
-    return { dryRun: false, requested: plan, observed,
-      verification: { matchesExpectedNotes: true }, timestamp: new Date().toISOString() };
-  }
-
-  async #planMidiDiatonicHarmony(args) {
-    const musicalContext = await this.bridge.request("get_song_musical_context", {});
-    const before = await this.bridge.request("get_midi_clip_notes_extended", { trackId: args.trackId, clipId: args.clipId });
-    const clipTiming = await this.bridge.request("get_clip_timing", { trackId: args.trackId, clipId: args.clipId });
-    const gridReference = await this.call("get_song_grid_reference", {});
-    const after = await this.bridge.request("get_midi_clip_notes_extended", { trackId: args.trackId, clipId: args.clipId });
-    const finalContext = await this.bridge.request("get_song_musical_context", {});
-    if (musicalContext.stateVersion !== before.stateVersion || before.stateVersion !== clipTiming.stateVersion ||
-        before.stateVersion !== gridReference.stateVersion || JSON.stringify(before) !== JSON.stringify(after) ||
-        JSON.stringify(musicalContext) !== JSON.stringify(finalContext) || before.trackId !== args.trackId ||
-        before.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
-      throw new Error("clip, scale, timing, or song context changed during diatonic harmony planning; retry");
-    return { stateVersion: before.stateVersion, trackId: before.trackId, clipId: before.clipId,
-      context: { before, musicalContext, clipTiming, gridReference },
-      plan: planMidiDiatonicHarmony(before, musicalContext.key, args) };
-  }
-
-  async #applyMidiDiatonicHarmony(args) {
-    requireExpectedState(args);
-    const planned = await this.#planMidiDiatonicHarmony(args);
-    if (planned.stateVersion !== args.expectedStateVersion)
-      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${planned.stateVersion}`);
-    const plan = { method: "replace_midi_notes", operation: "apply_midi_diatonic_harmony",
-      trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
-      before: planned.context.before, musicalContext: planned.context.musicalContext,
-      clipTiming: planned.context.clipTiming, gridReference: planned.context.gridReference,
-      midiDiatonicHarmony: planned.plan, removeNoteIds: [], newNotes: planned.plan.newNotes };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
-    const observed = await this.bridge.request("replace_midi_notes", plan);
-    if (!Number.isInteger(observed.stateVersion) || observed.stateVersion <= args.expectedStateVersion ||
-        observed.trackId !== args.trackId || observed.clipId !== args.clipId ||
-        !matchMidiDiatonicHarmonyReadback(planned.plan, observed, observed.notes))
-      throw new Error("MIDI diatonic-harmony native readback mismatch");
-    return { dryRun: false, requested: plan, observed,
-      verification: { matchesExpectedNotes: true }, timestamp: new Date().toISOString() };
-  }
-
-  async #planMidiScaleChordRemapping(args) {
-    const musicalContext = await this.bridge.request("get_song_musical_context", {});
-    const before = await this.bridge.request("get_midi_clip_notes_extended", { trackId: args.trackId, clipId: args.clipId });
-    const clipTiming = await this.bridge.request("get_clip_timing", { trackId: args.trackId, clipId: args.clipId });
-    const gridReference = await this.call("get_song_grid_reference", {});
-    const after = await this.bridge.request("get_midi_clip_notes_extended", { trackId: args.trackId, clipId: args.clipId });
-    const finalContext = await this.bridge.request("get_song_musical_context", {});
-    if (musicalContext.stateVersion !== before.stateVersion || before.stateVersion !== clipTiming.stateVersion ||
-        before.stateVersion !== gridReference.stateVersion || JSON.stringify(before) !== JSON.stringify(after) ||
-        JSON.stringify(musicalContext) !== JSON.stringify(finalContext) || before.trackId !== args.trackId ||
-        before.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
-      throw new Error("clip, scale, timing, or song context changed during chord remapping planning; retry");
-    return { stateVersion: before.stateVersion, trackId: before.trackId, clipId: before.clipId,
-      context: { before, musicalContext, clipTiming, gridReference },
-      plan: planMidiScaleChordRemapping(before, musicalContext.key, args) };
-  }
-
-  async #applyMidiScaleChordRemapping(args) {
-    requireExpectedState(args);
-    const planned = await this.#planMidiScaleChordRemapping(args);
-    if (planned.stateVersion !== args.expectedStateVersion)
-      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${planned.stateVersion}`);
-    const plan = { method: "transform_midi_notes", operation: "apply_midi_scale_chord_remapping",
-      trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
-      before: planned.context.before, musicalContext: planned.context.musicalContext,
-      clipTiming: planned.context.clipTiming, gridReference: planned.context.gridReference,
-      midiScaleChordRemapping: planned.plan, changes: planned.plan.changes, newNotes: [] };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
-    const observed = await this.bridge.request("transform_midi_notes", plan);
-    if (!Number.isInteger(observed.stateVersion) || observed.stateVersion <= args.expectedStateVersion ||
-        observed.trackId !== args.trackId || observed.clipId !== args.clipId || observed.addedNoteIds?.length !== 0 ||
-        !matchMidiScaleChordRemappingReadback(planned.context.before.notes, planned.plan, observed.notes))
-      throw new Error("MIDI scale-chord-remapping native readback mismatch");
-    return { dryRun: false, requested: plan, observed,
-      verification: { matchesExpectedNotes: true }, timestamp: new Date().toISOString() };
-  }
-
-  async #planMidiDiatonicChordQuality(args) {
-    const musicalContext = await this.bridge.request("get_song_musical_context", {});
-    const before = await this.bridge.request("get_midi_clip_notes_extended", { trackId: args.trackId, clipId: args.clipId });
-    const clipTiming = await this.bridge.request("get_clip_timing", { trackId: args.trackId, clipId: args.clipId });
-    const gridReference = await this.call("get_song_grid_reference", {});
-    const after = await this.bridge.request("get_midi_clip_notes_extended", { trackId: args.trackId, clipId: args.clipId });
-    const finalContext = await this.bridge.request("get_song_musical_context", {});
-    if (musicalContext.stateVersion !== before.stateVersion || before.stateVersion !== clipTiming.stateVersion ||
-        before.stateVersion !== gridReference.stateVersion || JSON.stringify(before) !== JSON.stringify(after) ||
-        JSON.stringify(musicalContext) !== JSON.stringify(finalContext) || before.trackId !== args.trackId ||
-        before.clipId !== args.clipId || clipTiming.trackId !== args.trackId || clipTiming.clipId !== args.clipId)
-      throw new Error("clip, scale, timing, or song context changed during chord-quality planning; retry");
-    return { stateVersion: before.stateVersion, trackId: before.trackId, clipId: before.clipId,
-      context: { before, musicalContext, clipTiming, gridReference },
-      plan: planMidiDiatonicChordQuality(before, musicalContext.key, args) };
-  }
-
-  async #applyMidiDiatonicChordQuality(args) {
-    requireExpectedState(args);
-    const planned = await this.#planMidiDiatonicChordQuality(args);
-    if (planned.stateVersion !== args.expectedStateVersion)
-      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${planned.stateVersion}`);
-    const plan = { method: "replace_midi_notes", operation: "apply_midi_diatonic_chord_quality",
-      trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
-      before: planned.context.before, musicalContext: planned.context.musicalContext,
-      clipTiming: planned.context.clipTiming, gridReference: planned.context.gridReference,
-      midiDiatonicChordQuality: planned.plan, changes: planned.plan.changes,
-      removeNoteIds: planned.plan.removeNoteIds, newNotes: planned.plan.newNotes };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
-    const observed = await this.bridge.request("replace_midi_notes", plan);
-    if (!Number.isInteger(observed.stateVersion) || observed.stateVersion <= args.expectedStateVersion ||
-        observed.trackId !== args.trackId || observed.clipId !== args.clipId ||
-        !matchMidiDiatonicChordQualityReadback(planned.plan, observed, observed.notes))
-      throw new Error("MIDI diatonic-chord-quality native readback mismatch");
-    return { dryRun: false, requested: plan, observed,
-      verification: { matchesExpectedNotes: true }, timestamp: new Date().toISOString() };
+      verification: { [spec.verification]: true }, timestamp: new Date().toISOString() };
   }
 
   #mixerFields(args, sends = true) {

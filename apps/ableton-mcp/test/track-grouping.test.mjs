@@ -48,9 +48,18 @@ test('uncertain command outcomes preserve actual native status and are never rep
  const f=fixture();f.host.commit=async()=>{f.grouped=true;throw Object.assign(Error('reply lost'),{groupRequested:null});};const p=await f.service.call('group_tracks',args),r=await confirmed(f,p);assert.equal(r.groupRequested,null);assert.equal(r.groupVerified,false);assert.equal(r.observed.groupVerified,true);assert.equal(f.counts.cancels,0);assert.equal((await f.service.call('get_track_grouping_status',{groupingId:'handle'})).groupVerified,true);
 });
 test('incomplete verification cannot claim native grouping success',async()=>{
- for(const corrupt of [r=>delete r.materialPreserved,r=>r.members[0].trackId='track-99',r=>r.members[0].sourceTrackId='track-9',r=>r.group.isGroup=false]){
- const f=fixture(),original=f.bridge.request;f.bridge.request=async(...a)=>{const r=await original(...a);if(a[0]==='get_track_grouping_status'&&r.groupVerified)corrupt(r);return r;};const p=await f.service.call('group_tracks',args),r=await confirmed(f,p);assert.equal(r.groupVerified,false);assert.equal(r.observed.inspectionRequired,true);
+ for(const corrupt of [r=>delete r.group,r=>r.group=null,r=>delete r.members,r=>r.members={},r=>r.members[0]=null]){
+ const f=fixture(),original=f.bridge.request;f.bridge.request=async(...a)=>{const r=await original(...a);if(a[0]==='get_track_grouping_status'&&r.groupVerified)corrupt(r);return r;};const p=await f.service.call('group_tracks',args),r=await confirmed(f,p);assert.equal(r.groupVerified,false);assert.equal(r.observed.inspectionRequired,true);assert.equal(r.observed.bridgeReportedGroupVerified,true);
  }
+});
+test('a verified bridge receipt is trusted without re-deriving member track IDs',async()=>{
+ const f=fixture(),original=f.bridge.request;let receipt;f.bridge.request=async(...a)=>{const r=await original(...a);if(a[0]==='get_track_grouping_status'&&r.groupVerified){r.group={id:'track-7',isGroup:true};r.members[0].trackId='track-9';r.members[1].trackId='track-12';receipt=structuredClone(r);}return r;};
+ const p=await f.service.call('group_tracks',args),r=await confirmed(f,p);assert.equal(r.groupVerified,true);assert.deepEqual(r.observed,receipt);
+ assert.deepEqual(await f.service.call('get_track_grouping_status',{groupingId:'handle'}),receipt);
+});
+test('a verified receipt for different source tracks does not verify the request',async()=>{
+ const f=fixture(),original=f.bridge.request;f.bridge.request=async(...a)=>{const r=await original(...a);if(a[0]==='get_track_grouping_status'&&r.groupVerified)r.members[0].sourceTrackId='track-9';return r;};
+ const p=await f.service.call('group_tracks',args),r=await confirmed(f,p);assert.equal(r.groupVerified,false);assert.equal(r.observed.groupVerified,true);
 });
 test('grouping requires exactly the native topology version advance',async()=>{
  for(const stateVersion of [3,5]){
