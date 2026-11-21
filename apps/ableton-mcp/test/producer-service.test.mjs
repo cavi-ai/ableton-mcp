@@ -12,6 +12,7 @@ import { ToolService } from "../src/tool-service.mjs";
 import { toolContracts } from "../src/tool-contracts.mjs";
 import { producerToolContracts } from "../src/producer-contracts.mjs";
 import { withMutationOutcome } from "../src/mutation-outcomes.mjs";
+import { phaseAfterTask, taskStatus } from "../src/production-task-outcome.mjs";
 
 const response = (extra = {}) => ({ summary: "Use a quieter bass.", reads: [], operations: [], checks: [], questions: [], alternatives: [], ...extra });
 async function setup(t, generate) {
@@ -312,6 +313,25 @@ test("unavailable or changing no-op evidence cannot complete a change task", asy
     assert.equal(task.status, unavailable ? "incomplete" : "stale_context");
     assert.equal(task.operationCount, 0);
   }
+});
+
+test("a session propose shares the stale no-op outcome with its task", async t => {
+  const { service, base, change, calls } = await setup(t, () => response());
+  const postconditions = [{ tool: "get_track_mixer", args: { trackId: "track-0" }, path: ["volume"], expected: -12 }];
+  let session = await service.call("start_production_session", { projectId: "song", goal: "Set volume", roles: "functional",
+    completion: "postconditions", postconditions });
+  const original = base.call;
+  base.call = async (name, args) => {
+    if (name === "get_track_mixer") { change(); return { volume: -12 }; }
+    return original(name, args);
+  };
+  session = await service.call("advance_production_session", { projectId: "song", sessionId: session.sessionId,
+    expectedRevision: session.revision, action: "propose" });
+  assert.equal(session.task.status, taskStatus({ stale: true, completion: { status: "no_change_needed" } }).status);
+  assert.equal(session.status, "stale_context");
+  assert.equal(session.phase, phaseAfterTask({ status: session.task.status, operationCount: 0, role: "functional", checkedCompletion: true }));
+  assert.equal(session.phase, "inspect");
+  assert.equal(calls.some(call => call.name === "set_tempo"), false);
 });
 
 for (const name of ["run_production_task", "start_production_session"])

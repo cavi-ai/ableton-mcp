@@ -8,6 +8,8 @@ import { join } from "node:path";
 import Ajv from "ajv";
 import { createProducerRuntime, parseProducerConfig } from "../src/producer-runtime.mjs";
 import { toolContracts } from "../src/tool-contracts.mjs";
+import { responseFormat, turnLimit, turnOutcome, turnProgress } from "../src/specialist-turn.mjs";
+import { discoveryArguments } from "../src/production-tool-catalog.mjs";
 
 const reply = { summary: "Try a sparse bass variation.", reads: [], operations: [], checks: [], questions: [], alternatives: [] };
 const packet = { role: "creative", goal: "Simplify bass", context: [] };
@@ -209,6 +211,20 @@ test("the final Ollama turn permits proposals or questions but no unfulfillable 
     assert.equal(validate({ ...reply, operations: [{ tool: "set_tempo", args: { tempo: 120 } }] }), true);
     assert.equal(validate({ ...reply, questions: ["Which tempo is intended?"] }), true);
   }
+});
+
+test("the decode schema and the coordinator stop share one specialist turn", () => {
+  const read = { ...reply, reads: [{ tool: "get_live_state", args: {} }] };
+  const task = { ...packet, role: "functional", tools: { reads: [], operations: [] } };
+  for (const deferred of [false, true]) for (let round = 0; round < turnLimit(deferred); round++) {
+    const progress = turnProgress({ round, deferred, reads: 0, discoveries: 0 });
+    const last = round === turnLimit(deferred) - 1;
+    assert.equal(responseFormat({ ...task, progress }).properties.reads.maxItems, last ? 0 : 4);
+    assert.deepEqual(turnOutcome(read, progress), last ? { next: "stop", stopReason: "model_turn_limit" } : { next: "read" });
+    assert.deepEqual(turnOutcome(reply, progress), { next: "finish" });
+  }
+  const discovery = responseFormat(task).properties.reads.items.anyOf.find(item => item.properties.tool.const === "discover_production_tools");
+  assert.deepEqual(discovery.properties.args, discoveryArguments);
 });
 
 test("embedded recursive snapshot operation schemas retain their local references", async () => {
