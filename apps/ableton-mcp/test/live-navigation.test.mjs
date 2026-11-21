@@ -24,7 +24,12 @@ test('navigation is an explicit all-profile mutation and retains partial observa
 });
 
 test('an incomplete bridge verification claim stays unverified with its observations retained',async()=>{
- for(const key of ['deviceViewsVerified','target']){const f=fixture(),original=f.service.bridge.request;f.service.bridge.request=async(...a)=>{const r=await original(...a);if(a[0]==='show_live_object')delete r[key];return r;};
+ for(const key of ['target','stateVersion']){const f=fixture(),original=f.service.bridge.request;f.service.bridge.request=async(...a)=>{const r=await original(...a);if(a[0]==='show_live_object')delete r[key];return r;};
  const p=await f.service.call('show_live_object',args),r=await f.service.call('show_live_object',{...args,dryRun:false,confirmationToken:p.confirmation.token,planHash:p.confirmation.planHash});assert.equal(r.observed.showVerified,false);assert.equal(r.observed.bridgeReportedShowVerified,true);assert.equal(r.observed.inspectionRequired,true);assert.equal(r.observed.selectionVerified,true);assert.match(r.observed.verificationError,/Incomplete/);
+ }
+});
+test('a verified bridge navigation is trusted without recombining secondary flags',async()=>{
+ for(const key of ['targetIdentityRetained','selectionVerified','viewsVerified','deviceViewsVerified','controlsUnchanged']){const f=fixture(),original=f.service.bridge.request;let receipt;f.service.bridge.request=async(...a)=>{const r=await original(...a);if(a[0]==='show_live_object'){r[key]=false;receipt=structuredClone(r);}return r;};
+ const p=await f.service.call('show_live_object',args),r=await f.service.call('show_live_object',{...args,dryRun:false,confirmationToken:p.confirmation.token,planHash:p.confirmation.planHash});assert.equal(r.observed.showVerified,true,key);assert.deepEqual(r.observed,receipt);
  }
 });
