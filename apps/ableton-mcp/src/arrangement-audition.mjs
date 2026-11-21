@@ -1,6 +1,6 @@
 import {assertExpectedState} from "./bridge-protocol.mjs";
 import {assertArrangementRange} from "./arrangement-section.mjs";
-import {hashPlan} from "./confirmation-store.mjs";
+import {guardedWrite} from "./guarded-write.mjs";
 
 export async function auditionArrangementPassage(bridge,confirmations,args){
   assertArrangementRange(args);
@@ -12,10 +12,6 @@ export async function auditionArrangementPassage(bridge,confirmations,args){
   const before=await bridge.request("get_arrangement_audition_source",request);
   assertExpectedState(args,before);
   const plan={method:"audition_arrangement_passage",...request,expectedStateVersion:args.expectedStateVersion,before};
-  if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan),warning:
-    "Starts global playback in a changed Arrangement loop and returns only the named ordinary tracks from Session override. Other tracks may sound. Playback continues until stopped; earlier Session phase is not restored."};
-  const planHash=hashPlan(plan);
-  if(args.planHash!==planHash)throw new Error("confirmation plan hash mismatch: audition context changed");
-  confirmations.consume(args.confirmationToken,planHash);
-  return {dryRun:false,requested:plan,observed:await bridge.request("audition_arrangement_passage",plan)};
+  return guardedWrite(confirmations,plan,args,{mismatch:"confirmation plan hash mismatch: audition context changed",execute:()=>bridge.request("audition_arrangement_passage",plan),preview:{warning:
+    "Starts global playback in a changed Arrangement loop and returns only the named ordinary tracks from Session override. Other tracks may sound. Playback continues until stopped; earlier Session phase is not restored."}});
 }

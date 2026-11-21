@@ -1,4 +1,5 @@
 import {hashPlan} from './confirmation-store.mjs';
+import {beginGuardedWrite} from './guarded-write.mjs';
 import {requestSignal} from './request-context.mjs';
 import {MacTrackMenuHost} from './track-menu.mjs';
 
@@ -14,9 +15,7 @@ export async function trackFreeze(bridge,confirmations,host,args){
   const plan={method:'set_track_freeze_state',trackId:args.trackId,expectedStateVersion:args.expectedStateVersion,before,frozen:args.frozen,
     contentMutationRisk:{kind:'rendered_track_audio',freezes:args.frozen,parameterRollbackRestoresContent:false},
     warning:'Uses macOS English Live on a saved Set. Changes focus and navigates visible track headers, leaving only the requested track selected before the command. Freezing renders Session and Arrangement clips and locks some edits until unfrozen. Exposed notes, timing and device/mixer values are bound; automation envelopes, hidden plug-in state and external file bytes are not. Does not bounce, delete, save or start playback. Unknown outcomes require inspection, never replay or rollback.'};
-  if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan)};
-  if(args.planHash!==hashPlan(plan))throw Error('freeze confirmation context changed');
-  confirmations.consume(args.confirmationToken,args.planHash);
+  const reply=beginGuardedWrite(confirmations,plan,args,{mismatch:'freeze confirmation context changed'});if(reply)return reply;
   const recheck=async()=>{try{requestSignal()?.throwIfAborted();if(hashPlan(await read())!==hashPlan(before))throw Error('freeze context changed before native command');}catch(error){throw Object.assign(error,{freezeRequested:false});}};
   let prepared,ui,error,cleanup;
   try{

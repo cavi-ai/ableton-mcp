@@ -1,5 +1,5 @@
 import {assertExpectedState} from './bridge-protocol.mjs';
-import {hashPlan} from './confirmation-store.mjs';
+import {guardedWrite} from './guarded-write.mjs';
 import {parameterAutomationTarget,assertAutomationControlReady} from './parameter-automation.mjs';
 
 export async function overrideParameterAutomation(bridge,confirmations,args){
@@ -19,9 +19,6 @@ export async function overrideParameterAutomation(bridge,confirmations,args){
   hasDisplay&&!Number.isFinite(before.target.quantity?.value))throw Error('updated native manual-override context required');
  const plan={method:'override_parameter_automation',...request,expectedStateVersion:args.expectedStateVersion,before};
  const stage=before.ownerType==='master'?'Main affects the routed mix. ':before.ownerType==='return'?'Return controls affect shared routed material. ':before.ownerType==='group'?'A Group affects its routed descendants. ':'';
- if(args.dryRun!==false)return {dryRun:true,plan,sampledControl,confirmation:confirmations.issue(plan),warning:stage+
-  'Explicitly overrides one automated control at the resolved absolute value. Active automation values may keep moving before confirmation; existing manual values are bound. This may change routed or mapped material immediately. The envelope is retained. One value write, followed by bounded readback; partial work remains without rollback or replay. This does not establish audible behavior or an exclusive control lease. Resuming automation is a separate explicit action.'};
- const hash=hashPlan(plan);if(args.planHash!==hash)throw Error('confirmation plan hash mismatch: automation control or manual context changed');
- confirmations.consume(args.confirmationToken,hash);
- return {dryRun:false,requested:plan,observed:await bridge.request(plan.method,plan)};
+ return guardedWrite(confirmations,plan,args,{mismatch:'confirmation plan hash mismatch: automation control or manual context changed',execute:()=>bridge.request(plan.method,plan),preview:{sampledControl,warning:stage+
+  'Explicitly overrides one automated control at the resolved absolute value. Active automation values may keep moving before confirmation; existing manual values are bound. This may change routed or mapped material immediately. The envelope is retained. One value write, followed by bounded readback; partial work remains without rollback or replay. This does not establish audible behavior or an exclusive control lease. Resuming automation is a separate explicit action.'}});
 }

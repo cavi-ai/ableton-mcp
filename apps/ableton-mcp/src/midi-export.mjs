@@ -41,6 +41,7 @@ export async function verifyMidiArtifact(path,{signal}={}){
 }
 
 import {hashPlan} from './confirmation-store.mjs';
+import {beginGuardedWrite} from './guarded-write.mjs';
 import {requestSignal} from './request-context.mjs';
 
 export function compareMidiNotes(artifact,source){
@@ -61,8 +62,7 @@ export async function saveMidiClip(bridge,confirmations,host,args){
   if(before.stateVersion!==args.expectedStateVersion)throw Error('MIDI export source state changed');
   const destination=await host.destination(args.path,before,{signal:requestSignal()}),plan={method:'export_midi_clip',before,destination,
     warning:'Selects the exact clip and changes focus, then uses native Export MIDI Clip to create a new .mid file. Refuses overwrites. Native export can include notes outside loop/playback markers and omit muted notes; Live currently quantizes exported timing to 96 ticks per beat. Does not render MIDI effects or instruments, save the Set, preserve Live loop/probability/velocity-deviation controls or prove MPE/controller/audible equivalence. Unknown saves are never replayed, undone or deleted.'};
-  if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan)};
-  if(args.planHash!==hashPlan(plan))throw Error('MIDI export confirmation context changed');confirmations.consume(args.confirmationToken,args.planHash);
+  const reply=beginGuardedWrite(confirmations,plan,args,{mismatch:'MIDI export confirmation context changed'});if(reply)return reply;
   let working=before,selectionRequested=false,renderDispatched=false,ui,artifact,after,error;
   const unchanged=async expected=>{try{requestSignal()?.throwIfAborted();if(hashPlan(await read())!==hashPlan(expected))throw Error('MIDI export source changed');if(host.recheckDestination)await host.recheckDestination(destination,{signal:requestSignal()});else if(hashPlan(await host.destination(args.path,expected,{signal:requestSignal()}))!==hashPlan(destination))throw Error('MIDI export destination changed');}catch(failure){failure.saveRequested=false;throw failure;}};
   const selected=async()=>{const s=await bridge.request('get_selection_context',{});if(s.selectedTrack?.id!==params.trackId||s.detailClip?.trackId!==params.trackId||s.detailClip.clipId!==params.clipId)throw Object.assign(Error('selected MIDI export clip changed'),{saveRequested:false});};

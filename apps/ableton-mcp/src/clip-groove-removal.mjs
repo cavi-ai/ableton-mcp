@@ -4,6 +4,7 @@ import {realpath} from "node:fs/promises";
 import {isAbsolute} from "node:path";
 import {fileURLToPath} from "node:url";
 import {hashPlan} from "./confirmation-store.mjs";
+import {beginGuardedWrite} from "./guarded-write.mjs";
 import {inspectGroovePostconditions} from "./groove-workflow.mjs";
 import {requestSignal} from "./request-context.mjs";
 import {MacLiveSetHost} from "./live-set-host.mjs";
@@ -24,9 +25,7 @@ export async function removeClipGroove(bridge, confirmations, host, args) {
   const native = await host.context(before);
   const plan = {method: "remove_clip_groove", ...target, expectedStateVersion: args.expectedStateVersion, before, native,
     warning: "Uses Live's macOS None menu, without baking. Requires a saved Set and a globally unique clip name. Selects and leaves the target in Clip View; prior focus and playhead are not restored. Does not remove the groove from the shared pool."};
-  if (args.dryRun !== false) return {dryRun: true, plan, confirmation: confirmations.issue(plan)};
-  if (args.planHash !== hashPlan(plan)) throw Error("confirmation plan hash mismatch: groove removal context changed");
-  confirmations.consume(args.confirmationToken, args.planHash);
+  const reply = beginGuardedWrite(confirmations, plan, args, {mismatch: "confirmation plan hash mismatch: groove removal context changed"}); if (reply) return reply;
   const signal = requestSignal();
   const prepared = async () => {
     signal?.throwIfAborted();

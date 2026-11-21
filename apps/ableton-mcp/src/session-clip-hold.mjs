@@ -1,4 +1,4 @@
-import {hashPlan} from './confirmation-store.mjs';
+import {guardedWrite} from './guarded-write.mjs';
 
 export async function sessionClipHold(bridge,confirmations,name,args){
  if(name==='get_session_clip_hold')return bridge.request(name,args);
@@ -17,8 +17,5 @@ export async function sessionClipHold(bridge,confirmations,name,args){
  const warning=starting
   ?'Requests a Gate/Repeat press now and release on Live display ticks after a wall-clock duration, even without this client. Honors native quantization. Global playback must already be authorized and running. Session launch can override this track\'s Arrangement. Gate release may stop the clip; Repeat may continue. No global stop, mode restoration or other clip takeover. Concurrent manual/controller input on this button cannot be distinguished and may be released. Command receipts are not raw button-state or audible-performance verification. Inspect retained handles after uncertainty; never replay a press blindly.'
   :'Cancel requests release of the retained native clip only. A failed release retains its handle and track reservation until an explicit cancel retry succeeds. Finishing a released terminal handle forgets runtime evidence; it does not stop a continuing Repeat clip. Inspect cleanupErrors and actual playback before continuing.';
- if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan),warning};
- if(args.planHash!==hashPlan(plan))throw Error('confirmation plan hash mismatch: clip hold context changed');
- confirmations.consume(args.confirmationToken,args.planHash);
- return {dryRun:false,requested:plan,observed:await bridge.request(name,plan)};
+ return guardedWrite(confirmations,plan,args,{mismatch:'confirmation plan hash mismatch: clip hold context changed',execute:()=>bridge.request(name,plan),preview:{warning}});
 }

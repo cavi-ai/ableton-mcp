@@ -1,5 +1,5 @@
 import {assertExpectedState} from './bridge-protocol.mjs';
-import {hashPlan} from './confirmation-store.mjs';
+import {guardedWrite} from './guarded-write.mjs';
 
 export async function midiNoteRemoval(bridge,confirmations,name,args){
  const target={trackId:args.trackId,clipId:args.clipId};
@@ -15,9 +15,6 @@ export async function midiNoteRemoval(bridge,confirmations,name,args){
  const noteIds=[...args.noteIds].sort((a,b)=>a-b),old=new Map(before.notes.map(note=>[note.noteId,note]));
  if(old.size!==before.notes.length||noteIds.some(id=>!old.has(id)))throw Error('one or more requested note IDs no longer exist');
  const plan={method:'remove_midi_notes',...target,expectedStateVersion:args.expectedStateVersion,before,noteIds};
- if(args.dryRun!==false)return {dryRun:true,plan,removedNotes:noteIds.map(id=>old.get(id)),confirmation:confirmations.issue(plan),warning:
-  'Destructive: removes the exact notes and their hidden expression. Exposed note records are not a complete backup. Use mute for a reversible simplification. Partial deletions remain; read actual notes before planning remaining work. No automatic rollback, reconstruction, replay or audible verification.'};
- const hash=hashPlan(plan);if(args.planHash!==hash)throw Error('confirmation plan hash mismatch: MIDI removal source changed');
- confirmations.consume(args.confirmationToken,hash);
- return {dryRun:false,requested:plan,observed:await bridge.request(plan.method,plan)};
+ return guardedWrite(confirmations,plan,args,{mismatch:'confirmation plan hash mismatch: MIDI removal source changed',execute:()=>bridge.request(plan.method,plan),preview:{removedNotes:noteIds.map(id=>old.get(id)),warning:
+  'Destructive: removes the exact notes and their hidden expression. Exposed note records are not a complete backup. Use mute for a reversible simplification. Partial deletions remain; read actual notes before planning remaining work. No automatic rollback, reconstruction, replay or audible verification.'}});
 }

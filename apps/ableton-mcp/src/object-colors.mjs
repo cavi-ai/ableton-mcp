@@ -1,5 +1,5 @@
 import {assertExpectedState} from './bridge-protocol.mjs';
-import {hashPlan} from './confirmation-store.mjs';
+import {beginGuardedWrite} from './guarded-write.mjs';
 
 const objectId = /^(?:master|(?:track|return|scene)-(?:0|[1-9][0-9]*)|track-(?:0|[1-9][0-9]*):(?:clip|arrangement-clip)-(?:0|[1-9][0-9]*))$/;
 const rgb = /^#[0-9A-Fa-f]{6}$/;
@@ -32,10 +32,7 @@ export async function setLiveObjectColors(bridge, confirmations, args) {
   }
   const plan = {method: 'set_live_object_colors', changes, expectedStateVersion: args.expectedStateVersion, before};
   const warning = 'Changes only explicit object colors in one Live undo step; native palette colors may differ from requested RGB. Track color inheritance may affect Rack-chain appearance. Partial changes remain for inspection; never replay a lost request or undo over intervening manual edits.';
-  if (args.dryRun !== false) return {dryRun: true, plan, warning, confirmation: confirmations.issue(plan)};
-  const hash = hashPlan(plan);
-  if (args.planHash !== hash) throw Error('color targets or context changed; review a fresh plan');
-  confirmations.consume(args.confirmationToken, hash);
+  const reply = beginGuardedWrite(confirmations, plan, args, {mismatch: 'color targets or context changed; review a fresh plan', preview: {warning}}); if (reply) return reply;
   const observed = await bridge.request('set_live_object_colors', plan);
   const receiptValid = observed?.stateVersion === args.expectedStateVersion + 1 && Array.isArray(observed.objects) && observed.objects.length === changes.length &&
     observed.objects.every((item,i) => item?.objectId === changes[i].objectId && item.requestedColor === changes[i].color &&

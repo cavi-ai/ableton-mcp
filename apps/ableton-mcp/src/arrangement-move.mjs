@@ -1,5 +1,5 @@
 import {assertExpectedState} from './bridge-protocol.mjs';
-import {hashPlan} from './confirmation-store.mjs';
+import {guardedWrite} from './guarded-write.mjs';
 
 export async function moveArrangementClip(bridge, confirmations, args) {
   if (!Number.isSafeInteger(args.expectedStateVersion) || !Number.isFinite(args.startBeats) || args.startBeats < 0 || args.startBeats > Number.MAX_SAFE_INTEGER) {
@@ -12,8 +12,5 @@ export async function moveArrangementClip(bridge, confirmations, args) {
     throw Error('updated native Arrangement move context required');
   }
   const plan = {method: 'move_arrangement_clip', ...ids, expectedStateVersion: args.expectedStateVersion, before};
-  if (args.dryRun !== false) return {dryRun: true, plan, confirmation: confirmations.issue(plan)};
-  if (args.planHash !== hashPlan(plan)) throw Error('Arrangement move confirmation context changed');
-  confirmations.consume(args.confirmationToken, args.planHash);
-  return {dryRun: false, requested: plan, observed: await bridge.request(plan.method, plan)};
+  return guardedWrite(confirmations, plan, args, {mismatch: 'Arrangement move confirmation context changed', execute: () => bridge.request(plan.method, plan)});
 }

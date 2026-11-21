@@ -1,5 +1,5 @@
 import {assertExpectedState} from './bridge-protocol.mjs';
-import {hashPlan} from './confirmation-store.mjs';
+import {guardedWrite} from './guarded-write.mjs';
 
 function target(args){
  if(typeof args.trackId!=='string'||!/^(master|(track|return)-(0|[1-9][0-9]*))$/.test(args.trackId))throw Error('canonical track, Return or master ID required');
@@ -40,9 +40,6 @@ export async function parameterAutomation(bridge,confirmations,name,args){
  assertExpectedState(args,before);ready(before,request);
  const plan={method:'re_enable_parameter_automation',...request,expectedStateVersion:args.expectedStateVersion,before};
  const scope=before.ownerType==='master'?'Main controls affect the entire routed mix. ':before.ownerType==='return'?'Return controls affect all audio routed through that Return. ':before.ownerType==='group'?'Group controls affect their routed descendants. ':'';
- if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan),warning:scope+
-  'Hands one exact overridden control back to automation; its value may jump and mapped or routed material may change. Playback is preserved. This does not restore an envelope or establish an audible result. The native method is requested once, with bounded readback; partial work remains without automatic rollback or replay.'};
- const hash=hashPlan(plan);if(args.planHash!==hash)throw Error('confirmation plan hash mismatch: automation context changed');
- confirmations.consume(args.confirmationToken,hash);
- return {dryRun:false,requested:plan,observed:await bridge.request(plan.method,plan)};
+ return guardedWrite(confirmations,plan,args,{mismatch:'confirmation plan hash mismatch: automation context changed',execute:()=>bridge.request(plan.method,plan),preview:{warning:scope+
+  'Hands one exact overridden control back to automation; its value may jump and mapped or routed material may change. Playback is preserved. This does not restore an envelope or establish an audible result. The native method is requested once, with bounded readback; partial work remains without automatic rollback or replay.'}});
 }

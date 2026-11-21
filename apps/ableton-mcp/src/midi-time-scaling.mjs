@@ -1,5 +1,6 @@
 import {assertExpectedState} from './bridge-protocol.mjs';
 import {hashPlan} from './confirmation-store.mjs';
+import {beginGuardedWrite} from './guarded-write.mjs';
 
 const editFlags=['frozen','clipRecording','clipOverdubbing','pendingLaunch','arrangementRecord','sessionRecord','countingIn'];
 const exactFields=['pitch','velocity','velocityDeviation','releaseVelocity','probability','mute'];
@@ -58,10 +59,8 @@ export async function scaleMidiTime(bridge,confirmations,args) {
   const changes=changesFor(before,args.noteIds,args.operation);
   const plan={method:'transform_midi_notes',...target,expectedStateVersion:args.expectedStateVersion,
     before,noteIds:changes.map(c=>c.noteId),operation:args.operation,changes,newNotes:[]};
-  if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan),warning:
-    'Scales stored note starts and durations only. Tempo, loop and placement are not resized. Hidden per-note expression and clip envelopes are not retimed or verified. Notes outside playback bounds refuse. Partial native edits remain; inspect before further work.'};
-  const hash=hashPlan(plan);if(args.planHash!==hash)throw Error('confirmation plan hash mismatch: MIDI time-scaling source changed');
-  confirmations.consume(args.confirmationToken,hash);
+  const reply=beginGuardedWrite(confirmations,plan,args,{mismatch:'confirmation plan hash mismatch: MIDI time-scaling source changed',preview:{warning:
+    'Scales stored note starts and durations only. Tempo, loop and placement are not resized. Hidden per-note expression and clip envelopes are not retimed or verified. Notes outside playback bounds refuse. Partial native edits remain; inspect before further work.'}});if(reply)return reply;
   const observed=await bridge.request(plan.method,plan);
   let readback=null,error=null;
   try {readback=await bridge.request('get_midi_note_removal_context',target);}catch(failure){error=String(failure.message??failure);}

@@ -1,4 +1,4 @@
-import {hashPlan} from './confirmation-store.mjs';
+import {guardedWrite} from './guarded-write.mjs';
 
 const modes={stereo:0,splitStereo:1},controls=['pan','left','right'];
 
@@ -44,9 +44,6 @@ export async function mixerPanning(bridge,confirmations,name,args){
   if(before.stateVersion!==args.expectedStateVersion)throw Error('panning state changed');
   assertEditable(before,input,args.trackId);
   const plan={method:'set_mixer_panning',trackId:args.trackId,...input,expectedStateVersion:args.expectedStateVersion,before};
-  if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan),warning:
-    'Mode setup and position changes require separate confirmations. A mode switch can change all native pan controls; inspect their actual values before another edit. Left/right place the input channels, not independent output gains. Group, Return and Main edits affect their entire mixer stage. Immediate values are not a timed sweep, width percentage, loudness or audible image verification. Partial work remains without automatic rollback or replay.'};
-  if(args.planHash!==hashPlan(plan))throw Error('confirmation plan hash mismatch: panning context changed');
-  confirmations.consume(args.confirmationToken,args.planHash);
-  return {dryRun:false,requested:plan,observed:await bridge.request(plan.method,plan)};
+  return guardedWrite(confirmations,plan,args,{mismatch:'confirmation plan hash mismatch: panning context changed',execute:()=>bridge.request(plan.method,plan),preview:{warning:
+    'Mode setup and position changes require separate confirmations. A mode switch can change all native pan controls; inspect their actual values before another edit. Left/right place the input channels, not independent output gains. Group, Return and Main edits affect their entire mixer stage. Immediate values are not a timed sweep, width percentage, loudness or audible image verification. Partial work remains without automatic rollback or replay.'}});
 }

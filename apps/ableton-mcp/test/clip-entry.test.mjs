@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {ToolService} from '../src/tool-service.mjs';
 import {createRouter} from '../src/server.mjs';
 import {getProducerWorkflow} from '../src/prompts.mjs';
+import {withRequestSignal} from '../src/request-context.mjs';
 
 test('entry workflow preserves originals and distinguishes launch entry from a loop',()=>{
  const text=getProducerWorkflow({workflow:'compare-clip-entry',arguments:{request:'Start the phrase halfway through',mode:'autonomous'}}).messages[0].content.text;
@@ -20,7 +21,18 @@ test('entry planning is inert and one confirmation preserves partial native rece
  const f=fixture(),plan=await f.service.call('set_session_clip_entry',f.args);assert.deepEqual(plan.plan.before,f.before);assert.equal(f.calls.length,1);
  const args={...f.args,dryRun:false,confirmationToken:plan.confirmation.token,planHash:plan.confirmation.planHash};
  const result=await f.service.call('set_session_clip_entry',args);assert.equal(result.observed.verified,false);assert.equal(result.observed.observed.start,2);
+ assert.match(result.timestamp,/^\d{4}-\d\d-\d\dT/);
  await assert.rejects(f.service.call('set_session_clip_entry',args));assert.equal(f.calls.filter(c=>c.name==='set_session_clip_entry').length,1);
+});
+test('entry confirmation refusals are tagged not executed, including cancellation',async()=>{
+ const f=fixture(),p=await f.service.call('set_session_clip_entry',f.args),args={...f.args,dryRun:false,confirmationToken:p.confirmation.token,planHash:p.confirmation.planHash};
+ const rejected=error=>error.outcome==='not_executed'&&error.code==='CONFIRMATION_REJECTED';
+ await assert.rejects(f.service.call('set_session_clip_entry',{...args,planHash:'0'.repeat(64)}),error=>rejected(error)&&error.message==='Session entry confirmation context changed');
+ await assert.rejects(f.service.call('set_session_clip_entry',{...args,confirmationToken:'unknown'}),error=>rejected(error)&&/unknown confirmation token/.test(error.message));
+ const controller=new AbortController();controller.abort(Error('cancelled'));
+ await assert.rejects(withRequestSignal(controller.signal,()=>f.service.call('set_session_clip_entry',args)),error=>rejected(error)&&error.message==='cancelled');
+ assert.equal(f.calls.some(c=>c.name==='set_session_clip_entry'),false);
+ assert.equal((await f.service.call('set_session_clip_entry',args)).dryRun,false);
 });
 test('entry plans reject replacement or same-version manual content and unit changes',async()=>{
  for(const change of [f=>f.before.identityToken='replacement',f=>f.before.content.notes[0].velocity=12,f=>f.before.unit='seconds']){

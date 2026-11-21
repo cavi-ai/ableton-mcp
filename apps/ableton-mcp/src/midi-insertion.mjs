@@ -1,5 +1,5 @@
 import {assertExpectedState} from './bridge-protocol.mjs';
-import {hashPlan} from './confirmation-store.mjs';
+import {guardedWrite} from './guarded-write.mjs';
 
 const fields=['pitch','start','duration','velocity','velocityDeviation','releaseVelocity','probability','mute'];
 function additions(notes,existing){
@@ -30,9 +30,6 @@ export async function midiInsertion(bridge,confirmations,name,args){
   ['frozen','clipRecording','clipOverdubbing','pendingLaunch','arrangementRecord','sessionRecord','countingIn'].some(key=>before.editContext?.[key]!==false))
   throw Error('resolve native insertion support, target identity, frozen state, recording, count-in and pending launch');
  const plan={method:'insert_midi_notes',...target,expectedStateVersion:args.expectedStateVersion,before,notes:additions(args.notes,before.notes)};
- if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan),warning:
-  'Adds explicit notes without replacing existing notes. Same-pitch overlaps refuse. Partial native work is retained; inspect all notes after an uncertain reply before adding remaining notes. No automatic rollback, replay or audible verification.'};
- const hash=hashPlan(plan);if(args.planHash!==hash)throw Error('confirmation plan hash mismatch: MIDI insertion source changed');
- confirmations.consume(args.confirmationToken,hash);
- return {dryRun:false,requested:plan,observed:await bridge.request(plan.method,plan)};
+ return guardedWrite(confirmations,plan,args,{mismatch:'confirmation plan hash mismatch: MIDI insertion source changed',execute:()=>bridge.request(plan.method,plan),preview:{warning:
+  'Adds explicit notes without replacing existing notes. Same-pitch overlaps refuse. Partial native work is retained; inspect all notes after an uncertain reply before adding remaining notes. No automatic rollback, replay or audible verification.'}});
 }

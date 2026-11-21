@@ -1,5 +1,5 @@
 import {assertExpectedState} from './bridge-protocol.mjs';
-import {hashPlan} from './confirmation-store.mjs';
+import {guardedWrite} from './guarded-write.mjs';
 const epsilon=2e-7;
 function tree(values,combine){
  const result=Array(values.length).fill(0).concat(values);
@@ -56,8 +56,5 @@ export async function reverseMidiPhrase(bridge,confirmations,args){
  if(before.trackId!==target.trackId||before.clipId!==target.clipId||typeof before.identityToken!=='string'||!before.identityToken||before.modifySupported!==true||!before.clipTiming||['frozen','clipRecording','clipOverdubbing','pendingLaunch','arrangementRecord','sessionRecord','countingIn'].some(k=>before.editContext?.[k]!==false))throw Error('resolve native reversal support, identity, recording, frozen state and pending launch');
  const changes=planMidiRetrograde(before.notes,args.noteIds,args.operation);
  const plan={method:'transform_midi_notes',...target,expectedStateVersion:args.expectedStateVersion,before,operation:args.operation,noteIds:[...args.noteIds].sort((a,b)=>a-b),changes};
- if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan)};
- if(args.planHash!==hashPlan(plan))throw Error('MIDI reversal confirmation context changed');
- confirmations.consume(args.confirmationToken,args.planHash);
- return {dryRun:false,requested:plan,observed:await bridge.request(plan.method,plan)};
+ return guardedWrite(confirmations,plan,args,{mismatch:'MIDI reversal confirmation context changed',execute:()=>bridge.request(plan.method,plan)});
 }

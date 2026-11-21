@@ -1,4 +1,5 @@
 import { hashPlan } from "./confirmation-store.mjs";
+import { consumeConfirmation } from "./guarded-write.mjs";
 
 export async function instrumentComparison(bridge, confirmations, name, args) {
   if (name === "get_instrument_comparison") return bridge.request(name, args);
@@ -38,9 +39,7 @@ export async function instrumentComparison(bridge, confirmations, name, args) {
           restoreMutes: before.restoreMutes, restorationBasis: before.restorationBasis,
           warning: "Changes only pair mutes; it does not launch clips, stop playback or prove audible output. Finishing preserves both tracks and ends this comparison handle." }) },
     confirmation: confirmations.issue(plan) };
-  const planHash = hashPlan(plan);
-  if (args.planHash !== planHash) throw new Error("confirmation plan hash mismatch: comparison state changed");
-  confirmations.consume(args.confirmationToken, planHash);
+  consumeConfirmation(confirmations, plan, args, "confirmation plan hash mismatch: comparison state changed");
   const observed = await bridge.request(name, plan);
   // Do not repeat large source snapshots in the mutation receipt.
   const { before: _, ...requested } = plan;

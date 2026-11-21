@@ -1,5 +1,5 @@
 import {assertExpectedState} from './bridge-protocol.mjs';
-import {hashPlan} from './confirmation-store.mjs';
+import {guardedWrite} from './guarded-write.mjs';
 
 export async function browserPreview(bridge,confirmations,name,args){
  const target={};
@@ -20,9 +20,6 @@ export async function browserPreview(bridge,confirmations,name,args){
    throw Error('resolve recording and count-in before previewing');
  }
  const plan={method:'set_browser_preview',action:args.action,...target,expectedStateVersion:args.expectedStateVersion,before};
- if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan),warning:
-  'Affects Live’s global browser preview, including a user-started preview. Start can replace it; stop is global. No preview ownership, duration, active-state or audible-output verification. Does not load the item. Do not replay an uncertain command or stop a later manual preview automatically.'};
- const hash=hashPlan(plan);if(args.planHash!==hash)throw Error('confirmation plan hash mismatch: browser preview context changed');
- confirmations.consume(args.confirmationToken,hash);
- return {dryRun:false,requested:plan,observed:await bridge.request(plan.method,plan)};
+ return guardedWrite(confirmations,plan,args,{mismatch:'confirmation plan hash mismatch: browser preview context changed',execute:()=>bridge.request(plan.method,plan),preview:{warning:
+  'Affects Live’s global browser preview, including a user-started preview. Start can replace it; stop is global. No preview ownership, duration, active-state or audible-output verification. Does not load the item. Do not replay an uncertain command or stop a later manual preview automatically.'}});
 }
