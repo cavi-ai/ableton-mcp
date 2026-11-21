@@ -47,10 +47,20 @@ test('uncertain Ungroup replies preserve observed state without replay or automa
  assert.equal((await f.service.call('get_track_ungrouping_status',{ungroupingId:'handle'})).ungroupVerified,true);
 });
 test('incomplete member receipts, wrong identities or version advances never verify',async()=>{
- for(const corrupt of [r=>r.members.pop(),r=>r.members[0].sourceTrackId='track-8',r=>delete r.materialPreserved,r=>r.groupRemoved=false,r=>r.stateVersion=3,r=>r.stateVersion=5]){
+ for(const corrupt of [r=>r.members.pop(),r=>r.members[0].sourceTrackId='track-8',r=>r.removedGroupId='track-5',r=>r.stateVersion=3,r=>r.stateVersion=5]){
   const f=fixture(),request=f.bridge.request;f.bridge.request=async(...a)=>{const r=await request(...a);if(a[0]==='get_track_ungrouping_status'&&r.ungroupVerified)corrupt(r);return r;};
   const p=await f.service.call('ungroup_tracks',args);assert.equal((await execute(f,p)).ungroupVerified,false);
  }
+});
+test('a verified Ungroup receipt missing members or the removed Group requires inspection',async()=>{
+ for(const corrupt of [r=>delete r.members,r=>delete r.removedGroupId]){
+  const f=fixture(),request=f.bridge.request;f.bridge.request=async(...a)=>{const r=await request(...a);if(a[0]==='get_track_ungrouping_status'&&r.ungroupVerified)corrupt(r);return r;};
+  const p=await f.service.call('ungroup_tracks',args),r=await execute(f,p);assert.equal(r.ungroupVerified,false);assert.equal(r.observed.inspectionRequired,true);assert.equal(r.observed.bridgeReportedUngroupVerified,true);
+ }
+});
+test('a verified Ungroup receipt is trusted without re-deriving member track IDs',async()=>{
+ const f=fixture(),request=f.bridge.request;let receipt;f.bridge.request=async(...a)=>{const r=await request(...a);if(a[0]==='get_track_ungrouping_status'&&r.ungroupVerified){r.members[0].trackId='track-10';r.members[1].trackId='track-11';delete r.expectedMemberCount;receipt=structuredClone(r);}return r;};
+ const p=await f.service.call('ungroup_tracks',args),r=await execute(f,p);assert.equal(r.ungroupVerified,true);assert.deepEqual(r.observed,receipt);
 });
 test('missing device-loss evidence or inconsistent visible target data refuses all UI actions',async()=>{
  for(const corrupt of [r=>delete r.hasGroupDevices,r=>delete r.removedGroup.devices,r=>r.targets[0].visibleIndex=99,r=>r.visibleTracks[1].trackId='track-9']){

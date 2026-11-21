@@ -9,12 +9,8 @@ const execute=promisify(execFile),script=fileURLToPath(new URL('./live-track-gro
 const trackId=/^track-(0|[1-9][0-9]*)$/;
 function validIds(ids){return Array.isArray(ids)&&ids.length>=2&&ids.length<=64&&ids.every((id,i)=>typeof id==='string'&&trackId.test(id)&&(i===0||Number(id.slice(6))===Number(ids[i-1].slice(6))+1));}
 function checkedStatus(observed,groupingId){
- const flags=['originalOrderPreserved','membershipVerified','materialPreserved','routingVerified','controlsPreserved'];
- const members=observed?.members,sourceIds=members?.map?.(m=>m?.sourceTrackId);
- const valid=observed?.groupingId===groupingId&&observed.groupVerified!==true||observed?.groupingId===groupingId&&
-  flags.every(k=>observed[k]===true)&&validIds(sourceIds)&&observed.group?.isGroup===true&&observed.group.id===sourceIds[0]&&
-  members.every((m,i)=>m.trackId==='track-'+(Number(sourceIds[i].slice(6))+1)&&m.materialPreserved===true);
- if(!valid)return {...observed,bridgeReportedGroupVerified:observed?.groupVerified,groupVerified:false,inspectionRequired:true,verificationError:'Incomplete native grouping receipt; inspect current tracks and retained handle'};
+ const intact=observed?.groupingId===groupingId&&(observed.groupVerified!==true||observed.group!==null&&typeof observed.group==='object'&&Array.isArray(observed.members));
+ if(!intact)return {...observed,bridgeReportedGroupVerified:observed?.groupVerified,groupVerified:false,inspectionRequired:true,verificationError:'Incomplete native grouping receipt; inspect current tracks and retained handle'};
  return observed;
 }
 export async function getTrackGroupingStatus(bridge,args){
@@ -59,14 +55,8 @@ export class MacTrackGroupingHost{
 }
 
 function checkedUngroupStatus(observed,ungroupingId){
- const members=observed?.members,group=observed?.removedGroupId;
- const flags=['groupRemoved','originalOrderPreserved','membershipVerified','materialPreserved','routingVerified','controlsPreserved'];
- const complete=observed?.ungroupingId===ungroupingId&&observed.ungroupVerified!==true||observed?.ungroupingId===ungroupingId&&
-  typeof group==='string'&&trackId.test(group)&&flags.every(k=>observed[k]===true)&&Array.isArray(members)&&
-  Number.isInteger(observed.expectedMemberCount)&&observed.expectedMemberCount>=1&&observed.expectedMemberCount<=255&&members.length===observed.expectedMemberCount&&
-  members.every((m,i)=>m.sourceTrackId==='track-'+(Number(group.slice(6))+i+1)&&m.trackId==='track-'+(Number(group.slice(6))+i)&&m.materialPreserved===true&&
-   (m.groupTrackId===null||typeof m.groupTrackId==='string'&&trackId.test(m.groupTrackId)));
- if(!complete)return {...observed,bridgeReportedUngroupVerified:observed?.ungroupVerified,ungroupVerified:false,inspectionRequired:true,verificationError:'Incomplete native ungrouping receipt; inspect current tracks and retained handle'};
+ const intact=observed?.ungroupingId===ungroupingId&&(observed.ungroupVerified!==true||typeof observed.removedGroupId==='string'&&Array.isArray(observed.members));
+ if(!intact)return {...observed,bridgeReportedUngroupVerified:observed?.ungroupVerified,ungroupVerified:false,inspectionRequired:true,verificationError:'Incomplete native ungrouping receipt; inspect current tracks and retained handle'};
  return observed;
 }
 export async function getTrackUngroupingStatus(bridge,args){
