@@ -64,6 +64,9 @@ function serviceFixture() {
     note(8, 64, 2, 0.5, 90),
   ];
   const bridge = { async request(method, args) {
+    if (method === "get_live_state") return { stateVersion: 4, setFingerprint: "set-1", tempo: 120 };
+    if (method === "get_song_musical_context") return { stateVersion: 4,
+      timeSignature: { numerator: 4, denominator: 4 } };
     if (method === "get_midi_clip_notes_extended") return {
       stateVersion: 4, trackId: args.trackId, clipId: args.clipId,
       lengthBeats: 4, notes,
@@ -81,11 +84,6 @@ function serviceFixture() {
     throw new Error(`unexpected ${method}`);
   } };
   const service = new ToolService({ bridge, catalog: {} });
-  const originalCall = service.call.bind(service);
-  service.call = async (name, args) => name === "get_song_grid_reference" ? {
-    stateVersion: 4, setFingerprint: "set-1", tempoBpm: 120,
-    timeSignature: { numerator: 4, denominator: 4 },
-  } : originalCall(name, args);
   return { service, applied: () => applied };
 }
 
@@ -113,6 +111,18 @@ test("guarded MIDI humanization verifies complete native note readback", async (
   assert.equal(live.observed.stateVersion, 6);
   assert.equal(live.verification.matchesRequestedChanges, true);
   assert.equal(applied(), true);
+});
+
+test("MIDI humanization reads the song grid without re-entering the public tool", async () => {
+  const { service } = serviceFixture();
+  const call = service.call.bind(service);
+  service.call = async (name, args) => {
+    if (name === "get_song_grid_reference") throw new Error("public grid re-entry");
+    return call(name, args);
+  };
+  const dry = await service.call("humanize_midi_notes", { ...toolArgs, expectedStateVersion: 4 });
+  assert.equal(dry.plan.gridReference.setFingerprint, "set-1");
+  assert.equal(dry.plan.changes[0].velocity, 108);
 });
 
 test("MIDI humanization tools expose strict bounded contracts", () => {
