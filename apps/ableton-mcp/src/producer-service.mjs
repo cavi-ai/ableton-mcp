@@ -7,7 +7,8 @@ import { isDeepStrictEqual } from "node:util";
 import { toolContracts } from "./tool-contracts.mjs";
 import { producerToolContracts } from "./producer-contracts.mjs";
 import { validateToolArguments, validateToolResult } from "./tool-validation.mjs";
-import { createProducerRuntime, parseProducerResponse } from "./producer-runtime.mjs";
+import { createProducerRuntime } from "./producer-runtime.mjs";
+import { parseProducerResponse, turnLimit, turnOutcome, turnProgress } from "./specialist-turn.mjs";
 import { requestSignal, withRequestSignal } from "./request-context.mjs";
 import { getProducerWorkflow } from "./prompts.mjs";
 import { ProductionSessions } from "./production-sessions.mjs";
@@ -237,7 +238,6 @@ export class ProducerService {
         try {
           const runtime = this.runtimeFactory(this.config[role]);
           const deferred = this.config[role].toolDiscovery === "deferred";
-          const maxTurns = deferred ? 6 : 3;
           const roleReads = deferred ? [...new Set([...deferredReadNames, ...(postconditions || []).map(check => check.tool)])] : initialReads;
           const packet = { role, intent, goal, scope, constraints, capabilities: { ...productionBoundaries }, context: contextRefs.map(ref => this.#preview(projectId, ref)),
             ...(workflow?{workflow}:{}),
@@ -246,10 +246,10 @@ export class ProducerService {
             ...(role === "functional" && results.length ? { creativeProposal: results[0].result } : {}) };
           for (const tool of packet.tools.reads) if (!allowedReads.includes(tool.name)) allowedReads.push(tool.name);
           for (const tool of packet.tools.operations) if (!allowedOperations.includes(tool.name)) allowedOperations.push(tool.name);
-          for (let round = 0; round < maxTurns; round++) {
+          for (let round = 0; round < turnLimit(deferred); round++) {
             checkSignal();
-            Object.assign(packet.progress, { turn: round + 1, maxTurns, readsRemaining: 8 - reads,
-              ...(deferred ? { discoveriesRemaining: 8 - discoveries } : {}) });
+            const progress = turnProgress({ round, deferred, reads, discoveries });
+            Object.assign(packet.progress, progress);
             if (Buffer.byteLength(JSON.stringify(packet)) > 48000) { exhausted = true; stopReason = "input_limit"; break; }
             const inputRef = this.artifacts.put(projectId, "specialist-input", packet);
             const result = await runtime.generate(packet, { signal: taskSignal, cwd });
@@ -261,13 +261,9 @@ export class ProducerService {
             turnRefs.push({ role, turn: round + 1, inputRef, resultRef });
             packet.progress.previousResultRef = resultRef;
             packet.progress.previousResponse = result;
-            if (!result.reads.length) { results.push({ role, result, resultRef }); break; }
-            const discoveryCount = deferred ? result.reads.filter(read => read.tool === "discover_production_tools").length : 0;
-            const readCount = result.reads.length - discoveryCount;
-            if (round === maxTurns - 1 || reads + readCount > 8 || discoveries + discoveryCount > 8) {
-              exhausted = true; stopReason = round === maxTurns - 1 ? "model_turn_limit"
-                : reads + readCount > 8 ? "read_limit" : "discovery_limit"; break;
-            }
+            const outcome = turnOutcome(result, progress);
+            if (outcome.next === "finish") { results.push({ role, result, resultRef }); break; }
+            if (outcome.next === "stop") { exhausted = true; stopReason = outcome.stopReason; break; }
             for (const read of result.reads) {
               checkSignal();
               if (deferred && read.tool === "discover_production_tools") discoveries++;
