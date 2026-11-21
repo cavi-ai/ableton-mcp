@@ -71,13 +71,11 @@ test("scale melody rejects invalid context, grid, events, register, and output s
 
 test("MCP melody planning binds one unchanged key and grid context", async () => {
   const bridge = { async request(method) {
-    if (method === "get_song_musical_context") return { stateVersion: 20, key: cMajor };
+    if (method === "get_song_musical_context") return { stateVersion: 20, key: cMajor, timeSignature: grid.timeSignature };
+    if (method === "get_live_state") return { stateVersion: 20, setFingerprint: "set-1", tempo: 120 };
     throw new Error(`unexpected ${method}`);
   } };
   const service = new ToolService({ bridge, catalog: {} });
-  service.call = service.call.bind(service);
-  const original = service.call;
-  service.call = async (name, args) => name === "get_song_grid_reference" ? grid : original(name, args);
   const result = await service.call("plan_scale_melody", base);
   assert.equal(result.stateVersion, 20);
   assert.equal(result.plan.notes.length, 8);
@@ -87,7 +85,9 @@ test("guarded melody creation verifies every generated native note", async () =>
   let created = false;
   let requestedNotes = [];
   const bridge = { async request(method, args) {
-    if (method === "get_song_musical_context") return { stateVersion: created ? 22 : 21, key: cMajor };
+    if (method === "get_song_musical_context") return { stateVersion: created ? 22 : 21, key: cMajor,
+      timeSignature: grid.timeSignature };
+    if (method === "get_live_state") return { stateVersion: created ? 22 : 21, setFingerprint: "set-1", tempo: 120 };
     if (method === "list_clips") return { stateVersion: 21, trackId: args.trackId,
       clips: [{ id: "track-0:clip-0", name: null, hasClip: false }] };
     if (method === "create_midi_clip") {
@@ -104,9 +104,6 @@ test("guarded melody creation verifies every generated native note", async () =>
     throw new Error(`unexpected ${method}`);
   } };
   const service = new ToolService({ bridge, catalog: {} });
-  const original = service.call.bind(service);
-  service.call = async (name, args) => name === "get_song_grid_reference" ?
-    { ...grid, stateVersion: created ? 22 : 21 } : original(name, args);
   const args = { ...base, expectedStateVersion: 21, trackId: "track-0",
     clipId: "track-0:clip-0", name: "Lead Motif" };
   const dry = await service.call("create_scale_melody_clip", args);
