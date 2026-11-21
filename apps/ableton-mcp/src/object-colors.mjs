@@ -37,9 +37,9 @@ export async function setLiveObjectColors(bridge, confirmations, args) {
   if (args.planHash !== hash) throw Error('color targets or context changed; review a fresh plan');
   confirmations.consume(args.confirmationToken, hash);
   const observed = await bridge.request('set_live_object_colors', plan);
-  const intact = observed !== null && typeof observed === 'object' && (observed.writeCompleted !== true ||
-    observed.stateVersion === args.expectedStateVersion + 1 && Array.isArray(observed.objects) && observed.objects.length === changes.length &&
-    observed.objects.every((item,i) => item?.objectId === changes[i].objectId && item.requestedColor === changes[i].color));
+  const intact = observed !== null && typeof observed === 'object' && observed.identityRetained !== false && observed.selectionUnchanged !== false &&
+    (observed.writeCompleted !== true || observed.stateVersion === args.expectedStateVersion + 1 && Array.isArray(observed.objects) &&
+    observed.objects.length === changes.length && observed.objects.every((item,i) => item?.objectId === changes[i].objectId && item.requestedColor === changes[i].color));
   if (!intact) return {dryRun: false, requested: plan, observed: {...observed, bridgeReportedWriteCompleted: observed?.writeCompleted,
     writeCompleted: false, inspectionRequired: true, verificationError: 'Incomplete or contradictory native color receipt; inspect current colors before retrying'}};
   return {dryRun: false, requested: plan, observed};
