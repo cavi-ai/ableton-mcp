@@ -123,6 +123,19 @@ test("an export dialog behind another app is cancelled with Live in front and fo
   assert.deepEqual((await service.call("get_live_dialog_state",{})).dialogs,[]);
 });
 
+test("an export dialog planned in front and confirmed behind another app is cancelled",async t=>{
+  const {service}=await serviceFor(t,"exportBehind");focus.behind=false;
+  const plan=validateToolResult("cancel_live_export_dialog",await service.call("cancel_live_export_dialog",{}),{});
+  assert.deepEqual(plan.plan.targets.map(d=>[d.identity,d.windowId]),[["exportAudioVideo",123]]);
+  focus.behind=true;
+  const execute={dryRun:false,confirmationToken:plan.confirmation.token,planHash:plan.confirmation.planHash};
+  const result=validateToolResult("cancel_live_export_dialog",await service.call("cancel_live_export_dialog",execute),execute);
+  assert.equal(result.cancelled,true);assert.equal(result.blocked,false);
+  assert.deepEqual(result.closed.map(d=>[d.identity,d.windowId]),[["exportAudioVideo",123]]);
+  assert.deepEqual(focus.restored,[77]);
+  assert.deepEqual((await service.call("get_live_dialog_state",{})).dialogs,[]);
+});
+
 test("one Export Audio/Video window listed twice is one dialog and its cancel is planned",async t=>{
   const {service}=await serviceFor(t,"exportTwice");
   const state=await service.call("get_live_dialog_state",{});

@@ -387,8 +387,10 @@ export async function cancelLiveExportDialog(confirmations,host,args){
   const plan=await observe();
   if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan),
     warning:"Presses Cancel once on each listed window, the export Save panel before Export Audio/Video, then on the Export Audio/Video dialog Live shows again after that Save panel closes. A listed window without a window id is behind another app: Live is brought to the front, the dialogs must read as planned again, and focus goes back to that app. No audio is rendered, no file is written and no other dialog is answered."};
-  if(args.planHash!==hashPlan(await observe()))throw Error("confirmation plan hash mismatch: native dialogs changed");
-  confirmations.consume(args.confirmationToken,args.planHash);
+  // A window id reads null while Live is behind another app; a planned and a current id must match when both are read.
+  const planned=confirmations.consume(args.confirmationToken,args.planHash),unread=p=>({...p,targets:p.targets.map(t=>({...t,windowId:null}))});
+  if(hashPlan(unread(planned))!==hashPlan(unread(plan))||planned.targets.some((t,i)=>Number.isInteger(t.windowId)&&Number.isInteger(plan.targets[i].windowId)&&t.windowId!==plan.targets[i].windowId))
+    throw Error("confirmation plan hash mismatch: native dialogs changed");
   let result;
   try{result=await host.cancelNativeDialogs(plan.targets,{signal:requestSignal()});}
   catch(error){
