@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classifyMutationOutcome, mutationOutcomeContracts, withMutationOutcome } from "../src/mutation-outcomes.mjs";
+import { classifyMutationOutcome, mutationOutcomeContracts, stampedMutationOutcome, withMutationOutcome } from "../src/mutation-outcomes.mjs";
 import { toolContracts } from "../src/tool-contracts.mjs";
 import { guardedMutationResult } from "../src/tool-output-contracts.mjs";
 
@@ -50,6 +50,15 @@ test("unregistered tools and missing or contradictory receipts cannot claim exec
     operationOutcome: { schemaVersion: 1, status: "applied" } }).status, "outcome_unknown");
   assert.equal(classifyMutationOutcome("duplicate_clip", args, { dryRun: false, copyVerified: false,
     observed: { copyVerified: true } }).status, "outcome_unknown");
+});
+
+test("a stamped receipt belongs to the returned object", () => {
+  const stamped = withMutationOutcome("set_tempo", args, { dryRun: false, observed: { stateVersion: 2 } });
+  assert.equal(stampedMutationOutcome(stamped), stamped.operationOutcome);
+  assert.equal(stamped.operationOutcome.status, "applied");
+  const wrapped = { ...stamped, verified: false, observed: { verified: true } };
+  assert.equal(stampedMutationOutcome(wrapped), undefined);
+  assert.equal(classifyMutationOutcome("set_tempo", args, wrapped).status, "outcome_unknown");
 });
 
 test("preview plans and reads retain their original result and do not gain execution claims", () => {

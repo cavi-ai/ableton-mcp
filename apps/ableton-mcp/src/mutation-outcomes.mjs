@@ -75,6 +75,7 @@ for (const fields of Object.values(mutationOutcomeContracts)) Object.freeze(fiel
 Object.freeze(mutationOutcomeContracts);
 
 const record = value => value !== null && typeof value === "object" && !Array.isArray(value);
+const stampedOutcomes = new WeakMap();
 const at = (value, path) => path.split(".").reduce((item, key) => record(item) ? item[key] : undefined, value);
 const layers = value => [value, value?.observed].filter(record);
 const has = (value, key, expected) => layers(value).some(item => at(item, key) === expected);
@@ -143,8 +144,16 @@ export function classifyMutationOutcome(name, args, value) {
   return receipt("applied", "execution_receipt", evidence);
 }
 
+// The stamp belongs to the object the tool returned. A wrapper is a different object.
+export function stampedMutationOutcome(value) {
+  return stampedOutcomes.get(value);
+}
+
 // Declared Live tools that run before a bridge exists, such as launch, have no stateVersion guard.
 export function withMutationOutcome(name, args, value) {
   if (args.dryRun !== false || !Number.isInteger(args.expectedStateVersion) && !Object.hasOwn(mutationOutcomeContracts, name)) return value;
-  return { ...value, operationOutcome: classifyMutationOutcome(name, args, value) };
+  const operationOutcome = classifyMutationOutcome(name, args, value);
+  const stamped = { ...value, operationOutcome };
+  stampedOutcomes.set(stamped, operationOutcome);
+  return stamped;
 }
