@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, symlink, mkdir, writeFile, readFile, stat, rm } from "node:fs/promises";
+import { mkdtemp, symlink, mkdir, writeFile, readFile, readdir, stat, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseCli, runCli } from "../src/cli.mjs";
 import { isMainModule } from "../src/paths.mjs";
 import { ToolService } from "../src/tool-service.mjs";
@@ -151,6 +151,8 @@ test('doctor cannot report health when a failed probe provides no error message'
 });
 
 test("doctor exposes a stale bundled Remote Script beside a current User Library copy", async () => {
+  const packagedRemoteScriptFiles = (await readdir(fileURLToPath(new URL("../../../ableton/Remote Scripts/CaviMcpBridge", import.meta.url))))
+    .filter(name => name !== "tests" && name !== "__pycache__" && !name.startsWith(".") && !name.endsWith(".pyc")).sort();
   const root = await mkdtemp(join(tmpdir(), "ableton-mcp-copies-"));
   const sourceRoot = join(root, "source");
   const home = join(root, "home");
@@ -161,7 +163,7 @@ test("doctor exposes a stale bundled Remote Script beside a current User Library
   try {
     for (const directory of [source, userCopy, bundledCopy]) await mkdir(directory, { recursive: true });
     for (const staleFile of ["capabilities.json", "midi_time_scaling.py", "return_removal.py", "session_arrangement.py", "session_overdub.py", "simpler_sample.py", "track_copy.py"]) {
-      for (const name of ["__init__.py", "arrangement_audio.py", "arrangement_audition.py", "arrangement_copy.py", "arrangement_creation.py", "arrangement_move.py", "arrangement_recording.py", "arrangement_return.py", "arrangement_section.py", "audio_capture.py", "audio_export.py", "audio_midi_sketch.py", "audio_reverse.py", "beat_repeat_fill.py", "bridge.py", "browser_load.py", "browser_preview.py", "capabilities.json", "clip_duplication.py", "clip_entry.py", "clip_envelope.py", "clip_hold.py", "clip_launch.py", "clip_loop_edit.py", "clip_mute.py", "clip_names.py", "clip_removal.py", "crossfader.py", "cue_jump.py", "device_ab.py", "device_bypass.py", "device_preset.py", "instrument_comparison.py", "live_navigation.py", "looper_export.py", "manual_override.py", "master_mixer.py", "midi_capture.py", "midi_clip_markers.py", "midi_crop.py", "midi_export.py", "midi_import.py", "midi_insertion.py", "midi_note_edit.py", "midi_note_removal.py", "midi_note_selection.py", "midi_retrograde.py", "midi_time_scaling.py", "object_colors.py", "panning.py", "parameter_automation.py", "parameter_display.py", "protocol.py", "rack_performance.py", "recording_setup.py", "return_mixer.py", "return_removal.py", "scene_capture.py", "scene_duplication.py", "scene_removal.py", "selected_control.py", "session_arrangement.py", "session_names.py", "session_overdub.py", "session_recording.py", "sidechain_routing.py", "signal_activity.py", "simpler_sample.py", "take_lanes.py", "track_arming.py", "track_bounce.py", "track_copy.py", "track_freeze.py", "track_grouping.py", "track_mixer.py", "track_removal.py", "track_routing.py", "track_send.py", "track_volume.py", "transport_seek.py"]) {
+      for (const name of packagedRemoteScriptFiles) {
         await writeFile(join(source, name), `${name}: current`);
         await writeFile(join(userCopy, name), `${name}: current`);
         await writeFile(join(bundledCopy, name), name === staleFile ? `${name}: stale` : `${name}: current`);
