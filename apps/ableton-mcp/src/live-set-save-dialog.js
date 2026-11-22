@@ -12,6 +12,14 @@ function run(argv) {
   var expectedPurpose = input.action === "adoptMidiExport" || input.purpose === "Save MIDI Clip As:" ? "Save MIDI Clip As:"
     : input.action === "adoptAudioExport" || input.purpose === "Save Audio File As:" ? "Save Audio File As:" : "Save Live Set As:";
   var exporting = expectedPurpose !== "Save Live Set As:", retained = [];
+  // The audio export Save panel is read and named through accessibility. The panel enables Save only while Live
+  // is frontmost, so Save is pressed right after that is verified.
+  var audio = expectedPurpose === "Save Audio File As:", exportPress = { steps: {}, keys: [], activations: 0 };
+  function route(step, kind) {
+    var current = exportPress.steps[step];
+    if (!current) exportPress.steps[step] = kind;
+    else if (current.split("+").indexOf(kind) === -1) exportPress.steps[step] = current + "+" + kind;
+  }
   function nativeRead(element, key) {
     var ref = Ref(), error = $.AXUIElementCopyAttributeValue(element, $(key), ref);
     if (error === -25212 || error === -25205) return null;
@@ -41,8 +49,10 @@ function run(argv) {
     Object.defineProperty(wrapped, "value", { get: function () { return function () { return get("AXValue"); }; }, set: function (value) { set("AXValue", value); } });
     return wrapped;
   }
-  function nativeWindows() { return nativeItems(nativeRead($.AXUIElementCreateApplication(input.pid), "AXWindows")); }
-  // Off the visible Space, System Events and AXWindows omit Live's windows; its focused window stays readable.
+  function nativeWindows() {
+    return nativeItems(nativeRead($.AXUIElementCreateApplication(input.pid), "AXWindows"));
+  }
+  // System Events and AXWindows can omit Live's dialog windows; its focused window stays readable.
   function focusedDialog() {
     var focused = nativeRead($.AXUIElementCreateApplication(input.pid), "AXFocusedWindow");
     return focused && (ObjC.unwrap(nativeRead(focused, "AXModal")) === true || ObjC.unwrap(nativeRead(focused, "AXSubrole")) === "AXDialog") ? focused : null;
@@ -54,7 +64,7 @@ function run(argv) {
   function listedSavePanels() {
     return nativeWindows().filter(function (window) { return ObjC.unwrap(nativeRead(window, "AXIdentifier")) === "save-panel"; });
   }
-  // The Set Save panel is bound natively, so it stays readable while Live is behind other apps or on another Space.
+  // The Set Save panel is bound natively, so it stays readable while Live is behind other apps.
   function livePanel() {
     var listed = listedSavePanels(), focused = listed.length ? null : focusedSavePanel();
     if (focused) return focused;
@@ -65,14 +75,47 @@ function run(argv) {
   function attribute(element, key) {
     try { return element.attributes.byName(key).value(); } catch (error) { return null; }
   }
+  function frontApp() {
+    try { return ObjC.unwrap($.NSWorkspace.sharedWorkspace.frontmostApplication.bundleIdentifier) || null; } catch (error) { return null; }
+  }
   function foreground() {
     if (process.frontmost()) return;
-    var front = "another app";
-    try { front = ObjC.unwrap($.NSWorkspace.sharedWorkspace.frontmostApplication.bundleIdentifier) || front; } catch (error) { /* Keep the refusal. */ }
-    throw Error("Live is not frontmost (" + front + " is); no key was sent");
+    throw Error("Live is not frontmost (" + (frontApp() || "another app") + " is); no key was sent");
   }
-  function waitFor(read, message, background) {
-    for (var i = 0; i < 40; i++) {
+  // Brings Live to the front with a bounded number of activations; refuses before any key or Save press otherwise.
+  function front(refusal) {
+    for (var attempt = 0; attempt < 3 && !process.frontmost(); attempt++) {
+      $.NSRunningApplication.runningApplicationWithProcessIdentifier(input.pid).activateWithOptions(3);exportPress.activations++;
+      for (var i = 0; i < 20 && !process.frontmost(); i++) delay(0.05);
+    }
+    if (!process.frontmost()) throw Error("Live is not frontmost (" + (frontApp() || "another app") + " is) after " + attempt + " activations; " + refusal);
+  }
+  // An audio export key is used only where no accessibility action exists.
+  function keyed(site) { front("no key was sent");exportPress.keys.push(site);route(site, "key"); }
+  // The audio panel enables Save only while Live is frontmost and the panel is onscreen. A full-screen app that takes
+  // the front back moves Live's windows offscreen, so Live is activated again: at most 4 rounds of about 1.5 s.
+  function holdFront(button) {
+    function onscreen() {
+      return ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1, 0))).some(function (w) {
+        return w.kCGWindowOwnerPID === input.pid && w.kCGWindowNumber === input.windowId && w.kCGWindowIsOnscreen !== false;
+      });
+    }
+    function check() { var s = { frontmost: process.frontmost() === true, onscreen: onscreen(), enabled: button.enabled() };s.ready = s.frontmost && s.onscreen && s.enabled;return s; }
+    var state = check(), round = 0;
+    while (!state.ready && round < 4) {
+      round++;$.NSRunningApplication.runningApplicationWithProcessIdentifier(input.pid).activateWithOptions(3);exportPress.activations++;
+      for (var i = 0; i < 30 && !state.ready; i++) { delay(0.05);state = check(); }
+    }
+    exportPress.saveGate = { rounds: round, frontmost: state.frontmost, onscreen: state.onscreen, enabled: state.enabled };
+    if (!state.ready) throw Error("Save is disabled (Live frontmost: " + state.frontmost + ", panel onscreen: " + state.onscreen + ") after " + round + " activations; no Save was pressed");
+  }
+  // This request set the audio filename itself, so its own audio panel is cancelled whatever name the panel now shows.
+  function ownState(window, expected) {
+    if (!audio) return sameState(window, expected);
+    try { exportPress.cancelState = panelState(window); } catch (error) { exportPress.cancelState = { error: String(error.message || error).slice(0, 200) }; }
+  }
+  function waitFor(read, message, background, count) {
+    for (var i = 0; i < (count || 40); i++) {
       if (!background) foreground();
       var result = read();
       if (result) return result;
@@ -84,14 +127,15 @@ function run(argv) {
     if (!background) foreground();
     if (!exporting) return livePanel();
     var nativeMatches = listedSavePanels();
+    if (audio && !nativeMatches.length) { var focused = focusedSavePanel(); if (focused) return focused; }
     if (nativeMatches.length !== 1 || ObjC.unwrap(nativeRead(nativeMatches[0], "AXModal")) !== true) throw Error("Expected one native export Save panel");
     return nativeElement(nativeMatches[0]);
   }
   function windowIdentity(window, background) {
     var title = window.name(), named = nativeWindows().filter(function (item) { return ObjC.unwrap(nativeRead(item, "AXTitle")) === title; });
-    if (!named.length && !exporting) { var focused = focusedDialog(); if (focused) named = [focused]; }
+    if (!named.length && (!exporting || audio)) { var focused = focusedDialog(); if (focused) named = [focused]; }
     if (named.length !== 1 || !$.CFEqual(named[0], window.native)) throw Error("Native Save window changed");
-    var nativeList = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(background ? 0 : 1, 0))).filter(function (item) {
+    var nativeList = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(background || audio ? 0 : 1, 0))).filter(function (item) {
       return item.kCGWindowOwnerPID === input.pid && item.kCGWindowName === title;
     });
     var visibleMatches=nativeList.filter(function (item) { return item.kCGWindowIsOnscreen===true; });
@@ -149,10 +193,10 @@ function run(argv) {
       if (["AXScrollArea", "AXOutline", "AXTable", "AXBrowser"].indexOf(text(element, "AXRole")) !== -1) return [];
       return items(read(element, "AXChildren")).reduce(function (out, child) { return out.concat(browser(child, depth + 1)); }, []);
     }
-    var app = $.AXUIElementCreateApplication(input.pid), windows = items(read(app, "AXWindows")).filter(function (window) {
+    var app = $.AXUIElementCreateApplication(input.pid), windows = (audio ? nativeWindows() : items(read(app, "AXWindows"))).filter(function (window) {
       return text(window, "AXIdentifier") === "save-panel";
     });
-    if (!windows.length && !exporting) {
+    if (!windows.length && (!exporting || audio)) {
       var focused = read(app, "AXFocusedWindow");
       if (focused && text(focused, "AXIdentifier") === "save-panel") windows = [focused];
     }
@@ -182,11 +226,12 @@ function run(argv) {
         current.name !== expected.name || current.folder !== expected.folder)
       throw Error("Save panel input changed; preserve current input");
   }
+  function withPress(result) { if (audio) result.exportPress = exportPress; return result; }
   function cancelPrepared(expected, ownedFolderPath) {
     var save = panel(true);
     if (windowIdentity(save, true) !== input.windowId || purpose(save) !== input.purpose)
       throw Error("Prepared Save As window changed; no Cancel was pressed");
-    sameState(save, expected);
+    ownState(save, expected);
     var sheets = save.sheets();
     if (sheets.length) {
       if (sheets.length !== 1 || attribute(sheets[0], "AXIdentifier") !== "GoToWindow" ||
@@ -195,14 +240,14 @@ function run(argv) {
       find(sheets[0], "CloseButton", "AXButton").actions.byName("AXPress").perform();
       waitFor(function () { return save.sheets().length === 0; }, "Folder sheet closure is unverified", true);
     }
-    noSheet(save);sameState(save, expected);
+    noSheet(save);ownState(save, expected);
     if (windowIdentity(save, true) !== input.windowId || purpose(save) !== input.purpose)
       throw Error("Prepared Save As window changed; no Cancel was pressed");
     var button = find(save, "CancelButton", "AXButton");
     if (!button.enabled()) throw Error("Cancel is disabled");
     button.actions.byName("AXPress").perform();
     waitFor(function () {
-      if (process.windows().some(function (window) { return attribute(window, "AXIdentifier") === "save-panel"; }) || !exporting && livePanelOpen()) return false;
+      if (process.windows().some(function (window) { return attribute(window, "AXIdentifier") === "save-panel"; }) || (!exporting || audio) && livePanelOpen()) return false;
       // AppKit can retain a closed, offscreen native window in the all-windows
       // list. Require accessibility removal and absence from onscreen windows.
       var windows = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1, 0)));
@@ -213,17 +258,30 @@ function run(argv) {
     return { cancelled: true, savePressed: false, windowId: input.windowId };
   }
   if (input.action === "cancel") return JSON.stringify(cancelPrepared(input.panelState));
-  if (exporting) {
+  if (exporting && !audio) {
     $.NSRunningApplication.runningApplicationWithProcessIdentifier(input.pid).activateWithOptions(3);
     waitFor(function () {
       try { return windowIdentity(panel()) === input.windowId; } catch (error) { return false; }
     }, "Prepared export Save window did not become visible", true);
   }
+  if (audio) waitFor(function () {
+    try { return windowIdentity(panel(true), true) === input.windowId; } catch (error) { return false; }
+  }, "Prepared export Save window is not observable", true);
   if (input.action === "adoptAudioExport" || input.action === "adoptMidiExport") {
-    var exportSave = panel();noSheet(exportSave);
-    if (windowIdentity(exportSave) !== input.windowId) throw Error("Native export Save window changed");
+    var exportSave = panel(audio);noSheet(exportSave);
+    if (windowIdentity(exportSave, audio) !== input.windowId) throw Error("Native export Save window changed");
     purpose(exportSave);
     if (typeof input.parent !== "string" || input.parent.charAt(0) !== "/") throw Error("Export directory is required");
+    if (audio) {
+      var shown = null;
+      try { shown = directoryPath(); } catch (error) { exportPress.folderReadError = String(error.message || error).slice(0, 300); }
+      // The folder the panel shows is used as is: the requested one, or one the host moves the verified file from.
+      if (shown === input.parent || typeof shown === "string" && input.relocate === true) {
+        route("folder", "panel");
+        return JSON.stringify(withPress({ prepared: true, windowId: input.windowId, purpose: purpose(exportSave), panelState: panelState(exportSave) }));
+      }
+      keyed("folder");
+    }
     focusPanel(exportSave);
     events.keystroke("g", { using: ["command down", "shift down"] });
     var exportSheet = waitFor(function () { return exportSave.sheets().length === 1 && exportSave.sheets()[0]; }, "Export folder sheet did not appear");
@@ -235,7 +293,7 @@ function run(argv) {
     waitFor(function () { return exportSave.sheets().length === 0; }, "Export folder navigation is unverified");
     if (directoryPath() !== input.parent) throw Error("Export directory readback mismatch");
     if (windowIdentity(exportSave) !== input.windowId) throw Error("Native export Save window changed");
-    return JSON.stringify({ prepared: true, windowId: input.windowId, purpose: purpose(exportSave), panelState: panelState(exportSave) });
+    return JSON.stringify(withPress({ prepared: true, windowId: input.windowId, purpose: purpose(exportSave), panelState: panelState(exportSave) }));
   }
   if (input.action === "prepare") {
     if (process.windows().some(function (window) {
@@ -265,25 +323,29 @@ function run(argv) {
   if (input.action !== "commit") throw Error("Unknown Save As action");
   var ownedState = input.panelState, ownedFolderPath = null, saveAttempted = false;
   try {
-    var save = panel();noSheet(save);sameState(save, ownedState);
-    if (windowIdentity(save) !== input.windowId || purpose(save) !== input.purpose)
+    var save = panel(audio);noSheet(save);sameState(save, ownedState);
+    if (windowIdentity(save, audio) !== input.windowId || purpose(save) !== input.purpose)
       throw Error("Prepared Save As window changed; no Save was pressed");
-    focusPanel(save);
-    // Resolve the destination in the same process that presses Save. A user-selected
-    // folder between preparation and confirmation cannot redirect this operation.
-    events.keystroke("g", { using: ["command down", "shift down"] });
-    var sheet = waitFor(function () { return save.sheets().length === 1 && save.sheets()[0]; }, "Go to Folder did not appear");
-    if (attribute(sheet, "AXIdentifier") !== "GoToWindow") throw Error("Unexpected folder sheet");
-    var path = find(sheet, "PathTextField", "AXTextField");
-    ownedFolderPath = path.value();
-    path.value = input.parent;
-    ownedFolderPath = input.parent;
-    path.attributes.byName("AXFocused").value = true;
-    if (path.value() !== input.parent || attribute(path, "AXFocused") !== true) throw Error("Folder field is not focused on the requested path");
-    foreground();events.keyCode(36);
-    waitFor(function () { return save.sheets().length === 0; }, "Folder navigation is unverified");
-    if (directoryPath() !== input.parent)
-      throw Error("Destination folder readback mismatch");
+    // An audio panel that still shows the bound folder needs no navigation; the folder is read again just before Save.
+    if (!audio || directoryPath() !== input.parent) {
+      if (audio) keyed("folder");
+      focusPanel(save);
+      // Resolve the destination in the same process that presses Save. A user-selected
+      // folder between preparation and confirmation cannot redirect this operation.
+      events.keystroke("g", { using: ["command down", "shift down"] });
+      var sheet = waitFor(function () { return save.sheets().length === 1 && save.sheets()[0]; }, "Go to Folder did not appear");
+      if (attribute(sheet, "AXIdentifier") !== "GoToWindow") throw Error("Unexpected folder sheet");
+      var path = find(sheet, "PathTextField", "AXTextField");
+      ownedFolderPath = path.value();
+      path.value = input.parent;
+      ownedFolderPath = input.parent;
+      path.attributes.byName("AXFocused").value = true;
+      if (path.value() !== input.parent || attribute(path, "AXFocused") !== true) throw Error("Folder field is not focused on the requested path");
+      foreground();events.keyCode(36);
+      waitFor(function () { return save.sheets().length === 0; }, "Folder navigation is unverified");
+      if (directoryPath() !== input.parent)
+        throw Error("Destination folder readback mismatch");
+    } else route("folder", "panel");
     ownedFolderPath = null;ownedState = panelState(save);
     var name = find(save, "saveAsNameTextField", "AXTextField");
     name.value = input.name;
@@ -292,11 +354,12 @@ function run(argv) {
     if (ownedState.name !== input.name) throw Error("Save filename readback mismatch");
     noSheet(save);
     var button = find(save, "OKButton", "AXButton");
-    // The panel enables Save only while it is on the visible desktop, shortly after it appears there.
-    waitFor(function () { return button.enabled(); }, "Save is disabled");
-    if (windowIdentity(save) !== input.windowId || purpose(save) !== input.purpose)
+    // Audio Save readiness is checked immediately before its press.
+    if (!audio) waitFor(function () { return button.enabled(); }, "Save is disabled", false, 40);
+    if (windowIdentity(save, audio) !== input.windowId || purpose(save) !== input.purpose)
       throw Error("Prepared Save As window changed; no Save was pressed");
     if (exporting) {
+      if (audio && directoryPath() !== input.parent) throw Error("Export directory changed; no Save was pressed");
       var directoryInfo = $.NSFileManager.defaultManager.attributesOfItemAtPathError($(input.parent), null);
       if (!input.parentIdentity || ObjC.unwrap(directoryInfo.objectForKey($("NSFileSystemNumber")).stringValue) !== input.parentIdentity.dev ||
           ObjC.unwrap(directoryInfo.objectForKey($("NSFileSystemFileNumber")).stringValue) !== input.parentIdentity.ino)
@@ -305,6 +368,21 @@ function run(argv) {
       var linkDestination = ObjC.unwrap($.NSFileManager.defaultManager.destinationOfSymbolicLinkAtPathError(exportDestination, null));
       if ($.NSFileManager.defaultManager.fileExistsAtPath(exportDestination) || typeof linkDestination === "string")
         throw Error("Export destination appeared; no Save was pressed");
+    }
+    if (audio) {
+      holdFront(button);
+      // AXPress holds its reply while Live renders; the short timeout bounds it and the host observes completion.
+      saveAttempted = true;
+      $.AXUIElementSetMessagingTimeout(button.native, 0.5);
+      var pressed = $.AXUIElementPerformAction(button.native, $("AXPress"));exportPress.axResult = pressed;
+      if (pressed === -25205 || pressed === -25206) {
+        // Save refuses AXPress, so nothing was pressed: activate the exact focused button through the keyboard.
+        saveAttempted = false;keyed("save");focusPanel(save);
+        button.attributes.byName("AXFocused").value = true;
+        if (attribute(button, "AXFocused") !== true) throw Error("Native export Save button is not focused");
+        foreground();saveAttempted = true;events.keyCode(36);
+      } else route("save", "axPress");
+      return JSON.stringify(withPress({ savePressed: true }));
     }
     focusPanel(save);
     if (exporting) {
@@ -321,7 +399,7 @@ function run(argv) {
         recovery = { status: "cancelled", windowId: cancelled.windowId, savePressed: false };
       } catch (cleanupError) { recovery = { status: "unavailable", reason: String(cleanupError.message || cleanupError).slice(0,600) }; }
     }
-    return JSON.stringify({ error: String(error.message || error).slice(0,600), savePressed: saveAttempted ? null : false,
-      recovery: recovery });
+    return JSON.stringify(withPress({ error: String(error.message || error).slice(0,600), savePressed: saveAttempted ? null : false,
+      recovery: recovery }));
   }
 }

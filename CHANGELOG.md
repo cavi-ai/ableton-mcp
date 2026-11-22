@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add `get_live_dialog_state` and `cancel_live_export_dialog`, which report Live's blocking native dialogs and cancel a leftover Export Audio/Video dialog or its Save panel; audio export brings Live to the front with bounded activation retries, opens Export Audio/Video from the File menu, presses Export and Save through accessibility, holds Live in front until Save is ready, closes its own Save panel and Export dialog when Save never becomes ready, gives focus back to the app that was frontmost before, saves into the folder the Save panel shows and moves the verified file to the requested path, reports the route in `exportPress` and `retrySafe`, and returns `blockingDialogs` when blocked.
 - Save As opens and binds its panel with Live in the background, shows Live only to complete it, and closes a panel it opened but could not bind or complete.
 - Add `answer_live_recovery_prompt`, which answers Live's startup crash-recovery prompt without the bridge, and return a valid receipt from an executed `open_live_set` launch.
 - Add `mlx-agent` production specialists that run on the local model served by an mlx-agent gateway, with no remote consent or credentials required.

@@ -1,7 +1,7 @@
 import {execFile} from "node:child_process";
 import {promisify} from "node:util";
-import {realpath,lstat,mkdtemp,readdir,link,unlink,rmdir} from "node:fs/promises";
-import {createReadStream} from "node:fs";
+import {realpath,lstat,mkdtemp,readdir,link,unlink,rmdir,copyFile} from "node:fs/promises";
+import {createReadStream,constants} from "node:fs";
 import {createHash} from "node:crypto";
 import {isAbsolute,dirname,basename,join} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -15,6 +15,7 @@ const run=promisify(execFile);
 const exportScript=fileURLToPath(new URL("./live-audio-export-dialog.js",import.meta.url));
 const saveScript=fileURLToPath(new URL("./live-set-save-dialog.js",import.meta.url));
 const focusScript=fileURLToPath(new URL("./live-app-focus.js",import.meta.url));
+const absent=async path=>{try{await lstat(path);return false;}catch(error){return error.code==="ENOENT";}};
 
 export function exportSettings(args){
   const coordinate=(value,start)=>{
@@ -82,6 +83,9 @@ async function exportAudio(bridge,confirmations,host,args,trackMode){
   try{observed=await host.render(appPath,settings,destination,{beforeExport:recheck,beforeSave:recheck,signal:requestSignal()});}
   catch(error){return {dryRun:false,requested:plan,exportRequested:error.exportRequested??null,exportVerified:false,
     dialogCleanup:error.dialogCleanup,...(error.stagingDirectory?{stagingDirectory:error.stagingDirectory}:{}),limitation:`Native export did not verify completion; never replay blindly: ${error.message}`,
+    ...(error.blockingDialogs?{blockingDialogs:error.blockingDialogs}:{}),...(error.dialogStateError?{dialogStateError:error.dialogStateError}:{}),
+    ...(error.blockingDialogs?.length?{recovery:"get_live_dialog_state reads these dialogs; cancel_live_export_dialog cancels only an identified Export Audio/Video dialog or its export Save panel."}:{}),
+    ...(error.exportPress?{exportPress:error.exportPress}:{}),retrySafe:error.retrySafe===true,
     pendingUserAction:error.dialogCleanup?.cancelled!==true};}
   if(!observed.uiComplete)return {dryRun:false,requested:plan,...observed,exportVerified:false,pendingUserAction:true};
   if(trackMode&&observed.publicationVerified!==true)return {dryRun:false,requested:plan,...observed,artifactVerified:false,exportVerified:false,pendingUserAction:false};
@@ -176,52 +180,184 @@ export class MacAudioExportHost{
     const canonicalApp=await realpath(appPath),executable=await realpath(`${canonicalApp}/Contents/MacOS/Live`),processes=await this.liveSetHost.runningProcesses();
     if(processes.length!==1||processes[0].path!==executable)throw Error("audio export requires exactly one running instance of the requested Live app");
     const pid=processes[0].pid;
-    const dialog=async(script,input,operationSignal)=>{
-      try{
-        if(["prepare","commit","adoptAudioExport"].includes(input.action)){
-          const focused=JSON.parse((await this.execute("/usr/bin/osascript",["-l","JavaScript",focusScript,JSON.stringify({pid,appPath:canonicalApp,windowId:input.windowId})],{timeout:10000,maxBuffer:65536,signal:operationSignal})).stdout);
-          if(!focused.focused)throw Error("Live did not become visible");
-        }
-        return JSON.parse((await this.execute("/usr/bin/osascript",["-l","JavaScript",script,JSON.stringify({pid,...input})],{timeout:30000,maxBuffer:65536,signal:operationSignal})).stdout);
-      }
-      catch(error){throw Error(`Native audio export dialog: ${String(error.stderr||error.message).trim().slice(0,600)}`);}
+    // Live is brought to the front for the dialog sequence, as its audio Save panel enables Save only then.
+    // Focus goes back to the app that was frontmost before, whether the export succeeds or fails.
+    const exportPress={path:"accessibility",steps:{},keys:[],activations:0,focus:{before:null,activations:0,returned:null,returnedTo:null},observed:{}};
+    const record=(name,reply)=>{
+      const {steps={},keys=[],activations=0,...observed}=reply?.exportPress??{};
+      for(const [step,kind] of Object.entries(steps))exportPress.steps[step]=exportPress.steps[step]&&exportPress.steps[step]!==kind?`${exportPress.steps[step]}+${kind}`:kind;
+      exportPress.keys.push(...keys);exportPress.activations+=activations;
+      if(Object.keys(observed).length)exportPress.observed[name]=observed;
+      if(exportPress.keys.length)exportPress.path="keyFallback";
     };
-    await this.execute("/usr/bin/open",["-a",canonicalApp],{timeout:5000,signal});
-    const prepared=await dialog(exportScript,{action:"prepare",settings},signal);
-    let exportPressed=false,saveAttempted=false,save,saveClosed=false;
+    const osascript=async(script,input,operationSignal,timeout=30000)=>JSON.parse((await this.execute("/usr/bin/osascript",["-l","JavaScript",script,JSON.stringify(input)],{timeout,maxBuffer:65536,signal:operationSignal})).stdout);
+    const failure=error=>String(error.stderr||error.message).trim().slice(0,600);
+    const dialog=async(script,input,operationSignal)=>{
+      try{const reply=await osascript(script,{pid,...input},operationSignal);record(`${script===saveScript?"save":"export"}.${input.action}`,reply);return reply;}
+      catch(error){throw Error(`Native audio export dialog: ${failure(error)}`);}
+    };
+    let returnTo=null,focusSettled=false;
+    const bringLive=async()=>{
+      let focused;
+      try{focused=await osascript(focusScript,{pid,appPath:canonicalApp},signal,15000);}
+      catch(error){throw Error(`Live focus: ${failure(error)}; nothing was pressed`);}
+      const activations=Number.isInteger(focused.activations)?focused.activations:0;
+      exportPress.focus.before=focused.previous?.name??focused.previous?.bundleIdentifier??null;
+      exportPress.focus.activations=activations;exportPress.activations+=activations;
+      if(Number.isInteger(focused.previous?.pid)&&focused.previous.pid!==pid)returnTo=focused.previous;
+      if(focused.focused!==true)throw Error(`Live did not come to the front after ${activations} activations (${focused.frontmost?.name??"another app"} is frontmost); nothing was pressed`);
+    };
+    // Brings Live to the front again before cleanup; a failure leaves cleanup to accessibility alone.
+    const refront=async()=>{
+      try{const shown=await osascript(focusScript,{pid,appPath:canonicalApp},undefined,15000);exportPress.activations+=shown.activations??0;exportPress.focus.cleanupFront=shown.focused===true;}
+      catch{exportPress.focus.cleanupFront=false;}
+    };
+    // Runs once, after Save or after cleanup, and never throws; the outcome is reported in exportPress.focus.
+    const giveBack=async()=>{
+      if(focusSettled)return;focusSettled=true;
+      if(!returnTo)return;
+      try{
+        const back=await osascript(focusScript,{pid,appPath:canonicalApp,action:"restore",restorePid:returnTo.pid},undefined,15000);
+        exportPress.focus.returned=back.restored===true;exportPress.focus.returnedTo=back.restored===true?back.frontmost?.name??returnTo.name:null;
+        if(back.restored!==true)exportPress.focus.frontmostAfter=back.frontmost?.name??null;
+      }catch(error){exportPress.focus.returned=false;exportPress.focus.returnError=failure(error).slice(0,300);}
+    };
+    let prepared,exportPressed=false,saveAttempted=false,save,saveClosed=false,target=destination;
     try{
+      await bringLive();
+      prepared=await dialog(exportScript,{action:"prepare",settings},signal);
+      // A dialog this call did not open is never cancelled here; its identity is reported.
+      if(prepared.blocked)throw Object.assign(Error(prepared.error??"Resolve the existing Live dialog before audio export"),{preserveDialog:true,blockingDialogs:prepared.dialogs??[]});
       if(!prepared.prepared)throw Error(prepared.error??"native export preparation failed");
       await beforeExport();
       const opened=await dialog(exportScript,{...prepared,action:"commit"},signal);
       if(!opened.exportPressed)throw Object.assign(Error(opened.error??"native Export button was not pressed"),{preserveDialog:opened.preserveDialog===true});
       exportPressed=true;
-      save=await dialog(saveScript,{action:"adoptAudioExport",windowId:opened.saveWindowId,parent:destination.parent.path},signal);
+      if(!Number.isInteger(opened.saveWindowId))throw Error(opened.error??"native audio Save panel did not appear");
+      save=await dialog(saveScript,{action:"adoptAudioExport",windowId:opened.saveWindowId,parent:destination.parent.path,relocate:!settings.renderTarget},signal);
       if(!save.prepared||save.purpose!=="Save Audio File As:")throw Error("native audio Save panel could not be identified");
       if(settings.renderTarget&&(opened.trackSelectionVerified!==true||hashPlan(opened.renderedTarget)!==hashPlan(settings.renderTarget)))throw Error('native rendered-track selection was not verified');
+      // A panel showing another folder saves there; the verified file is then moved to the requested path.
+      const folder=save.panelState?.folder;
+      if(typeof folder!=="string"||!isAbsolute(folder))throw Error("native audio Save panel folder is unavailable");
+      if(folder!==destination.parent.path){
+        if(settings.renderTarget)throw Error("native audio Save panel shows another folder");
+        const shown=await this.destination(join(folder,destination.name));
+        if(shown.parent.path!==destination.parent.path)target=shown;
+      }
       await beforeSave();
       saveAttempted=true;
-      const committed=await dialog(saveScript,{...save,action:"commit",parent:destination.parent.path,parentIdentity:destination.parent,name:destination.name},signal);
+      const committed=await dialog(saveScript,{...save,action:"commit",parent:folder,parentIdentity:target.parent,name:target.name},signal);
+      // Live stays in front while it renders; focus goes back once the render finished or the wait ended.
+      // A refused or unknown Save gives focus back after cleanup.
       if(committed.savePressed===false){saveAttempted=false;saveClosed=committed.recovery?.status==="cancelled";}
       if(!committed.savePressed)throw Object.assign(Error(committed.error??"native export Save outcome is unknown"),{exportRequested:committed.savePressed===false?false:null});
       const deadline=Date.now()+this.renderTimeoutMs;
       while(Date.now()<deadline){
         signal?.throwIfAborted();
         const status=await dialog(exportScript,{action:"status"},signal);
-        if(status.uiComplete)return {exportRequested:true,uiComplete:true,...(settings.renderTarget?{trackSelectionVerified:opened.trackSelectionVerified===true,renderedTarget:opened.renderedTarget,includeReturnMainEffects:settings.includeReturnMainEffects}:{})};
+        if(status.uiComplete){
+          await giveBack();
+          const done={exportRequested:true,uiComplete:true,exportPress,...(settings.renderTarget?{trackSelectionVerified:opened.trackSelectionVerified===true,renderedTarget:opened.renderedTarget,includeReturnMainEffects:settings.includeReturnMainEffects}:{})};
+          if(target!==destination)done.relocation=await this.relocate(target,destination,settings);
+          return done;
+        }
         await pause(500,undefined,{signal});
       }
-      return {exportRequested:true,uiComplete:false,limitation:"Native rendering or a dialog remains unresolved; inspect Live and the destination before retrying."};
+      await giveBack();
+      return {exportRequested:true,uiComplete:false,exportPress,...(target!==destination?{nativePath:target.path}:{}),limitation:"Native rendering or a dialog remains unresolved; inspect Live and the destination before retrying."};
     }catch(error){
       if(!saveAttempted&&!error.preserveDialog){
+        // Live shows Export Audio/Video again after its Save panel closes only while it is in front.
+        if(prepared?.prepared)await refront();
         try{
           if(save?.prepared&&!saveClosed)await dialog(saveScript,{...save,action:"cancel"});
-          if(!exportPressed||save?.prepared)await dialog(exportScript,{...prepared,action:"cancel"});
-          else throw Error("native audio Save window ownership is unavailable");
+          // A sent Export press whose Save panel was never adopted leaves that panel to the export cleanup.
+          await dialog(exportScript,{...prepared,action:"cancel",exportPressed:exportPressed&&!save?.prepared});
           error.dialogCleanup={cancelled:true};
         }catch(cleanupError){error.message+=`; dialog cleanup unverified: ${cleanupError.message}`;}
       }
+      if(!saveAttempted&&!error.preserveDialog&&error.dialogCleanup?.cancelled!==true){
+        try{error.blockingDialogs=(await dialog(exportScript,{action:"inspect"})).dialogs;}
+        catch(inspectError){error.dialogStateError=inspectError.message;}
+      }
+      // Save was never pressed, every owned dialog closed and the file is absent: planning again is safe.
+      if(!saveAttempted&&error.dialogCleanup?.cancelled===true){
+        try{const after=await dialog(exportScript,{action:"inspect"});error.retrySafe=after.blocked===false&&Array.isArray(after.dialogs)&&!after.dialogs.length&&await absent(destination.path)&&await absent(target.path);}
+        catch(inspectError){error.retrySafe=false;error.dialogStateError=inspectError.message;}
+      }
+      await giveBack();
+      error.exportPress=exportPress;
       if(error.exportRequested===undefined)error.exportRequested=saveAttempted?null:false;
       throw error;
     }
   }
+  // Moves a verified export from the Save panel's folder to the requested path without overwriting.
+  async relocate(from,to,settings){
+    try{
+      const native=await this.verify(from,settings);
+      if(hashPlan(await this.destination(to.path))!==hashPlan(to))throw Error("export destination changed before the move");
+      let method="link";
+      try{await link(from.path,to.path);}
+      catch(error){if(error.code!=="EXDEV")throw error;method="copy";await copyFile(from.path,to.path,constants.COPYFILE_EXCL);}
+      const moved=await this.verify(to,settings);
+      if(moved.sha256!==native.sha256||moved.size!==native.size)throw Error("moved export differs from the native file");
+      const current=await lstat(from.path,{bigint:true});
+      if(String(current.dev)!==native.dev||String(current.ino)!==native.ino)throw Error("native export file changed during the move");
+      await unlink(from.path);
+      return {moved:true,from:from.path,to:to.path,method,size:moved.size,sha256:moved.sha256,durationSeconds:moved.durationSeconds};
+    }catch(error){return {moved:false,from:from.path,to:to.path,error:error.message};}
+  }
+  async liveProcess(){
+    if(this.platform!=="darwin")throw Error("native Live dialogs are macOS only");
+    const processes=await this.liveSetHost.runningProcesses(),binary="/Contents/MacOS/Live";
+    if(processes.length!==1||!processes[0].path.endsWith(`.app${binary}`))throw Error("native Live dialogs require exactly one running Live app");
+    return {pid:processes[0].pid,appPath:processes[0].path.slice(0,-binary.length)};
+  }
+  // Reads Live's blocking native dialogs in the background; nothing is pressed.
+  async nativeDialogs({signal}={}){
+    const live=await this.liveProcess();
+    return {...live,...await this.#dialogScript({pid:live.pid,action:"inspect"},signal)};
+  }
+  async cancelNativeDialogs(targets,{signal}={}){
+    if(this.busy)throw Error("another native audio export is active and owns its dialog cleanup");
+    const live=await this.liveProcess();
+    return {...live,...await this.#dialogScript({pid:live.pid,action:"cancelLeftover",targets},signal)};
+  }
+  async #dialogScript(input,signal){
+    try{return JSON.parse((await this.execute("/usr/bin/osascript",["-l","JavaScript",exportScript,JSON.stringify(input)],{timeout:30000,maxBuffer:262144,signal})).stdout);}
+    catch(error){signal?.throwIfAborted();throw Error(`Native Live dialog: ${String(error.stderr||error.message).trim().slice(0,600)}`);}
+  }
+}
+
+const exportKinds=["exportAudioVideo","exportSavePanel"];
+
+// Cancels a leftover Export Audio/Video dialog or its Save panel that no live call owns.
+export async function cancelLiveExportDialog(confirmations,host,args){
+  const observe=async()=>{
+    const state=await host.nativeDialogs({signal:requestSignal()}),dialogs=state.dialogs??[];
+    const refuse=reason=>{throw Object.assign(Error(`${reason}; no Cancel was pressed. Blocking dialogs: ${JSON.stringify(dialogs)}`),{code:"NATIVE_DIALOG_REFUSED",blockingDialogs:dialogs});};
+    if(!dialogs.length)refuse("Live shows no blocking native dialog");
+    if(dialogs.some(d=>!exportKinds.includes(d.identity)))refuse("A blocking dialog is not Live's Export Audio/Video dialog or its export Save panel and is not answered");
+    if(exportKinds.some(kind=>dialogs.filter(d=>d.identity===kind).length>1)||dialogs.some(d=>!Number.isInteger(d.windowId)||d.sheetCount))
+      refuse("The export dialog identity is ambiguous or it shows a sheet");
+    return {method:"cancel_live_export_dialog",pid:state.pid,appPath:state.appPath,
+      targets:dialogs.map(({identity,windowId,title,sheetCount,buttons})=>({identity,windowId,title,sheetCount,buttons}))};
+  };
+  const plan=await observe();
+  if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan),
+    warning:"Presses Cancel once on each listed window, the export Save panel before Export Audio/Video, then on the Export Audio/Video dialog Live shows again after that Save panel closes. No audio is rendered, no file is written and no other dialog is answered."};
+  if(args.planHash!==hashPlan(await observe()))throw Error("confirmation plan hash mismatch: native dialogs changed");
+  confirmations.consume(args.confirmationToken,args.planHash);
+  let result;
+  try{result=await host.cancelNativeDialogs(plan.targets,{signal:requestSignal()});}
+  catch(error){
+    requestSignal()?.throwIfAborted();
+    let after;try{after=await host.nativeDialogs({signal:requestSignal()});}catch{/* The error below stays authoritative. */}
+    return {dryRun:false,requested:plan,cancelled:false,observationError:String(error.message??error).slice(0,600),
+      ...(after?{blocked:after.blocked,dialogs:after.dialogs}:{}),pendingUserAction:true,
+      limitation:"Cancel closure was not verified. Read get_live_dialog_state before retrying; the error states whether Cancel was pressed."};
+  }
+  return {dryRun:false,requested:plan,cancelled:result.cancelled===true,closed:result.closed,blocked:result.blocked,dialogs:result.dialogs,
+    pendingUserAction:result.blocked===true};
 }

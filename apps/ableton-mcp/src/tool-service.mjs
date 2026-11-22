@@ -66,7 +66,7 @@ import {removeClipGroove, MacClipGrooveHost} from "./clip-groove-removal.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { consumeConfirmation, guardedWrite } from "./guarded-write.mjs";
 import { MacLiveSetHost } from "./live-set-host.mjs";
-import {MacAudioExportHost,exportAudioMix,exportAudioTrack} from "./audio-export.mjs";
+import {MacAudioExportHost,exportAudioMix,exportAudioTrack,cancelLiveExportDialog} from "./audio-export.mjs";
 import { CatalogService } from "./catalog-service.mjs";
 import { discoverExamples } from "./discovery-examples.mjs";
 import { LIVE_BROWSER_ROOTS } from "./browser-roots.mjs";
@@ -837,6 +837,8 @@ export class ToolService {
     if (name === "duplicate_midi_clip_variations") return duplicateMidiClipVariations(this.bridge, this.confirmations, args);
     if (name === "open_live_set") return this.#openLiveSet(args);
     if (name === "answer_live_recovery_prompt") return this.#answerLiveRecoveryPrompt(args);
+    if (name === "get_live_dialog_state") return this.audioExportHost.nativeDialogs({ signal: requestSignal() });
+    if (name === "cancel_live_export_dialog") return cancelLiveExportDialog(this.confirmations, this.audioExportHost, args);
     if (name === "save_live_set") return this.#saveLiveSet(args);
 
     if (name === "get_looper_export_context") return this.#readLooperExport(args);
