@@ -32,7 +32,8 @@ function nativeLive(scene){
     AXUIElementCopyAttributeValue:(element,key,ref)=>{if(element[key]===undefined)return -25212;ref[0]=element[key];return 0;},
     AXUIElementPerformAction:element=>{element.press?.();return 0;},
     CFEqual:(a,b)=>a===b,
-    CGWindowListCopyWindowInfo:()=>windows.map(w=>({kCGWindowOwnerPID:42,kCGWindowName:w.AXTitle,kCGWindowNumber:numbers.get(w),kCGWindowIsOnscreen:true}))
+    // Behind another app Live's windows are offscreen and their titles unreadable.
+    CGWindowListCopyWindowInfo:()=>windows.map(w=>({kCGWindowOwnerPID:42,kCGWindowName:focus.behind?undefined:w.AXTitle,kCGWindowNumber:numbers.get(w),kCGWindowIsOnscreen:!focus.behind}))
   });
   const events={applicationProcesses:{whose:()=>()=>[{bundleIdentifier:()=>"com.ableton.live",frontmost:()=>true}]},keystroke(){throw Error("no key may be sent");}};
   return vm.runInNewContext(`${source}\nrun`,{Application:()=>events,$:native,Ref:()=>[],delay(){},
@@ -84,16 +85,41 @@ function lateSavePanel(leftover){
 async function serviceFor(t,scene){
   const directory=await realpath(await mkdtemp(join(tmpdir(),"cavi-dialog-")));t.after(()=>rm(directory,{recursive:true,force:true}));
   const app=join(directory,"Live.app");await mkdir(join(app,"Contents/MacOS"),{recursive:true});await writeFile(join(app,"Contents/MacOS/Live"),"binary");
-  const run=scene==="lateSave"||scene==="leftoverSave"?lateSavePanel(scene==="leftoverSave"):nativeLive(scene),liveSetHost={runningProcesses:async()=>[{pid:42,path:app+"/Contents/MacOS/Live"}],appPathFor:()=>app};
+  focus.behind=scene==="exportBehind";focus.restored=[];
+  const run=scene==="lateSave"||scene==="leftoverSave"?lateSavePanel(scene==="leftoverSave"):nativeLive(scene==="exportBehind"?"export":scene),liveSetHost={runningProcesses:async()=>[{pid:42,path:app+"/Contents/MacOS/Live"}],appPathFor:()=>app};
   const execute=async(command,args)=>{
     if(command==="/usr/bin/open")return {stdout:""};
-    if(args[2].endsWith("live-app-focus.js"))return {stdout:JSON.stringify({focused:true})};
+    if(args[2].endsWith("live-app-focus.js")&&scene!=="exportBehind")return {stdout:JSON.stringify({focused:true})};
+    if(args[2].endsWith("live-app-focus.js")){
+      // Another app (pid 77) is in front until Live is activated; restore puts it back in front.
+      const input=JSON.parse(args.at(-1));
+      if(input.action==="restore"){focus.behind=true;focus.restored.push(input.restorePid);return {stdout:JSON.stringify({restored:true,activations:1,frontmost:{pid:input.restorePid,name:"Viewer"}})};}
+      const previous=focus.behind?{pid:77,name:"Viewer"}:{pid:42,name:"Live"};focus.behind=false;
+      return {stdout:JSON.stringify({focused:true,activations:1,previous})};
+    }
     if(!args[2].endsWith("live-audio-export-dialog.js"))throw Error("unexpected native script");
     return {stdout:run([args.at(-1)])};
   };
   const bridge={request:async()=>({stateVersion:3,setFingerprint:"set",identityToken:"document"})};
   return {directory,service:new ToolService({liveSetHost,bridge,audioExportHost:new MacAudioExportHost({platform:"darwin",liveSetHost,execute})})};
 }
+
+const focus={behind:false,restored:[]};
+
+test("an export dialog behind another app is cancelled with Live in front and focus given back",async t=>{
+  const {service}=await serviceFor(t,"exportBehind");
+  const state=validateToolResult("get_live_dialog_state",await service.call("get_live_dialog_state",{}),{});
+  assert.deepEqual(state.dialogs.map(d=>[d.identity,d.sheet,d.windowId]),[["exportAudioVideo",false,null]]);
+  const plan=validateToolResult("cancel_live_export_dialog",await service.call("cancel_live_export_dialog",{}),{});
+  assert.deepEqual(plan.plan.targets.map(d=>[d.identity,d.windowId]),[["exportAudioVideo",null]]);
+  const execute={dryRun:false,confirmationToken:plan.confirmation.token,planHash:plan.confirmation.planHash};
+  const result=validateToolResult("cancel_live_export_dialog",await service.call("cancel_live_export_dialog",execute),execute);
+  assert.equal(result.cancelled,true);assert.equal(result.blocked,false);assert.equal(result.pendingUserAction,false);
+  assert.deepEqual(result.closed.map(d=>[d.identity,d.windowId]),[["exportAudioVideo",123]]);
+  assert.deepEqual(result.focus,{activations:1,before:"Viewer",returned:true,returnedTo:"Viewer"});
+  assert.deepEqual(focus.restored,[77]);
+  assert.deepEqual((await service.call("get_live_dialog_state",{})).dialogs,[]);
+});
 
 const saveChanges=[{identity:"unknown",sheet:true,parentTitle:"Mix",modal:false,buttons:["Don't Save","Cancel","Save"]}];
 const identity=dialogs=>dialogs.map(({identity,sheet,parentTitle,modal,buttons})=>({identity,sheet,parentTitle,modal,buttons}));
