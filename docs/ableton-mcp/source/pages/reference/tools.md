@@ -2,9 +2,9 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 329 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 331 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
-## Read-only (138)
+## Read-only (139)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -45,6 +45,7 @@ The server publishes 329 tools. Mutations of the Live Set require `expectedState
 | `get_history_state` | Read current Ableton undo and redo availability. | none |
 | `get_instrument_comparison` | Read a runtime instrument comparison and current track IDs, mute states and readiness. Omit comparisonId to list this bridge instance's active comparisons, including after a timed-out preparation. No edits. | none |
 | `get_live_audio_capture` | Read a capture's status, current native track/clip IDs, cleanup errors and stable completed file provenance. Omit captureId to list handles after reconnect or a timed-out start. No edits; runtime handles are not saved in the Set. | none |
+| `get_live_dialog_state` | Read Live's blocking native dialogs on macOS without the bridge or pressing anything: title, subrole, modal/sheet flags, button titles, window id, and identity as the Export Audio/Video dialog, its Save panel, or unknown. | none |
 | `get_live_object_colors` | Read native RGB colors and palette indices for one to 64 explicit tracks, Returns, Main, scenes or existing Session/Arrangement clips. Preserves focus. All profile. | `objectIds` |
 | `get_live_scale_reference` | Resolve one exact Ableton Live 12 scale and root to semitone intervals, pitch classes, note names, degrees, and scale family. Read-only. | `scaleName`, `rootNote` |
 | `get_live_state` | Read bridge identity, capabilities, Set path, tempo, playback and state version. | none |
@@ -183,7 +184,7 @@ The server publishes 329 tools. Mutations of the Live Set require `expectedState
 | `start_production_session` | Capture a durable production brief and current Set identity. Starts at inspect; does not call a model or change Live. Keep the returned sessionId for later conversations. | `projectId`, `goal` |
 | `store_rack_macro_variation` | Plan or store a new native variation of mapped rack macros. Binds exact rack and parameter state, reports the observed count and appended storedVariationIndex independently of selection; variation contents are not exposed by Live's API. | `expectedStateVersion`, `trackId`, `deviceId` |
 
-## Destructive mutations (160)
+## Destructive mutations (161)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -214,6 +215,7 @@ The server publishes 329 tools. Mutations of the Live Set require `expectedState
 | `arm_track` | Guard exact-track arming; inspect verified and partial state. | `expectedStateVersion`, `trackId`, `armed` |
 | `audition_arrangement_passage` | Plan/start a looping Arrangement passage from stopped transport with recording off and no pending launches. Return only explicit ordinary tracks from Session override; reject Groups. Changes global loop/playhead and starts global playback until stopped. Other tracks may sound. Partial failure reports observed controls; earlier Session phase is not restored. Requires all profile. | `expectedStateVersion`, `trackIds`, `startBeats`, `endBeats` |
 | `bounce_track_in_place` | Destructively commit one whole ordinary track to audio, removing its devices in Session and Arrangement. Duplicate first to keep an editable source. Requires saved Set, stopped transport, unarmed visible target and macOS English Live. Rechecks native identity/selection and verifies audio layout, controls and file coverage; no audible-equivalence claim. | `expectedStateVersion`, `trackId` |
+| `cancel_live_export_dialog` | Plan/press Cancel on a leftover Export Audio/Video dialog or its Save panel on macOS; needs no bridge or owning call. Refuses with every dialog's identity when any blocker is unidentified, such as a save-changes sheet. | none |
 | `capture_live_audio` | Plan or start a bounded Live Resampling recording of current playback into a new muted, monitor-off audio track. Requires playback, recording off and no armed tracks. Only its capture is stopped/disarmed automatically, even after client disconnect. No isolated-stem, hardware or listener proof. | `expectedStateVersion`, `beats`, `name` |
 | `capture_midi_session` | Capture Live's hidden recent MIDI input into Session globally. Rechecks native identities, existing note/timing, routing, arms, monitoring and musical/recording state. May start playback/add scenes/change tempo. Known playing-clip changes require explicit allowExistingClipChanges. Read changedSlots and captureVerified; no exact buffer preview or automatic rollback. | `expectedStateVersion` |
 | `capture_session_scene` | Natively capture AND immediately launch the currently playing Session combination as a named scene below the selected anchor. Binds sources/layouts and rechecks at undo entry. Requires playing transport, all explicit/implicit arms off, recording/count-in off and settled launches. Live can adjust copied start markers; verifies other exposed material and reports exact marker differences and playback separately. Full-row launch can affect Arrangement overrides and empty tracks. Partial work remains without rollback/replay. No rendered audio or mixer recall. Updated bridge; all profile. | `expectedStateVersion`, `afterSceneId`, `name` |

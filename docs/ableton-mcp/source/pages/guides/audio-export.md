@@ -22,7 +22,23 @@ The mix context includes A/B crossfader membership for ordinary tracks, Groups a
 
 It also binds [Stereo and Split Stereo panning](stereo-panning.md): native mode, all three pan parameter identities, values, bounds, availability and automation status for ordinary tracks, Groups, Returns and Main. It does not bind automation envelopes or device stereo processing.
 
-Known failures before Save attempt cleanup only of unchanged owned dialogs. User edits or unavailable ownership evidence preserve the dialog and report uncertainty. A Save attempt with an unknown outcome is never replayed or cancelled automatically.
+Known failures before Save attempt cleanup only of unchanged owned dialogs, including a Save panel that opens after the Export press stopped waiting for it. User edits or unavailable ownership evidence preserve the dialog and report uncertainty. A Save attempt with an unknown outcome is never replayed or cancelled automatically.
+
+The export takes focus briefly and gives it back. It records the frontmost app, brings Live to the front and verifies it, retrying the activation up to three times with a short wait, because Live's audio Save panel enables Save only while Live is frontmost and the panel is onscreen. Immediately before Save is pressed, Live must be frontmost, the Save panel onscreen and Save enabled; when another app has taken the front back, such as a full-screen app, Live is activated again, at most 4 rounds of about 1.5 s. `exportPress.observed["save.commit"].saveGate` reports the rounds and the last check. A Save that never becomes ready is not pressed: the export closes its own Save panel and Export Audio/Video dialog. Live stays in front while it renders. Focus returns to the recorded app once the render finished or the render wait ended, or after cleanup when the export fails. If Live never comes to the front, nothing is pressed and the reply reports `retrySafe: true`.
+
+The File menu item, Export button, Save panel folder and filename, and Save button use accessibility actions. A key is sent only for a control without an accessibility action, immediately after a frontmost check. The Save panel is found in Live's window list or, when that list omits it, as Live's focused window. `exportPress` reports `path` (`accessibility`, or `keyFallback` when a key was sent), `steps` with the route of each step, `keys`, `activations`, `focus` (`before`, `activations`, `returned`, `returnedTo`) and, in `observed`, per-step evidence such as `savePanelSource` (`windows` or `focusedWindow`) and, after a timed-out wait, `afterWait` with the observed dialogs.
+
+`retrySafe: true` means Save was never pressed, every owned dialog closed, `get_live_dialog_state` shows no dialog and the destination is still absent. Nothing was rendered, so the caller may plan the export again with a fresh `expectedStateVersion`. Any other failure reports `retrySafe: false`.
+
+## Recover from a leftover dialog
+
+An export refuses to start while Live shows any dialog, modal window or sheet. The reply then carries `blockingDialogs`: for each blocker its `identity`, `title`, `subrole`, `modal`, `sheet`, `sheetCount`, `buttons`, `texts`, `windowId` and, for a sheet, `parentTitle`. A failed export whose own cleanup was not verified reports the same fields.
+
+1. Call `get_live_dialog_state`. It reads Live's blocking native windows in the background, needs no bridge and presses nothing. `identity` is `exportAudioVideo` for the Export Audio/Video dialog, `exportSavePanel` for its "Save Audio File As:" panel, and `unknown` for anything else.
+2. When every blocker is `exportAudioVideo` or `exportSavePanel`, plan `cancel_live_export_dialog` with no arguments, review the listed windows, and execute the unchanged plan with its token and hash. It presses Cancel once on each window, the Save panel first, and reports `closed` plus the remaining `dialogs`. Live hides Export Audio/Video while its Save panel is open and shows it again after that panel closes; that dialog is cancelled too. No dialog needs to come from the current server process.
+3. When any blocker is `unknown`, such as a save-changes sheet or a plug-in window, `cancel_live_export_dialog` refuses with `NATIVE_DIALOG_REFUSED` and every blocker's identity. It never answers a save-changes dialog; resolve that dialog in Live, then read the state again.
+
+A changed window, sheet or identity between plan and execution invalidates the plan before Cancel is pressed. Cancel closes the dialog without rendering; plan a new export afterwards with a fresh `expectedStateVersion`.
 
 ## Verify the deliverable
 

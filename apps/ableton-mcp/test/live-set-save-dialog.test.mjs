@@ -10,7 +10,7 @@ function dialog({ windowId = 123, purpose = "Save Live Set As:", frontmost = tru
   unexpectedSheet = false, saveEnabled = true, windowOrderChanges = false, staleRole = false,
   panelOpen = true, panelOnscreen = true, hiddenWindows = false, filenameEdit = name => name, saveEnabledAfter = 0 } = {}) {
   const keys = [], saves = [], menuPresses = [];
-  // hiddenWindows: Live is on another Space, where only its focused window lists the panel.
+  // hiddenWindows: AXWindows omits the panel and only Live's focused window lists it.
   let visible = panelOpen, saveReads = 0;
   const listed = () => visible && !hiddenWindows;
   const element = (role, id, value, children = []) => {
@@ -97,7 +97,7 @@ test("Save As refuses a preexisting modal and never accepts Replace", () => {
   assert.deepEqual(native.keys, []);assert.deepEqual(native.saves, []);
 });
 
-test("Save As opens and binds its panel while Live is behind other apps on another Space", () => {
+test("Save As opens and binds its panel while Live is behind other apps and AXWindows omits it", () => {
   const native = dialog({ frontmost: false, panelOpen: false, panelOnscreen: false, hiddenWindows: true });
   const result = JSON.parse(native.execute("prepare"));
   assert.equal(result.prepared, true);assert.equal(result.windowId, 123);assert.equal(result.purpose, "Save Live Set As:");
@@ -105,7 +105,7 @@ test("Save As opens and binds its panel while Live is behind other apps on anoth
   assert.deepEqual(native.menuPresses, ["Save Live Set As..."]);assert.deepEqual(native.keys, []);assert.deepEqual(native.saves, []);
 });
 
-test("Save As cancels an off-Space panel it prepared", () => {
+test("Save As cancels an unlisted panel it prepared", () => {
   const native = dialog({ frontmost: false, panelOnscreen: false, hiddenWindows: true });
   assert.equal(JSON.parse(native.execute("cancel")).cancelled, true);
   assert.deepEqual(native.keys, []);assert.deepEqual(native.saves, ["CancelButton"]);
@@ -126,19 +126,27 @@ test("Save As closes the panel it opened when that panel cannot be bound", () =>
   assert.deepEqual(native.keys, []);
 });
 
-test("audio export binds its exact Save purpose and window before preparing the requested directory",()=>{
-  const native=dialog({purpose:"Save Audio File As:"});
+test("audio export binds its exact Save purpose, window and shown folder behind another app without keys",()=>{
+  const native=dialog({purpose:"Save Audio File As:",frontmost:false,hiddenWindows:true});
   const prepared=JSON.parse(native.execute("adoptAudioExport"));
-  assert.equal(prepared.purpose,"Save Audio File As:");assert.equal(prepared.windowId,123);
-  assert.deepEqual(native.keys,["g",36]);assert.deepEqual(native.saves,[]);
+  assert.equal(prepared.purpose,"Save Audio File As:");assert.equal(prepared.windowId,123);assert.equal(prepared.panelState.folder,"/tmp/work");
+  assert.deepEqual(prepared.exportPress,{steps:{folder:"panel"},keys:[],activations:0});
+  assert.deepEqual(native.keys,[]);assert.deepEqual(native.saves,[]);
   for(const state of [{purpose:"Save Live Set As:"},{purpose:"Save Audio File As:",windowId:124}]){
     const other=dialog(state);assert.throws(()=>other.execute("adoptAudioExport"));assert.deepEqual(other.keys,[]);assert.deepEqual(other.saves,[]);
   }
 });
 
+test("audio export keeps a panel showing another folder for a move, and types Go to Folder only in front",()=>{
+  const moved=dialog({purpose:"Save Audio File As:",frontmost:false}),kept=JSON.parse(moved.execute("adoptAudioExport",{parent:"/tmp/other",relocate:true}));
+  assert.equal(kept.prepared,true);assert.equal(kept.panelState.folder,"/tmp/work");assert.deepEqual(moved.keys,[]);
+  const behind=dialog({purpose:"Save Audio File As:",frontmost:false});
+  assert.throws(()=>behind.execute("adoptAudioExport",{parent:"/tmp/other"}),/not frontmost .*no key was sent/);assert.deepEqual(behind.keys,[]);
+});
+
 test("Save panels retain their identity when Go to Folder changes native window order",()=>{
-  const native=dialog({purpose:"Save Audio File As:",windowOrderChanges:true});
-  assert.equal(JSON.parse(native.execute("adoptAudioExport")).prepared,true);
+  const native=dialog({purpose:"Save MIDI Clip As:",filename:"Original.mid",windowOrderChanges:true});
+  assert.equal(JSON.parse(native.execute("adoptMidiExport")).prepared,true);
   assert.deepEqual(native.keys,["g",36]);assert.deepEqual(native.saves,[]);
 });
 
