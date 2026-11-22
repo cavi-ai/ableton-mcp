@@ -1,5 +1,5 @@
 import { hashPlan } from "./confirmation-store.mjs";
-import { consumeConfirmation } from "./guarded-write.mjs";
+import { beginGuardedWrite, consumeConfirmation } from "./guarded-write.mjs";
 
 export async function instrumentComparison(bridge, confirmations, name, args) {
   if (name === "get_instrument_comparison") return bridge.request(name, args);
@@ -23,7 +23,7 @@ export async function instrumentComparison(bridge, confirmations, name, args) {
     (adopting && ["original","variation"].some(side => before[side]?.trackId !== args[side].trackId || before[side]?.clipId !== args[side].clipId)) ||
     (!preparing && !adopting && before.comparisonId !== args.comparisonId)) throw new Error("instrument comparison state changed; re-read");
   const plan = { method: name, expectedStateVersion: args.expectedStateVersion, ...target, before };
-  if (args.dryRun !== false) return { dryRun: true,
+  if (args.dryRun !== false) return { dryRun: true, confirmation: beginGuardedWrite(confirmations, plan, args).confirmation,
     plan: { method: name, expectedStateVersion: args.expectedStateVersion, ...target,
       observedDigest: hashPlan(before),
       ...(adopting ? { restoreMutes: before.restoreMutes,
@@ -37,8 +37,7 @@ export async function instrumentComparison(bridge, confirmations, name, args) {
         warning: "Native track duplication temporarily mutes the source, then restores its mute state. The alternative remains muted, unarmed and input monitoring off. Following track IDs shift; re-read before more edits." }
         : { original: before.original, variation: before.variation, readinessErrors: before.readinessErrors,
           restoreMutes: before.restoreMutes, restorationBasis: before.restorationBasis,
-          warning: "Changes only pair mutes; it does not launch clips, stop playback or prove audible output. Finishing preserves both tracks and ends this comparison handle." }) },
-    confirmation: confirmations.issue(plan) };
+          warning: "Changes only pair mutes; it does not launch clips, stop playback or prove audible output. Finishing preserves both tracks and ends this comparison handle." }) } };
   consumeConfirmation(confirmations, plan, args, "confirmation plan hash mismatch: comparison state changed");
   const observed = await bridge.request(name, plan);
   // Do not repeat large source snapshots in the mutation receipt.
