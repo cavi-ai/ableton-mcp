@@ -116,7 +116,8 @@ function run(argv){
       if(value(w,"AXSubrole")==="AXDialog"||value(w,"AXModal")===true)found.push({element:w,info:describe(w)});
       sheetsOf(w).forEach(function(s){found.push({element:s,info:describe(s,title)});});
     });
-    return found;
+    // The window list and the focused window can both report one window; a shared window id is one dialog.
+    return found.filter(function(entry,i){var id=entry.info.windowId;return !Number.isInteger(id)||found.findIndex(function(other){return other.info.windowId===id;})===i;});
   }
   function infos(found){return found.map(function(entry){return entry.info;});}
   // An unsaved Set's main window has no AXDocument; AXMainWindow names it when AXWindows omits it.
