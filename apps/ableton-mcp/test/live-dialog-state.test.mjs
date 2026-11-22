@@ -22,10 +22,12 @@ function nativeLive(scene){
     button("Base.FinalButtonsBox.ExportButton","Export")])};
   const answer=name=>({AXRole:"AXButton",AXDescription:name,AXEnabled:true});
   const sheet={AXRole:"AXSheet",AXChildren:array([{AXRole:"AXStaticText",AXValue:"Save changes to Mix before closing?"},answer("Don't Save"),answer("Cancel"),answer("Save")])};
-  if(scene==="export")windows=[exporting,standard];
+  // The focused window is a second reference to the same Export window, so the window list and the focused window both report it.
+  const focusedCopy={...exporting};
+  if(scene==="export"||scene==="exportTwice")windows=[exporting,standard];
   else{standard.AXSheets=array([sheet]);standard.AXChildren=array([sheet]);windows=[standard];}
   const numbers=new Map([[exporting,123],[standard,125]]);
-  const app={get AXWindows(){return array(windows);}};
+  const app={get AXWindows(){return array(windows);},get AXFocusedWindow(){return scene==="exportTwice"?focusedCopy:undefined;}};
   const native=Object.assign(value=>value,{
     NSRunningApplication:{runningApplicationWithProcessIdentifier:()=>({activateWithOptions(){}})},
     AXUIElementCreateApplication:()=>app,
@@ -119,6 +121,14 @@ test("an export dialog behind another app is cancelled with Live in front and fo
   assert.deepEqual(result.focus,{activations:1,before:"Viewer",returned:true,returnedTo:"Viewer"});
   assert.deepEqual(focus.restored,[77]);
   assert.deepEqual((await service.call("get_live_dialog_state",{})).dialogs,[]);
+});
+
+test("one Export Audio/Video window listed twice is one dialog and its cancel is planned",async t=>{
+  const {service}=await serviceFor(t,"exportTwice");
+  const state=await service.call("get_live_dialog_state",{});
+  assert.deepEqual(state.dialogs.map(d=>[d.identity,d.windowId]),[["exportAudioVideo",123]]);
+  const plan=validateToolResult("cancel_live_export_dialog",await service.call("cancel_live_export_dialog",{}),{});
+  assert.equal(plan.dryRun,true);assert.equal(plan.plan.targets.length,1);
 });
 
 const saveChanges=[{identity:"unknown",sheet:true,parentTitle:"Mix",modal:false,buttons:["Don't Save","Cancel","Save"]}];
