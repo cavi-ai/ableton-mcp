@@ -5,7 +5,7 @@ import {mkdtemp,mkdir,writeFile,realpath,rm} from "node:fs/promises";
 import {join} from "node:path";
 import {tmpdir} from "node:os";
 import vm from "node:vm";
-import {MacAudioExportHost} from "../src/audio-export.mjs";
+import {MacAudioExportHost,exportWindowIdAgrees,samePlannedExportDialogs} from "../src/audio-export.mjs";
 import {ToolService} from "../src/tool-service.mjs";
 import {validateToolResult} from "../src/tool-validation.mjs";
 
@@ -198,4 +198,14 @@ test("cancelling a leftover export Save panel also cancels the Export dialog Liv
   assert.deepEqual(result.closed.map(d=>[d.identity,d.windowId]),[["exportSavePanel",124],["exportAudioVideo",123]]);
   assert.equal(result.blocked,false);assert.equal(result.pendingUserAction,false);
   assert.deepEqual((await service.call("get_live_dialog_state",{})).dialogs,[]);
+});
+
+test("a null export window id agrees until both reads are integers",()=>{
+  const face={identity:"exportAudioVideo",title:"Export Audio/Video",sheetCount:0};
+  assert.equal(exportWindowIdAgrees(null,123),true);
+  assert.equal(exportWindowIdAgrees(4,4),true);
+  assert.equal(exportWindowIdAgrees(4,5),false);
+  assert.equal(samePlannedExportDialogs([{...face,windowId:null}],[{...face,windowId:123}]),true);
+  assert.equal(samePlannedExportDialogs([{...face,windowId:1}],[{...face,windowId:null}]),false);
+  assert.equal(samePlannedExportDialogs([{...face,windowId:null}],[{...face,title:"Other",windowId:123}]),false);
 });

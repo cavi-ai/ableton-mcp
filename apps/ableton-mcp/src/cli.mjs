@@ -16,7 +16,11 @@ import { serveManaged, restartManaged } from "./server-lifecycle.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const requiredCapabilities = JSON.parse(readFileSync(new URL("../../../ableton/Remote Scripts/CaviMcpBridge/capabilities.json", import.meta.url), "utf8"));
-const remoteScriptFiles = ["__init__.py", "arrangement_audio.py", "arrangement_audition.py", "arrangement_copy.py", "arrangement_creation.py", "arrangement_move.py", "arrangement_recording.py", "arrangement_return.py", "arrangement_section.py", "audio_capture.py", "audio_export.py", "audio_midi_sketch.py", "audio_reverse.py", "beat_repeat_fill.py", "bridge.py", "browser_load.py", "browser_preview.py", "capabilities.json", "clip_duplication.py", "clip_entry.py", "clip_envelope.py", "clip_hold.py", "clip_launch.py", "clip_loop_edit.py", "clip_mute.py", "clip_names.py", "clip_removal.py", "crossfader.py", "cue_jump.py", "device_ab.py", "device_bypass.py", "device_preset.py", "instrument_comparison.py", "live_navigation.py", "looper_export.py", "manual_override.py", "master_mixer.py", "midi_capture.py", "midi_clip_markers.py", "midi_crop.py", "midi_export.py", "midi_import.py", "midi_insertion.py", "midi_note_edit.py", "midi_note_removal.py", "midi_note_selection.py", "midi_retrograde.py", "midi_time_scaling.py", "object_colors.py", "panning.py", "parameter_automation.py", "parameter_display.py", "protocol.py", "rack_performance.py", "recording_setup.py", "return_mixer.py", "return_removal.py", "scene_capture.py", "scene_duplication.py", "scene_removal.py", "selected_control.py", "session_arrangement.py", "session_names.py", "session_overdub.py", "session_recording.py", "sidechain_routing.py", "signal_activity.py", "simpler_sample.py", "take_lanes.py", "track_arming.py", "track_bounce.py", "track_copy.py", "track_freeze.py", "track_grouping.py", "track_mixer.py", "track_removal.py", "track_routing.py", "track_send.py", "track_volume.py", "transport_seek.py"];
+
+async function packagedRemoteScriptFiles(sourceRoot) {
+  const names = await readdir(join(sourceRoot, "ableton", "Remote Scripts", "CaviMcpBridge"));
+  return names.filter(name => name !== "tests" && name !== "__pycache__" && !name.startsWith(".") && !name.endsWith(".pyc")).sort();
+}
 
 async function remoteScriptCopies({ sourceRoot, platform, home, applicationsRoot }) {
   const roots = defaultRemoteScriptRoots({ platform, home });
@@ -34,7 +38,7 @@ async function remoteScriptCopies({ sourceRoot, platform, home, applicationsRoot
     try { installed = await readFile(join(path, "__init__.py")); }
     catch (error) { if (error.code === "ENOENT") continue; throw error; }
     const differingFiles = [];
-    for (const name of remoteScriptFiles) {
+    for (const name of await packagedRemoteScriptFiles(sourceRoot)) {
       let actual;
       try { actual = name === "__init__.py" ? installed : await readFile(join(path, name)); }
       catch (error) { if (error.code !== "ENOENT") throw error; }

@@ -64,7 +64,7 @@ import { analyzeMidiFeel, planMidiFeelTransfer, midiFeelClipEndBeats } from "./m
 import {inspectProducerAudioBus} from "./producer-audio-bus.mjs";
 import {removeClipGroove, MacClipGrooveHost} from "./clip-groove-removal.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
-import { consumeConfirmation, guardedWrite } from "./guarded-write.mjs";
+import { beginGuardedWrite, consumeConfirmation, guardedWrite } from "./guarded-write.mjs";
 import { MacLiveSetHost } from "./live-set-host.mjs";
 import {MacAudioExportHost,exportAudioMix,exportAudioTrack,cancelLiveExportDialog} from "./audio-export.mjs";
 import { CatalogService } from "./catalog-service.mjs";
@@ -720,8 +720,8 @@ export class ToolService {
       const plan = { method: "set_midi_note_properties", operation: "apply_midi_feel_template",
         ...target, expectedStateVersion: args.expectedStateVersion, before, clipTiming,
         template: args.template, originBeats: args.originBeats ?? 0, changes };
-      if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-      this.#consumeConfirmation(plan, args);
+      const issued = this.#issueGuarded(plan, args);
+      if (issued) return issued;
       const observed = await this.bridge.request("set_midi_note_properties", plan);
       const readback = new Map(observed.notes.map(note => [note.noteId, note]));
       if (observed.stateVersion !== args.expectedStateVersion + 1 || changes.some(change => {
@@ -2057,8 +2057,8 @@ export class ToolService {
     if (JSON.stringify(current) === JSON.stringify(target)) throw new Error("snapshot already matches; no device chain changes required");
     const plan = { method: "set_device_chain_snapshot", trackId: args.trackId,
       expectedStateVersion: args.expectedStateVersion, before, target };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
+    const issued = this.#issueGuarded(plan, args);
+    if (issued) return issued;
     const observed = await this.bridge.request("set_device_chain_snapshot", plan);
     return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString(),
       rollback: "One Live undo step covers Return or master mixer and output, device names, exposed parameters, chain mixer and note routing; native rollback is attempted if recall fails." };
@@ -2127,8 +2127,8 @@ export class ToolService {
     if (JSON.stringify(current) === JSON.stringify(target)) throw new Error("snapshot already matches; no track changes required");
     const plan = { method: "set_track_state_snapshot", trackId: args.trackId,
       expectedStateVersion: args.expectedStateVersion, before, target };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
+    const issued = this.#issueGuarded(plan, args);
+    if (issued) return issued;
     const observed = await this.bridge.request("set_track_state_snapshot", plan);
     return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString(),
       rollback: "One Live undo step restores the complete pre-recall track state; native rollback is also attempted if recall fails." };
@@ -2263,10 +2263,8 @@ export class ToolService {
       automationWarning: "A parameter write may override automation. Automation state is current ownership, not envelope contents; null means unavailable. Restoring a value does not restore automation playback or history.",
       ...(contentMutationRisk ? { contentMutationRisk } : {})
     };
-    if (args.dryRun !== false) {
-      return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    }
-    this.#consumeConfirmation(plan, args);
+    const issued = this.#issueGuarded(plan, args);
+    if (issued) return issued;
     const result = await this.bridge.request("set_device_parameters", plan);
     if (result.stateVersion !== args.expectedStateVersion + 1 || result.trackId !== args.trackId ||
         result.deviceId !== args.deviceId || !Array.isArray(result.observedChanges) ||
@@ -2872,8 +2870,8 @@ export class ToolService {
       changes: { pitchCoarse: { previous: before.pitch.coarse, value: coarse },
         pitchFine: { previous: before.pitch.fine, value: fine } },
       limitation: "Whole-clip pitch offset from stable full-source periodicity, not note-level vocal correction or audible validation. Warp, envelopes and downstream devices may affect the heard result." };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
+    const issued = this.#issueGuarded(plan, args);
+    if (issued) return issued;
     const observed = await this.bridge.request("set_audio_clip_state", plan);
     if (observed.stateVersion !== args.expectedStateVersion + 1 || observed.trackId !== args.trackId ||
         observed.clipId !== args.clipId || observed.pitch?.coarse !== coarse || observed.pitch?.fine !== fine)
@@ -3045,6 +3043,10 @@ export class ToolService {
 
   #consumeConfirmation(plan, args) {
     return consumeConfirmation(this.confirmations, plan, this.#confirmationArgs(plan, args), observedPlanChanged);
+  }
+
+  #issueGuarded(plan, args, preview) {
+    return beginGuardedWrite(this.confirmations, plan, this.#confirmationArgs(plan, args), { mismatch: observedPlanChanged, preview });
   }
 
   async #liveSetState(args) {
@@ -3249,8 +3251,8 @@ export class ToolService {
     const { productSlug, presetIds, eligible, fingerprint } = GenerationQueue.inspectSelection(
       this.generationQueuePath, args.productSlug, args.presetIds);
     const plan = { method: "enqueue_nks_generation_jobs", productSlug, presetIds, eligible, fingerprint };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
+    const issued = this.#issueGuarded(plan, args);
+    if (issued) return issued;
     const queue = GenerationQueue.open(this.generationQueuePath);
     try {
       const enqueued = queue.enqueue(productSlug, presetIds, fingerprint);
@@ -3301,8 +3303,8 @@ export class ToolService {
       expectedMetadataRevision: args.expectedMetadataRevision,
       before: update.before, after: update.after
     };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
+    const issued = this.#issueGuarded(plan, args);
+    if (issued) return issued;
     const observed = this.catalog.setMetadata(args.presetId, args.expectedMetadataRevision, changes);
     return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString() };
   }
@@ -3356,8 +3358,8 @@ export class ToolService {
     const update = this.#browserMetadataLibrary().plan(metadataIdentity, args.expectedMetadataRevision, changes);
     const plan = { method: "set_browser_item_metadata", item, metadataIdentity, expectedMetadataRevision: args.expectedMetadataRevision,
       before: update.before, after: update.after, nativeLiveCollectionsModified: false };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
+    const issued = this.#issueGuarded(plan, args);
+    if (issued) return issued;
     const observed = this.#browserMetadataLibrary().set(metadataIdentity, args.expectedMetadataRevision, changes);
     return { dryRun: false, requested: plan, observed, nativeLiveCollectionsModified: false, timestamp: new Date().toISOString() };
   }
@@ -3607,188 +3609,186 @@ export class ToolService {
       notes: args.notes.map((note, index) => normalizeMidiNote(note, index, lengthBeats))
     };
     if (args.name !== undefined) plan.name = args.name;
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
+    const issued = this.#issueGuarded(plan, args);
+    if (issued) return issued;
     const result = await this.bridge.request("create_midi_clip", plan);
     return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
   }
 
-  async #createScaleChordProgressionClip(args) {
-    requireExpectedState(args);
-    const beforeContext = await this.bridge.request("get_song_musical_context", {});
-    if (beforeContext.stateVersion !== args.expectedStateVersion)
-      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${beforeContext.stateVersion}`);
-    const progression = planScaleChordProgression(beforeContext.key, args);
+  #projectMidiNote(note) {
+    return { pitch: note.pitch, start: note.start, duration: note.duration, velocity: note.velocity, mute: note.mute };
+  }
+
+  async #emptySessionSlot(args) {
     const clips = await this.bridge.request("list_clips", { trackId: args.trackId });
     assertExpectedState(args, clips);
     const slot = clips.clips.find(clip => clip.id === args.clipId);
     if (!slot) throw new Error(`unknown clip slot ${args.clipId}`);
     if (slot.hasClip) throw new Error(`clip slot ${args.clipId} already contains a clip`);
-    const afterContext = await this.bridge.request("get_song_musical_context", {});
-    if (JSON.stringify(beforeContext) !== JSON.stringify(afterContext))
-      throw new Error("musical context changed during chord progression creation; retry");
+    return slot;
+  }
+
+  #createdSessionClipMismatch(observed, args) {
+    return observed.stateVersion !== args.expectedStateVersion + 1 || observed.trackId !== args.trackId ||
+      observed.clip?.id !== args.clipId || !observed.clip?.hasClip;
+  }
+
+  async #createSessionMidiClip(spec, args) {
+    requireExpectedState(args);
+    const prepared = await spec.prepare.call(this, args);
+    const slot = await this.#emptySessionSlot(args);
+    await spec.stable.call(this, prepared);
     const plan = {
-      method: "create_midi_clip",
-      operation: "create_scale_chord_progression_clip",
-      trackId: args.trackId,
-      clipId: args.clipId,
-      expectedStateVersion: args.expectedStateVersion,
-      name: args.name,
-      lengthBeats: progression.lengthBeats,
-      notes: progression.notes,
-      progression,
-      musicalContext: beforeContext,
-      before: slot
+      method: "create_midi_clip", operation: spec.operation,
+      trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
+      name: args.name, lengthBeats: prepared.lengthBeats, notes: prepared.notes,
+      [spec.planKey]: prepared.detail, ...prepared.context, before: slot
     };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
+    const issued = this.#issueGuarded(plan, args);
+    if (issued) return issued;
     const observed = await this.bridge.request("create_midi_clip", plan);
-    if (observed.stateVersion !== args.expectedStateVersion + 1 || observed.trackId !== args.trackId ||
-        observed.clip?.id !== args.clipId || !observed.clip?.hasClip)
-      throw new Error("progression clip creation readback mismatch");
-    const notes = await this.bridge.request("get_midi_clip_notes_extended", {
-      trackId: args.trackId, clipId: args.clipId
-    });
-    const finalContext = await this.bridge.request("get_song_musical_context", {});
-    if (notes.stateVersion !== observed.stateVersion || finalContext.stateVersion !== observed.stateVersion ||
-        notes.trackId !== args.trackId || notes.clipId !== args.clipId ||
-        JSON.stringify(finalContext.key) !== JSON.stringify(beforeContext.key))
-      throw new Error("progression clip verification context mismatch");
-    const project = note => ({ pitch: note.pitch, start: note.start, duration: note.duration,
-      velocity: note.velocity, mute: note.mute });
-    if (!matchMidiNoteReadback(plan.notes.map(project), notes.notes.map(project)))
-      throw new Error("progression clip note readback mismatch");
-    const harmonicReadbackSupported = ["block", "pulse"].includes(progression.articulation.mode);
-    const harmonicNotes = harmonicReadbackSupported ? notes.notes.filter(note => {
-      const chordIndex = Math.floor((note.start - progression.startBeats + 1e-9) / progression.chordBeats);
-      const chord = progression.chords[chordIndex];
-      return !chord || chord.targetBassPitch === null || note.pitch !== chord.targetBassPitch;
-    }) : notes.notes;
-    const analysis = analyzeMidiChordEvents(harmonicNotes, finalContext.key);
-    const expectedEventCount = progression.chords.length *
-      (progression.articulation.mode === "pulse" ? progression.articulation.stepsPerChord : 1);
-    const rootsMatch = analysis.events.length === expectedEventCount && analysis.events.every(event => {
-      const chordIndex = Math.floor((event.startBeats - progression.startBeats + 1e-9) / progression.chordBeats);
-      const expectedRoot = progression.chords[chordIndex]?.rootPitchClass;
-      return expectedRoot !== undefined && event.candidates.some(candidate => candidate.rootPitchClass === expectedRoot);
-    });
-    if (harmonicReadbackSupported && !rootsMatch)
-      throw new Error("progression clip chord readback mismatch");
-    return { dryRun: false, requested: plan, observed,
-      verification: { matchesRequestedNotes: true, harmonicReadbackSupported, notes, analysis }, timestamp: new Date().toISOString() };
+    if (spec.mismatch(observed, args)) throw new Error(`${spec.label} clip creation readback mismatch`);
+    const verification = await spec.readback.call(this, { args, plan, prepared, observed });
+    return { dryRun: false, requested: plan, observed, verification, timestamp: new Date().toISOString() };
+  }
+
+  async #createScaleChordProgressionClip(args) {
+    return this.#createSessionMidiClip({
+      operation: "create_scale_chord_progression_clip", planKey: "progression", label: "progression",
+      mismatch: (observed, input) => this.#createdSessionClipMismatch(observed, input),
+      prepare: async function (input) {
+        const beforeContext = await this.bridge.request("get_song_musical_context", {});
+        if (beforeContext.stateVersion !== input.expectedStateVersion)
+          throw new Error(`state version mismatch: expected ${input.expectedStateVersion}, observed ${beforeContext.stateVersion}`);
+        const progression = planScaleChordProgression(beforeContext.key, input);
+        return { lengthBeats: progression.lengthBeats, notes: progression.notes, detail: progression,
+          context: { musicalContext: beforeContext }, beforeContext };
+      },
+      stable: async function (prepared) {
+        const afterContext = await this.bridge.request("get_song_musical_context", {});
+        if (JSON.stringify(prepared.beforeContext) !== JSON.stringify(afterContext))
+          throw new Error("musical context changed during chord progression creation; retry");
+      },
+      readback: async function ({ args: input, plan, observed }) {
+        const notes = await this.bridge.request("get_midi_clip_notes_extended", { trackId: input.trackId, clipId: input.clipId });
+        const finalContext = await this.bridge.request("get_song_musical_context", {});
+        if (notes.stateVersion !== observed.stateVersion || finalContext.stateVersion !== observed.stateVersion ||
+            notes.trackId !== input.trackId || notes.clipId !== input.clipId ||
+            JSON.stringify(finalContext.key) !== JSON.stringify(plan.musicalContext.key))
+          throw new Error("progression clip verification context mismatch");
+        if (!matchMidiNoteReadback(plan.notes.map(note => this.#projectMidiNote(note)), notes.notes.map(note => this.#projectMidiNote(note))))
+          throw new Error("progression clip note readback mismatch");
+        const progression = plan.progression;
+        const harmonicReadbackSupported = ["block", "pulse"].includes(progression.articulation.mode);
+        const harmonicNotes = harmonicReadbackSupported ? notes.notes.filter(note => {
+          const chordIndex = Math.floor((note.start - progression.startBeats + 1e-9) / progression.chordBeats);
+          const chord = progression.chords[chordIndex];
+          return !chord || chord.targetBassPitch === null || note.pitch !== chord.targetBassPitch;
+        }) : notes.notes;
+        const analysis = analyzeMidiChordEvents(harmonicNotes, finalContext.key);
+        const expectedEventCount = progression.chords.length *
+          (progression.articulation.mode === "pulse" ? progression.articulation.stepsPerChord : 1);
+        const rootsMatch = analysis.events.length === expectedEventCount && analysis.events.every(event => {
+          const chordIndex = Math.floor((event.startBeats - progression.startBeats + 1e-9) / progression.chordBeats);
+          const expectedRoot = progression.chords[chordIndex]?.rootPitchClass;
+          return expectedRoot !== undefined && event.candidates.some(candidate => candidate.rootPitchClass === expectedRoot);
+        });
+        if (harmonicReadbackSupported && !rootsMatch) throw new Error("progression clip chord readback mismatch");
+        return { matchesRequestedNotes: true, harmonicReadbackSupported, notes, analysis };
+      }
+    }, args);
   }
 
   async #createScaleBasslineClip(args) {
-    requireExpectedState(args);
-    const beforeContext = await this.bridge.request("get_song_musical_context", {});
-    if (beforeContext.stateVersion !== args.expectedStateVersion)
-      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${beforeContext.stateVersion}`);
-    const bassline = planScaleBassline(beforeContext.key, args);
-    const clips = await this.bridge.request("list_clips", { trackId: args.trackId });
-    assertExpectedState(args, clips);
-    const slot = clips.clips.find(clip => clip.id === args.clipId);
-    if (!slot) throw new Error(`unknown clip slot ${args.clipId}`);
-    if (slot.hasClip) throw new Error(`clip slot ${args.clipId} already contains a clip`);
-    const afterContext = await this.bridge.request("get_song_musical_context", {});
-    if (JSON.stringify(beforeContext) !== JSON.stringify(afterContext))
-      throw new Error("musical context changed during bassline creation; retry");
-    const plan = { method: "create_midi_clip", operation: "create_scale_bassline_clip",
-      trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
-      name: args.name, lengthBeats: bassline.lengthBeats, notes: bassline.notes,
-      bassline, musicalContext: beforeContext, before: slot };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
-    const observed = await this.bridge.request("create_midi_clip", plan);
-    if (observed.stateVersion !== args.expectedStateVersion + 1 || observed.trackId !== args.trackId ||
-        observed.clip?.id !== args.clipId || !observed.clip?.hasClip)
-      throw new Error("bassline clip creation readback mismatch");
-    const notes = await this.bridge.request("get_midi_clip_notes_extended", { trackId: args.trackId, clipId: args.clipId });
-    const finalContext = await this.bridge.request("get_song_musical_context", {});
-    if (notes.stateVersion !== observed.stateVersion || finalContext.stateVersion !== observed.stateVersion ||
-        notes.trackId !== args.trackId || notes.clipId !== args.clipId ||
-        JSON.stringify(finalContext.key) !== JSON.stringify(beforeContext.key))
-      throw new Error("bassline clip verification context mismatch");
-    const project = note => ({ pitch: note.pitch, start: note.start, duration: note.duration,
-      velocity: note.velocity, mute: note.mute });
-    if (!matchMidiNoteReadback(plan.notes.map(project), notes.notes.map(project)))
-      throw new Error("bassline clip note readback mismatch");
-    return { dryRun: false, requested: plan, observed,
-      verification: { matchesRequestedNotes: true, notes }, timestamp: new Date().toISOString() };
+    return this.#createSessionMidiClip({
+      operation: "create_scale_bassline_clip", planKey: "bassline", label: "bassline",
+      mismatch: (observed, input) => this.#createdSessionClipMismatch(observed, input),
+      prepare: async function (input) {
+        const beforeContext = await this.bridge.request("get_song_musical_context", {});
+        if (beforeContext.stateVersion !== input.expectedStateVersion)
+          throw new Error(`state version mismatch: expected ${input.expectedStateVersion}, observed ${beforeContext.stateVersion}`);
+        const bassline = planScaleBassline(beforeContext.key, input);
+        return { lengthBeats: bassline.lengthBeats, notes: bassline.notes, detail: bassline,
+          context: { musicalContext: beforeContext }, beforeContext };
+      },
+      stable: async function (prepared) {
+        const afterContext = await this.bridge.request("get_song_musical_context", {});
+        if (JSON.stringify(prepared.beforeContext) !== JSON.stringify(afterContext))
+          throw new Error("musical context changed during bassline creation; retry");
+      },
+      readback: async function ({ args: input, plan, observed }) {
+        const notes = await this.bridge.request("get_midi_clip_notes_extended", { trackId: input.trackId, clipId: input.clipId });
+        const finalContext = await this.bridge.request("get_song_musical_context", {});
+        if (notes.stateVersion !== observed.stateVersion || finalContext.stateVersion !== observed.stateVersion ||
+            notes.trackId !== input.trackId || notes.clipId !== input.clipId ||
+            JSON.stringify(finalContext.key) !== JSON.stringify(plan.musicalContext.key))
+          throw new Error("bassline clip verification context mismatch");
+        if (!matchMidiNoteReadback(plan.notes.map(note => this.#projectMidiNote(note)), notes.notes.map(note => this.#projectMidiNote(note))))
+          throw new Error("bassline clip note readback mismatch");
+        return { matchesRequestedNotes: true, notes };
+      }
+    }, args);
   }
 
   async #createScaleMelodyClip(args) {
-    requireExpectedState(args);
-    const beforeContext = await this.bridge.request("get_song_musical_context", {});
-    const beforeGrid = await this.#songGridReference();
-    if (beforeContext.stateVersion !== args.expectedStateVersion || beforeGrid.stateVersion !== args.expectedStateVersion)
-      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${beforeContext.stateVersion}`);
-    const melody = planScaleMelody(beforeContext.key, beforeGrid, args);
-    const clips = await this.bridge.request("list_clips", { trackId: args.trackId });
-    assertExpectedState(args, clips);
-    const slot = clips.clips.find(clip => clip.id === args.clipId);
-    if (!slot) throw new Error(`unknown clip slot ${args.clipId}`);
-    if (slot.hasClip) throw new Error(`clip slot ${args.clipId} already contains a clip`);
-    const afterContext = await this.bridge.request("get_song_musical_context", {});
-    const afterGrid = await this.#songGridReference();
-    if (JSON.stringify(beforeContext) !== JSON.stringify(afterContext) ||
-        JSON.stringify(beforeGrid) !== JSON.stringify(afterGrid))
-      throw new Error("musical or grid context changed during melody creation; retry");
-    const plan = { method: "create_midi_clip", operation: "create_scale_melody_clip",
-      trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
-      name: args.name, lengthBeats: melody.lengthBeats, notes: melody.notes,
-      melody, musicalContext: beforeContext, gridReference: beforeGrid, before: slot };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
-    const observed = await this.bridge.request("create_midi_clip", plan);
-    if (!Number.isInteger(observed.stateVersion) || observed.stateVersion <= args.expectedStateVersion ||
-        observed.trackId !== args.trackId ||
-        observed.clip?.id !== args.clipId || !observed.clip?.hasClip || !Array.isArray(observed.notes))
-      throw new Error("melody clip creation readback mismatch");
-    const project = note => ({ pitch: note.pitch, start: note.start, duration: note.duration,
-      velocity: note.velocity, mute: note.mute });
-    if (!matchMidiNoteReadback(plan.notes.map(project), observed.notes.map(project), 2e-7))
-      throw new Error("melody clip note readback mismatch");
-    return { dryRun: false, requested: plan, observed,
-      verification: { matchesRequestedNotes: true, notes: observed }, timestamp: new Date().toISOString() };
+    return this.#createSessionMidiClip({
+      operation: "create_scale_melody_clip", planKey: "melody", label: "melody",
+      mismatch: (observed, input) => !Number.isInteger(observed.stateVersion) || observed.stateVersion <= input.expectedStateVersion ||
+        observed.trackId !== input.trackId || observed.clip?.id !== input.clipId || !observed.clip?.hasClip || !Array.isArray(observed.notes),
+      prepare: async function (input) {
+        const beforeContext = await this.bridge.request("get_song_musical_context", {});
+        const beforeGrid = await this.#songGridReference();
+        if (beforeContext.stateVersion !== input.expectedStateVersion || beforeGrid.stateVersion !== input.expectedStateVersion)
+          throw new Error(`state version mismatch: expected ${input.expectedStateVersion}, observed ${beforeContext.stateVersion}`);
+        const melody = planScaleMelody(beforeContext.key, beforeGrid, input);
+        return { lengthBeats: melody.lengthBeats, notes: melody.notes, detail: melody,
+          context: { musicalContext: beforeContext, gridReference: beforeGrid }, beforeContext, beforeGrid };
+      },
+      stable: async function (prepared) {
+        const afterContext = await this.bridge.request("get_song_musical_context", {});
+        const afterGrid = await this.#songGridReference();
+        if (JSON.stringify(prepared.beforeContext) !== JSON.stringify(afterContext) ||
+            JSON.stringify(prepared.beforeGrid) !== JSON.stringify(afterGrid))
+          throw new Error("musical or grid context changed during melody creation; retry");
+      },
+      readback: async function ({ plan, observed }) {
+        if (!matchMidiNoteReadback(plan.notes.map(note => this.#projectMidiNote(note)), observed.notes.map(note => this.#projectMidiNote(note)), 2e-7))
+          throw new Error("melody clip note readback mismatch");
+        return { matchesRequestedNotes: true, notes: observed };
+      }
+    }, args);
   }
 
   async #createDrumPatternClip(args) {
-    requireExpectedState(args);
-    const beforeReference = await this.#songGridReference();
-    if (beforeReference.stateVersion !== args.expectedStateVersion)
-      throw new Error(`state version mismatch: expected ${args.expectedStateVersion}, observed ${beforeReference.stateVersion}`);
-    const pattern = planDrumPattern(beforeReference, args);
-    const clips = await this.bridge.request("list_clips", { trackId: args.trackId });
-    assertExpectedState(args, clips);
-    const slot = clips.clips.find(clip => clip.id === args.clipId);
-    if (!slot) throw new Error(`unknown clip slot ${args.clipId}`);
-    if (slot.hasClip) throw new Error(`clip slot ${args.clipId} already contains a clip`);
-    const afterReference = await this.#songGridReference();
-    if (JSON.stringify(beforeReference) !== JSON.stringify(afterReference))
-      throw new Error("song grid context changed during drum pattern creation; retry");
-    const plan = { method: "create_midi_clip", operation: "create_drum_pattern_clip",
-      trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
-      name: args.name, lengthBeats: pattern.lengthBeats, notes: pattern.notes,
-      pattern, gridReference: beforeReference, before: slot };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
-    const observed = await this.bridge.request("create_midi_clip", plan);
-    if (observed.stateVersion !== args.expectedStateVersion + 1 || observed.trackId !== args.trackId ||
-        observed.clip?.id !== args.clipId || !observed.clip?.hasClip)
-      throw new Error("drum pattern clip creation readback mismatch");
-    const notes = await this.bridge.request("get_midi_clip_notes_extended", { trackId: args.trackId, clipId: args.clipId });
-    const finalReference = await this.#songGridReference();
-    const withoutState = ({ stateVersion, ...value }) => value;
-    if (notes.stateVersion !== observed.stateVersion || finalReference.stateVersion !== observed.stateVersion ||
-        notes.trackId !== args.trackId || notes.clipId !== args.clipId ||
-        JSON.stringify(withoutState(finalReference)) !== JSON.stringify(withoutState(beforeReference)))
-      throw new Error("drum pattern clip verification context mismatch");
-    const project = note => ({ pitch: note.pitch, start: note.start, duration: note.duration,
-      velocity: note.velocity, mute: note.mute });
-    if (!matchMidiNoteReadback(plan.notes.map(project), notes.notes.map(project)))
-      throw new Error("drum pattern clip note readback mismatch");
-    return { dryRun: false, requested: plan, observed,
-      verification: { matchesRequestedNotes: true, notes }, timestamp: new Date().toISOString() };
+    return this.#createSessionMidiClip({
+      operation: "create_drum_pattern_clip", planKey: "pattern", label: "drum pattern",
+      mismatch: (observed, input) => this.#createdSessionClipMismatch(observed, input),
+      prepare: async function (input) {
+        const beforeReference = await this.#songGridReference();
+        if (beforeReference.stateVersion !== input.expectedStateVersion)
+          throw new Error(`state version mismatch: expected ${input.expectedStateVersion}, observed ${beforeReference.stateVersion}`);
+        const pattern = planDrumPattern(beforeReference, input);
+        return { lengthBeats: pattern.lengthBeats, notes: pattern.notes, detail: pattern,
+          context: { gridReference: beforeReference }, beforeReference };
+      },
+      stable: async function (prepared) {
+        const afterReference = await this.#songGridReference();
+        if (JSON.stringify(prepared.beforeReference) !== JSON.stringify(afterReference))
+          throw new Error("song grid context changed during drum pattern creation; retry");
+      },
+      readback: async function ({ args: input, plan, prepared, observed }) {
+        const notes = await this.bridge.request("get_midi_clip_notes_extended", { trackId: input.trackId, clipId: input.clipId });
+        const finalReference = await this.#songGridReference();
+        const withoutState = ({ stateVersion, ...value }) => value;
+        if (notes.stateVersion !== observed.stateVersion || finalReference.stateVersion !== observed.stateVersion ||
+            notes.trackId !== input.trackId || notes.clipId !== input.clipId ||
+            JSON.stringify(withoutState(finalReference)) !== JSON.stringify(withoutState(prepared.beforeReference)))
+          throw new Error("drum pattern clip verification context mismatch");
+        if (!matchMidiNoteReadback(plan.notes.map(note => this.#projectMidiNote(note)), notes.notes.map(note => this.#projectMidiNote(note))))
+          throw new Error("drum pattern clip note readback mismatch");
+        return { matchesRequestedNotes: true, notes };
+      }
+    }, args);
   }
 
   async #planDrumPatternEdit(args) {
@@ -3825,8 +3825,8 @@ export class ToolService {
       trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
       removeNoteIds: planned.edit.removeNoteIds, newNotes: planned.edit.newNotes,
       edit: planned.edit, gridReference: planned.gridReference, clipTiming: planned.clipTiming, before: planned.before };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
+    const issued = this.#issueGuarded(plan, args);
+    if (issued) return issued;
     const observed = await this.bridge.request("replace_midi_notes", plan);
     if (observed.stateVersion !== args.expectedStateVersion + 1 || observed.trackId !== args.trackId ||
         observed.clipId !== args.clipId) throw new Error("drum edit readback mismatch");
@@ -3885,8 +3885,8 @@ export class ToolService {
       changes: planned.variation.changes, newNotes: planned.variation.newNotes,
       variation: planned.variation, gridReference: planned.gridReference,
       clipTiming: planned.clipTiming, before: planned.before };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
+    const issued = this.#issueGuarded(plan, args);
+    if (issued) return issued;
     const observed = await this.bridge.request("transform_midi_notes", plan);
     if (observed.stateVersion !== args.expectedStateVersion + 1 || observed.trackId !== args.trackId ||
         observed.clipId !== args.clipId || !Array.isArray(observed.notes) ||
@@ -4072,8 +4072,8 @@ export class ToolService {
         return normalizeMidiNoteChange(change, index, current, observed.lengthBeats);
       })
     };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
+    const issued = this.#issueGuarded(plan, args);
+    if (issued) return issued;
     const result = await this.bridge.request("set_midi_note_properties", plan);
     return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
   }
@@ -4114,8 +4114,8 @@ export class ToolService {
       tieBreak: args.tieBreak ?? null,
       changes
     };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
+    const issued = this.#issueGuarded(plan, args);
+    if (issued) return issued;
     const observed = await this.bridge.request("set_midi_note_properties", plan);
     if (observed.stateVersion !== args.expectedStateVersion + 1)
       throw new Error("scale correction readback has an unexpected state version");
@@ -4151,8 +4151,8 @@ export class ToolService {
       before: observed, clipTiming,
       changes: transformed.changes, newNotes: transformed.newNotes
     };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
+    const issued = this.#issueGuarded(plan, args);
+    if (issued) return issued;
     const result = await this.bridge.request("transform_midi_notes", plan);
     return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
   }
@@ -4200,8 +4200,8 @@ export class ToolService {
     const plan = { method: spec.method, operation: spec.operation,
       trackId: args.trackId, clipId: args.clipId, expectedStateVersion: args.expectedStateVersion,
       ...planned.context, [spec.planKey]: planned.plan, ...spec.edits(planned.plan) };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
+    const issued = this.#issueGuarded(plan, args);
+    if (issued) return issued;
     const observed = await this.bridge.request(spec.method, plan);
     if (!Number.isInteger(observed.stateVersion) || observed.stateVersion <= args.expectedStateVersion ||
         observed.trackId !== args.trackId || observed.clipId !== args.clipId ||
@@ -4285,8 +4285,8 @@ export class ToolService {
       method: "set_track_mixer", trackId: args.trackId,
       expectedStateVersion: args.expectedStateVersion, before, changes
     };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    this.#consumeConfirmation(plan, args);
+    const issued = this.#issueGuarded(plan, args);
+    if (issued) return issued;
     const result = await this.bridge.request("set_track_mixer", plan);
     return { dryRun: false, requested: plan, observed: result, timestamp: new Date().toISOString() };
   }
@@ -4649,10 +4649,8 @@ export class ToolService {
     delete plan.dryRun;
     delete plan.confirmationToken;
     delete plan.planHash;
-    if (args.dryRun !== false) {
-      return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
-    }
-    this.#consumeConfirmation(plan, args);
+    const issued = this.#issueGuarded(plan, args);
+    if (issued) return issued;
     const observed = await this.bridge.request(name, plan);
     return { dryRun: false, requested: plan, observed, timestamp: new Date().toISOString() };
   }

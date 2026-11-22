@@ -340,8 +340,7 @@ export class MacAudioExportHost{
     try{
       if(shown.focused!==true)throw Error(`Live did not come to the front after ${focus.activations} activations; no Cancel was pressed`);
       const current=(await this.#dialogScript({pid:live.pid,action:"inspect"},signal)).dialogs??[];
-      const same=current.length===planned.length&&current.every((dialog,i)=>dialog.identity===planned[i].identity&&dialog.title===planned[i].title&&dialog.sheetCount===planned[i].sheetCount&&
-        Number.isInteger(dialog.windowId)&&(!Number.isInteger(planned[i].windowId)||dialog.windowId===planned[i].windowId));
+      const same=samePlannedExportDialogs(planned,current);
       if(!same)throw Error("Native dialogs changed after Live came to the front; no Cancel was pressed");
       result=await this.#dialogScript({pid:live.pid,action:"cancelLeftover",targets:current.map(({identity,windowId,title,sheetCount})=>({identity,windowId,title,sheetCount}))},signal);
     }catch(error){failure=error;}
@@ -371,6 +370,19 @@ export class MacAudioExportHost{
 
 const exportKinds=["exportAudioVideo","exportSavePanel"];
 
+export function exportWindowIdAgrees(plannedId,currentId){
+  if(Number.isInteger(plannedId)&&Number.isInteger(currentId))return plannedId===currentId;
+  return true;
+}
+
+export function samePlannedExportDialogs(planned,current){
+  return Array.isArray(planned)&&Array.isArray(current)&&planned.length===current.length&&planned.every((target,index)=>{
+    const dialog=current[index];
+    return dialog?.identity===target.identity&&dialog.title===target.title&&dialog.sheetCount===target.sheetCount&&
+      Number.isInteger(dialog.windowId)&&exportWindowIdAgrees(target.windowId,dialog.windowId);
+  });
+}
+
 // Cancels a leftover Export Audio/Video dialog or its Save panel that no live call owns.
 export async function cancelLiveExportDialog(confirmations,host,args){
   const observe=async()=>{
@@ -389,7 +401,7 @@ export async function cancelLiveExportDialog(confirmations,host,args){
     warning:"Presses Cancel once on each listed window, the export Save panel before Export Audio/Video, then on the Export Audio/Video dialog Live shows again after that Save panel closes. A listed window without a window id is behind another app: Live is brought to the front, the dialogs must read as planned again, and focus goes back to that app. No audio is rendered, no file is written and no other dialog is answered."};
   // A window id reads null while Live is behind another app; a planned and a current id must match when both are read.
   const planned=confirmations.consume(args.confirmationToken,args.planHash),unread=p=>({...p,targets:p.targets.map(t=>({...t,windowId:null}))});
-  if(hashPlan(unread(planned))!==hashPlan(unread(plan))||planned.targets.some((t,i)=>Number.isInteger(t.windowId)&&Number.isInteger(plan.targets[i].windowId)&&t.windowId!==plan.targets[i].windowId))
+  if(hashPlan(unread(planned))!==hashPlan(unread(plan))||!planned.targets.every((target,index)=>exportWindowIdAgrees(target.windowId,plan.targets[index].windowId)))
     throw Error("confirmation plan hash mismatch: native dialogs changed");
   let result;
   try{result=await host.cancelNativeDialogs(plan.targets,{signal:requestSignal()});}
