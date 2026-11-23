@@ -66,7 +66,7 @@ test("a slice session advertises only its union and refuses hidden tools, prompt
   assert.equal(denied.error.code, -32601);
   const notes = await route({ id: 8, method: "resources/read", params: { uri: "ableton://track/track-0/clips" } });
   assert.equal(notes.result.contents[0].uri, "ableton://track/track-0/clips");
-  assert.match(sessionLogLine({ toolSlices: ["observe"] }), /^ableton-mcp session slices=observe tools=12 schemaBytes=\d+\n$/);
+  assert.match(sessionLogLine({ toolSlices: ["observe"] }), /^ableton-mcp session slices=observe tools=12 baseSchemaBytes=\d+\n$/);
 });
 
 test("stock role unions stay inside the core discovery budget", async () => {
@@ -96,7 +96,8 @@ test("legacy profiles still advertise their catalogs and workflow prompts", asyn
   assert.equal(tools.length, Object.keys(toolContracts).length);
   const prompts = await all({ id: 2, method: "prompts/list" });
   assert.equal(prompts.result.prompts.length, listPrompts().length);
-  assert.equal(sessionLogLine({}).startsWith("ableton-mcp session profile=all "), true);
+  const baseSchemaBytes = Buffer.byteLength(JSON.stringify(tools));
+  assert.equal(sessionLogLine({}), `ableton-mcp session profile=all tools=${tools.length} baseSchemaBytes=${baseSchemaBytes}\n`);
 });
 
 test("slices command lists the catalog and CLI call ignores it", async () => {

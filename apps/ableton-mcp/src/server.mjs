@@ -99,9 +99,9 @@ export function sessionSurface({ toolProfile, toolSlices } = {}) {
 
 export function sessionLogLine(options) {
   const surface = sessionSurface(options);
-  const schemaBytes = Buffer.byteLength(JSON.stringify(surface.tools));
+  const baseSchemaBytes = Buffer.byteLength(JSON.stringify(surface.tools));
   const label = surface.kind === "slices" ? `slices=${surface.slices.join(",")}` : `profile=${surface.profile}`;
-  return `ableton-mcp session ${label} tools=${surface.tools.length} schemaBytes=${schemaBytes}\n`;
+  return `ableton-mcp session ${label} tools=${surface.tools.length} baseSchemaBytes=${baseSchemaBytes}\n`;
 }
 
 function fixtureService() {
