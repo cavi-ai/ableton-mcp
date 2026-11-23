@@ -29,7 +29,7 @@ npm run cli -- call list_devices --args '{"trackId":"track-0"}' --json
 
 Restart refuses active or unsettled requests and never replays operations. Make fresh dry-run plans after restarting; in-memory confirmation tokens are discarded and native handles must be inspected again. Durable production sessions remain in their configured artifact directory and require a fresh `resume` inspection.
 
-Only servers launched by this version's `serve` command support managed restart. Older running servers need a host reconnect once. `ABLETON_MCP_SERVER_DIRECTORY` can override the private registration directory, which defaults to `~/.cavi/ableton-mcp/servers`. Registration files contain local control credentials; keep the directory private.
+Reconnect the MCP host once when upgrading from a server that predates tool slices. Managed restart requires compatible session catalog versions so the host can keep using its discovered catalog. `ABLETON_MCP_SERVER_DIRECTORY` can override the private registration directory, which defaults to `~/.cavi/ableton-mcp/servers`. Registration files contain local control credentials; keep the directory private.
 
 ## Live Set files on macOS
 

@@ -107,12 +107,14 @@ assert.equal(listing[4].result.prompts.length, 0);
 assert.equal(listing[5].error.code, -32601);
 assert.equal(listing[6].error.code, -32601);
 
-const fixture = await exchange(process.execPath, [path.join(installed, "apps/ableton-mcp/src/server.mjs")], { ABLETON_MCP_FIXTURE: "1", ABLETON_MCP_TOOL_PROFILE: "all" }, [
+const fixture = await exchange(process.execPath, [path.join(installed, "apps/ableton-mcp/src/server.mjs")], {
+  ABLETON_MCP_FIXTURE: "1", ABLETON_MCP_TOOL_PROFILE: "all", ABLETON_MCP_TOOL_SLICES: undefined
+}, [
   { id: 1, method: "tools/call", params: { name: "search_presets", arguments: { query: "Deep" } } }
 ]);
 assert.equal(fixture[0].result.content[0].type, "text");
 
-const producerEnvironment = { ABLETON_MCP_TOOL_PROFILE: "producer", ABLETON_MCP_PRODUCER_CONFIG: "",
+const producerEnvironment = { ABLETON_MCP_TOOL_PROFILE: "producer", ABLETON_MCP_TOOL_SLICES: undefined, ABLETON_MCP_PRODUCER_CONFIG: "",
   ABLETON_MCP_PRODUCER_DIR: path.join(work, "producer"), ABLETON_MCP_BRIDGE_SOCKET: path.join(work, "absent.sock") };
 const producer = await exchange(bin, ["serve"], producerEnvironment, [
   { id: 1, method: "tools/list" },

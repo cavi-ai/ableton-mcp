@@ -56,7 +56,7 @@ test("resource discovery separates concrete URIs from parameterized templates", 
 test("stdio sends no reply to notifications and survives invalid requests", async () => {
   const child = spawn(process.execPath, ["src/server.mjs"], {
     cwd: new URL("..", import.meta.url),
-    env: { ...process.env, ABLETON_MCP_FIXTURE: "1", ABLETON_MCP_TOOL_PROFILE: "all" },
+    env: { ...process.env, ABLETON_MCP_FIXTURE: "1", ABLETON_MCP_TOOL_PROFILE: "all", ABLETON_MCP_TOOL_SLICES: undefined },
     stdio: ["pipe", "pipe", "pipe"]
   });
   let stdout = "";
@@ -130,7 +130,7 @@ test("MCP exposes and validates nested MIDI repeat counts", async () => {
 test("stdio server initializes and lists MCP resources and tools", async () => {
   const child = spawn(process.execPath, ["src/server.mjs"], {
     cwd: new URL("..", import.meta.url),
-    env: { ...process.env, ABLETON_MCP_FIXTURE: "1", ABLETON_MCP_TOOL_PROFILE: "all" },
+    env: { ...process.env, ABLETON_MCP_FIXTURE: "1", ABLETON_MCP_TOOL_PROFILE: "all", ABLETON_MCP_TOOL_SLICES: undefined },
     stdio: ["pipe", "pipe", "pipe"]
   });
   let stdout = "";
@@ -235,7 +235,7 @@ test("stdio server starts when launched through a symlinked path", async () => {
   const link = join(await mkdtemp(join(tmpdir(), "ableton-mcp-link-")), "app");
   await symlink(fileURLToPath(new URL("..", import.meta.url)), link);
   const child = spawn(process.execPath, [join(link, "src/server.mjs")], {
-    env: { ...process.env, ABLETON_MCP_FIXTURE: "1", ABLETON_MCP_TOOL_PROFILE: "all" },
+    env: { ...process.env, ABLETON_MCP_FIXTURE: "1", ABLETON_MCP_TOOL_PROFILE: "all", ABLETON_MCP_TOOL_SLICES: undefined },
     stdio: ["pipe", "pipe", "pipe"]
   });
   let stdout = "";
