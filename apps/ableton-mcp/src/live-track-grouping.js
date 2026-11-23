@@ -49,21 +49,16 @@ function run(argv) {
  function wait(check,attempts){for(var i=0;i<attempts;i++){try{if(check())return true;}catch(error){}delay(0.05);}return false;}
  function ids(){return input.targets.map(function(t){return get(target(t),'AXIdentifier');});}
  function selectRange(){
-  var expected=ids(),row=target(input.targets[0]),parent=read(row,'AXParent'),session=expected[0].indexOf('SessionView.')===0;
+  var expected=ids(),row=target(input.targets[0]),parent=read(row,'AXParent');
   if(get(parent,'AXRole')!=='AXOutline')throw Error('Selection owner unavailable');
   var inventory=list(read(parent,'AXChildren')).filter(function(e){return get(e,'AXRole')==='AXRow';}).map(function(e){return get(e,'AXIdentifier');}),start=inventory.indexOf(expected[0]),screens=screenIds();
   if(start<0||!same(inventory.slice(start,start+expected.length),expected))throw Error('Headers not consecutive');
   function selection(){return list(read(parent,'AXSelectedRows')).map(function(e){return get(e,'AXIdentifier');});}
-  function focus(){return get(read(root,'AXFocusedUIElement'),'AXIdentifier');}
-  function key(code,shift){foreground();if(!same(screenIds(),screens))throw Error('Visible windows changed during selection');Application('System Events').keyCode(code,shift?{using:['shift down']}:{});}
-  if($.AXUIElementSetAttributeValue(row,$('AXFocused'),$(true)))throw Error('Focus request failed');
-  if(focus()!==expected[0]&&!$.CFEqual(read(root,'AXFocusedUIElement'),parent))throw Error('Header focus unavailable');
-  stopped();key(session?124:125,false);if(!wait(function(){var id=focus();return inventory.indexOf(id)>=0&&groupingSelectionMatches(selection(),[id]);},40))throw Error('Exclusive navigation did not verify');
-  for(var step=0;focus()!==expected[0]&&step<inventory.length;step++){
-   var at=inventory.indexOf(focus());if(at<0)throw Error('Focus left inventory');var next=at+(at<start?1:-1);key(session?(next>at?124:123):(next>at?125:126),false);if(!wait(function(){return focus()===inventory[next]&&groupingSelectionMatches(selection(),[inventory[next]]);},40))throw Error('Exclusive selection did not verify');
-  }
-  if(focus()!==expected[0]||!groupingSelectionMatches(selection(),[expected[0]]))throw Error('Exact Group selection failed');
-  for(var i=1;i<expected.length;i++){key(session?124:125,true);if(!wait(function(){var focused=read(root,'AXFocusedUIElement');return groupingRangeMatches(selection(),expected.slice(0,i+1),get(focused,'AXIdentifier'),!!$.CFEqual(focused,parent));},40))throw Error('Exact range did not verify');}
+  var chosen=$.NSMutableArray.alloc.init;
+  expected.forEach(function(id){chosen.addObject(one(list(read(parent,'AXChildren')).filter(function(e){return get(e,'AXRole')==='AXRow'&&get(e,'AXIdentifier')===id;}),'Requested header is not visible'));});
+  if(!same(screenIds(),screens))throw Error('Visible windows changed during selection');
+  if($.AXUIElementSetAttributeValue(parent,$('AXSelectedRows'),chosen))throw Error('Track range selection has no accessibility action; no key was sent');
+  if(!groupingSelectionMatches(selection(),expected))throw Error('Exact Group selection failed');
   stopped();
  }
  function owned(){foreground();if(!same(mainState(),prepared.main)||!same(screenIds(),prepared.screenIds)||!groupingSelectionMatches(selected(),prepared.selection)||!groupingSelectionMatches(ids(),prepared.selection))throw Error('Owned grouping UI or selection changed');var menu=one(menus(),'Owned track popup unavailable');if(!same(menuState(menu),prepared.menu))throw Error('Owned grouping menu changed');return menu;}
@@ -79,7 +74,7 @@ function run(argv) {
    one(prepared.menu.filter(function(e){return e.role==='AXMenuItem'&&String(e.title).split(',')[0]===command&&e.enabled===true;}),'Explicit enabled '+command+' command unavailable');return JSON.stringify(prepared);
   }
   if(!prepared)throw Error('Owned grouping preparation required');
-  if(input.action==='cancel'){if(closed())return JSON.stringify({cancelled:true,alreadyClosed:true});owned();Application('System Events').keyCode(53);if(!wait(closed,40))throw Error('Owned grouping menu closure unverified');return JSON.stringify({cancelled:true});}
+  if(input.action==='cancel'){if(closed())return JSON.stringify({cancelled:true,alreadyClosed:true});var menu=owned();if($.AXUIElementPerformAction(menu,$('AXCancel')))throw Error('Grouping menu has no accessibility cancel; no key was sent');if(!wait(closed,40))throw Error('Owned grouping menu closure unverified');return JSON.stringify({cancelled:true});}
   if(input.action!=='commit')throw Error('Invalid grouping action');var menu=owned(),item=one(list(read(menu,'AXChildren')).filter(function(e){return get(e,'AXRole')==='AXMenuItem'&&String(get(e,'AXTitle')).split(',')[0]===command&&get(e,'AXEnabled')===true;}),'Exact enabled grouping command unavailable');
   groupRequested=null;if($.AXUIElementPerformAction(item,$('AXPress')))throw Error('Native grouping command outcome unknown');groupRequested=true;
   var idle=wait(function(){return closed()&&same(mainState(),prepared.main);},100);return JSON.stringify({groupRequested:true,popupClosed:closed(),uiIdle:idle});

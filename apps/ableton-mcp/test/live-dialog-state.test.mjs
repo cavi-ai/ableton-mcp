@@ -62,7 +62,8 @@ function lateSavePanel(leftover){
     {AXRole:"AXButton",AXIdentifier:"CancelButton",AXTitle:"Cancel",AXEnabled:true,press:()=>{windows=[standard];reshow=5;}}])};
   windows=leftover?[saving,standard]:[standard];
   const numbers=new Map([[exporting,123],[saving,124],[standard,125]]);
-  const app={get AXWindows(){return array(windows);}};
+  const exportItem={AXRole:"AXMenuItem",AXTitle:"Export Audio/Video...",AXEnabled:true,press:()=>{windows=[exporting,standard];}};
+  const app={get AXWindows(){return array(windows);},AXMenuBar:{AXChildren:array([{AXTitle:"File",AXChildren:array([{AXRole:"AXMenu",AXChildren:array([exportItem])}])}])}};
   const native=Object.assign(value=>value,{
     NSRunningApplication:{runningApplicationWithProcessIdentifier:()=>({activateWithOptions(){}})},
     AXUIElementCreateApplication:()=>app,AXUIElementCreateSystemWide:()=>({}),AXUIElementSetMessagingTimeout:()=>0,
@@ -91,13 +92,10 @@ async function serviceFor(t,scene){
   const run=scene==="lateSave"||scene==="leftoverSave"?lateSavePanel(scene==="leftoverSave"):nativeLive(scene==="exportBehind"?"export":scene),liveSetHost={runningProcesses:async()=>[{pid:42,path:app+"/Contents/MacOS/Live"}],appPathFor:()=>app};
   const execute=async(command,args)=>{
     if(command==="/usr/bin/open")return {stdout:""};
-    if(args[2].endsWith("live-app-focus.js")&&scene!=="exportBehind")return {stdout:JSON.stringify({focused:true})};
     if(args[2].endsWith("live-app-focus.js")){
-      // Another app (pid 77) is in front until Live is activated; restore puts it back in front.
-      const input=JSON.parse(args.at(-1));
-      if(input.action==="restore"){focus.behind=true;focus.restored.push(input.restorePid);return {stdout:JSON.stringify({restored:true,activations:1,frontmost:{pid:input.restorePid,name:"Viewer"}})};}
-      const previous=focus.behind?{pid:77,name:"Viewer"}:{pid:42,name:"Live"};focus.behind=false;
-      return {stdout:JSON.stringify({focused:true,activations:1,previous})};
+      const behind=scene==="exportBehind"&&focus.behind;
+      const previous=behind?{pid:77,name:"Viewer"}:{pid:42,name:"Live"};
+      return {stdout:JSON.stringify({focused:!behind,activations:0,dockPressed:false,previous})};
     }
     if(!args[2].endsWith("live-audio-export-dialog.js"))throw Error("unexpected native script");
     return {stdout:run([args.at(-1)])};
@@ -108,7 +106,7 @@ async function serviceFor(t,scene){
 
 const focus={behind:false,restored:[]};
 
-test("an export dialog behind another app is cancelled with Live in front and focus given back",async t=>{
+test("an offscreen export dialog is left in place",async t=>{
   const {service}=await serviceFor(t,"exportBehind");
   const state=validateToolResult("get_live_dialog_state",await service.call("get_live_dialog_state",{}),{});
   assert.deepEqual(state.dialogs.map(d=>[d.identity,d.sheet,d.windowId]),[["exportAudioVideo",false,null]]);
@@ -116,24 +114,22 @@ test("an export dialog behind another app is cancelled with Live in front and fo
   assert.deepEqual(plan.plan.targets.map(d=>[d.identity,d.windowId]),[["exportAudioVideo",null]]);
   const execute={dryRun:false,confirmationToken:plan.confirmation.token,planHash:plan.confirmation.planHash};
   const result=validateToolResult("cancel_live_export_dialog",await service.call("cancel_live_export_dialog",execute),execute);
-  assert.equal(result.cancelled,true);assert.equal(result.blocked,false);assert.equal(result.pendingUserAction,false);
-  assert.deepEqual(result.closed.map(d=>[d.identity,d.windowId]),[["exportAudioVideo",123]]);
-  assert.deepEqual(result.focus,{activations:1,before:"Viewer",returned:true,returnedTo:"Viewer"});
-  assert.deepEqual(focus.restored,[77]);
-  assert.deepEqual((await service.call("get_live_dialog_state",{})).dialogs,[]);
+  assert.equal(result.cancelled,false);assert.equal(result.pendingUserAction,true);
+  assert.match(result.limitation,/not on screen|not verified/);
+  assert.deepEqual(focus.restored,[]);
+  assert.equal((await service.call("get_live_dialog_state",{})).dialogs.length,1);
 });
 
-test("an export dialog planned in front and confirmed behind another app is cancelled",async t=>{
+test("an export dialog planned in front and confirmed offscreen is left in place",async t=>{
   const {service}=await serviceFor(t,"exportBehind");focus.behind=false;
   const plan=validateToolResult("cancel_live_export_dialog",await service.call("cancel_live_export_dialog",{}),{});
   assert.deepEqual(plan.plan.targets.map(d=>[d.identity,d.windowId]),[["exportAudioVideo",123]]);
   focus.behind=true;
   const execute={dryRun:false,confirmationToken:plan.confirmation.token,planHash:plan.confirmation.planHash};
   const result=validateToolResult("cancel_live_export_dialog",await service.call("cancel_live_export_dialog",execute),execute);
-  assert.equal(result.cancelled,true);assert.equal(result.blocked,false);
-  assert.deepEqual(result.closed.map(d=>[d.identity,d.windowId]),[["exportAudioVideo",123]]);
-  assert.deepEqual(focus.restored,[77]);
-  assert.deepEqual((await service.call("get_live_dialog_state",{})).dialogs,[]);
+  assert.equal(result.cancelled,false);assert.equal(result.pendingUserAction,true);
+  assert.deepEqual(focus.restored,[]);
+  assert.equal((await service.call("get_live_dialog_state",{})).dialogs.length,1);
 });
 
 test("one Export Audio/Video window listed twice is one dialog and its cancel is planned",async t=>{

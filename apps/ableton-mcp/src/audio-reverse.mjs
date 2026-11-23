@@ -125,7 +125,7 @@ export class MacAudioReverseHost{
    const owner=await this.owner(source),document=await this.call(owner,source,'document',{},signal);
    if(hashPlan(owner)!==hashPlan({pid:native.pid,appPath:native.appPath})||hashPlan(document)!==hashPlan(native.document))throw Error('audio reversal Live process or document changed');
    const focus=JSON.parse((await this.execute('/usr/bin/osascript',['-l','JavaScript',focusScript,JSON.stringify({...owner,windowId:document.mainWindowId})],{timeout:10000,maxBuffer:65536,signal})).stdout);
-   if(focus.focused!==true)throw Error('audio reversal focus did not verify');
+   if(focus.focused!==true)throw Error('Live window is not on screen');
    const expected=await this.call(owner,source,'inspect',{},signal);await beforePress();signal?.throwIfAborted();
    dispatched=true;return await this.call(owner,source,'commit',{expected},signal);
   }catch(error){error.reverseRequested??=dispatched?null:false;throw error;}finally{this.busy=false;}

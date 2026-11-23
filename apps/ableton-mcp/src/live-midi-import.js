@@ -40,7 +40,15 @@ function run(argv){
   }
   var p=panel();
   if(input.action==='prepare'){
-   if(sheets(p).length)throw Error('Existing Open panel sheet changed');var events=Application('System Events');events.keystroke('g',{using:['command down','shift down']});var sheet=waitFor(function(){var a=sheets(p);return a.length===1&&a[0];},'MIDI import path sheet unavailable');if(get(sheet,'AXIdentifier')!=='GoToWindow')throw Error('Unexpected MIDI path sheet');var field=find(sheet,'PathTextField');if($.AXUIElementSetAttributeValue(field,$('AXValue'),$(input.path))||$.AXUIElementSetAttributeValue(field,$('AXFocused'),$(true)))throw Error('Native MIDI path field is unavailable');if(get(field,'AXValue')!==input.path||get(field,'AXFocused')!==true)throw Error('Native MIDI path field changed');foreground();events.keyCode(36);waitFor(function(){return sheets(p).length===0;},'MIDI file path navigation is unconfirmed');var path=fileSelection(p);return JSON.stringify({prepared:true,windowId:input.windowId,path:path});
+   if(sheets(p).length)throw Error('Existing Open panel sheet changed');
+   function rowPath(row){var path=null;items(read(row,'AXChildren')).forEach(function(child){var url=read(child,'AXURL');if(!path&&url&&Number(url.isFileURL)===1)path=ObjC.unwrap(url.filePathURL.path);});return path;}
+   function visibleRows(){var rows=[];items(read(find(p,'ColumnView'),'AXColumns')).forEach(function(column){items(read(column,'AXChildren')).filter(function(e){return get(e,'AXRole')==='AXList';}).forEach(function(list){items(read(list,'AXChildren')).forEach(function(row){var path=rowPath(row);if(path)rows.push({row:row,path:path});});});});return rows;}
+   function covers(path){return input.path===path||input.path.indexOf(path.replace(/\/+$/,'')+'/')===0;}
+   for(var step=0;step<32;step++){try{return JSON.stringify({prepared:true,windowId:input.windowId,path:fileSelection(p)});}catch(error){if(String(error.message||error).indexOf('Exactly one native MIDI file')!==0&&String(error.message||error).indexOf('Native MIDI import file selection')!==0)throw error;}
+    var rows=visibleRows().filter(function(entry){return covers(entry.path);});rows.sort(function(a,b){return b.path.length-a.path.length;});
+    if(!rows.length||($.AXUIElementPerformAction(rows[0].row,$('AXOpen'))&&$.AXUIElementPerformAction(rows[0].row,$('AXPress'))))throw Error('Native MIDI file is not in the visible columns; no key was sent');
+   }
+   throw Error('Native MIDI file is not in the visible columns; no key was sent');
   }
   if(input.action==='cancel'){
    fileSelection(p);if($.AXUIElementPerformAction(find(p,'CancelButton'),$('AXPress')))throw Error('Native Open cancellation is unconfirmed');

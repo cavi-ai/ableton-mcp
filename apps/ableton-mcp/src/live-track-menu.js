@@ -30,25 +30,13 @@ function run(argv){
  function target(){var w=main(),rows=[];['SessionView','ArrangementView'].forEach(function(view){find(w,view+input.uiPath+'.TitleBar').forEach(function(e){rows.push(e);});});var row=one(rows,'Requested track must be visible in one view'),id=get(row,'AXIdentifier'),title=one(find(row,id+'.TitleBarEditField'),'Exact track title unavailable');if(get(title,'AXValue')!==input.trackName)throw Error('Visible track name changed');return row;}
  function selection(){var row=target(),parent=read(row,'AXParent');if(get(parent,'AXRole')!=='AXOutline')throw Error('Track selection owner unavailable');return list(read(parent,'AXSelectedRows')).map(function(e){return get(e,'AXIdentifier');});}
  function selectExclusive(){
-  var row=target(),parent=read(row,'AXParent'),id=get(row,'AXIdentifier'),session=id.indexOf('SessionView.')===0;
+  var row=target(),parent=read(row,'AXParent'),id=get(row,'AXIdentifier');
   if(get(parent,'AXRole')!=='AXOutline')throw Error('Track navigation owner unavailable');
   var ids=list(read(parent,'AXChildren')).filter(function(e){return get(e,'AXRole')==='AXRow';}).map(function(e){return get(e,'AXIdentifier');});
   if(ids.indexOf(id)<0||ids.length>512||ids.some(function(x){return typeof x!=='string'||!x;})||ids.some(function(x,i){return ids.indexOf(x)!==i;}))throw Error('Visible track navigation inventory is ambiguous');
-  if($.AXUIElementSetAttributeValue(row,$('AXFocused'),$(true)))throw Error('Track header focus unavailable');
-  function focus(){return get(read(root,'AXFocusedUIElement'),'AXIdentifier');}
-  if(focus()!==id)throw Error('Exact track header focus did not verify');
-  // AXSelectedRows does not clear Live's internal multi-selection. Native
-  // header navigation does; the singular menu command is checked afterward.
-  stopped();Application('System Events').keyCode(session?123:126);delay(0.1);
-  for(var step=0;step<512;step++){
-   foreground();if(menus().length)throw Error('Popup appeared during track selection');stopped();
-   var current=focus(),index=ids.indexOf(current),targetIndex=ids.indexOf(id);if(index<0)throw Error('Track navigation focus left the header inventory');
-   if(current===id){if(!trackFreezeSelection(selection(),id))throw Error('Single-track header selection did not verify');return;}
-   var delta=targetIndex>index?1:-1,expected=ids[index+delta];
-   Application('System Events').keyCode(session?(delta>0?124:123):(delta>0?125:126));
-   if(!wait(function(){return focus()===expected;},40))throw Error('Native track navigation did not reach the expected header');
-  }
-  throw Error('Track navigation exceeds supported bounds');
+  var selected=$.NSMutableArray.alloc.init;selected.addObject(row);
+  if($.AXUIElementSetAttributeValue(parent,$('AXSelectedRows'),selected))throw Error('Track header selection has no accessibility action; no key was sent');
+  if(!trackFreezeSelection(selection(),id))throw Error('Single-track header selection did not verify');
  }
  function menuState(menu){return list(read(menu,'AXChildren')).map(function(e){return {role:get(e,'AXRole'),title:get(e,'AXTitle'),enabled:get(e,'AXEnabled')};});}
  function owned(){foreground();if(!same(mainState(),prepared.main)||!same(screenIds(),prepared.screenIds)||!same(selection(),prepared.selection))throw Error('Owned track UI or track selection changed');var menu=one(menus(),'Exact owned track menu unavailable');if(!same(menuState(menu),prepared.menu))throw Error('Track menu changed');return menu;}
@@ -69,7 +57,7 @@ function run(argv){
   }
   if(!prepared||prepared.operation!==input.operation)throw Error('Owned track preparation required');
   if(input.action==='cancel'){
-   if(closed())return JSON.stringify({cancelled:true,alreadyClosed:true});owned();Application('System Events').keyCode(53);if(!wait(closed,40))throw Error('Owned track popup closure unverified');return JSON.stringify({cancelled:true});
+   if(closed())return JSON.stringify({cancelled:true,alreadyClosed:true});var menu=owned();if($.AXUIElementPerformAction(menu,$('AXCancel')))throw Error('Track menu has no accessibility cancel; no key was sent');if(!wait(closed,40))throw Error('Owned track popup closure unverified');return JSON.stringify({cancelled:true});
   }
   if(input.action!=='commit'||input.operation==='freeze'&&typeof input.frozen!=='boolean')throw Error('Invalid track action');
   var menu=owned(),title=trackMenuTitle(input.operation,input.frozen),item=one(list(read(menu,'AXChildren')).filter(function(e){return get(e,'AXRole')==='AXMenuItem'&&String(get(e,'AXTitle')).split(',')[0]===title&&get(e,'AXEnabled')===true;}),'Exact enabled track command unavailable');

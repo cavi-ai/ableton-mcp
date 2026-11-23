@@ -61,7 +61,7 @@ export class MacMidiImportHost{
   let owner,prepared,pickerDispatched=false,opened=false,importDispatched=false,importRequested=false;
   try{
    owner=await this.owner(source);if(hashPlan(await this.call(owner,source,{action:'document'},signal))!==hashPlan(document))throw Error('Native MIDI import document changed');
-   const focus=JSON.parse((await this.execute('/usr/bin/osascript',['-l','JavaScript',focusScript,JSON.stringify({...owner,windowId:document.mainWindowId})],{timeout:10000,maxBuffer:65536,signal})).stdout);if(!focus.focused)throw Error('Native MIDI import focus did not verify');
+   const focus=JSON.parse((await this.execute('/usr/bin/osascript',['-l','JavaScript',focusScript,JSON.stringify({...owner,windowId:document.mainWindowId})],{timeout:10000,maxBuffer:65536,signal})).stdout);if(!focus.focused)throw Error('Live window is not on screen');
    const view=await this.call(owner,source,{action:'inspect'},signal);await beforeOpenPicker();pickerDispatched=true;
    const panel=await this.call(owner,source,{action:'openPicker',expected:view},signal);opened=true;
    prepared=await this.call(owner,source,{action:'prepare',windowId:panel.windowId,path:file.path},signal);

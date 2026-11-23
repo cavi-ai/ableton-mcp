@@ -60,15 +60,10 @@ test("Export finds the Save panel through Live's focused window when AXWindows o
   assert.deepEqual(native.keys,[]);assert.equal(native.activated,0);
 });
 
-test("Export falls back to Return only when its button refuses AXPress, and never sends it behind another app",()=>{
-  const fallback=nativeDialog({behind:true,pressRefused:true}),result=fallback.execute("commit");
-  assert.equal(result.exportPressed,true);assert.equal(result.saveWindowId,124);
-  assert.deepEqual([result.exportPress.steps,result.exportPress.keys,result.exportPress.activations],[{export:"key"},["export"],1]);
-  assert.deepEqual(fallback.keys,[36]);
-  const behind=nativeDialog({behind:true,pressRefused:true,activations:0}),refused=behind.execute("commit");
-  assert.equal(refused.exportPressed,false);assert.match(refused.error,/not foreground .*no key was sent/);assert.deepEqual(behind.keys,[]);
-  const unfocused=nativeDialog({behind:true,pressRefused:true,focusable:false});assert.throws(()=>unfocused.execute("commit"),/not focused/);
-  assert.deepEqual(unfocused.keys,[]);
+test("Export sends nothing when its button refuses AXPress",()=>{
+  const refused=nativeDialog({behind:true,pressRefused:true}),result=refused.execute("commit");
+  assert.equal(result.exportPressed,false);assert.match(result.error,/no key was sent/);
+  assert.deepEqual(refused.keys,[]);assert.equal(refused.activated,0);
 });
 
 test("Export cleanup refuses unavailable accessibility and an empty window tree",()=>{

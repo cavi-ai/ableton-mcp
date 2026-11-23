@@ -31,4 +31,4 @@ test('nested ownership opens the exact chain list and rejects another selected c
 
 test('a transient accessibility refresh after Save retries reads without pressing Save again',()=>{const f=fixture({busyAfterSave:true}),prepared=f.execute('inspect');const result=f.execute('commit',{prepared});assert.equal(result.saveRequested,true);assert.equal(result.uiIdle,true);assert.equal(f.presses,1);});
 
-test('an unresolved owned name editor receives Return only once and withholds idle verification',()=>{const f=fixture({keepEditor:true}),prepared=f.execute('inspect'),r=f.execute('commit',{prepared});assert.equal(r.saveRequested,true);assert.equal(r.uiIdle,false);assert.equal(f.presses,1);assert.equal(f.keys,1);});
+test('an unresolved owned name editor is confirmed through accessibility and withholds idle verification',()=>{const f=fixture({keepEditor:true}),prepared=f.execute('inspect'),r=f.execute('commit',{prepared});assert.equal(r.saveRequested,true);assert.equal(r.uiIdle,false);assert.equal(f.presses,1);assert.equal(f.keys,0);});

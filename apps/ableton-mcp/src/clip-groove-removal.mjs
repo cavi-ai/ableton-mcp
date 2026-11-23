@@ -73,7 +73,6 @@ export class MacClipGrooveHost {
     try {
       signal?.throwIfAborted();
       await prepared();
-      await this.run("/usr/bin/open", ["-a", context.appPath], {timeout: 5000, signal});
       const owned = await dialog("prepare");
       if (owned.prepared !== true || !Array.isArray(owned.menuTitles)) throw Error("native groove menu preparation is unverified");
       try {await recheck(); signal?.throwIfAborted();}

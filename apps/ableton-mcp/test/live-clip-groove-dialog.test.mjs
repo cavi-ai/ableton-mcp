@@ -19,7 +19,8 @@ function fixture() {
     AXUIElementCreateApplication: () => app,
     AXUIElementCopyAttributeValue: (element, key, ref) => {if (element[key] === undefined) return -25212; ref[0] = element[key]; return 0;},
     CFEqual: (a, b) => a === b,
-    AXUIElementPerformAction: element => {
+    AXUIElementPerformAction: (element, action) => {
+      if (action === "AXCancel") {presses.push("cancel"); windows = [window]; return 0;}
       presses.push(element === chooser ? "chooser" : element === none ? "None" : "unexpected");
       if (element === chooser) windows = [window, popup];
       if (element === none) {chooser.AXValue = "None"; windows = [window];}
@@ -56,8 +57,8 @@ test("document, clip and menu changes prevent the None action", () => {
 test("cancellation closes only the matching prepared groove menu", () => {
   const f = fixture(), prepared = f.call("prepare");
   assert.equal(f.call("cancel", prepared).cancelled, true);
-  assert.deepEqual(f.keys, [53]);
-  assert.deepEqual(f.presses, ["chooser"]);
+  assert.deepEqual(f.keys, []);
+  assert.deepEqual(f.presses, ["chooser", "cancel"]);
   const other = fixture(); other.call("prepare");
   assert.throws(() => other.call("cancel", {menuTitles: ["None", "Unexpected"]}), /changed/);
   assert.deepEqual(other.keys, []);

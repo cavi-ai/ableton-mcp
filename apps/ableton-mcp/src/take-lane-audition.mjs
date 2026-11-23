@@ -104,7 +104,7 @@ export class MacTakeLaneAuditionHost {
       if(owner.pid!==expectedUI.pid)throw Object.assign(Error('Live process changed'),{actionRequested:false});
       const focused=JSON.parse((await this.run('/usr/bin/osascript',['-l','JavaScript',focusScript,
         JSON.stringify({...owner,windowId:expectedUI.windowId})],{timeout:10000,maxBuffer:65536,signal})).stdout);
-      if(!focused.focused)throw Object.assign(Error('Live did not become visible'),{actionRequested:false});
+      if(!focused.focused)throw Object.assign(Error('Live window is not on screen'),{actionRequested:false});
       await beforeAction();
       return await this.call(owner,source,{action,expectedUI,targetIndex:index},signal);
     }finally{this.busy=false;}

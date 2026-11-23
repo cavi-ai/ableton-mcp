@@ -12,12 +12,11 @@ const exportSource=readFileSync(new URL("../src/live-audio-export-dialog.js",imp
 const saveSource=readFileSync(new URL("../src/live-set-save-dialog.js",import.meta.url),"utf8");
 
 // Accessibility snapshot of Live behind another app (pid 7), driven by the real dialog and focus scripts.
-// Live comes to the front on its activationsNeeded-th activation; its audio Save panel enables Save only then.
-// fullScreen: the other app takes the front back after the Export press and Live's windows go offscreen.
-// refuseAfterExport: later activations fail. nameDrifts: the filename field reads differently after its first readback.
-function backgroundLive({panelFolder,appPath,rangeSettable=true,activationsNeeded=1,fullScreen=false,refuseAfterExport=false,nameDrifts=false}){
+// The window stays where it is. onscreen false means the focus check refuses before any press.
+// nameDrifts: the filename field reads differently after its first readback.
+function backgroundLive({panelFolder,appPath,rangeSettable=true,onscreen=true,saveEnabled=true,nameDrifts=false}){
   const keys=[],presses=[],dockPresses=[],array=list=>({count:list.length,objectAtIndex:i=>list[i]});
-  let front=7,activations=0,typed="",focus=null,refusing=false;
+  let front=7,activations=0,typed="",focus=null;
   const isLive=()=>front===42;
   const node=(attributes,kids=[])=>({AXChildren:array(kids),...attributes});
   const fields={track:["Base.RenderedTrack","Main"],rate:["Base.SampleRateBox.SampleRate","48000"],type:["Base.FileTypeBox.FileType","WAV"],
@@ -38,7 +37,7 @@ function backgroundLive({panelFolder,appPath,rangeSettable=true,activationsNeede
   const saveCancel=node({AXIdentifier:"CancelButton",AXRole:"AXButton",AXEnabled:true,AXTitle:"Cancel"});
   const savePanel=node({AXTitle:"Save",AXIdentifier:"save-panel",AXModal:true,AXSubrole:"AXDialog",AXRole:"AXWindow"},
     [node({AXIdentifier:"_messageTextField",AXRole:"AXStaticText",AXValue:"Save Audio File As:"}),nameField,browser,saveButton,saveCancel]);
-  Object.defineProperty(saveButton,"AXEnabled",{get:isLive});
+  Object.defineProperty(saveButton,"AXEnabled",{get:()=>saveEnabled});
   if(nameDrifts){let stored=nameField.AXValue,reads=0;Object.defineProperty(nameField,"AXValue",{get(){return reads++>1&&stored!=="Untitled.wav"?stored.replace(/\.wav$/u,""):stored;},set(value){stored=value;reads=0;}});}
   const exportItem=node({AXTitle:"Export Audio/Video...",AXRole:"AXMenuItem",AXEnabled:true});
   const numbers=new Map([[main,100],[exportWindow,123],[savePanel,124]]);
@@ -48,15 +47,15 @@ function backgroundLive({panelFolder,appPath,rangeSettable=true,activationsNeede
   const dockItem={AXSubrole:"AXApplicationDockItem",AXURL:{path:appPath}},dockRoot={AXChildren:array([{AXChildren:array([dockItem])}])};
   const apps={42:{name:"Live",bundle:"com.ableton.live",path:appPath},7:{name:"Editor",bundle:"com.example.editor",path:"/Applications/Editor.app"}};
   const running=pid=>apps[pid]&&{processIdentifier:pid,localizedName:apps[pid].name,bundleIdentifier:apps[pid].bundle,bundleURL:{path:apps[pid].path},
-    activateWithOptions(){if(pid!==42)front=pid;else if(++activations>=activationsNeeded&&!refusing)front=42;return true;}};
+    activateWithOptions(){activations++;return true;}};
   // Export and Save hold their AXPress reply while Live runs the Save panel or renders. A disabled Save does nothing.
   const perform=(element,action)=>{
     if(element===dockItem){dockPresses.push("Live");return -25204;}
     if(action!=="AXPress")return -25206;
     presses.push(element.AXIdentifier??element.AXTitle);
     if(element===exportItem)open=[exportWindow,main];
-    else if(element===exportButton){open=[savePanel,main];if(fullScreen)front=7;refusing=refuseAfterExport;return -25204;}
-    else if(element===saveButton){if(!isLive())return 0;writeFileSync(join(panelFolder,nameField.AXValue),Buffer.alloc(4096,1));open=[main];return -25204;}
+    else if(element===exportButton){open=[savePanel,main];return -25204;}
+    else if(element===saveButton){if(saveButton.AXEnabled!==true)return 0;writeFileSync(join(panelFolder,nameField.AXValue),Buffer.alloc(4096,1));open=[main];return -25204;}
     else if(element===saveCancel)open=[exportWindow,main];
     else if(element===exportCancel)open=[main];
     return 0;
@@ -70,7 +69,7 @@ function backgroundLive({panelFolder,appPath,rangeSettable=true,activationsNeede
       element[key]=element.range?Number(value):value;return 0;
     },
     AXUIElementPerformAction:perform,CFEqual:(a,b)=>a===b,
-    CGWindowListCopyWindowInfo:()=>open.map(w=>({kCGWindowOwnerPID:42,kCGWindowName:w.AXTitle,kCGWindowNumber:numbers.get(w),kCGWindowIsOnscreen:isLive()||!fullScreen,kCGWindowLayer:0})),
+    CGWindowListCopyWindowInfo:()=>open.map(w=>({kCGWindowOwnerPID:42,kCGWindowName:w.AXTitle,kCGWindowNumber:numbers.get(w),kCGWindowIsOnscreen:onscreen,kCGWindowLayer:0})),
     NSRunningApplication:{runningApplicationWithProcessIdentifier:running,runningApplicationsWithBundleIdentifier:()=>array([{processIdentifier:9}])},
     NSWorkspace:{sharedWorkspace:{get frontmostApplication(){return running(front);}}},
     NSFileManager:{defaultManager:{
@@ -108,56 +107,41 @@ async function backgroundExport(t,{panelElsewhere=false,...options}={}){
   return {result,live,commands,requested,other};
 }
 
-test("audio export brings Live in front of another app, completes through accessibility and gives focus back",async t=>{
+test("audio export leaves Live where it is and completes through accessibility",async t=>{
   const {result,live,commands,requested}=await backgroundExport(t);
   assert.equal(result.artifactVerified,true);assert.equal(result.evidence.path,join(requested,"Mix.wav"));assert.equal(result.evidence.durationSeconds,142.222);
   assert.equal(result.exportPress.path,"accessibility");
   assert.deepEqual(result.exportPress.steps,{open:"menu",range:"axValue",export:"axPress",folder:"panel",save:"axPress"});
-  assert.deepEqual(result.exportPress.focus,{before:"Editor",activations:1,returned:true,returnedTo:"Editor"});
-  assert.deepEqual(result.exportPress.keys,[]);assert.equal(result.exportPress.activations,1);assert.equal(result.relocation,undefined);
-  assert.deepEqual(live.keys,[]);assert.equal(live.activations,1);assert.equal(live.front,7);assert.deepEqual(live.open,["Set"]);
-  assert.equal(commands.filter(command=>command==="live-app-focus.js").length,2);assert.ok(!commands.includes("/usr/bin/open"));
+  assert.deepEqual(result.exportPress.focus,{before:"Editor",activations:0,returned:true,returnedTo:"Editor"});
+  assert.deepEqual(result.exportPress.keys,[]);assert.equal(result.exportPress.activations,0);assert.equal(result.relocation,undefined);
+  assert.deepEqual(live.keys,[]);assert.equal(live.activations,0);assert.equal(live.front,7);assert.deepEqual(live.open,["Set"]);
+  assert.deepEqual(live.dockPresses,[]);
+  assert.equal(commands.filter(command=>command==="live-app-focus.js").length,1);assert.ok(!commands.includes("/usr/bin/open"));
 });
 
-test("audio export retries a Live activation that does not take the first time",async t=>{
-  const {result,live}=await backgroundExport(t,{activationsNeeded:2});
-  assert.equal(result.artifactVerified,true);assert.equal(result.exportPress.path,"accessibility");
-  assert.deepEqual(result.exportPress.focus,{before:"Editor",activations:2,returned:true,returnedTo:"Editor"});
-  assert.equal(live.activations,2);assert.equal(live.front,7);assert.deepEqual(live.keys,[]);assert.deepEqual(live.dockPresses,[]);
-});
-
-test("audio export presses nothing when Live never comes to the front, and reports a safe retry",async t=>{
-  const {result,live,requested}=await backgroundExport(t,{activationsNeeded:Infinity});
+test("audio export presses nothing when Live's window is not on screen",async t=>{
+  const {result,live,requested}=await backgroundExport(t,{onscreen:false});
   assert.equal(result.exportVerified,false);assert.equal(result.exportRequested,false);assert.equal(result.retrySafe,true);
-  assert.match(result.limitation,/did not come to the front after 3 activations \(Editor is frontmost\); nothing was pressed/);
-  assert.equal(result.exportPress.focus.before,"Editor");assert.equal(result.exportPress.focus.activations,3);
-  assert.deepEqual(live.presses,[]);assert.deepEqual(live.keys,[]);assert.deepEqual(live.dockPresses,["Live"]);
-  assert.equal(live.front,7);assert.deepEqual(live.open,["Set"]);assert.equal(existsSync(join(requested,"Mix.wav")),false);
+  assert.match(result.limitation,/not on screen/);
+  assert.equal(result.exportPress.focus.activations,0);
+  assert.deepEqual(live.presses,[]);assert.deepEqual(live.keys,[]);assert.deepEqual(live.dockPresses,[]);
+  assert.equal(live.front,7);assert.equal(existsSync(join(requested,"Mix.wav")),false);
 });
 
-test("audio export sends a key only for a control accessibility cannot set, with Live verified frontmost",async t=>{
+test("audio export sends no key when a coordinate has no accessibility value",async t=>{
   const {result,live}=await backgroundExport(t,{rangeSettable:false});
-  assert.equal(result.artifactVerified,true);assert.equal(result.exportPress.path,"keyFallback");
-  assert.deepEqual(result.exportPress.steps,{open:"menu",range:"key",export:"axPress",folder:"panel",save:"axPress"});
-  assert.deepEqual(result.exportPress.keys,["range"]);assert.equal(result.exportPress.activations,1);
-  assert.deepEqual(live.keys,["64",36]);assert.equal(live.front,7);
+  assert.equal(result.exportRequested,false);
+  assert.match(result.limitation,/no key was sent/);
+  assert.deepEqual(live.keys,[]);assert.equal(live.activations,0);assert.equal(live.front,7);
 });
 
-test("audio export activates Live again when a full-screen app takes the front back, and presses Save once it is ready",async t=>{
-  const {result,live,requested}=await backgroundExport(t,{fullScreen:true});
-  assert.equal(result.artifactVerified,true);assert.equal(result.evidence.path,join(requested,"Mix.wav"));assert.equal(result.exportPress.steps.save,"axPress");
-  assert.deepEqual(result.exportPress.observed["save.commit"].saveGate,{rounds:1,frontmost:true,onscreen:true,enabled:true});
-  assert.deepEqual(result.exportPress.focus,{before:"Editor",activations:1,returned:true,returnedTo:"Editor"});
-  assert.equal(live.activations,2);assert.equal(live.front,7);assert.deepEqual(live.keys,[]);assert.deepEqual(live.open,["Set"]);
-});
-
-test("audio export whose Save never becomes ready closes its own Save panel and Export dialog, then gives focus back",async t=>{
-  const {result,live,requested}=await backgroundExport(t,{fullScreen:true,refuseAfterExport:true,nameDrifts:true});
+test("audio export whose Save is disabled closes its own dialogs without raising Live",async t=>{
+  const {result,live,requested}=await backgroundExport(t,{saveEnabled:false});
   assert.equal(result.exportVerified,false);assert.equal(result.exportRequested,false);assert.equal(result.retrySafe,true);assert.equal(result.pendingUserAction,false);
-  assert.match(result.limitation,/Save is disabled \(Live frontmost: false, panel onscreen: false\) after 4 activations; no Save was pressed/);
-  assert.deepEqual(result.exportPress.observed["save.commit"].saveGate,{rounds:4,frontmost:false,onscreen:false,enabled:false});
+  assert.match(result.limitation,/Save is disabled/);
   assert.ok(!live.presses.includes("OKButton"));assert.deepEqual(live.open,["Set"]);
-  assert.equal(result.exportPress.focus.returnedTo,"Editor");assert.equal(live.front,7);assert.equal(existsSync(join(requested,"Mix.wav")),false);
+  assert.equal(live.activations,0);assert.equal(live.front,7);assert.deepEqual(live.keys,[]);
+  assert.equal(existsSync(join(requested,"Mix.wav")),false);
 });
 
 test("a Save panel showing another folder saves there and the verified file moves to the requested path",async t=>{
