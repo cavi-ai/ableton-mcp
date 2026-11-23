@@ -1,6 +1,6 @@
 # Create a playable musical sketch
 
-Use `get_producer_workflow` in the default `all` profile to list workflows. Supply `workflow: "create-musical-sketch"` and named string `arguments` to retrieve the sketch instructions. MCP clients can also open the prompt directly. Both return the same instructions; retrieval does not call Live, execute work or grant permission.
+Use `get_producer_workflow` on the `all` or `producer` profile, or `ableton-mcp prompt`, to list workflows. A sliced session does not advertise that tool. Supply `workflow: "create-musical-sketch"` and named string `arguments` to retrieve the sketch instructions. MCP clients can also open the prompt directly. Both return the same instructions; retrieval does not call Live, execute work or grant permission.
 
 ```json
 {

@@ -15,7 +15,7 @@ After [installing](installation.md), point the client at `ableton-mcp serve`:
 }
 ```
 
-The server speaks MCP over stdio. It publishes tools, resources and prompts.
+The server speaks MCP over stdio. With no selector, this entry advertises the `observe` slice only. Set `ABLETON_MCP_TOOL_SLICES` on the session that needs a larger union. See [Sliced agent sessions](../guides/session-slices.md).
 
 ## Try it from the shell
 

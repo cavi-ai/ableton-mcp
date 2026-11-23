@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 test("acceptance uses the actual stdio server and closes its owned process", async () => {
-  const client = new McpAcceptanceClient({ env: { ...process.env, ABLETON_MCP_FIXTURE: "1" }, timeoutMs: 10000 });
+  const client = new McpAcceptanceClient({ env: { ...process.env, ABLETON_MCP_FIXTURE: "1", ABLETON_MCP_TOOL_PROFILE: "all" }, timeoutMs: 10000 });
   try {
     const initialized = await client.request("initialize", { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "acceptance", version: "1" } });
     assert.equal(initialized.serverInfo.name, "ableton-mcp");

@@ -16,7 +16,7 @@ Everything runs on the local machine. The bridge opens no TCP port. The server m
 - **Audio analysis**: loudness, true peak, spectrum, pitch, transients and tuning of local audio files, using `ffmpeg`.
 - **An optional NKS preset catalog**: search, tags and favorites for presets discovered from local plug-in libraries.
 
-The server publishes 9 concrete resources, 13 resource templates and 60 prompt templates. Agents can list and retrieve shared workflow instructions through the read-only `get_producer_workflow` tool in the default `all` profile. Start with [a musical sketch](../guides/musical-sketch.md), [Set orientation](../guides/session-orientation.md), [instrument comparison](../guides/instrument-comparison.md) or [MIDI clip variations](../guides/midi-clip-variations.md). Retrieving instructions does not execute the workflow. [Tools](../reference/tools.md) lists every tool.
+The server implements 9 concrete resources, 13 resource templates and 89 prompt templates. A `serve` process advertises one slice union. With no selector set, that union is the `observe` slice. `get_producer_workflow` and the workflow prompts remain on the `all` and `producer` profiles. See [Sliced agent sessions](../guides/session-slices.md). Start with [a musical sketch](../guides/musical-sketch.md), [Set orientation](../guides/session-orientation.md), [instrument comparison](../guides/instrument-comparison.md) or [MIDI clip variations](../guides/midi-clip-variations.md). Retrieving instructions does not execute the workflow. [Tools](../reference/tools.md) lists every tool.
 
 ## Boundaries
 
