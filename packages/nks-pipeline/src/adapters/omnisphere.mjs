@@ -4,12 +4,13 @@ import { basename, dirname, extname, join } from "node:path";
 import { validateAdapterDiscovery } from "./adapter-contract.mjs";
 
 function decodeXml(value) {
+  // Decode ampersands last so their replacements cannot start another entity.
   return value
-    .replaceAll("&amp;", "&")
     .replaceAll("&quot;", '"')
     .replaceAll("&apos;", "'")
     .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">");
+    .replaceAll("&gt;", ">")
+    .replaceAll("&amp;", "&");
 }
 
 function embeddedPatches(bytes) {
