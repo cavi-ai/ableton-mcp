@@ -23,18 +23,10 @@ function run(argv){
   function items(array){var result=[];if(array)for(var i=0;i<array.count;i++)result.push(array.objectAtIndex(i));return result;}
   function children(e){return items(read(e,"AXChildren"));}
   function windows(){return items(read(app,"AXWindows"));}
-  // Controls are pressed through accessibility. A key is used only where no accessibility action exists,
-  // right after Live is verified frontmost; the activation is retried a bounded number of times.
+  // Controls are pressed through accessibility. A missing action sends nothing.
   var exportPress={steps:{},keys:[],activations:0};
   function route(step,kind){var current=exportPress.steps[step];if(!current)exportPress.steps[step]=kind;else if(current.split("+").indexOf(kind)===-1)exportPress.steps[step]=current+"+"+kind;}
-  function activate(){$.NSRunningApplication.runningApplicationWithProcessIdentifier(input.pid).activateWithOptions(3);}
   function frontApp(){try{return ObjC.unwrap($.NSWorkspace.sharedWorkspace.frontmostApplication.bundleIdentifier)||null;}catch(error){return null;}}
-  function foreground(){
-    for(var attempt=0;attempt<3&&!process.frontmost();attempt++){activate();exportPress.activations++;for(var i=0;i<20&&!process.frontmost();i++)delay(0.05);}
-    if(!process.frontmost())throw Error("Live is not foreground ("+(frontApp()||"another app")+" is) after "+attempt+" activations; no key was sent");
-  }
-  // The focus check is the last step before a key, so the key cannot reach another app.
-  function keyed(site,step){foreground();exportPress.keys.push(site);route(step||site,"key");}
   function wait(read,message,count,seconds){
     var end=seconds?Date.now()+seconds*1000:0;
     for(var i=0;i<(count||40);i++){var result=read();if(result)return result;if(end&&Date.now()>end)break;delay(0.05);}
@@ -193,7 +185,6 @@ function run(argv){
       var current=choiceMenus();
       if(current.length===1&&$.CFEqual(current[0],menu)){
         if($.AXUIElementPerformAction(menu,$("AXCancel"))===0&&wait(function(){return !choiceMenus().some(function(m){return $.CFEqual(m,menu);});},null,20))route("chooser","axCancel");
-        else try{sameWindow();keyed("chooserEscape","chooser");events.keyCode(53);}catch(focusError){/* The original error stays authoritative. */}
       }
       throw error;
     }
@@ -212,7 +203,7 @@ function run(argv){
         var opened=press(item,1);exportPress.menuResult=opened;
         if(opened!==0&&opened!==-25204)throw Error("Native Export Audio/Video menu press failed ("+opened+")");
         route("open","menu");
-      }else{keyed("open");events.keystroke("r",{using:["command down","shift down"]});}
+      }else throw Error("Live's Export Audio/Video menu item is unavailable; no key was sent");
       window=wait(function(){try{return namedWindow("Export Audio/Video");}catch(error){return null;}},"Native Export dialog did not appear",100,10);
       input.windowId=wait(function(){try{return windowId(window);}catch(error){return null;}},"Native Export window identity is unavailable",100,10);cache();owned=state();
     }catch(error){
@@ -246,9 +237,7 @@ function run(argv){
       if(set!==0)set=$.AXUIElementSetAttributeValue(c,$("AXValue"),$(String(n)));
       if(set===0&&wait(function(){return Number(current(key))===n;},null,20)){route("range","axValue");changed();return;}
       if(stepped(key,n)){route("range","axIncrement");changed();return;}
-      changed();c=control(ids[key]);
-      if($.AXUIElementSetAttributeValue(c,$("AXFocused"),$(true))!==0||value(c,"AXFocused")!==true)throw Error("Native render coordinate is not focused");
-      sameWindow();keyed("range");events.keystroke(String(n));sameWindow();foreground();events.keyCode(36);readback(key,n);
+      throw Error("Native render coordinate has no accessibility value; no key was sent");
     }
     try{
       var settings=input.settings;
@@ -299,13 +288,8 @@ function run(argv){
   if(windowId(window)!==input.windowId)throw Error("Native Export window changed");
   // AXPress enters Live's synchronous native Save panel, so its reply waits for that panel; a short timeout bounds the wait.
   var pressed=press(exportButton,0.5);exportPress.axResult=pressed;
-  if(pressed===-25205||pressed===-25206){
-    // The button refuses AXPress: activate the exact focused button through the keyboard.
-    if($.AXUIElementSetAttributeValue(exportButton,$("AXFocused"),$(true))!==0||value(exportButton,"AXFocused")!==true)throw Error("Native Export button is not focused");
-    try{keyed("export");}catch(error){return JSON.stringify({exportPressed:false,error:String(error.message||error),exportPress:exportPress});}
-    events.keyCode(36);
-  }else if(pressed!==0&&pressed!==-25204&&pressed!==-25200)return JSON.stringify({exportPressed:false,error:"Native Export press was refused ("+pressed+")",exportPress:exportPress});
-  else route("export","axPress");
+  if(pressed!==0&&pressed!==-25204&&pressed!==-25200)return JSON.stringify({exportPressed:false,error:"Native Export press was refused ("+pressed+"); no key was sent",exportPress:exportPress});
+  route("export","axPress");
   exportPress.liveFrontmostAfterPress=process.frontmost();if(!exportPress.liveFrontmostAfterPress)exportPress.frontmostAfterPress=frontApp();
   function panelId(open){return open.source==="windows"?windowId(open.panels[0]):cgWindowId(value(open.panels[0],"AXTitle"));}
   // The press was sent: a Save panel that is late or unreadable is still reported as pressed, so cleanup owns it.

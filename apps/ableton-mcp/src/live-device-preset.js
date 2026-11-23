@@ -75,7 +75,7 @@ function run(argv){
     var field=one(editors,'Preset name editor is ambiguous'),value=get(field,'AXValue'),focus=read(root,'AXFocusedUIElement');
     if(typeof value!=='string'||!['.adv','.adg','.vstpreset','.aupreset'].some(function(ext){return value===input.presetName+ext;}))throw Error('Native preset filename changed or format is unsupported');
     if(get(focus,'AXRole')!=='AXTextField'||get(focus,'AXDescription')!=='Browser Content Pane'||get(focus,'AXValue')!==value)throw Error('Owned preset name editor lost focus');
-    if(!committed){Application('System Events').keyCode(36);committed=true;delay(0.1);}
+    if(!committed){if($.AXUIElementPerformAction(field,$('AXConfirm')))throw Error('Native preset name has no accessibility confirm; no key was sent');committed=true;delay(0.1);}
    }else if(committed||Date.now()>deadline-3000)return JSON.stringify({saveRequested:true,uiIdle:true,nameCommitted:committed});
    }catch(readFailure){if(!readFailure.retryableRead)throw readFailure;}
    delay(0.1);

@@ -109,7 +109,7 @@ export class MacMidiExportHost{
     try{
       owner=await this.owner(source);const document=await this.call(nativeScript,{...owner,source,action:'document'},signal);
       if(hashPlan(document)!==hashPlan(destination.document))throw Object.assign(Error('MIDI export Set window changed'),{saveRequested:false});
-      const focus=JSON.parse((await this.execute('/usr/bin/osascript',['-l','JavaScript',focusScript,JSON.stringify({...owner,windowId:document.mainWindowId})],{timeout:10000,maxBuffer:65536,signal})).stdout);if(!focus.focused)throw Object.assign(Error('Live focus did not verify'),{saveRequested:false});
+      const focus=JSON.parse((await this.execute('/usr/bin/osascript',['-l','JavaScript',focusScript,JSON.stringify({...owner,windowId:document.mainWindowId})],{timeout:10000,maxBuffer:65536,signal})).stdout);if(!focus.focused)throw Object.assign(Error('Live window is not on screen'),{saveRequested:false});
       const view=await this.call(nativeScript,{...owner,source,action:'inspect'},signal);await beforeExport();
       preparationDispatched=true;const opened=await this.call(nativeScript,{...owner,source,action:'open',expected:view},signal);openedPanel=true;
       prepared=await this.call(saveScript,{...owner,action:'adoptMidiExport',windowId:opened.saveWindowId,parent:destination.parent.path},signal);

@@ -6,7 +6,7 @@ import vm from "node:vm";
 const source = readFileSync(new URL("../src/live-set-save-dialog.js", import.meta.url), "utf8");
 
 function dialog({ windowId = 123, purpose = "Save Live Set As:", frontmost = true, bundle = "com.ableton.live",
-  filename = "Original.als", directory = "/tmp/work", folderUnavailable = false, retainedClosedWindow = false,
+  filename = "Original.als", directory = "/tmp/work", childPath, folderUnavailable = false, retainedClosedWindow = false,
   unexpectedSheet = false, saveEnabled = true, windowOrderChanges = false, staleRole = false,
   panelOpen = true, panelOnscreen = true, hiddenWindows = false, filenameEdit = name => name, saveEnabledAfter = 0 } = {}) {
   const keys = [], saves = [], menuPresses = [];
@@ -44,8 +44,12 @@ function dialog({ windowId = 123, purpose = "Save Live Set As:", frontmost = tru
     keystroke: key => { keys.push(key);navigating = true; }, keyCode: key => { keys.push(key);navigating = false; } };
   const array = items => ({ count: items.length, objectAtIndex: index => items[index] });
   const folder = { AXURL: { isFileURL: true, hasDirectoryPath: true, filePathURL: { get path() { return directory; } } } };
+  const selectedRow = { AXChildren: array([folder]) };
+  const child = childPath ? { AXURL: { isFileURL: true, hasDirectoryPath: true, filePathURL: { path: childPath } },
+    perform(action) { if (action === "AXOpen" || action === "AXPress") directory = childPath; } } : null;
+  const list = { AXRole: "AXList", AXSelectedChildren: array([selectedRow]), AXChildren: array(child ? [selectedRow, child] : [selectedRow]) };
   const browser = { AXIdentifier: "ColumnView", AXRole: "AXBrowser", AXColumns: array([
-    { AXChildren: array([{ AXRole: "AXList", AXSelectedChildren: array([{ AXChildren: array([folder]) }]) }]) }, {}]) };
+    { AXChildren: array([list]) }, {}]) };
   const wrapped=new Map();
   function asNative(element){
     if(wrapped.has(element))return wrapped.get(element);
@@ -83,8 +87,8 @@ function dialog({ windowId = 123, purpose = "Save Live Set As:", frontmost = tru
     panelState: {name:"Original.als",folder:"/tmp/work"},parent: "/tmp/work", name: "Working.als",...overrides })]), keys, saves, menuPresses };
 }
 
-test("Save As refuses a replacement window, other Save purpose, wrong app or lost focus before input", () => {
-  for (const state of [{ windowId: 124 }, { purpose: "Save preset:" }, { bundle: "other.app" }, { frontmost: false }]) {
+test("Save As refuses a replacement window, other Save purpose, or the wrong app before input", () => {
+  for (const state of [{ windowId: 124 }, { purpose: "Save preset:" }, { bundle: "other.app" }]) {
     const native = dialog(state);
     let failure;try{failure=JSON.parse(native.execute("commit")).error;}catch(error){failure=error.message;}
     assert.ok(failure);assert.deepEqual(native.keys, []);assert.ok(!native.saves.includes("OKButton"));
@@ -137,23 +141,29 @@ test("audio export binds its exact Save purpose, window and shown folder behind 
   }
 });
 
-test("audio export keeps a panel showing another folder for a move, and types Go to Folder only in front",()=>{
+test("audio export keeps a panel showing another folder for a move and does not type",()=>{
   const moved=dialog({purpose:"Save Audio File As:",frontmost:false}),kept=JSON.parse(moved.execute("adoptAudioExport",{parent:"/tmp/other",relocate:true}));
   assert.equal(kept.prepared,true);assert.equal(kept.panelState.folder,"/tmp/work");assert.deepEqual(moved.keys,[]);
   const behind=dialog({purpose:"Save Audio File As:",frontmost:false});
-  assert.throws(()=>behind.execute("adoptAudioExport",{parent:"/tmp/other"}),/not frontmost .*no key was sent/);assert.deepEqual(behind.keys,[]);
+  assert.throws(()=>behind.execute("adoptAudioExport",{parent:"/tmp/other"}),/not in the visible columns/);assert.deepEqual(behind.keys,[]);
 });
 
-test("Save panels retain their identity when Go to Folder changes native window order",()=>{
+test("Save panels already showing the folder are bound without typing",()=>{
   const native=dialog({purpose:"Save MIDI Clip As:",filename:"Original.mid",windowOrderChanges:true});
   assert.equal(JSON.parse(native.execute("adoptMidiExport")).prepared,true);
-  assert.deepEqual(native.keys,["g",36]);assert.deepEqual(native.saves,[]);
+  assert.deepEqual(native.keys,[]);assert.deepEqual(native.saves,[]);
 });
 
-test("Save As focuses the exact folder field and presses only the bound Save button", () => {
-  const native = dialog();
+test("Save As opens a visible column folder and presses Save without typing", () => {
+  const native = dialog({ childPath: "/tmp/work/Song" });
+  assert.equal(JSON.parse(native.execute("commit", { parent: "/tmp/work/Song" })).savePressed, true);
+  assert.deepEqual(native.keys, []);assert.deepEqual(native.saves, ["OKButton"]);
+});
+
+test("Save As presses only the bound Save button", () => {
+  const native = dialog({frontmost:false});
   assert.equal(JSON.parse(native.execute("commit")).savePressed, true);
-  assert.deepEqual(native.keys, ["g",36]);assert.deepEqual(native.saves, ["OKButton"]);
+  assert.deepEqual(native.keys, []);assert.deepEqual(native.saves, ["OKButton"]);
 });
 
 test("Save As waits for the shown panel to enable Save", () => {

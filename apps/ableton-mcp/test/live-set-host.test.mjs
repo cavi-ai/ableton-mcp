@@ -25,15 +25,20 @@ test("open resolves an existing Live Set and targets the bridge's exact app bund
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-test("save targets only foreground Ableton and rejects unsupported hosts", async () => {
-  const calls = [];
-  const host = new MacLiveSetHost({ platform: "darwin", run: async (...args) => { calls.push(args); } });
-  await host.save("/Applications/Ableton Live 12 Suite.app");
-  assert.equal(calls[0][0], "/usr/bin/open");
-  assert.deepEqual(calls[0][1], ["-a", "/Applications/Ableton Live 12 Suite.app"]);
-  assert.equal(calls[1][0], "/usr/bin/osascript");
-  assert.match(calls[1][1][1], /com\.ableton\.live/);
-  assert.match(calls[1][1][1], /keystroke "s" using command down/);
+test("save presses Save Live Set without raising Live or typing", async t => {
+  const app = await saveAppFixture(t), calls = [];
+  const host = new MacLiveSetHost({ platform: "darwin", run: async (command, args) => {
+    calls.push([command, args]);
+    if (command === "/bin/ps") return { stdout: ` 42 ${app}/Contents/MacOS/Live\n` };
+    return { stdout: "" };
+  } });
+  await host.save(app);
+  assert.ok(!calls.some(([command]) => command === "/usr/bin/open"));
+  const script = calls.find(([command]) => command === "/usr/bin/osascript");
+  assert.equal(script[1][0], "-l");
+  assert.match(script[1][3], /Save Live Set/);
+  assert.doesNotMatch(script[1][3], /keystroke|keyCode|activateWithOptions/);
+  assert.equal(JSON.parse(script[1][4]).pid, 42);
   await assert.rejects(() => new MacLiveSetHost({ platform: "win32" }).save("C:\\Live.exe"), /macOS only/);
 });
 
@@ -159,7 +164,8 @@ test("Save As resolves a configured app symlink before comparison and dispatch",
   } });
   host.runningProcesses = async () => [{ pid: 42, path: app + "/Contents/MacOS/Live" }];
   await host.saveAs(alias, { name: "Working.als", parent: { path: "/tmp" } }, { beforeSave: async () => {} });
-  assert.equal(JSON.parse(calls.find(([command, args]) => command === "/usr/bin/osascript" && focusing(args))[1].at(-1)).appPath, app);
+  assert.ok(!calls.some(([command, args]) => command === "/usr/bin/osascript" && focusing(args)));
+  assert.deepEqual(calls.filter(([command, args]) => command === "/usr/bin/osascript").map(([, args]) => JSON.parse(args.at(-1)).action), ["prepare", "commit"]);
 });
 
 test("Save As preserves the native refusal reason instead of a truncated command line", async t => {
@@ -187,25 +193,17 @@ test("Save As reports a refused preparation that closed its own panel",async t=>
   assert.deepEqual(calls,["prepare"]);
 });
 
-test("Save As opens its panel without showing Live and shows Live only to complete it",async t=>{
-  const app=await saveAppFixture(t);
-  for(const shown of [true,false]){
-    const sent=[],host=new MacLiveSetHost({platform:"darwin",run:async(command,args)=>{
-      if(command!=="/usr/bin/osascript"){sent.push(command);return {stdout:""};}
-      const input=JSON.parse(args.at(-1));
-      if(focusing(args)){sent.push(`show:${input.windowId}`);return {stdout:JSON.stringify({focused:shown})};}
-      sent.push(input.action);
-      return {stdout:JSON.stringify(input.action==="prepare"?{prepared:true,windowId:123,purpose:"Save Live Set As:",panelState:{name:"Original.als",folder:"work"}}
-        :input.action==="cancel"?{cancelled:true,savePressed:false,windowId:123}:{savePressed:true})};
-    }});
-    host.runningProcesses=async()=>[{pid:42,path:app+"/Contents/MacOS/Live"}];
-    const save=host.saveAs(app,{name:"New.als",parent:{path:"/tmp/work"}},{beforeSave:async()=>{}});
-    if(shown){await save;assert.deepEqual(sent,["prepare","show:123","commit"]);continue;}
-    await assert.rejects(save,error=>{
-      assert.deepEqual(error.saveAsRecovery,{status:"cancelled",windowId:123,savePressed:false});return true;
-    });
-    assert.deepEqual(sent,["prepare","show:123","cancel"]);
-  }
+test("Save As commits the panel it bound without raising Live",async t=>{
+  const app=await saveAppFixture(t),sent=[];
+  const host=new MacLiveSetHost({platform:"darwin",run:async(command,args)=>{
+    if(command!=="/usr/bin/osascript"){sent.push(command);return {stdout:""};}
+    const input=JSON.parse(args.at(-1));
+    sent.push(input.action);
+    return {stdout:JSON.stringify(input.action==="prepare"?{prepared:true,windowId:123,purpose:"Save Live Set As:",panelState:{name:"Original.als",folder:"work"}}:{savePressed:true})};
+  }});
+  host.runningProcesses=async()=>[{pid:42,path:app+"/Contents/MacOS/Live"}];
+  await host.saveAs(app,{name:"New.als",parent:{path:"/tmp/work"}},{beforeSave:async()=>{}});
+  assert.deepEqual(sent,["prepare","commit"]);
 });
 
 test("Save As cancels its prepared panel after revalidation or cancellation failure",async t=>{

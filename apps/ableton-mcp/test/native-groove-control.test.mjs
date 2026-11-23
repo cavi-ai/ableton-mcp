@@ -84,7 +84,6 @@ test("groove UI host rechecks between menu preparation and selection and cancels
   for (const stale of [false, true]) {
     const order = [], actions = [];
     const host = new MacClipGrooveHost({platform: "darwin", run: async (command, args, options) => {
-      if (command === "/usr/bin/open") {order.push("focus"); return {stdout: ""};}
       const input = JSON.parse(args.at(-1)); order.push(input.action); actions.push(input.action);
       if (input.action === "cancel") assert.equal(options.signal.aborted, false);
       return {stdout: JSON.stringify(input.action === "prepare" ? {prepared: true, menuTitles: ["None", "Swing"]} : {noneSelected: input.action === "commit", cancelled: input.action === "cancel"})};
@@ -95,7 +94,7 @@ test("groove UI host rechecks between menu preparation and selection and cancels
     });
     if (stale) {await assert.rejects(execute(), /clip changed/); assert.deepEqual(actions, ["prepare", "cancel"]);}
     else {assert.equal((await execute()).noneSelected, true); assert.deepEqual(actions, ["prepare", "commit"]);}
-    assert.deepEqual(order, ["native preparation", "focus", "prepare", "native recheck", stale ? "cancel" : "commit"]);
+    assert.deepEqual(order, ["native preparation", "prepare", "native recheck", stale ? "cancel" : "commit"]);
     assert.equal(host.busy, false);
   }
 });

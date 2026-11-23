@@ -129,7 +129,7 @@ export class MacProjectMediaHost{
   async prepare(source,{beforePrepare,signal}){
     if(this.busy)throw Object.assign(Error('collection UI is already active'),{collectionRequested:false});this.busy=true;
     let dispatched=false;
-    try{const owner=await this.owner(source.live),focus=JSON.parse((await this.execute('/usr/bin/osascript',['-l','JavaScript',focusScript,JSON.stringify({...owner,windowId:source.native.mainWindowId})],{timeout:10000,maxBuffer:65536,signal})).stdout);if(!focus.focused)throw Error('Live focus did not verify');await beforePrepare();dispatched=true;return {...owner,...await this.call(owner,source.live,{action:'prepare',expected:source.native},signal)};}
+    try{const owner=await this.owner(source.live),focus=JSON.parse((await this.execute('/usr/bin/osascript',['-l','JavaScript',focusScript,JSON.stringify({...owner,windowId:source.native.mainWindowId})],{timeout:10000,maxBuffer:65536,signal})).stdout);if(!focus.focused)throw Error('Live window is not on screen');await beforePrepare();dispatched=true;return {...owner,...await this.call(owner,source.live,{action:'prepare',expected:source.native},signal)};}
     catch(error){this.busy=false;error.collectionRequested??=false;if(dispatched)error.requiresInspection=true;throw error;}
   }
   async commit(source,prepared,{beforeCommit,signal}){try{await beforeCommit();const owner=await this.owner(source.live);if(owner.pid!==prepared.pid)throw Object.assign(Error('Live process changed'),{collectionRequested:false});return await this.call(owner,source.live,{action:'commit',prepared},signal);}finally{this.busy=false;}}

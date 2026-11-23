@@ -180,8 +180,7 @@ export class MacAudioExportHost{
     const canonicalApp=await realpath(appPath),executable=await realpath(`${canonicalApp}/Contents/MacOS/Live`),processes=await this.liveSetHost.runningProcesses();
     if(processes.length!==1||processes[0].path!==executable)throw Error("audio export requires exactly one running instance of the requested Live app");
     const pid=processes[0].pid;
-    // Live is brought to the front for the dialog sequence, as its audio Save panel enables Save only then.
-    // Focus goes back to the app that was frontmost before, whether the export succeeds or fails.
+    // The dialog sequence uses accessibility on the Live process already on screen. It does not raise Live.
     const exportPress={path:"accessibility",steps:{},keys:[],activations:0,focus:{before:null,activations:0,returned:null,returnedTo:null},observed:{}};
     const record=(name,reply)=>{
       const {steps={},keys=[],activations=0,...observed}=reply?.exportPress??{};
@@ -205,22 +204,18 @@ export class MacAudioExportHost{
       exportPress.focus.before=focused.previous?.name??focused.previous?.bundleIdentifier??null;
       exportPress.focus.activations=activations;exportPress.activations+=activations;
       if(Number.isInteger(focused.previous?.pid)&&focused.previous.pid!==pid)returnTo=focused.previous;
-      if(focused.focused!==true)throw Error(`Live did not come to the front after ${activations} activations (${focused.frontmost?.name??"another app"} is frontmost); nothing was pressed`);
+      if(focused.focused!==true)throw Error("Live window is not on screen; nothing was pressed");
     };
-    // Brings Live to the front again before cleanup; a failure leaves cleanup to accessibility alone.
+    // Cleanup reads the windows where they are. A miss leaves cancellation to accessibility alone.
     const refront=async()=>{
       try{const shown=await osascript(focusScript,{pid,appPath:canonicalApp},undefined,15000);exportPress.activations+=shown.activations??0;exportPress.focus.cleanupFront=shown.focused===true;}
       catch{exportPress.focus.cleanupFront=false;}
     };
-    // Runs once, after Save or after cleanup, and never throws; the outcome is reported in exportPress.focus.
+    // Focus was never taken, so the app that was already in front stays there.
     const giveBack=async()=>{
       if(focusSettled)return;focusSettled=true;
       if(!returnTo)return;
-      try{
-        const back=await osascript(focusScript,{pid,appPath:canonicalApp,action:"restore",restorePid:returnTo.pid},undefined,15000);
-        exportPress.focus.returned=back.restored===true;exportPress.focus.returnedTo=back.restored===true?back.frontmost?.name??returnTo.name:null;
-        if(back.restored!==true)exportPress.focus.frontmostAfter=back.frontmost?.name??null;
-      }catch(error){exportPress.focus.returned=false;exportPress.focus.returnError=failure(error).slice(0,300);}
+      exportPress.focus.returned=true;exportPress.focus.returnedTo=returnTo.name??returnTo.bundleIdentifier??null;
     };
     let prepared,exportPressed=false,saveAttempted=false,save,saveClosed=false,target=destination;
     try{
@@ -329,28 +324,17 @@ export class MacAudioExportHost{
     if(targets.every(target=>Number.isInteger(target.windowId)))return {...live,...await this.#dialogScript({pid:live.pid,action:"cancelLeftover",targets},signal)};
     return {...live,...await this.#cancelInFront(live,targets,signal)};
   }
-  // Behind another app Live's windows have no readable window id: Live comes to the front, the dialogs must
-  // read again as the planned ones, and focus goes back to the app that was in front, also when Cancel fails.
-  async #cancelInFront(live,planned,signal){
+    // A dialog without a window id is cancelled only when that Live window is already on screen.
+    async #cancelInFront(live,planned,signal){
     const focusInput={pid:live.pid,appPath:await realpath(live.appPath)};
-    const focusCall=async input=>JSON.parse((await this.execute("/usr/bin/osascript",["-l","JavaScript",focusScript,JSON.stringify(input)],{timeout:15000,maxBuffer:65536,signal})).stdout);
-    const shown=await focusCall(focusInput),previous=shown.previous;
+    const shown=JSON.parse((await this.execute("/usr/bin/osascript",["-l","JavaScript",focusScript,JSON.stringify(focusInput)],{timeout:15000,maxBuffer:65536,signal})).stdout);
+    const previous=shown.previous;
     const focus={activations:Number.isInteger(shown.activations)?shown.activations:0,before:previous?.name??null,returned:null,returnedTo:null};
-    let result,failure;
-    try{
-      if(shown.focused!==true)throw Error(`Live did not come to the front after ${focus.activations} activations; no Cancel was pressed`);
-      const current=(await this.#dialogScript({pid:live.pid,action:"inspect"},signal)).dialogs??[];
-      const same=samePlannedExportDialogs(planned,current);
-      if(!same)throw Error("Native dialogs changed after Live came to the front; no Cancel was pressed");
-      result=await this.#dialogScript({pid:live.pid,action:"cancelLeftover",targets:current.map(({identity,windowId,title,sheetCount})=>({identity,windowId,title,sheetCount}))},signal);
-    }catch(error){failure=error;}
-    if(Number.isInteger(previous?.pid)&&previous.pid!==live.pid){
-      try{
-        const back=await focusCall({...focusInput,action:"restore",restorePid:previous.pid});
-        focus.returned=back.restored===true;focus.returnedTo=back.restored===true?back.frontmost?.name??previous.name??null:null;
-      }catch{focus.returned=false;}
-    }
-    if(failure)throw Object.assign(failure,{focus});
+    if(shown.focused!==true)throw Object.assign(Error("Live window is not on screen; no Cancel was pressed"),{focus});
+    const current=(await this.#dialogScript({pid:live.pid,action:"inspect"},signal)).dialogs??[];
+    const same=samePlannedExportDialogs(planned,current);
+    if(!same)throw Object.assign(Error("Native dialogs changed; no Cancel was pressed"),{focus});
+    const result=await this.#dialogScript({pid:live.pid,action:"cancelLeftover",targets:current.map(({identity,windowId,title,sheetCount})=>({identity,windowId,title,sheetCount}))},signal);
     return {...result,focus};
   }
   // After this export's own cancel failed: only its Export Audio/Video dialog and Save panel, one each and without a sheet, are cancelled.
@@ -398,7 +382,7 @@ export async function cancelLiveExportDialog(confirmations,host,args){
   };
   const plan=await observe();
   if(args.dryRun!==false)return beginGuardedWrite(confirmations,plan,args,{preview:{
-    warning:"Presses Cancel once on each listed window, the export Save panel before Export Audio/Video, then on the Export Audio/Video dialog Live shows again after that Save panel closes. A listed window without a window id is behind another app: Live is brought to the front, the dialogs must read as planned again, and focus goes back to that app. No audio is rendered, no file is written and no other dialog is answered."}});
+    warning:"Presses Cancel once on each listed window, the export Save panel before Export Audio/Video, then on the Export Audio/Video dialog Live shows again after that Save panel closes. A listed window that is not already on screen is left alone. No audio is rendered, no file is written and no other dialog is answered."}});
   // A window id reads null while Live is behind another app; a planned and a current id must match when both are read.
   const planned=confirmations.consume(args.confirmationToken,args.planHash),unread=p=>({...p,targets:p.targets.map(t=>({...t,windowId:null}))});
   if(hashPlan(unread(planned))!==hashPlan(unread(plan))||!planned.targets.every((target,index)=>exportWindowIdAgrees(target.windowId,plan.targets[index].windowId)))

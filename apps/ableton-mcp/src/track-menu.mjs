@@ -23,7 +23,7 @@ export class MacTrackMenuHost{
     try{
       const owner=await this.owner(source),view=await this.call(owner,source,{action:'inspect'},signal);
       const focused=JSON.parse((await this.run('/usr/bin/osascript',['-l','JavaScript',focusScript,JSON.stringify({...owner,windowId:view.mainWindowId})],{timeout:10000,maxBuffer:65536,signal})).stdout);
-      if(!focused.focused)throw Error('Live did not become visible');
+      if(!focused.focused)throw Error('Live window is not on screen');
       await beforePrepare();preparationDispatched=true;return {...owner,...await this.call(owner,source,{action:'prepare',expectedMain:view,frozen:source.freeze.frozen},signal)};
     }catch(error){this.busy=false;error.operationRequested??=false;if(preparationDispatched)error.requiresInspection=true;throw error;}
   }

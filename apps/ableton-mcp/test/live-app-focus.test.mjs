@@ -4,40 +4,39 @@ import {readFileSync} from "node:fs";
 import vm from "node:vm";
 
 const source=readFileSync(new URL("../src/live-app-focus.js",import.meta.url),"utf8");
-function focus({path="/Applications/Live.app",target=true,visible=false,staleActive=false,activationFrontmost=true}={}){
-  const pressed=[],array=items=>({count:String(items.length),objectAtIndex:i=>items[i]});
-  let actualFrontmost=false;
-  const running={bundleIdentifier:"com.ableton.live",bundleURL:{path},active:false,activateWithOptions(){this.active=!staleActive;actualFrontmost=activationFrontmost;}};
-  const items=[{AXSubrole:"AXApplicationDockItem",AXURL:{path:"/Applications/Other.app"}},
-    ...(target?[{AXSubrole:"AXApplicationDockItem",AXURL:{path:"/Applications/Live.app"}}]:[])];
-  const root={AXChildren:array([{AXChildren:array(items)}])};
-  const appRoot={get AXFrontmost(){return actualFrontmost;}};
+function focus({path="/Applications/Live.app",visible=false,frontPid=7,action,restorePid}={}){
+  const pressed=[],activated=[];
+  const running={bundleIdentifier:"com.ableton.live",bundleURL:{path},activateWithOptions(){activated.push("live");}};
   const native=Object.assign(value=>value,{
-    NSRunningApplication:{runningApplicationWithProcessIdentifier:()=>running,runningApplicationsWithBundleIdentifier:()=>array([{processIdentifier:7}])},
-    AXUIElementCreateApplication:pid=>pid===42?appRoot:root,
-    AXUIElementCopyAttributeValue:(element,key,ref)=>{if(element[key]===undefined)return -25212;ref[0]=element[key];return 0;},
-    AXUIElementPerformAction:element=>{pressed.push(element.AXURL.path);visible=true;actualFrontmost=true;return -25204;},
-    CGWindowListCopyWindowInfo:()=>visible?[{kCGWindowOwnerPID:42,kCGWindowNumber:123}]:[]
+    NSRunningApplication:{runningApplicationWithProcessIdentifier:()=>running},
+    NSWorkspace:{sharedWorkspace:{frontmostApplication:{processIdentifier:frontPid,localizedName:frontPid===42?"Live":"Editor",bundleIdentifier:frontPid===42?"com.ableton.live":"com.example.editor"}}},
+    AXUIElementPerformAction:element=>{pressed.push(element);return 0;},
+    CGWindowListCopyWindowInfo:()=>visible?[{kCGWindowOwnerPID:42,kCGWindowNumber:123,kCGWindowIsOnscreen:true}]:[]
   });
   const run=vm.runInNewContext(`${source}\nrun`,{$:native,Ref:()=>[],delay(){},
     ObjC:{import(){},unwrap:value=>value,deepUnwrap:value=>value,castRefToObject:value=>value}});
-  return {pressed,execute:()=>JSON.parse(run([JSON.stringify({pid:42,appPath:"/Applications/Live.app",windowId:123})]))};
+  return {pressed,activated,execute:()=>JSON.parse(run([JSON.stringify({pid:42,appPath:"/Applications/Live.app",windowId:123,action,restorePid})]))};
 }
 
-test("Live desktop activation selects the exact app URL and observes visibility after one press",()=>{
-  const native=focus();assert.equal(native.execute().focused,true);assert.deepEqual(native.pressed,["/Applications/Live.app"]);
-  const alreadyVisible=focus({visible:true});assert.equal(alreadyVisible.execute().focused,true);assert.deepEqual(alreadyVisible.pressed,[]);
+test("a Live window already on screen is observed without activation or a Dock press",()=>{
+  const shown=focus({visible:true});
+  assert.deepEqual(shown.execute(),{focused:true,activations:0,dockPressed:false,previous:{pid:7,name:"Editor",bundleIdentifier:"com.example.editor"}});
+  assert.deepEqual(shown.pressed,[]);assert.deepEqual(shown.activated,[]);
 });
 
-test("Live desktop activation refuses another app path or a missing Dock item",()=>{
-  for(const options of [{path:"/Applications/Other.app"},{target:false}]){
-    const native=focus(options);assert.throws(()=>native.execute());assert.deepEqual(native.pressed,[]);
-  }
+test("a hidden Live window stays hidden and does not become frontmost",()=>{
+  const hidden=focus();
+  assert.equal(hidden.execute().focused,false);
+  assert.equal(hidden.execute().activations,0);
+  assert.equal(hidden.execute().dockPressed,false);
+  assert.deepEqual(hidden.pressed,[]);assert.deepEqual(hidden.activated,[]);
 });
 
-test("Live desktop activation reads current focus despite cached AppKit activation state",()=>{
-  const stale=focus({visible:true,target:false,staleActive:true});
-  assert.equal(stale.execute().focused,true);assert.deepEqual(stale.pressed,[]);
-  const lost=focus({visible:true,target:false,activationFrontmost:false});
-  assert.throws(()=>lost.execute(),/Dock item is unavailable/);assert.deepEqual(lost.pressed,[]);
+test("focus refuses another app path and restore activates nothing",()=>{
+  assert.throws(()=>focus({path:"/Applications/Other.app"}).execute(),/exact running Live/);
+  const restored=focus({action:"restore",restorePid:7,frontPid:7});
+  assert.deepEqual(restored.execute(),{restored:true,activations:0,dockPressed:false,frontmost:{pid:7,name:"Editor",bundleIdentifier:"com.example.editor"}});
+  const elsewhere=focus({action:"restore",restorePid:7,frontPid:42});
+  assert.equal(elsewhere.execute().restored,false);
+  assert.deepEqual(restored.activated,[]);assert.deepEqual(elsewhere.pressed,[]);
 });

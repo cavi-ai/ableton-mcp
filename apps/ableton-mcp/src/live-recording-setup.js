@@ -52,7 +52,7 @@ function run(argv){
   function ownedMenu(){foreground();if(!same(mainState(),prepared.mainState)||!same(screenIds(),prepared.screenIds))throw Error('Owned recording setup window or transport changed');var m=one(menus(),'Exact owned recording setup menu unavailable');if(!same(menuState(m.menu),prepared.panelState))throw Error('Recording setup menu changed; preserve current input');return m;}
   function press(e,setting){if(get(e,'AXEnabled')!==true)throw Error('Native recording control disabled');if(setting)operationRequested=true;if($.AXUIElementPerformAction(e,$('AXPress')))throw Error('Native control request outcome unknown');}
   function closed(){return recordingSetupPopupClosed(menus().length,screenIds(),prepared.menuWindowIds);}
-  function closeOwned(){ownedMenu();Application('System Events').keyCode(53);wait(closed,'Owned recording setup menu closure did not verify');}
+  function closeOwned(){var menu=ownedMenu();if($.AXUIElementPerformAction(menu.menu,$('AXCancel')))throw Error('Recording setup menu has no accessibility cancel; no key was sent');wait(closed,'Owned recording setup menu closure did not verify');}
   function openOwned(before,expectedPanel,expectedCount){
     if(!same(mainState(),before)||menus().length)throw Error('Recording setup UI changed before menu input');
     var ids=screenIds();press(control(main(),'Transport.MetronomeContextBuddy'),false);opened=true;

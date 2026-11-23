@@ -5,16 +5,18 @@ import { isAbsolute, dirname, basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const saveDialogScript = fileURLToPath(new URL("./live-set-save-dialog.js", import.meta.url));
-const focusScript = fileURLToPath(new URL("./live-app-focus.js", import.meta.url));
 const saveStateScript = fileURLToPath(new URL("./live-set-save-state.js", import.meta.url));
 const recoveryPromptScript = fileURLToPath(new URL("./live-recovery-prompt.js", import.meta.url));
 const execFileAsync = promisify(execFile);
 const scriptDirectorySuffix = "/Contents/App-Resources/MIDI Remote Scripts/CaviMcpBridge";
-const saveScript = `tell application "System Events"
-  set frontApp to first application process whose frontmost is true
-  if bundle identifier of frontApp is not "com.ableton.live" then error "Ableton Live is not frontmost"
-  keystroke "s" using command down
-end tell`;
+const saveMenuScript = `function run(argv){
+  var input=JSON.parse(argv[0]),events=Application("System Events");
+  var processes=events.applicationProcesses.whose({unixId:input.pid})();
+  if(processes.length!==1||processes[0].bundleIdentifier()!=="com.ableton.live")throw Error("Expected the exact Live process");
+  var item=processes[0].menuBars()[0].menuBarItems.byName("File").menus()[0].menuItems.byName("Save Live Set");
+  if(!item.exists()||!item.enabled())throw Error("Save Live Set is missing or disabled");
+  item.actions.byName("AXPress").perform();
+}`;
 
 export class MacLiveSetHost {
   constructor({ platform = process.platform, run = execFileAsync, appPath, bridgeSocketPath } = {}) {
@@ -160,8 +162,7 @@ export class MacLiveSetHost {
     const processes = await this.runningProcesses();
     if (processes.length !== 1 || processes[0].path !== executable)
       throw new Error("Save As requires exactly one running instance of the requested Live app");
-    // The panel opens and is bound with Live in the background. It enables Save only while it is on
-    // the visible desktop, so Live is brought there just before the commit.
+    // The panel opens and is committed in the background. Nothing raises Live.
     const input = { pid: processes[0].pid, parent: destination.parent.path, name: destination.name };
     const dialog = async (action, prepared = {}, operationSignal = signal) => {
       operationSignal?.throwIfAborted();
@@ -185,9 +186,6 @@ export class MacLiveSetHost {
     try {
       await beforeSave();
       signal?.throwIfAborted();
-      const shown = await this.run("/usr/bin/osascript", ["-l", "JavaScript", focusScript,
-        JSON.stringify({ pid: input.pid, appPath: canonicalApp, windowId: prepared.windowId })], { timeout: 10000, maxBuffer: 65536, signal });
-      if (JSON.parse(shown.stdout).focused !== true) throw new Error("Live did not show its Save panel");
     } catch (error) {
       try {
         // Cancellation ends only this prepared panel; it must still run after
@@ -226,8 +224,12 @@ export class MacLiveSetHost {
 
   async save(appPath) {
     this.#requireMac();
-    await this.run("/usr/bin/open", ["-a", appPath]);
-    await this.run("/usr/bin/osascript", ["-e", saveScript]);
+    const canonicalApp = await realpath(appPath);
+    const executable = await realpath(`${canonicalApp}/Contents/MacOS/Live`);
+    const processes = await this.runningProcesses();
+    if (processes.length !== 1 || processes[0].path !== executable)
+      throw new Error("Save requires exactly one running instance of the requested Live app");
+    await this.run("/usr/bin/osascript", ["-l", "JavaScript", "-e", saveMenuScript, JSON.stringify({ pid: processes[0].pid })]);
   }
 
   async observeSaveState(appPath, { signal } = {}) {

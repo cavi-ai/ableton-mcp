@@ -8,7 +8,10 @@ function run(argv){
  var app=$.NSRunningApplication.runningApplicationWithProcessIdentifier(input.pid);
  if(!app||ObjC.unwrap(app.bundleIdentifier)!=='com.ableton.live'||ObjC.unwrap(app.bundleURL.path)!==input.appPath)throw Error('Expected the exact Live app');
  var root=$.AXUIElementCreateApplication(input.pid);
- function foreground(){if(Number(app.active)!==1)throw Error('Live is not frontmost');}
+ function requireOnscreen(windowId){
+  var visible=ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1,0)));
+  if(!visible.some(function(w){return w.kCGWindowOwnerPID===input.pid&&w.kCGWindowNumber===windowId&&w.kCGWindowIsOnscreen!==false;}))throw Error('Native MIDI import window is not on screen');
+ }
  function windows(){return items(read(root,'AXWindows'));}
  function rows(e){var a=[];function walk(e,d){if(d>24||a.length>20000)throw Error('Native MIDI import UI exceeds bounds');a.push(e);if(['AXBrowser','AXOutline','AXTable'].indexOf(get(e,'AXRole'))>=0)return;items(read(e,'AXChildren')).forEach(function(c){walk(c,d+1);});}walk(e,0);return a;}
  function find(e,id){return one(rows(e).filter(function(c){return get(c,'AXIdentifier')===id;}),'Native MIDI import control unavailable: '+id);}
@@ -22,25 +25,50 @@ function run(argv){
   return {window:w,elements:all,state:{path:source.filePath,mainWindowId:windowId(w)}};
  }
  function header(doc){var selected=[];doc.elements.filter(function(e){return get(e,'AXRole')==='AXOutline'&&get(e,'AXDescription')==='Track Headers';}).forEach(function(e){selected=selected.concat(items(read(e,'AXSelectedRows')));});var id=get(one(selected,'Exactly one MIDI staging track must be selected'),'AXIdentifier');if(id!=='SessionView'+source.trackUIPath+'.TitleBar')throw Error('Native MIDI staging track changed');return id;}
- function inspection(){var doc=mainDocument(false),focus=read(root,'AXFocusedUIElement'),session=false,main=false;for(var depth=0;focus&&depth<16;depth++){if(get(focus,'AXIdentifier')==='SessionView')session=true;if($.CFEqual(focus,doc.window))main=true;focus=read(focus,'AXParent');}if(!session||!main)throw Error('Exact Session view must have native focus');return Object.assign(doc.state,{trackUIId:header(doc)});}
- function panel(){foreground();var p=one(windows().filter(function(w){return get(w,'AXIdentifier')==='open-panel'&&get(w,'AXModal')===true;}),'Owned native Open panel unavailable');if(windowId(p)!==input.windowId||get(find(p,'_messageTextField'),'AXValue')!=='Import Audio or MIDI File:')throw Error('Native MIDI import panel ownership changed');return p;}
+ function inspection(){var doc=mainDocument(false),focus=read(root,'AXFocusedUIElement'),session=false,main=false;requireOnscreen(doc.state.mainWindowId);for(var depth=0;focus&&depth<16;depth++){if(get(focus,'AXIdentifier')==='SessionView')session=true;if($.CFEqual(focus,doc.window))main=true;focus=read(focus,'AXParent');}if(!session||!main)throw Error('Exact Session view must have native focus');return Object.assign(doc.state,{trackUIId:header(doc)});}
+ function panel(){var p=one(windows().filter(function(w){return get(w,'AXIdentifier')==='open-panel'&&get(w,'AXModal')===true;}),'Owned native Open panel unavailable');if(windowId(p)!==input.windowId||get(find(p,'_messageTextField'),'AXValue')!=='Import Audio or MIDI File:')throw Error('Native MIDI import panel ownership changed');requireOnscreen(input.windowId);return p;}
  function sheets(p){return items(read(p,'AXChildren')).filter(function(c){return get(c,'AXRole')==='AXSheet';});}
  function fileSelection(p){
   if(sheets(p).length)throw Error('Resolve native file-picker sheet before Open');var browser=find(p,'ColumnView'),urls=[];
   items(read(browser,'AXColumns')).forEach(function(column){items(read(column,'AXChildren')).filter(function(e){return get(e,'AXRole')==='AXList';}).forEach(function(list){items(read(list,'AXSelectedChildren')).forEach(function(row){items(read(row,'AXChildren')).forEach(function(child){var url=read(child,'AXURL');if(url&&Number(url.isFileURL)===1&&Number(url.hasDirectoryPath)!==1)urls.push(ObjC.unwrap(url.filePathURL.path));});});});});
   var path=one(urls,'Exactly one native MIDI file must be selected');if(path!==input.path)throw Error('Native MIDI import file selection changed');if(get(find(p,'OKButton'),'AXEnabled')!==true)throw Error('Native MIDI Open is disabled');return path;
  }
- function waitFor(read,message){for(var i=0;i<40;i++){foreground();var value=read();if(value)return value;delay(.05);}throw Error(message);}
+ function waitFor(read,message){for(var i=0;i<40;i++){var value=read();if(value)return value;delay(.05);}throw Error(message);}
  try{
   if(input.action==='document')return JSON.stringify(mainDocument(false).state);
   if(input.action==='inspect')return JSON.stringify(inspection());
   if(input.action==='finish'){var owned=windows().filter(function(w){return get(w,'AXIdentifier')==='open-panel'&&windowId(w)===input.windowId;});if(owned.length)return JSON.stringify({uiComplete:false});return JSON.stringify({uiComplete:true,document:mainDocument(false).state});}
   if(input.action==='openPicker'){
-   foreground();if(!same(inspection(),input.expected))throw Error('Native MIDI staging view changed');var events=Application('System Events'),process=one(events.applicationProcesses.whose({unixId:input.pid})(),'Exact Live process unavailable'),menu=process.menuBars()[0].menuBarItems.byName('Create').menus()[0].menuItems.byName('Import MIDI File...');if(!menu.exists()||!menu.enabled())throw Error('Native Import MIDI File requires English Live and an empty MIDI destination');if(!same(inspection(),input.expected))throw Error('Native MIDI destination changed before opening file picker');pickerRequested=null;menu.actions.byName('AXPress').perform();pickerRequested=true;var open=waitFor(function(){var a=windows().filter(function(w){return get(w,'AXIdentifier')==='open-panel'&&get(w,'AXModal')===true;});return a.length===1&&a[0];},'Owned native MIDI file picker unavailable');if(get(find(open,'_messageTextField'),'AXValue')!=='Import Audio or MIDI File:')throw Error('Unexpected native Open purpose');return JSON.stringify({windowId:windowId(open),pickerRequested:true});
+   if(!same(inspection(),input.expected))throw Error('Native MIDI staging view changed');var events=Application('System Events'),process=one(events.applicationProcesses.whose({unixId:input.pid})(),'Exact Live process unavailable'),menu=process.menuBars()[0].menuBarItems.byName('Create').menus()[0].menuItems.byName('Import MIDI File...');if(!menu.exists()||!menu.enabled())throw Error('Native Import MIDI File requires English Live and an empty MIDI destination');if(!same(inspection(),input.expected))throw Error('Native MIDI destination changed before opening file picker');pickerRequested=null;menu.actions.byName('AXPress').perform();pickerRequested=true;var open=waitFor(function(){var a=windows().filter(function(w){return get(w,'AXIdentifier')==='open-panel'&&get(w,'AXModal')===true;});return a.length===1&&a[0];},'Owned native MIDI file picker unavailable');if(get(find(open,'_messageTextField'),'AXValue')!=='Import Audio or MIDI File:')throw Error('Unexpected native Open purpose');var pickerId=windowId(open);requireOnscreen(pickerId);return JSON.stringify({windowId:pickerId,pickerRequested:true});
   }
   var p=panel();
   if(input.action==='prepare'){
-   if(sheets(p).length)throw Error('Existing Open panel sheet changed');var events=Application('System Events');events.keystroke('g',{using:['command down','shift down']});var sheet=waitFor(function(){var a=sheets(p);return a.length===1&&a[0];},'MIDI import path sheet unavailable');if(get(sheet,'AXIdentifier')!=='GoToWindow')throw Error('Unexpected MIDI path sheet');var field=find(sheet,'PathTextField');if($.AXUIElementSetAttributeValue(field,$('AXValue'),$(input.path))||$.AXUIElementSetAttributeValue(field,$('AXFocused'),$(true)))throw Error('Native MIDI path field is unavailable');if(get(field,'AXValue')!==input.path||get(field,'AXFocused')!==true)throw Error('Native MIDI path field changed');foreground();events.keyCode(36);waitFor(function(){return sheets(p).length===0;},'MIDI file path navigation is unconfirmed');var path=fileSelection(p);return JSON.stringify({prepared:true,windowId:input.windowId,path:path});
+   function visibleRows(p){
+    var entries=[];
+    items(read(find(p,'ColumnView'),'AXColumns')).forEach(function(column){
+     items(read(column,'AXChildren')).filter(function(e){return get(e,'AXRole')==='AXList';}).forEach(function(list){
+      items(read(list,'AXChildren')).forEach(function(row){
+       var urls=items(read(row,'AXChildren')).map(function(child){return read(child,'AXURL');}).filter(function(url){return url&&Number(url.isFileURL)===1;});
+       if(urls.length===1)entries.push({row:row,list:list,path:ObjC.unwrap(urls[0].filePathURL.path),directory:Number(urls[0].hasDirectoryPath)===1});
+      });
+     });
+    });
+    return entries;
+   }
+   for(var step=0;step<32;step++){
+    try{return JSON.stringify({prepared:true,windowId:input.windowId,path:fileSelection(p)});}catch(error){if(String(error.message||error).indexOf('Exactly one native MIDI file')!==0&&String(error.message||error).indexOf('Native MIDI import file selection')!==0)throw error;}
+    var entries=visibleRows(p),fileRow=entries.filter(function(entry){return !entry.directory&&entry.path===input.path;})[0];
+    if(fileRow){
+     // Opening the file row can accept the panel. Select it and leave Open to commit.
+     if($.AXUIElementSetAttributeValue(fileRow.list,$('AXSelectedChildren'),$.NSArray.arrayWithObject(fileRow.row)))throw Error('Native MIDI file selection is unavailable');
+     return JSON.stringify({prepared:true,windowId:input.windowId,path:fileSelection(panel())});
+    }
+    var folders=entries.filter(function(entry){return entry.directory&&typeof entry.path==='string'&&input.path.indexOf(entry.path.replace(/\/+$/,'')+'/')===0;});
+    folders.sort(function(a,b){return b.path.length-a.path.length;});
+    if(!folders.length||($.AXUIElementPerformAction(folders[0].row,$('AXOpen'))&&$.AXUIElementPerformAction(folders[0].row,$('AXPress'))))throw Error('Native MIDI file is not in the visible columns; no key was sent');
+    p=panel();
+   }
+   throw Error('Native MIDI file is not in the visible columns; no key was sent');
   }
   if(input.action==='cancel'){
    fileSelection(p);if($.AXUIElementPerformAction(find(p,'CancelButton'),$('AXPress')))throw Error('Native Open cancellation is unconfirmed');
@@ -54,6 +82,6 @@ function run(argv){
   var document=mainDocument(true);if(!same(document.state,input.document))throw Error('Native MIDI import Set changed before Open');header(document);fileSelection(p);
   var file=$.NSFileManager.defaultManager.attributesOfItemAtPathError($(input.path),null),expected=input.file;
   if(!file||ObjC.unwrap(file.objectForKey($('NSFileType')))!=='NSFileTypeRegular'||ObjC.unwrap(file.objectForKey($('NSFileSystemNumber')).stringValue)!==expected.dev||ObjC.unwrap(file.objectForKey($('NSFileSystemFileNumber')).stringValue)!==expected.ino||ObjC.unwrap(file.objectForKey($('NSFileSize')).stringValue)!==expected.size||Math.abs(Number(file.objectForKey($('NSFileModificationDate')).timeIntervalSince1970)*1000-expected.mtimeMs)>1)throw Error('Native MIDI source file identity changed before Open');
-  foreground();fileSelection(p);importRequested=null;var code=$.AXUIElementPerformAction(find(p,'OKButton'),$('AXPress'));if(code)throw Error('Native MIDI Open outcome is unknown');importRequested=true;return JSON.stringify({importRequested:true});
+  p=panel();fileSelection(p);importRequested=null;var code=$.AXUIElementPerformAction(find(p,'OKButton'),$('AXPress'));if(code)throw Error('Native MIDI Open outcome is unknown');importRequested=true;return JSON.stringify({importRequested:true});
  }catch(error){return JSON.stringify({error:String(error.message||error),importRequested:importRequested,requiresInspection:importRequested!==false||pickerRequested!==false||input.action==='prepare'});}
 }
