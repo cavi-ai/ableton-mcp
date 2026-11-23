@@ -381,8 +381,8 @@ export async function cancelLiveExportDialog(confirmations,host,args){
       targets:dialogs.map(({identity,windowId,title,sheetCount,buttons})=>({identity,windowId,title,sheetCount,buttons}))};
   };
   const plan=await observe();
-  if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan),
-    warning:"Presses Cancel once on each listed window, the export Save panel before Export Audio/Video, then on the Export Audio/Video dialog Live shows again after that Save panel closes. A listed window that is not already on screen is left alone. No audio is rendered, no file is written and no other dialog is answered."};
+  if(args.dryRun!==false)return beginGuardedWrite(confirmations,plan,args,{preview:{
+    warning:"Presses Cancel once on each listed window, the export Save panel before Export Audio/Video, then on the Export Audio/Video dialog Live shows again after that Save panel closes. A listed window that is not already on screen is left alone. No audio is rendered, no file is written and no other dialog is answered."}});
   // A window id reads null while Live is behind another app; a planned and a current id must match when both are read.
   const planned=confirmations.consume(args.confirmationToken,args.planHash),unread=p=>({...p,targets:p.targets.map(t=>({...t,windowId:null}))});
   if(hashPlan(unread(planned))!==hashPlan(unread(plan))||!planned.targets.every((target,index)=>exportWindowIdAgrees(target.windowId,plan.targets[index].windowId)))

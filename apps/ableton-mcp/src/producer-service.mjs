@@ -13,7 +13,7 @@ import { requestSignal, withRequestSignal } from "./request-context.mjs";
 import { getProducerWorkflow } from "./prompts.mjs";
 import { ProductionSessions } from "./production-sessions.mjs";
 import { assertProducerScope, validateProducerScope } from "./producer-scope.mjs";
-import { classifyMutationOutcome } from "./mutation-outcomes.mjs";
+import { classifyMutationOutcome, stampedMutationOutcome } from "./mutation-outcomes.mjs";
 import { assessTaskCompletion, receiptStatus, sameState, taskStatus } from "./production-task-outcome.mjs";
 
 const roles = ["creative", "functional"];
@@ -384,7 +384,7 @@ export class ProducerService {
       }
       after = await this.#live();
     } catch (error) { observationError = error.message; }
-    const operationOutcome = classifyMutationOutcome(operation.tool, callArgs, value);
+    const operationOutcome = stampedMutationOutcome(value) ?? classifyMutationOutcome(operation.tool, callArgs, value);
     const nativeVerificationFailed = operationOutcome.status === "outcome_unknown";
     const nativeMetadata = nativeVerificationFailed ? {nativeVerificationFailed:true} : {};
     const status = receiptStatus({ observationError, operationOutcome, checks });

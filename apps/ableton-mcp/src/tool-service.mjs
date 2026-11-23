@@ -3081,7 +3081,7 @@ export class ToolService {
     if (source.path === before.filePath) throw new Error("requested Live Set is already open");
     const plan = { method: "open_live_set", appPath, path: source.path, source, before: {
       stateVersion: before.stateVersion, setFingerprint: before.setFingerprint, filePath: before.filePath } };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    if (args.dryRun !== false) return this.#issueGuarded(plan, args);
     const current = await this.#liveSetState(args);
     if (current.filePath !== before.filePath) throw new Error("current Live Set changed; re-observe before opening");
     const currentSource = await this.liveSetHost.fileInfo(source.path);
@@ -3100,8 +3100,8 @@ export class ToolService {
     if (context.running.length) throw new Error("Live is already running; use default open mode with fresh Set identity guards");
     const source = await this.liveSetHost.fileInfo(args.path);
     const plan = { method: "open_live_set", mode: "launch", app: context.app, source, environment: context.environment ?? {} };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan),
-      warning: "Launches the configured app with this Set. Startup or recovery dialogs can delay loading; a launch request is not proof that the Set opened." };
+    if (args.dryRun !== false) return this.#issueGuarded(plan, args, {
+      warning: "Launches the configured app with this Set. Startup or recovery dialogs can delay loading; a launch request is not proof that the Set opened." });
     const currentSource = await this.liveSetHost.fileInfo(args.path);
     const current = await this.liveSetHost.launchContext();
     if (current.running.length) throw new Error("Live started after planning; inspect it before opening a Set");
@@ -3132,8 +3132,8 @@ export class ToolService {
       return { method: "answer_live_recovery_prompt", answer: args.answer, pid: observed.pid, appPath: observed.appPath, prompt: observed.prompt };
     };
     const plan = await observe();
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan), warning: args.answer === "No"
-      ? "No declines recovery; Live continues starting without the unsaved work." : "Yes asks Live to recover the unsaved work." };
+    if (args.dryRun !== false) return this.#issueGuarded(plan, args, { warning: args.answer === "No"
+      ? "No declines recovery; Live continues starting without the unsaved work." : "Yes asks Live to recover the unsaved work." });
     this.#consumeConfirmation(await observe(), args);
     let result;
     try { result = await this.liveSetHost.recoveryPrompt({ answer: args.answer, message: plan.prompt.message, signal: requestSignal() }); }
@@ -3156,7 +3156,7 @@ export class ToolService {
     const file = await this.liveSetHost.fileInfo(before.filePath);
     const plan = { method: "save_live_set", appPath, path: file.path, file,
       before: { stateVersion: before.stateVersion, setFingerprint: before.setFingerprint, filePath: before.filePath } };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan) };
+    if (args.dryRun !== false) return this.#issueGuarded(plan, args);
     const current = await this.#liveSetState(args);
     if (current.filePath !== before.filePath) throw new Error("current Live Set changed; re-observe before saving");
     const currentFile = await this.liveSetHost.fileInfo(current.filePath);
@@ -3208,8 +3208,8 @@ export class ToolService {
     const destination = await this.liveSetHost.saveAsDestination(args.path);
     const plan = { method: "save_live_set", mode: "saveAs", appPath, destination, file,
       before: { stateVersion: before.stateVersion, setFingerprint: before.setFingerprint, filePath: before.filePath } };
-    if (args.dryRun !== false) return { dryRun: true, plan, confirmation: this.confirmations.issue(plan),
-      warning: "Save As switches Live to the new Set. Sample references remain external; this is not Collect All and Save." };
+    if (args.dryRun !== false) return this.#issueGuarded(plan, args, {
+      warning: "Save As switches Live to the new Set. Sample references remain external; this is not Collect All and Save." });
     const revalidate = async () => {
       const current = await this.#liveSetState(args);
       if (current.filePath !== before.filePath) throw new Error("current Live Set changed before Save As");

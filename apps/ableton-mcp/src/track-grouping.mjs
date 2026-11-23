@@ -80,7 +80,7 @@ export async function ungroupTracks(bridge,confirmations,host,args){
   before.members.some((m,i)=>m.sourceTrackId!=='track-'+(Number(args.groupTrackId.slice(6))+i+1)))throw Error('updated native ungrouping context required');
  const warning='Removes this Group and its entire processing/mixer stage. Child Group outputs become Main at root or feed the enclosing Group; custom child routes remain. Group effects, gain, pan, mute/solo, sends and its old output route are not transferred. Sound can change. IDs and numbered labels shift. Native selection/focus changes. Exposed descendants and controls are checked, not hidden plug-in state, complete automation or file bytes. No playback, saving, automatic undo or regrouping. Retain ungroupingId before confirming and never repeat an uncertain command.';
  const plan={method:'ungroup_tracks',groupTrackId:args.groupTrackId,allowContent:args.allowContent===true,expectedStateVersion:args.expectedStateVersion,before,warning};
- if(args.dryRun!==false)return {dryRun:true,plan,confirmation:confirmations.issue(plan)};
+ if(args.dryRun!==false)return beginGuardedWrite(confirmations,plan,args);
  if(before.hasGroupDevices&&args.allowContent!==true)throw Error('Group devices require allowContent:true in a fresh reviewed plan');
  consumeConfirmation(confirmations,plan,args,'ungrouping context or content permission changed; review a fresh plan');
  const recheck=async(selection=false)=>{try{
