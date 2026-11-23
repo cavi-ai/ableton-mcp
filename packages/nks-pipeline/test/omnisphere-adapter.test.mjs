@@ -70,6 +70,22 @@ test("Omnisphere keeps existing stable IDs for unique archive patch names", asyn
     sourcePath: join(root, "Factory.db", "Unique.prt_omn") }));
 });
 
+test("Omnisphere decodes XML entities once in embedded folder and patch names", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "omnisphere-entities-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const header = `<FileSystem><DIR name="Keys &amp;quot; Pads">` +
+    `<FILE name="Literal &amp;lt; Pad.prt_omn" offset="0" size="2"/>` +
+    `<FILE name="Literal &lt; Pad.prt_omn" offset="2" size="2"/>` +
+    `</DIR></FileSystem>\n`;
+  await writeFile(join(root, "Factory.db"), Buffer.from(header + "abcd"));
+  const records = await discoverOmnisphereFactoryPresets({
+    enabled: true, productSlug: "omnisphere", vendor: "Spectrasonics", factoryRoots: [root], extensions: [".db"]
+  });
+  assert.deepEqual(records.map(record => record.sourceEntryName).sort(),
+    ["Keys &quot; Pads/Literal &lt; Pad.prt_omn", "Keys &quot; Pads/Literal < Pad.prt_omn"]);
+  assert.equal(new Set(records.map(stablePresetId)).size, 2);
+});
+
 test("Omnisphere rejects malformed patch entries rather than returning an incomplete inventory", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "omnisphere-malformed-"));
   t.after(() => rm(root, { recursive: true, force: true }));
