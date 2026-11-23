@@ -1,6 +1,8 @@
 # Create a playable musical sketch
 
-Use `get_producer_workflow` in the default `all` profile to list workflows. Supply `workflow: "create-musical-sketch"` and named string `arguments` to retrieve the sketch instructions. MCP clients can also open the prompt directly. Both return the same instructions; retrieval does not call Live, execute work or grant permission.
+Run `ableton-mcp prompts` to list prompt templates. Run `ableton-mcp prompt create-musical-sketch --args '{"request":"Create a four-bar chord and bass idea.","mode":"autonomous"}'` to retrieve the sketch instructions.
+
+On the `all` or `producer` profile, MCP clients can open the prompt directly or call `get_producer_workflow` with the workflow name and named string arguments. These routes return the same instructions as the CLI. Retrieving them requires no Live connection or permission to edit the Set.
 
 ```json
 {

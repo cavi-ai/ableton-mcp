@@ -5,8 +5,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { toolContracts } from "../apps/ableton-mcp/src/tool-contracts.mjs";
-
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const work = mkdtempSync(path.join(tmpdir(), "ableton-mcp-package-"));
 const consumer = path.join(work, "consumer");
@@ -17,7 +15,9 @@ function npm(args, cwd) {
 
 function exchange(command, args, env, requests) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { env: { ...process.env, ...env }, stdio: ["pipe", "pipe", "pipe"] });
+    const merged = { ...process.env, ...env };
+    for (const [key, value] of Object.entries(env)) if (value == null) delete merged[key];
+    const child = spawn(command, args, { env: merged, stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => { stdout += chunk; });
@@ -83,7 +83,10 @@ const omnispherePilotPlan = JSON.parse(execFileSync(process.execPath,
 assert.equal(omnispherePilotPlan.dryRun, true);
 assert.equal(omnispherePilotPlan.pilotSize, 1);
 
-const listing = await exchange(bin, ["serve"], { ABLETON_MCP_BRIDGE_SOCKET: path.join(work, "absent.sock") }, [
+const listing = await exchange(bin, ["serve"], {
+  ABLETON_MCP_BRIDGE_SOCKET: path.join(work, "absent.sock"),
+  ABLETON_MCP_TOOL_PROFILE: null, ABLETON_MCP_TOOL_SLICES: null
+}, [
   { id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "package-e2e", version: "0" } } },
   { id: 2, method: "tools/list" },
   { id: 3, method: "resources/list" },
@@ -95,21 +98,23 @@ const listing = await exchange(bin, ["serve"], { ABLETON_MCP_BRIDGE_SOCKET: path
 assert.equal(listing[0].result.serverInfo.name, "ableton-mcp");
 assert.equal(listing[0].result.serverInfo.version, packageVersion);
 assert.deepEqual(listing[0].result._meta["ai.cavi/runtime"], identity);
-assert.equal(listing[1].result.tools.length, Object.keys(toolContracts).length);
-assert.equal(listing[2].result.resources.length, 9);
-assert.equal(listing[3].result.resourceTemplates.length, 13);
-assert.ok(listing[4].result.prompts.length > 0);
-assert.equal(listing[5].result.structuredContent.workflows[0].name,"diagnose-silent-part");
-assert.ok(listing[5].result.structuredContent.workflows.length<=2);
-assert.equal(listing[6].result.structuredContent.workflow,"diagnose-silent-part");
-assert.match(listing[6].result.structuredContent.messages[0].content.text,/Inspect the named part without changing it/);
+assert.equal(listing[1].result.tools.length, 12);
+assert.equal(listing[1].result.tools.some((tool) => tool.name === "get_live_state"), true);
+assert.equal(listing[1].result.tools.some((tool) => tool.name === "get_producer_workflow"), false);
+assert.equal(listing[2].result.resources.length, 7);
+assert.equal(listing[3].result.resourceTemplates.length, 1);
+assert.equal(listing[4].result.prompts.length, 0);
+assert.equal(listing[5].error.code, -32601);
+assert.equal(listing[6].error.code, -32601);
 
-const fixture = await exchange(process.execPath, [path.join(installed, "apps/ableton-mcp/src/server.mjs")], { ABLETON_MCP_FIXTURE: "1" }, [
+const fixture = await exchange(process.execPath, [path.join(installed, "apps/ableton-mcp/src/server.mjs")], {
+  ABLETON_MCP_FIXTURE: "1", ABLETON_MCP_TOOL_PROFILE: "all", ABLETON_MCP_TOOL_SLICES: undefined
+}, [
   { id: 1, method: "tools/call", params: { name: "search_presets", arguments: { query: "Deep" } } }
 ]);
 assert.equal(fixture[0].result.content[0].type, "text");
 
-const producerEnvironment = { ABLETON_MCP_TOOL_PROFILE: "producer", ABLETON_MCP_PRODUCER_CONFIG: "",
+const producerEnvironment = { ABLETON_MCP_TOOL_PROFILE: "producer", ABLETON_MCP_TOOL_SLICES: undefined, ABLETON_MCP_PRODUCER_CONFIG: "",
   ABLETON_MCP_PRODUCER_DIR: path.join(work, "producer"), ABLETON_MCP_BRIDGE_SOCKET: path.join(work, "absent.sock") };
 const producer = await exchange(bin, ["serve"], producerEnvironment, [
   { id: 1, method: "tools/list" },

@@ -9,7 +9,8 @@ From a checkout, run `npm run cli -- <command>`, or `node apps/ableton-mcp/src/c
 | `uninstall [--destination <path>]` | Removes only the installed `CaviMcpBridge` directory. |
 | `doctor` | Distinguishes socket/protocol connection from Live-state availability; reports structured failures, observed capabilities, catalog configuration and Remote Scripts copies. |
 | `identity` | Prints the packaged runtime fingerprint without connecting to Live. |
-| `serve` | Runs a managed MCP server over stdio. |
+| `serve` | Runs a managed MCP server over stdio. With neither `ABLETON_MCP_TOOL_SLICES` nor `ABLETON_MCP_TOOL_PROFILE`, it advertises the `observe` slice. Startup logs the tool count and `baseSchemaBytes`, the size of the serialized tool definitions before any Live discovery examples are added. |
+| `slices` | Lists slice names, tools, resources, and prompts. Does not connect to Live. |
 | `restart [--pid <pid>]` | Replaces one idle managed server worker with this package and verifies its fingerprint while preserving the host connection. Select a PID when multiple servers are running. |
 | `status` | Calls `get_live_state`. |
 | `call <tool> [--args '<json>']` | Validates the arguments against the tool's schema, then calls it. Confirmation tokens persist between calls in `ABLETON_MCP_CONFIRMATION_DIR`. |
@@ -28,7 +29,7 @@ npm run cli -- call list_devices --args '{"trackId":"track-0"}' --json
 
 Restart refuses active or unsettled requests and never replays operations. Make fresh dry-run plans after restarting; in-memory confirmation tokens are discarded and native handles must be inspected again. Durable production sessions remain in their configured artifact directory and require a fresh `resume` inspection.
 
-Only servers launched by this version's `serve` command support managed restart. Older running servers need a host reconnect once. `ABLETON_MCP_SERVER_DIRECTORY` can override the private registration directory, which defaults to `~/.cavi/ableton-mcp/servers`. Registration files contain local control credentials; keep the directory private.
+Reconnect the MCP host once when upgrading from a server that predates tool slices. Managed restart requires compatible session catalog versions so the host can keep using its discovered catalog. `ABLETON_MCP_SERVER_DIRECTORY` can override the private registration directory, which defaults to `~/.cavi/ableton-mcp/servers`. Registration files contain local control credentials; keep the directory private.
 
 ## Live Set files on macOS
 

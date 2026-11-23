@@ -11,6 +11,7 @@ import { withDiscoveryExamples } from "./discovery-examples.mjs";
 import { withRequestSignal } from "./request-context.mjs";
 import { producerToolContracts } from "./producer-contracts.mjs";
 import { bridgeFailureDetails as requestFailure } from './bridge-client.mjs';
+import { normalizeSlices, promptNamesForSlices, resourceUrisForSlices, resourceVisible, sessionSelection, toolsForSlices } from "./tool-slices.mjs";
 
 const SUPPORTED_PROTOCOL_VERSION = "2025-03-26";
 
@@ -38,13 +39,9 @@ const resourceUris = [
   "ableton://track/{track_id}/devices",
   "ableton://device/{device_id}/parameters"
 ];
-const resources = resourceUris.filter((uri) => !uri.includes("{"))
-  .map((uri) => ({ uri, name: uri, mimeType: "application/json" }));
-const resourceTemplates = resourceUris.filter((uri) => uri.includes("{"))
-  .map((uriTemplate) => ({ uriTemplate, name: uriTemplate, mimeType: "application/json" }));
 
-// A smaller first-session surface for hosts with a tight tool-context budget.
-// The full catalog remains the default and every handler keeps its contract.
+// Legacy profile aliases. `serve` with no profile and no slices advertises `observe` only.
+// Handlers stay registered; a session can call only the tools it advertises.
 const coreToolNames = new Set([
   "get_selection_context", "get_session_orientation", "duplicate_midi_clip_variations",
   "search_presets", "get_preset", "get_preset_metadata",
@@ -73,9 +70,38 @@ function listedTools(profile) {
   const producerNames = new Set([...Object.keys(producerToolContracts), "get_producer_workflow", "get_live_state", "transport_stop", "panic"]);
   return Object.keys(toolContracts).filter((name) => profile === "all" || (profile === "directory" ? !Object.hasOwn(producerToolContracts, name)
     : (profile === "producer" ? producerNames : coreToolNames).has(name)))
-    .map((name) => ({ name, ...toolContracts[name], outputSchema: ["core", "producer"].includes(profile)
-      ? compactOutputNames.has(name) ? toolContracts[name].outputSchema : extensibleToolResult
-      : withToolErrorSchema(toolContracts[name].outputSchema) }));
+    .map((name) => advertiseTool(name, ["core", "producer"].includes(profile)));
+}
+
+function advertiseTool(name, compact) {
+  return { name, ...toolContracts[name], outputSchema: compact
+    ? compactOutputNames.has(name) ? toolContracts[name].outputSchema : extensibleToolResult
+    : withToolErrorSchema(toolContracts[name].outputSchema) };
+}
+
+function slicedTools(slices) {
+  const selected = toolsForSlices(slices);
+  return Object.keys(toolContracts).filter((name) => selected.has(name)).map((name) => advertiseTool(name, true));
+}
+
+export function sessionSurface({ toolProfile, toolSlices } = {}) {
+  if (toolSlices !== undefined && toolProfile !== undefined) throw new Error("tool profile and tool slices are mutually exclusive");
+  if (toolSlices !== undefined) {
+    const slices = normalizeSlices(toolSlices);
+    const uris = resourceUrisForSlices(slices);
+    const promptNames = new Set(promptNamesForSlices(slices));
+    return { kind: "slices", slices, tools: slicedTools(slices), prompts: listPrompts().filter((prompt) => promptNames.has(prompt.name)),
+      resourceUris: uris, examples: false };
+  }
+  const profile = toolProfile ?? "all";
+  return { kind: "profile", profile, tools: listedTools(profile), prompts: listPrompts(), resourceUris, examples: profile !== "producer" };
+}
+
+export function sessionLogLine(options) {
+  const surface = sessionSurface(options);
+  const baseSchemaBytes = Buffer.byteLength(JSON.stringify(surface.tools));
+  const label = surface.kind === "slices" ? `slices=${surface.slices.join(",")}` : `profile=${surface.profile}`;
+  return `ableton-mcp session ${label} tools=${surface.tools.length} baseSchemaBytes=${baseSchemaBytes}\n`;
 }
 
 function fixtureService() {
@@ -84,9 +110,14 @@ function fixtureService() {
   return createConfiguredProducerService(new ToolService({ bridge, catalog }));
 }
 
-export function createRouter(service, { toolProfile = "all" } = {}) {
-  const tools = listedTools(toolProfile);
+export function createRouter(service, options = {}) {
+  const surface = sessionSurface(options.toolProfile === undefined && options.toolSlices === undefined ? { toolProfile: "all" } : options);
+  const tools = surface.tools;
   const visibleToolNames = new Set(tools.map((tool) => tool.name));
+  const listedResources = surface.resourceUris.filter((uri) => !uri.includes("{"))
+    .map((uri) => ({ uri, name: uri, mimeType: "application/json" }));
+  const listedTemplates = surface.resourceUris.filter((uri) => uri.includes("{"))
+    .map((uriTemplate) => ({ uriTemplate, name: uriTemplate, mimeType: "application/json" }));
   return async function route(request) {
     const { id, method, params = {} } = request;
     try {
@@ -102,13 +133,15 @@ export function createRouter(service, { toolProfile = "all" } = {}) {
           _meta: { "ai.cavi/runtime": runtimeIdentity() }
         };
       } else if (method === "ping") result = {};
-      else if (method === "resources/list") result = { resources };
-      else if (method === "resources/templates/list") result = { resourceTemplates };
+      else if (method === "resources/list") result = { resources: listedResources };
+      else if (method === "resources/templates/list") result = { resourceTemplates: listedTemplates };
       else if (method === "resources/read") {
+        if (surface.kind === "slices" && !resourceVisible(params.uri, surface.resourceUris))
+          throw Object.assign(new Error(`unknown resource: ${params.uri}`), { code: -32601 });
         const value = await service.readResource(params.uri);
         result = { contents: [{ uri: params.uri, text: JSON.stringify(value), mimeType: "application/json" }] };
       }
-      else if (method === "tools/list") result = { tools: toolProfile !== "producer" && typeof service.discoveryExamples === "function"
+      else if (method === "tools/list") result = { tools: surface.examples && typeof service.discoveryExamples === "function"
         ? withDiscoveryExamples(tools, await service.discoveryExamples()) : tools };
       else if (method === "tools/call") {
         if (typeof params.name !== "string" || !params.name) {
@@ -128,8 +161,10 @@ export function createRouter(service, { toolProfile = "all" } = {}) {
           if (failure) result.structuredContent = { error: failure };
         }
       }
-      else if (method === "prompts/list") result = { prompts: listPrompts() };
+      else if (method === "prompts/list") result = { prompts: surface.prompts };
       else if (method === "prompts/get") {
+        if (surface.kind === "slices" && !surface.prompts.some((prompt) => prompt.name === params.name))
+          throw Object.assign(new Error(`unknown prompt: ${params.name}`), { code: -32602 });
         const prompt = getPrompt(params.name, params.arguments);
         result = { description: prompt.description, messages: prompt.messages };
       }
@@ -143,8 +178,10 @@ export function createRouter(service, { toolProfile = "all" } = {}) {
   };
 }
 
-export async function runStdio({ service, toolProfile = "all", input = process.stdin, output = process.stdout }) {
-  const route = createRouter(service, { toolProfile });
+export async function runStdio({ service, toolProfile, toolSlices, input = process.stdin, output = process.stdout, stderr = process.stderr } = {}) {
+  const options = toolSlices !== undefined ? { toolSlices } : { toolProfile: toolProfile ?? "all" };
+  stderr.write(sessionLogLine(options));
+  const route = createRouter(service, options);
   const lines = createInterface({ input, crlfDelay: Infinity });
   const pending = new Map();
   const specialistTasks = new Set();
@@ -227,18 +264,19 @@ export async function runStdio({ service, toolProfile = "all", input = process.s
 }
 
 if (isMainModule(import.meta.url, process.argv[1])) {
-  if (process.env.ABLETON_MCP_FIXTURE === "1") {
-    process.stderr.write("ableton-mcp fixture mode\n");
-    await runStdio({ service: fixtureService(), toolProfile: process.env.ABLETON_MCP_TOOL_PROFILE || "all" });
-  } else {
-    try {
+  try {
+    const selection = sessionSelection(process.env);
+    if (process.env.ABLETON_MCP_FIXTURE === "1") {
+      process.stderr.write("ableton-mcp fixture mode\n");
+      await runStdio({ service: fixtureService(), ...selection });
+    } else {
       const runtime = createConfiguredService(process.env);
       process.stderr.write("ableton-mcp configured runtime\n");
-      await runStdio({ service: runtime.service, toolProfile: process.env.ABLETON_MCP_TOOL_PROFILE || "all" });
+      await runStdio({ service: runtime.service, ...selection });
       runtime.close();
-    } catch (error) {
-      process.stderr.write(`${error.message}\n`);
-      process.exitCode = 2;
     }
+  } catch (error) {
+    process.stderr.write(`${error.message}\n`);
+    process.exitCode = 2;
   }
 }

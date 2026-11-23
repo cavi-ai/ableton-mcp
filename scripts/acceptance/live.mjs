@@ -32,7 +32,7 @@ export async function runLiveAcceptance({ setPath, model, discovery = "both", ou
   const name = `MCP Acceptance ${randomUUID()}`;
   let client, trackId, original;
   const connect = async mode => {
-    client = new McpAcceptanceClient({ env: { ...process.env, ABLETON_MCP_TOOL_PROFILE: "all", ABLETON_MCP_FIXTURE: "",
+    client = new McpAcceptanceClient({ env: { ...process.env, ABLETON_MCP_TOOL_PROFILE: "all", ABLETON_MCP_TOOL_SLICES: undefined, ABLETON_MCP_FIXTURE: "",
       ABLETON_MCP_PRODUCER_DIR: resolve(outDir, "artifacts"),
       ABLETON_MCP_PRODUCER_CONFIG: JSON.stringify({ functional: { type: "ollama", model, toolDiscovery: mode } }) } });
     await client.request("initialize", { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "live-acceptance", version: "1" } });

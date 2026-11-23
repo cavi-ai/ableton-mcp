@@ -56,6 +56,8 @@ Register the stdio server with your MCP client:
 
 If your client does not inherit your shell's `PATH`, use the absolute path printed by `which ableton-mcp`. Open a Set in Live, then ask your assistant to inspect it and help with your next idea.
 
+With neither selector set, `serve` advertises the `observe` slice. Set `ABLETON_MCP_TOOL_SLICES` for the job, or `ABLETON_MCP_TOOL_PROFILE=all` for the full catalog. `ableton-mcp slices --json` lists the slices. See [Sliced agent sessions](docs/ableton-mcp/source/pages/guides/session-slices.md).
+
 ## Keep making music together
 
 Use [production sessions and specialists](docs/ableton-mcp/source/pages/guides/production-specialists.md) to keep your brief and feedback with the project as it develops. Creative and functional specialists help plan the next pass; you review the changes before they run in Live.
@@ -64,7 +66,7 @@ Explore a [musical sketch](docs/ableton-mcp/source/pages/guides/musical-sketch.m
 
 ## Documentation and help
 
-- [Overview](docs/ableton-mcp/source/pages/introduction/overview.md), [installation](docs/ableton-mcp/source/pages/introduction/installation.md) and [quickstart](docs/ableton-mcp/source/pages/introduction/quickstart.md)
+- [Overview](docs/ableton-mcp/source/pages/introduction/overview.md), [installation](docs/ableton-mcp/source/pages/introduction/installation.md), [quickstart](docs/ableton-mcp/source/pages/introduction/quickstart.md) and [sliced agent sessions](docs/ableton-mcp/source/pages/guides/session-slices.md)
 - [NKS preset catalog](docs/ableton-mcp/source/pages/guides/preset-catalog.md) and [artwork](docs/ableton-mcp/source/pages/guides/artwork.md)
 - [Tools](docs/ableton-mcp/source/pages/reference/tools.md), [CLI](docs/ableton-mcp/source/pages/reference/cli.md) and [configuration](docs/ableton-mcp/source/pages/reference/configuration.md)
 - [Guarded mutations](docs/ableton-mcp/source/pages/guides/guarded-mutations.md), [security model](docs/ableton-mcp/source/pages/security/model.md) and [security reporting](SECURITY.md)

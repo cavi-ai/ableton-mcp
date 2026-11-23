@@ -10,6 +10,9 @@ import { StringDecoder } from "node:string_decoder";
 import { createRuntimeIdentity } from "./runtime-identity.mjs";
 
 const workerEntrypoint = fileURLToPath(new URL("./server.mjs", import.meta.url));
+// Bump when the same session configuration would advertise a different catalog.
+const sessionCatalogVersion = 1;
+const reconnectForCatalog = "managed restart requires a compatible session catalog. Reconnect the MCP host.";
 const directoryFor = env => env.ABLETON_MCP_SERVER_DIRECTORY || join(homedir(), ".cavi", "ableton-mcp", "servers");
 const closed = child => new Promise(resolve => child.once("close", resolve));
 async function stop(child) {
@@ -35,7 +38,7 @@ export async function serveManaged({ env = process.env, input = process.stdin, o
   let identity, endpoint, publishQueue = Promise.resolve(), outputQueue = Promise.resolve(), resolveDone, rejectDone;
   const done = new Promise((resolve, reject) => { resolveDone = resolve; rejectDone = reject; });
   const publish = () => {
-    const value = { pid: process.pid, workerPid: worker.pid, port: endpoint, token, serverIdentity: identity };
+    const value = { pid: process.pid, workerPid: worker.pid, port: endpoint, token, serverIdentity: identity, sessionCatalogVersion };
     publishQueue = publishQueue.then(async () => {
       if (closing) return;
       const temporary = `${filename}.${randomUUID()}.tmp`;
@@ -96,7 +99,9 @@ export async function serveManaged({ env = process.env, input = process.stdin, o
     let body = "", ownsRestart = false;
     try {
       for await (const chunk of request) { body += chunk; if (body.length > 4096) throw new Error("restart request too large"); }
-      const entrypoint = await realpath(JSON.parse(body).entrypoint);
+      const restart = JSON.parse(body);
+      if (restart.sessionCatalogVersion !== sessionCatalogVersion) throw new Error(reconnectForCatalog);
+      const entrypoint = await realpath(restart.entrypoint);
       if (basename(entrypoint) !== "server.mjs") throw new Error("restart requires a packaged server entrypoint");
       const candidate = createRuntimeIdentity(join(dirname(entrypoint), "../../.."));
       if (candidate.name !== "@cavi-ai/ableton-mcp") throw new Error("restart requires the Ableton MCP package");
@@ -168,8 +173,10 @@ export async function restartManaged({ env = process.env, pid } = {}) {
   if (records.length > 1) throw new Error("multiple managed servers; select --pid");
   const servers = [];
   for (const record of records) {
+    if (record.sessionCatalogVersion !== sessionCatalogVersion) throw new Error(reconnectForCatalog);
     const response = await fetch(`http://127.0.0.1:${record.port}/restart`, { method: "POST", signal: AbortSignal.timeout(20000),
-      headers: { authorization: `Bearer ${record.token}`, "content-type": "application/json" }, body: JSON.stringify({ entrypoint: workerEntrypoint }) });
+      headers: { authorization: `Bearer ${record.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ entrypoint: workerEntrypoint, sessionCatalogVersion }) });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "server restart refused");
     servers.push(result);

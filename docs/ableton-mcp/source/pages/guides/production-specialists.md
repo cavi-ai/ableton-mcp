@@ -102,7 +102,7 @@ Each runtime accepts `timeoutMs` from 1,000 to 180,000; the default is 60,000. A
 
 ## Keep the main tool catalog small
 
-Set `ABLETON_MCP_TOOL_PROFILE=producer` in the MCP server environment. This profile advertises nine workflow tools plus `get_live_state`, `transport_stop` and `panic`. Existing `core` and `all` profiles remain available. The CLI's `call` command is independent of discovery profiles.
+`ABLETON_MCP_TOOL_PROFILE=producer` is a temporary alias. It advertises nine workflow tools plus `get_live_state`, `transport_stop` and `panic`. Functional sessions should use [slices](session-slices.md) instead of this alias. Existing `core` and `all` profiles remain available. The CLI's `call` command is independent of discovery profiles.
 
 The `all` and `directory` profiles publish detailed result contracts. The `core` and `producer` profiles retain compact result summaries for discovery; the server and CLI still validate the full contracts on every tool call. Guarded tools must return a complete dry-run plan and confirmation, or an explicit execution-outcome receipt matching the requested mode. Invalid write receipts report an unknown outcome; inspect Live before retrying.
 

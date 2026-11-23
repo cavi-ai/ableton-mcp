@@ -8,6 +8,7 @@ import { PACKAGE_VERSION, defaultRemoteScriptRoots, isMainModule, resolveRuntime
 import { createConfiguredService } from "./runtime.mjs";
 import { runtimeIdentity, withRuntimeIdentity } from "./runtime-identity.mjs";
 import { runStdio } from "./server.mjs";
+import { listSliceCatalog, sessionSelection } from "./tool-slices.mjs";
 import { UnixBridgeClient, bridgeFailureDetails } from "./bridge-client.mjs";
 import { performance } from 'node:perf_hooks';
 import { validateToolArguments, validateToolResult } from "./tool-validation.mjs";
@@ -150,10 +151,16 @@ export async function runCli(argv, dependencies = {}) {
     return result;
   }
   if (parsed.command === "serve") {
+    const selection = sessionSelection(env);
     if (!dependencies.runtimeFactory) { await serveManaged({ env }); return { served: true }; }
     const runtime = runtimeFactory(env);
-    try { await runStdio({ service: runtime.service, toolProfile: env.ABLETON_MCP_TOOL_PROFILE || "all" }); } finally { runtime.close(); }
+    try { await runStdio({ service: runtime.service, ...selection }); } finally { runtime.close(); }
     return { served: true };
+  }
+  if (parsed.command === "slices") {
+    const result = { slices: listSliceCatalog() };
+    print(result, parsed.json, stdout);
+    return result;
   }
   if (parsed.command === "status") {
     const runtime = runtimeFactory(env);
@@ -201,7 +208,7 @@ export async function runCli(argv, dependencies = {}) {
     print(result, parsed.json, stdout);
     return result;
   }
-  const result = { commands: ["install", "uninstall", "doctor", "identity", "serve", "restart", "status", "call", "resource", "prompts", "prompt"], usage: "ableton-mcp <command> [--json]" };
+  const result = { commands: ["install", "uninstall", "doctor", "identity", "serve", "slices", "restart", "status", "call", "resource", "prompts", "prompt"], usage: "ableton-mcp <command> [--json]" };
   print(result, parsed.json, stdout);
   return result;
 }

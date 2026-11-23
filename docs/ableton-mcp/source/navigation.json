@@ -28,6 +28,7 @@
         { "title": "Reverse a MIDI phrase", "path": "guides/midi-retrograde.md" },
         { "title": "Organize names and colors", "path": "guides/session-organization.md" },
         { "title": "Production specialists", "path": "guides/production-specialists.md" },
+        { "title": "Sliced agent sessions", "path": "guides/session-slices.md" },
         { "title": "Create a musical sketch", "path": "guides/musical-sketch.md" },
         { "title": "Relate musical parts", "path": "guides/musical-parts.md" },
         { "title": "Edit selected MIDI notes", "path": "guides/selected-midi-notes.md" },
