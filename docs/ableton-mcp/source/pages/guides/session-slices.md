@@ -6,13 +6,13 @@ Handlers stay in the one binary. A session advertises the union of named slices 
 
 ## Select a slice union
 
-Leave both selectors unset and `serve` advertises `observe`: Live identity, selection, orientation, tempo and meter, scale names, track, scene, and clip lists, and history.
+Leave every selector unset and `serve` advertises `observe`: Live identity, selection, orientation, tempo and meter, scale names, track, scene, and clip lists, and history.
 
 ```bash
 ABLETON_MCP_TOOL_SLICES=observe,drums,transport ableton-mcp serve
 ```
 
-Names are comma-separated. Unknown names, duplicates, and an empty list fail at startup. `ABLETON_MCP_TOOL_SLICES` and `ABLETON_MCP_TOOL_PROFILE` together also fail. Startup logs the slice names, tool count, and base schema size on stderr.
+Names are comma-separated. Unknown names, duplicates, and an empty list fail at startup. Setting more than one of `ABLETON_MCP_TOOLS`, `ABLETON_MCP_TOOL_SLICES`, and `ABLETON_MCP_TOOL_PROFILE` also fails. Startup logs the slice names, tool count, and base schema size on stderr.
 
 ```text
 ableton-mcp session slices=observe,drums,transport tools=34 baseSchemaBytes=32500
@@ -35,6 +35,20 @@ A custom union is allowed. The stock unions below are the ones kept inside 63 to
 `midi` is note reading and editing. `voicing` is scale planning and chord transformation. Together with `observe` they exceed the stock budget, so a harmony session and a note-edit session stay separate. `compare` is instrument comparison, separate from `devices` for the same reason. `feel`, `envelopes`, `audio`, `library`, and `session` are available to a project union and are not part of a stock role.
 
 `observe` is not added automatically. A session that omits it does not receive track lists or Live identity.
+
+## Select exact tools
+
+`ABLETON_MCP_TOOLS` names the exact functional tools a session advertises. The session refuses every other tool and advertises no resources and no workflow prompts.
+
+```bash
+ABLETON_MCP_TOOLS=list_tracks,plan_drum_pattern,create_drum_pattern_clip ableton-mcp serve
+```
+
+Names are comma-separated. Every name must belong to a slice; producer coordination tools are refused. Unknown names, duplicates, and an empty list fail at startup.
+
+```text
+ableton-mcp session allowlist=list_tracks,plan_drum_pattern,create_drum_pattern_clip tools=3 baseSchemaBytes=4491
+```
 
 ## Legacy profiles
 
