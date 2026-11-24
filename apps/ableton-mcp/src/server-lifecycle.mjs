@@ -11,7 +11,7 @@ import { createRuntimeIdentity } from "./runtime-identity.mjs";
 
 const workerEntrypoint = fileURLToPath(new URL("./server.mjs", import.meta.url));
 // Bump when the same session configuration would advertise a different catalog.
-const sessionCatalogVersion = 1;
+const sessionCatalogVersion = 2;
 const reconnectForCatalog = "managed restart requires a compatible session catalog. Reconnect the MCP host.";
 const directoryFor = env => env.ABLETON_MCP_SERVER_DIRECTORY || join(homedir(), ".cavi", "ableton-mcp", "servers");
 const closed = child => new Promise(resolve => child.once("close", resolve));

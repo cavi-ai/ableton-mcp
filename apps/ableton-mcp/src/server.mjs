@@ -11,7 +11,7 @@ import { withDiscoveryExamples } from "./discovery-examples.mjs";
 import { withRequestSignal } from "./request-context.mjs";
 import { producerToolContracts } from "./producer-contracts.mjs";
 import { bridgeFailureDetails as requestFailure } from './bridge-client.mjs';
-import { normalizeSlices, promptNamesForSlices, resourceUrisForSlices, resourceVisible, sessionSelection, toolsForSlices } from "./tool-slices.mjs";
+import { normalizeSlices, normalizeToolNames, promptNamesForSlices, resourceUrisForSlices, resourceVisible, sessionSelection, toolsForSlices } from "./tool-slices.mjs";
 
 const SUPPORTED_PROTOCOL_VERSION = "2025-03-26";
 
@@ -84,8 +84,15 @@ function slicedTools(slices) {
   return Object.keys(toolContracts).filter((name) => selected.has(name)).map((name) => advertiseTool(name, true));
 }
 
-export function sessionSurface({ toolProfile, toolSlices } = {}) {
-  if (toolSlices !== undefined && toolProfile !== undefined) throw new Error("tool profile and tool slices are mutually exclusive");
+export function sessionSurface({ toolProfile, toolSlices, toolNames } = {}) {
+  if ([toolProfile, toolSlices, toolNames].filter((value) => value !== undefined).length > 1)
+    throw new Error("tool profile, tool slices, and tool names are mutually exclusive");
+  if (toolNames !== undefined) {
+    const names = normalizeToolNames(toolNames);
+    const selected = new Set(names);
+    return { kind: "tools", toolNames: names, prompts: [], resourceUris: [], examples: false,
+      tools: Object.keys(toolContracts).filter((name) => selected.has(name)).map((name) => advertiseTool(name, true)) };
+  }
   if (toolSlices !== undefined) {
     const slices = normalizeSlices(toolSlices);
     const uris = resourceUrisForSlices(slices);
@@ -100,7 +107,8 @@ export function sessionSurface({ toolProfile, toolSlices } = {}) {
 export function sessionLogLine(options) {
   const surface = sessionSurface(options);
   const baseSchemaBytes = Buffer.byteLength(JSON.stringify(surface.tools));
-  const label = surface.kind === "slices" ? `slices=${surface.slices.join(",")}` : `profile=${surface.profile}`;
+  const label = surface.kind === "tools" ? `allowlist=${surface.toolNames.join(",")}`
+    : surface.kind === "slices" ? `slices=${surface.slices.join(",")}` : `profile=${surface.profile}`;
   return `ableton-mcp session ${label} tools=${surface.tools.length} baseSchemaBytes=${baseSchemaBytes}\n`;
 }
 
@@ -111,7 +119,8 @@ function fixtureService() {
 }
 
 export function createRouter(service, options = {}) {
-  const surface = sessionSurface(options.toolProfile === undefined && options.toolSlices === undefined ? { toolProfile: "all" } : options);
+  const surface = sessionSurface(options.toolProfile === undefined && options.toolSlices === undefined && options.toolNames === undefined
+    ? { toolProfile: "all" } : options);
   const tools = surface.tools;
   const visibleToolNames = new Set(tools.map((tool) => tool.name));
   const listedResources = surface.resourceUris.filter((uri) => !uri.includes("{"))
@@ -136,7 +145,7 @@ export function createRouter(service, options = {}) {
       else if (method === "resources/list") result = { resources: listedResources };
       else if (method === "resources/templates/list") result = { resourceTemplates: listedTemplates };
       else if (method === "resources/read") {
-        if (surface.kind === "slices" && !resourceVisible(params.uri, surface.resourceUris))
+        if (surface.kind !== "profile" && !resourceVisible(params.uri, surface.resourceUris))
           throw Object.assign(new Error(`unknown resource: ${params.uri}`), { code: -32601 });
         const value = await service.readResource(params.uri);
         result = { contents: [{ uri: params.uri, text: JSON.stringify(value), mimeType: "application/json" }] };
@@ -163,7 +172,7 @@ export function createRouter(service, options = {}) {
       }
       else if (method === "prompts/list") result = { prompts: surface.prompts };
       else if (method === "prompts/get") {
-        if (surface.kind === "slices" && !surface.prompts.some((prompt) => prompt.name === params.name))
+        if (surface.kind !== "profile" && !surface.prompts.some((prompt) => prompt.name === params.name))
           throw Object.assign(new Error(`unknown prompt: ${params.name}`), { code: -32602 });
         const prompt = getPrompt(params.name, params.arguments);
         result = { description: prompt.description, messages: prompt.messages };
@@ -178,8 +187,8 @@ export function createRouter(service, options = {}) {
   };
 }
 
-export async function runStdio({ service, toolProfile, toolSlices, input = process.stdin, output = process.stdout, stderr = process.stderr } = {}) {
-  const options = toolSlices !== undefined ? { toolSlices } : { toolProfile: toolProfile ?? "all" };
+export async function runStdio({ service, toolProfile, toolSlices, toolNames, input = process.stdin, output = process.stdout, stderr = process.stderr } = {}) {
+  const options = toolNames !== undefined ? { toolNames } : toolSlices !== undefined ? { toolSlices } : { toolProfile: toolProfile ?? "all" };
   stderr.write(sessionLogLine(options));
   const route = createRouter(service, options);
   const lines = createInterface({ input, crlfDelay: Infinity });

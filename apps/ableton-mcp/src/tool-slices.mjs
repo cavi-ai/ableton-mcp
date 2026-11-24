@@ -184,12 +184,31 @@ export function normalizeSlices(value) {
   return names;
 }
 
+// Exact sessions name functional tools only; producer coordination is in no slice.
+export function normalizeToolNames(value) {
+  const names = Array.isArray(value) ? value : typeof value === "string" ? value.split(",").map((part) => part.trim()) : null;
+  if (!names || names.length === 0 || names.some((name) => typeof name !== "string" || !name))
+    throw new Error("ABLETON_MCP_TOOLS requires at least one tool");
+  const functional = new Set(Object.values(toolSlices).flat());
+  const seen = new Set();
+  for (const name of names) {
+    if (seen.has(name)) throw new Error(`duplicate tool: ${name}`);
+    if (!functional.has(name)) throw new Error(`unknown functional tool: ${name}`);
+    seen.add(name);
+  }
+  return names;
+}
+
 export function sessionSelection(env = {}) {
   const profile = env.ABLETON_MCP_TOOL_PROFILE;
   const slices = env.ABLETON_MCP_TOOL_SLICES;
+  const tools = env.ABLETON_MCP_TOOLS;
   const hasProfile = profile !== undefined && profile !== "";
   const hasSlices = slices !== undefined;
-  if (hasProfile && hasSlices) throw new Error("ABLETON_MCP_TOOL_PROFILE and ABLETON_MCP_TOOL_SLICES are mutually exclusive");
+  const hasTools = tools !== undefined;
+  const selectors = [hasProfile && "ABLETON_MCP_TOOL_PROFILE", hasSlices && "ABLETON_MCP_TOOL_SLICES", hasTools && "ABLETON_MCP_TOOLS"].filter(Boolean);
+  if (selectors.length > 1) throw new Error(`${selectors.join(" and ")} are mutually exclusive`);
+  if (hasTools) return { toolNames: normalizeToolNames(tools) };
   if (hasSlices) return { toolSlices: normalizeSlices(slices) };
   if (hasProfile) return { toolProfile: profile };
   return { toolSlices: ["observe"] };

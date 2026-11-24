@@ -9,7 +9,7 @@ From a checkout, run `npm run cli -- <command>`, or `node apps/ableton-mcp/src/c
 | `uninstall [--destination <path>]` | Removes only the installed `CaviMcpBridge` directory. |
 | `doctor` | Distinguishes socket/protocol connection from Live-state availability; reports structured failures, observed capabilities, catalog configuration and Remote Scripts copies. |
 | `identity` | Prints the packaged runtime fingerprint without connecting to Live. |
-| `serve` | Runs a managed MCP server over stdio. With neither `ABLETON_MCP_TOOL_SLICES` nor `ABLETON_MCP_TOOL_PROFILE`, it advertises the `observe` slice. Startup logs the tool count and `baseSchemaBytes`, the size of the serialized tool definitions before any Live discovery examples are added. |
+| `serve` | Runs a managed MCP server over stdio. With none of `ABLETON_MCP_TOOLS`, `ABLETON_MCP_TOOL_SLICES`, and `ABLETON_MCP_TOOL_PROFILE`, it advertises the `observe` slice. Startup logs the tool count and `baseSchemaBytes`, the size of the serialized tool definitions before any Live discovery examples are added. |
 | `slices` | Lists slice names, tools, resources, and prompts. Does not connect to Live. |
 | `restart [--pid <pid>]` | Replaces one idle managed server worker with this package and verifies its fingerprint while preserving the host connection. Select a PID when multiple servers are running. |
 | `status` | Calls `get_live_state`. |

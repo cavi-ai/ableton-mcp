@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- `serve` advertises the `observe` slice unless `ABLETON_MCP_TOOL_SLICES` or `ABLETON_MCP_TOOL_PROFILE` selects a session. `ableton-mcp slices` lists the catalog.
+- `serve` advertises the `observe` slice unless `ABLETON_MCP_TOOLS` (exact functional tools), `ABLETON_MCP_TOOL_SLICES` or `ABLETON_MCP_TOOL_PROFILE` selects a session. `ableton-mcp slices` lists the catalog.
 - Add `get_live_dialog_state` and `cancel_live_export_dialog`, which report Live's blocking native dialogs and cancel a leftover Export Audio/Video dialog or its Save panel when that window is already on screen; audio export opens Export Audio/Video from the File menu and presses Export and Save through accessibility without raising Live, closes its own Save panel and Export dialog when Save is disabled, saves into the folder the Save panel shows and moves the verified file to the requested path, reports the route in `exportPress` and `retrySafe`, and returns `blockingDialogs` when blocked.
 - Save As opens, binds, and commits its panel without raising Live, and closes a panel it opened but could not bind or complete.
 - Native commands leave Live where it is. A window that is not already on screen is not raised, and a control without an accessibility action sends no key.

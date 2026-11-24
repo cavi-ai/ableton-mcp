@@ -69,6 +69,37 @@ test("a slice session advertises only its union and refuses hidden tools, prompt
   assert.match(sessionLogLine({ toolSlices: ["observe"] }), /^ableton-mcp session slices=observe tools=12 baseSchemaBytes=\d+\n$/);
 });
 
+test("an exact tool session advertises only the named tools and refuses everything else", async () => {
+  let calls = 0;
+  const service = {
+    call: async () => { calls += 1; return { stateVersion: 1, tracks: [], ok: true }; },
+    readResource: async (uri) => ({ uri })
+  };
+  const route = createRouter(service, sessionSelection({ ABLETON_MCP_TOOLS: "list_tracks, set_tempo" }));
+  const listed = await route({ id: 1, method: "tools/list" });
+  assert.deepEqual(listed.result.tools.map((tool) => tool.name).sort(), ["list_tracks", "set_tempo"]);
+  const hidden = await route({ id: 2, method: "tools/call", params: { name: "get_live_state", arguments: {} } });
+  assert.equal(hidden.error.code, -32601);
+  assert.equal(calls, 0);
+  const visible = await route({ id: 3, method: "tools/call", params: { name: "list_tracks", arguments: {} } });
+  assert.equal(visible.result.structuredContent.ok, true);
+  assert.equal(calls, 1);
+  assert.deepEqual((await route({ id: 4, method: "prompts/list" })).result.prompts, []);
+  assert.equal((await route({ id: 5, method: "prompts/get", params: { name: "harmonize-clip", arguments: {} } })).error.code, -32602);
+  assert.deepEqual((await route({ id: 6, method: "resources/list" })).result.resources, []);
+  assert.deepEqual((await route({ id: 7, method: "resources/templates/list" })).result.resourceTemplates, []);
+  assert.equal((await route({ id: 8, method: "resources/read", params: { uri: "ableton://set/tracks" } })).error.code, -32601);
+  assert.match(sessionLogLine({ toolNames: ["list_tracks"] }), /^ableton-mcp session allowlist=list_tracks tools=1 baseSchemaBytes=\d+\n$/);
+  assert.throws(() => sessionSelection({ ABLETON_MCP_TOOLS: "" }), /at least one tool/);
+  assert.throws(() => sessionSelection({ ABLETON_MCP_TOOLS: "list_tracks,list_tracks" }), /duplicate tool: list_tracks/);
+  assert.throws(() => sessionSelection({ ABLETON_MCP_TOOLS: "nope" }), /unknown functional tool: nope/);
+  assert.throws(() => sessionSelection({ ABLETON_MCP_TOOLS: "run_production_task" }), /unknown functional tool: run_production_task/);
+  assert.throws(() => sessionSelection({ ABLETON_MCP_TOOLS: workflowToolName }), /unknown functional tool/);
+  assert.throws(() => sessionSelection({ ABLETON_MCP_TOOLS: "list_tracks", ABLETON_MCP_TOOL_SLICES: "observe" }), /mutually exclusive/);
+  assert.throws(() => sessionSelection({ ABLETON_MCP_TOOLS: "list_tracks", ABLETON_MCP_TOOL_PROFILE: "all" }), /mutually exclusive/);
+  assert.throws(() => createRouter({}, { toolNames: ["list_tracks"], toolSlices: ["observe"] }), /mutually exclusive/);
+});
+
 test("stock role unions stay inside the core discovery budget", async () => {
   for (const [role, slices] of Object.entries(stockRoles)) {
     const route = createRouter({ call: async () => ({}) }, { toolSlices: slices });

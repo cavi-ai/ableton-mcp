@@ -56,7 +56,7 @@ Register the stdio server with your MCP client:
 
 If your client does not inherit your shell's `PATH`, use the absolute path printed by `which ableton-mcp`. Open a Set in Live, then ask your assistant to inspect it and help with your next idea.
 
-With neither selector set, `serve` advertises the `observe` slice. Set `ABLETON_MCP_TOOL_SLICES` for the job, or `ABLETON_MCP_TOOL_PROFILE=all` for the full catalog. `ableton-mcp slices --json` lists the slices. See [Sliced agent sessions](docs/ableton-mcp/source/pages/guides/session-slices.md).
+With no selector set, `serve` advertises the `observe` slice. Set `ABLETON_MCP_TOOLS` to the exact tools a job needs, `ABLETON_MCP_TOOL_SLICES` for a slice union, or `ABLETON_MCP_TOOL_PROFILE=all` for the full catalog. `ableton-mcp slices --json` lists the slices. See [Sliced agent sessions](docs/ableton-mcp/source/pages/guides/session-slices.md).
 
 ## Keep making music together
 
