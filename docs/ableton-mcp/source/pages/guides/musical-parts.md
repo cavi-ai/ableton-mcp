@@ -1,6 +1,6 @@
 # Understand how MIDI parts relate
 
-For a question such as “how does this bass part relate to the chords?”, start with Set orientation, resolve the requested Session or Arrangement clips, and compares their stored pitch content without editing or starting playback. The `analyze_midi_parts` tool requires the `all` profile and the updated Remote Script.
+For a question such as “how does this bass part relate to the chords?”, start with Set orientation, resolve the requested Session or Arrangement clips, and compare their stored pitch content without editing or starting playback. The `analyze_midi_parts` tool requires the `all` profile and the updated Remote Script.
 
 ## Choose the material
 
