@@ -4,7 +4,7 @@
 
 - macOS. The bridge transport is a Unix domain socket, so Windows is not supported.
 - Ableton Live 12. Tested with 12.4.6.
-- Node.js 22.13 or newer.
+- Node.js 26 or newer.
 - `ffmpeg` and `ffprobe`, for the audio analysis tools.
 - ImageMagick 7 (`magick`), only for the NKS artwork pipeline.
 - Python 3, only for running the bridge's unit tests. Live runs the bridge with its own Python.

@@ -22,7 +22,7 @@ Notes, clips, instruments and mix controls stay editable in Live.
 
 ## Install
 
-Requirements: macOS, Ableton Live 12 (tested with 12.4.6), Node.js 22.13 or newer, and `ffmpeg` for the audio analysis tools.
+Requirements: macOS, Ableton Live 12 (tested with 12.4.6), Node.js 26 or newer, and `ffmpeg` for the audio analysis tools.
 
 ```bash
 npm install -g @cavi-ai/ableton-mcp

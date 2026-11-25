@@ -2,7 +2,7 @@
 
 ## Setup
 
-Install Node.js 22.13 or newer, Python 3, ImageMagick 7 (`magick`), and ffmpeg, then:
+Install Node.js 26 or newer, Python 3, ImageMagick 7 (`magick`), and ffmpeg, then:
 
 ```bash
 npm ci

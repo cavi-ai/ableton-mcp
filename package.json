@@ -149,12 +149,13 @@
     "verify:package": "node scripts/package-e2e.mjs"
   },
   "engines": {
-    "node": ">=22.13"
+    "node": ">=26"
   },
   "dependencies": {
+    "@cavi-ai/mcp-core": "github:cavi-ai/mcp-core#main",
     "ajv": "8.20.0",
-    "midi-file": "1.2.4",
-    "fast-xml-parser": "5.12.1"
+    "fast-xml-parser": "5.12.1",
+    "midi-file": "1.2.4"
   },
   "devDependencies": {
     "@cavi-ai/mcp-eval": "0.9.0",
