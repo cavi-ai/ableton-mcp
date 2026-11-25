@@ -62,5 +62,4 @@ test('omitted slice playback preserves the observed choice and the tool is all-p
   const router=createRouter(service),core=createRouter(service,{toolProfile:'core'}),tools=(await router({id:1,method:'tools/list'})).result.tools;
   assert.equal(tools.find(t=>t.name==='set_simpler_manual_slices').annotations.destructiveHint,true);
   assert.equal((await core({id:2,method:'tools/call',params:{name:'set_simpler_manual_slices',arguments:{}}})).error.code,-32601);
-  assert.ok((await service.call('get_producer_workflow',{workflow:'chop-sample-groove',arguments:{request:'Chop the selected phrase into a sparse groove.',mode:'autonomous'}})).messages.length);
 });

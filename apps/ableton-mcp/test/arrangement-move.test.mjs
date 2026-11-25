@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ToolService} from '../src/tool-service.mjs';
 import {validateToolArguments} from '../src/tool-validation.mjs';
-import {getPrompt} from '../src/prompts.mjs';
 import {toolContracts} from '../src/tool-contracts.mjs';
 
 const args={trackId:'track-0',clipId:'track-0:arrangement-clip-0',startBeats:10,expectedStateVersion:4};
@@ -28,15 +27,4 @@ test('Arrangement move rejects invalid input and an outdated bridge context',asy
  const service=new ToolService({bridge:{request:async()=>{calls++;return {stateVersion:4,trackId:args.trackId,clipId:args.clipId,startBeats:10};}}});
  for(const invalid of [{startBeats:-1},{startBeats:Infinity},{startBeats:NaN},{expectedStateVersion:undefined}])await assert.rejects(service.call('move_arrangement_clip',{...args,...invalid}));
  assert.equal(calls,0);await assert.rejects(service.call('move_arrangement_clip',args),/updated native/);
-});
-
-test('move workflow resolves the musical destination and handles retained staging',()=>{
- for(const mode of ['collaborative','autonomous']){
-  const text=getPrompt('move-arrangement-part',{request:'Bring the bass phrase into the intro',mode}).messages[0].content.text;
-  assert.match(text,/get_selection_context/);assert.match(text,/list_arrangement_cue_points/);assert.match(text,/quarter-note/);
-  assert.match(text,/move_arrangement_clip/);assert.match(text,/stagingStartBeats/);assert.match(text,/moveVerified/);
-  assert.match(text,/stagingClip/);assert.match(text,/Do not replay/);assert.match(text,/audition_arrangement_passage/);
-  for (const reference of new Set(text.match(/[a-z]+(?:_[a-z]+)+/g))) assert.ok(toolContracts[reference], `unknown workflow tool ${reference}`);
- }
- assert.throws(()=>getPrompt('move-arrangement-part',{request:'Move bass',mode:'replace'}),/mode/);
 });

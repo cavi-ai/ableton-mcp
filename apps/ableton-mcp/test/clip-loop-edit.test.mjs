@@ -50,12 +50,6 @@ test('missing context, recording and unknown flags refuse planning',async()=>{
  assert.equal(f.calls.some(x=>x.method==='set_clip_timing'),false);
  }
 });
-
-test('phrase-loop workflow retrieval is read-only and validates modes',async()=>{
- const f=fixture();const r=await f.service.call('get_producer_workflow',{workflow:'set-clip-phrase-loop',arguments:{request:'Try this phrase once'}});assert.ok(r.messages.length);
- await assert.rejects(f.service.call('get_producer_workflow',{workflow:'set-clip-phrase-loop',arguments:{request:'Repeat this',mode:'replace'}}),/mode/);assert.equal(f.calls.length,0);
-});
-
 test('mode-change plans retain omitted observed bounds explicitly',async()=>{
  const f=fixture();const p=await f.service.call('set_clip_timing',{...f.args,loop:{enabled:false}});
  assert.deepEqual(p.plan.changes.loop,{enabled:false,startBeats:0,endBeats:4});

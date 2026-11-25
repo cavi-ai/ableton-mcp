@@ -3,7 +3,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {ToolService} from "../src/tool-service.mjs";
 import {validateToolArguments} from "../src/tool-validation.mjs";
-import {getPrompt} from "../src/prompts.mjs";
 import {createRouter} from "../src/server.mjs";
 
 const args={trackId:"track-0",sendId:"send-0",returnTrackId:"return-0",sendDb:-12,expectedStateVersion:3};
@@ -24,7 +23,7 @@ test("send dB plans bind native identity, current gain and the selected Return w
   await assert.rejects(service.call("set_track_send_db",confirmed));assert.equal(writes,1);
 });
 
-test("send dB contract and mix workflow preserve named destinations and unsupported-state boundaries",async()=>{
+test("send dB contract preserves named destinations and unsupported-state boundaries",async()=>{
   assert.equal(validateToolArguments("set_track_send_db",args).sendDb,-12);
   assert.equal(validateToolArguments("set_track_send_db",{...args,sendDb:"-inf"}).sendDb,"-inf");
   assert.throws(()=>validateToolArguments("set_track_send_db",{...args,sendDb:"-12"}));
@@ -32,8 +31,6 @@ test("send dB contract and mix workflow preserve named destinations and unsuppor
   for(const input of [{...args,sendId:"send-00"},{...args,returnTrackId:"return-1"},{...args,sendDb:Infinity}]){
     await assert.rejects(service.call("set_track_send_db",input),/canonical|same|finite/);
   }
-  const text=getPrompt("balance-mix",{request:"Raise the piano's Reverb send by 2 dB"}).messages[0].content.text;
-  for(const phrase of ["set_track_send_db","returnTrackId","silent send","automation","pre/post","manual edits"])assert.ok(text.includes(phrase),phrase);
 });
 
 test("send dB tool is callable only in the all profile",async()=>{

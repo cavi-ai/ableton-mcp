@@ -1,12 +1,10 @@
 # Diagnose a silent part
 
-Use `diagnose-silent-part` through the MCP prompt or `get_producer_workflow`. Describe the exact part and what should be sounding. The workflow starts with observation and proposes a remedy from the evidence; retrieving it does not call Live or change controls.
+Resolve the exact part and what should be sounding. Start with observation and propose a remedy from the evidence.
 
 ## Read actual activity
 
 `get_track_signal_activity` requires the `all` profile and the updated Remote Script. Supply one observed `trackId`, or a `trackIds` list of 1–64 unique ordinary track, Group, Return or Main IDs. Each call reads native input/output peak-hold meters and current transport, mute, solo, arm, monitoring and Session playback flags in one Live callback. Unsupported control fields remain `null`.
-
-Production specialists can discover this read schema through `discover_production_tools` before requesting it on a later turn. Ollama read requests and checks use the schemas supplied for the current turn, alongside bounded discovery and artifact reads. Creative specialists can discover reads only; the coordinator independently validates either runtime's requests. Discovery grants no operation authority and does not execute the diagnostic workflow automatically.
 
 ```json
 { "trackId": "track-2" }

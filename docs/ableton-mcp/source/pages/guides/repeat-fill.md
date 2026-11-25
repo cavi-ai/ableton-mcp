@@ -1,6 +1,6 @@
 # Perform a temporary Repeat fill
 
-Ask for a short gesture such as “Try a half-second triplet fill on this drum part.” Retrieve `perform-repeat-fill` through MCP prompts or `get_producer_workflow`, passing the request. The workflow resolves the exact track and native Beat Repeat before touching controls. Explicit targets take precedence over selection.
+Ask for a short gesture such as “Try a half-second triplet fill on this drum part.” Resolve the exact track and native Beat Repeat before touching controls. Explicit targets take precedence over selection.
 
 ## Prepare the effect
 

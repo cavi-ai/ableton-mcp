@@ -1,7 +1,6 @@
 # Try native clip grooves
 
-Ask for a groove alternative, such as “Try the existing sixteenth swing on this drum clip; keep the original,” or for an explicit removal, such as “Remove the groove from this clip without baking it.” Retrieve `try-clip-groove` through MCP prompts or `get_producer_workflow`, with the request and optional `mode: "collaborative"` or `"autonomous"`.
-
+Ask for a groove alternative, such as “Try the existing sixteenth swing on this drum clip; keep the original,” or for an explicit removal, such as “Remove the groove from this clip without baking it.”
 ## Compare an alternative
 
 The workflow resolves the exact requested Session or Arrangement clip and reads `get_clip_groove_context`: source notes or audio state, timing, the Groove Pool and global musical context. Selection is a fallback when the request does not name a target. It does not establish what the user hears.

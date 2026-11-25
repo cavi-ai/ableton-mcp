@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ToolService} from '../src/tool-service.mjs';
 import {createRouter} from '../src/server.mjs';
-import {getPrompt} from '../src/prompts.mjs';
 
 test('native A/B confirmation signs current context and requires explicit other-slot overwrite',async()=>{
   let digest='original',writes=0;
@@ -23,12 +22,9 @@ test('native A/B confirmation signs current context and requires explicit other-
   assert.equal(result.observed.copyVerified,false);assert.equal(writes,1);
 });
 
-test('A/B tools remain outside core and the workflow distinguishes hidden state from slot readback',async()=>{
+test('A/B tools remain outside core',async()=>{
   const service=new ToolService({bridge:{request:async()=>({supported:false})}}),all=createRouter(service),core=createRouter(service,{toolProfile:'core'});
   const tools=(await all({id:1,method:'tools/list'})).result.tools;
   assert.equal(tools.find(x=>x.name==='get_device_ab_context').annotations.readOnlyHint,true);
   for(const name of ['get_device_ab_context','copy_device_ab_slot','select_device_ab_slot'])assert.equal((await core({id:2,method:'tools/call',params:{name,arguments:{}}})).error.code,-32601);
-  const text=getPrompt('compare-device-ab',{request:'Compare two filter settings and keep my notes'}).messages[0].content.text;
-  for(const term of ['get_device_ab_context','copy_device_ab_slot','select_device_ab_slot','overwriteOtherSlot','copyVerified','slotVerified'])assert.ok(text.includes(term),term);
-  assert.match(text,/hidden/i);assert.match(text,/manual edits/i);assert.match(text,/never.*retry blindly/i);
 });

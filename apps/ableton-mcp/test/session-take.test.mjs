@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {ToolService} from "../src/tool-service.mjs";
-import {getPrompt} from "../src/prompts.mjs";
 
 test("fixed-length recording binds native readiness and refuses changed input before dispatch",async()=>{
   let input="external",writes=0;
@@ -20,9 +19,4 @@ test("fixed-length recording binds native readiness and refuses changed input be
   const confirmed={...args,dryRun:false,confirmationToken:planned.confirmation.token,planHash:planned.confirmation.planHash};
   input="changed";await assert.rejects(service.call("launch_clip",confirmed),/hash mismatch/);assert.equal(writes,0);
   input="external";assert.equal((await service.call("launch_clip",confirmed)).observed.recordingVerified,false);assert.equal(writes,1);
-});
-
-test("Session take workflow separates recording authority, completion and recovery",()=>{
-  const text=getPrompt("record-session-take",{request:"Record four bars on the selected input"}).messages[0].content.text;
-  for(const phrase of ["highlightedClipSlot","recordLengthBeats","isRecording","manual edits","input","never blindly","not prove","length mismatch"])assert.ok(text.includes(phrase),phrase);
 });

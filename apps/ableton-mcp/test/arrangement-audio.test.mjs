@@ -5,7 +5,6 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {ToolService} from '../src/tool-service.mjs';
 import {createRouter} from '../src/server.mjs';
-import {getPrompt} from '../src/prompts.mjs';
 
 async function fixture(t){
  const dir=await mkdtemp(join(tmpdir(),'arrangement-audio-'));t.after(()=>rm(dir,{recursive:true,force:true}));const sourcePath=join(dir,'take.wav');await writeFile(sourcePath,'source');
@@ -29,9 +28,4 @@ test('audio Arrangement import requires explicit valid arguments and stays outsi
  const f=await fixture(t),route=createRouter(f.service),core=createRouter(f.service,{toolProfile:'core'});
  for(const change of [{name:''},{name:'bad\nname'},{startBeats:-1},{sourcePath:undefined}])assert.equal((await route({id:1,method:'tools/call',params:{name:'create_arrangement_audio_clip',arguments:{...f.args,...change}}})).error.code,-32602);
  assert.equal((await core({id:2,method:'tools/call',params:{name:'create_arrangement_audio_clip',arguments:f.args}})).error.code,-32601);assert.equal(f.writes(),0);
-});
-test('audio import workflow distinguishes direct empty-track import from staged warped placement',()=>{
- const text=getPrompt('import-audio-file',{request:'Bring this vocal into the verse',mode:'autonomous'}).messages[0].content.text;
- assert.match(text,/create_arrangement_audio_clip/);assert.match(text,/place_session_clip_in_arrangement/);assert.match(text,/unwarped/);
- assert.throws(()=>getPrompt('import-audio-file',{request:'Vocal',mode:'unknown'}));
 });

@@ -2,16 +2,14 @@ import { createInterface } from "node:readline";
 import { ToolService } from "./tool-service.mjs";
 import { PACKAGE_VERSION, isMainModule } from "./paths.mjs";
 import { runtimeIdentity, withRuntimeIdentity } from "./runtime-identity.mjs";
-import { createConfiguredProducerService, createConfiguredService } from "./runtime.mjs";
+import { createConfiguredService } from "./runtime.mjs";
 import { toolContracts } from "./tool-contracts.mjs";
 import { compactOutputNames, extensibleToolResult, withToolErrorSchema } from "./tool-output-contracts.mjs";
 import { validateToolArguments, validateToolResult } from "./tool-validation.mjs";
-import { getPrompt, listPrompts } from "./prompts.mjs";
 import { withDiscoveryExamples } from "./discovery-examples.mjs";
 import { withRequestSignal } from "./request-context.mjs";
-import { producerToolContracts } from "./producer-contracts.mjs";
 import { bridgeFailureDetails as requestFailure } from './bridge-client.mjs';
-import { normalizeSlices, normalizeToolNames, promptNamesForSlices, resourceUrisForSlices, resourceVisible, sessionSelection, toolsForSlices } from "./tool-slices.mjs";
+import { normalizeSlices, normalizeToolNames, resourceUrisForSlices, resourceVisible, sessionSelection, toolsForSlices } from "./tool-slices.mjs";
 
 const SUPPORTED_PROTOCOL_VERSION = "2025-03-26";
 
@@ -66,11 +64,9 @@ const coreToolNames = new Set([
 ]);
 
 function listedTools(profile) {
-  if (!["all", "core", "producer", "directory"].includes(profile)) throw new Error(`unknown tool profile: ${profile}`);
-  const producerNames = new Set([...Object.keys(producerToolContracts), "get_producer_workflow", "get_live_state", "transport_stop", "panic"]);
-  return Object.keys(toolContracts).filter((name) => profile === "all" || (profile === "directory" ? !Object.hasOwn(producerToolContracts, name)
-    : (profile === "producer" ? producerNames : coreToolNames).has(name)))
-    .map((name) => advertiseTool(name, ["core", "producer"].includes(profile)));
+  if (!["all", "core", "directory"].includes(profile)) throw new Error(`unknown tool profile: ${profile}`);
+  return Object.keys(toolContracts).filter((name) => profile !== "core" || coreToolNames.has(name))
+    .map((name) => advertiseTool(name, profile === "core"));
 }
 
 function advertiseTool(name, compact) {
@@ -95,13 +91,10 @@ export function sessionSurface({ toolProfile, toolSlices, toolNames } = {}) {
   }
   if (toolSlices !== undefined) {
     const slices = normalizeSlices(toolSlices);
-    const uris = resourceUrisForSlices(slices);
-    const promptNames = new Set(promptNamesForSlices(slices));
-    return { kind: "slices", slices, tools: slicedTools(slices), prompts: listPrompts().filter((prompt) => promptNames.has(prompt.name)),
-      resourceUris: uris, examples: false };
+    return { kind: "slices", slices, tools: slicedTools(slices), prompts: [], resourceUris: resourceUrisForSlices(slices), examples: false };
   }
   const profile = toolProfile ?? "all";
-  return { kind: "profile", profile, tools: listedTools(profile), prompts: listPrompts(), resourceUris, examples: profile !== "producer" };
+  return { kind: "profile", profile, tools: listedTools(profile), prompts: [], resourceUris, examples: true };
 }
 
 export function sessionLogLine(options) {
@@ -115,7 +108,7 @@ export function sessionLogLine(options) {
 function fixtureService() {
   const catalog = { search: ({ query }) => [{ id: "serum-2:fixture", name: query || "Deep" }] };
   const bridge = { request: async (method) => ({ method, stateVersion: 1, setFingerprint: "fixture" }) };
-  return createConfiguredProducerService(new ToolService({ bridge, catalog }));
+  return new ToolService({ bridge, catalog });
 }
 
 export function createRouter(service, options = {}) {
@@ -171,12 +164,7 @@ export function createRouter(service, options = {}) {
         }
       }
       else if (method === "prompts/list") result = { prompts: surface.prompts };
-      else if (method === "prompts/get") {
-        if (surface.kind !== "profile" && !surface.prompts.some((prompt) => prompt.name === params.name))
-          throw Object.assign(new Error(`unknown prompt: ${params.name}`), { code: -32602 });
-        const prompt = getPrompt(params.name, params.arguments);
-        result = { description: prompt.description, messages: prompt.messages };
-      }
+      else if (method === "prompts/get") throw Object.assign(new Error(`unknown prompt: ${params.name}`), { code: -32602 });
       else throw Object.assign(new Error(`method not found: ${method}`), { code: -32601 });
       return { jsonrpc: "2.0", id, result };
     } catch (error) {
@@ -193,7 +181,6 @@ export async function runStdio({ service, toolProfile, toolSlices, toolNames, in
   const route = createRouter(service, options);
   const lines = createInterface({ input, crlfDelay: Infinity });
   const pending = new Map();
-  const specialistTasks = new Set();
   let queue = Promise.resolve();
   let disconnected = false;
   const disconnect = () => {
@@ -257,17 +244,10 @@ export async function runStdio({ service, toolProfile, toolSlices, toolNames, in
         pending.delete(request.id);
       }
     };
-    if (request.method === "tools/call" && (request.params?.name === "run_production_task" ||
-        (request.params?.name === "advance_production_session" && request.params?.arguments?.action === "propose"))) {
-      // Proposal work cannot mutate Live and must not hold the control queue.
-      const task = dispatch();
-      specialistTasks.add(task);
-      task.then(() => specialistTasks.delete(task), () => specialistTasks.delete(task));
-    } else enqueue(dispatch);
+    enqueue(dispatch);
   }
   // CLI callers may half-close stdin after sending their requests.
   await queue;
-  await Promise.all(specialistTasks);
   output.off("close", disconnect);
   output.off("error", disconnect);
 }

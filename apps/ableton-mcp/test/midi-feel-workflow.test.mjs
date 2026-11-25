@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {ToolService} from "../src/tool-service.mjs";
 import {createRouter} from "../src/server.mjs";
-import {getProducerWorkflow} from "../src/prompts.mjs";
 import {validateToolArguments} from "../src/tool-validation.mjs";
 
 test("feel contracts accept explicit origins and exact source selection, refusing malformed selection before Live", async () => {
@@ -57,20 +56,4 @@ test("guarded feel transfer binds the target origin, edits a late loop note and 
   assert.equal(writes, 1);
   assert.deepEqual(result.observed.notes[1], before.notes[1]);
   assert.deepEqual({...result.observed.notes[0], start: before.notes[0].start, velocity: before.notes[0].velocity}, before.notes[0]);
-});
-
-test("MIDI feel workflow is available through producer discovery without calling Live", async () => {
-  const route = createRouter(new ToolService({bridge: {request: async () => {throw Error("unexpected native call");}}}), {toolProfile: "producer"});
-  const listed = await route({id: 1, method: "tools/call", params: {name: "get_producer_workflow", arguments: {}}});
-  assert.ok(listed.result.structuredContent.workflows.find(w => w.name === "match-midi-feel"));
-  assert.throws(() => getProducerWorkflow({workflow: "match-midi-feel"}), /request/);
-  assert.throws(() => getProducerWorkflow({workflow: "match-midi-feel", arguments: {request: "Follow the hats", mode: "replace"}}), /mode/);
-  const text = getProducerWorkflow({workflow: "match-midi-feel", arguments: {request: "Give the bass the hat timing", mode: "autonomous"}}).messages[0].content.text;
-  assert.match(text, /Give the bass the hat timing/);
-  assert.match(text, /originBeats/);
-  assert.match(text, /noteIds/);
-  assert.match(text, /duplicate_clip/);
-  assert.match(text, /fresh copy.*original|original.*fresh copy/i);
-  assert.match(text, /native groove/);
-  assert.match(text, /manual edits/);
 });

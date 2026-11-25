@@ -1,6 +1,6 @@
 # Compare a mix with a reference
 
-Use `compare-mix-to-reference` when you want to understand level differences between a mix and a local reference, then choose a refinement together. Supply `request`, an absolute `referencePath` and optionally an absolute `mixPath`. The workflow and `compare_audio_reference` use the `all` profile.
+`compare_audio_reference` measures level differences between a mix and a local reference, so you can choose a refinement together. It takes an absolute reference path and uses the `all` profile.
 
 ## Choose the material
 

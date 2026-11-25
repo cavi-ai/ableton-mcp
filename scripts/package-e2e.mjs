@@ -39,15 +39,6 @@ npm(["install", "--no-audit", "--no-fund", path.join(work, filename)], consumer)
 const bin = path.join(consumer, "node_modules/.bin/ableton-mcp");
 const installed = path.join(consumer, "node_modules/@cavi-ai/ableton-mcp");
 const packageVersion = JSON.parse(readFileSync(path.join(installed, "package.json"), "utf8")).version;
-const { createProducerRuntime } = await import(pathToFileURL(path.join(installed, "apps/ableton-mcp/src/producer-runtime.mjs")));
-const specialistReply = { summary: "Inspect the supplied context.", reads: [], operations: [], checks: [], questions: [], alternatives: [] };
-const specialist = createProducerRuntime({ type: "api-client", provider: "claude", model: "test-model", allowRemote: true }, {
-  env: { ANTHROPIC_API_KEY: "package-test-key" },
-  fetch: async () => new Response(`event: content_block_delta\ndata: ${JSON.stringify({
-    delta: { type: "text_delta", text: JSON.stringify(specialistReply) }
-  })}\n\nevent: message_stop\ndata: {}\n\n`)
-});
-assert.deepEqual(await specialist.generate({ role: "creative", goal: "Inspect", context: [] }), specialistReply);
 const { classifyMutationOutcome } = await import(pathToFileURL(path.join(installed, "apps/ableton-mcp/src/mutation-outcomes.mjs")));
 for (const [name, field] of [["capture_session_scene", "captureVerified"], ["duplicate_clip", "copyVerified"]]) {
   const failed = classifyMutationOutcome(name, { expectedStateVersion: 1, dryRun: false },
@@ -91,21 +82,16 @@ const listing = await exchange(bin, ["serve"], {
   { id: 2, method: "tools/list" },
   { id: 3, method: "resources/list" },
   { id: 4, method: "resources/templates/list" },
-  { id: 5, method: "prompts/list" },
-  { id: 6, method: "tools/call", params: {name:"get_producer_workflow",arguments:{query:"silent part",limit:2}} },
-  { id: 7, method: "tools/call", params: {name:"get_producer_workflow",arguments:{workflow:"diagnose-silent-part",arguments:{request:"Inspect the named part without changing it."}}} }
+  { id: 5, method: "prompts/list" }
 ]);
 assert.equal(listing[0].result.serverInfo.name, "ableton-mcp");
 assert.equal(listing[0].result.serverInfo.version, packageVersion);
 assert.deepEqual(listing[0].result._meta["ai.cavi/runtime"], identity);
 assert.equal(listing[1].result.tools.length, 12);
 assert.equal(listing[1].result.tools.some((tool) => tool.name === "get_live_state"), true);
-assert.equal(listing[1].result.tools.some((tool) => tool.name === "get_producer_workflow"), false);
 assert.equal(listing[2].result.resources.length, 7);
 assert.equal(listing[3].result.resourceTemplates.length, 1);
 assert.equal(listing[4].result.prompts.length, 0);
-assert.equal(listing[5].error.code, -32601);
-assert.equal(listing[6].error.code, -32601);
 
 const fixture = await exchange(process.execPath, [path.join(installed, "apps/ableton-mcp/src/server.mjs")], {
   ABLETON_MCP_FIXTURE: "1", ABLETON_MCP_TOOL_PROFILE: "all", ABLETON_MCP_TOOL_SLICES: undefined
@@ -114,41 +100,13 @@ const fixture = await exchange(process.execPath, [path.join(installed, "apps/abl
 ]);
 assert.equal(fixture[0].result.content[0].type, "text");
 
-const producerEnvironment = { ABLETON_MCP_TOOL_PROFILE: "producer", ABLETON_MCP_TOOL_SLICES: undefined, ABLETON_MCP_PRODUCER_CONFIG: "",
-  ABLETON_MCP_PRODUCER_DIR: path.join(work, "producer"), ABLETON_MCP_BRIDGE_SOCKET: path.join(work, "absent.sock") };
-const producer = await exchange(bin, ["serve"], producerEnvironment, [
-  { id: 1, method: "tools/list" },
-  { id: 2, method: "tools/call", params: { name: "record_production_note", arguments: {
-    projectId: "song", kind: "intent", text: "Preserve the original bass." } } },
-  { id: 3, method: "tools/call", params: {name:"get_producer_workflow",arguments:{query:"record Session take",limit:1}} }
-]);
-assert.equal(producer[0].result.tools.length, 12);
-assert.equal(producer[2].result.structuredContent.workflows[0].name,"record-session-take");
-const noteRef = producer[1].result.structuredContent.noteRef;
-assert.match(noteRef, /^[a-f0-9]{64}$/);
-const note = JSON.parse(execFileSync(bin, ["call", "read_production_artifact", "--args",
-  JSON.stringify({ projectId: "song", artifactId: noteRef }), "--json"], {
-  encoding: "utf8", env: { ...process.env, ...producerEnvironment }
-}));
-assert.match(note.text, /Preserve the original bass/);
-const producerFixture = await exchange(process.execPath, [path.join(installed, "apps/ableton-mcp/src/server.mjs")],
-  { ...producerEnvironment, ABLETON_MCP_FIXTURE: "1" }, [{ id: 1, method: "tools/call", params: {
-    name: "read_production_artifact", arguments: { projectId: "song", artifactId: noteRef }
-  } }]);
-assert.equal(producerFixture[0].result.isError, undefined);
-assert.match(producerFixture[0].result.structuredContent.text, /Preserve the original bass/);
-
-const directory = await exchange(bin, ["serve"], { ...producerEnvironment, ABLETON_MCP_TOOL_PROFILE: "directory" }, [
-  { id: 1, method: "tools/list" },
-  { id: 2, method: "tools/call", params: { name: "apply_production_operation", arguments: {} } },
-  { id: 3, method: "tools/call", params: { name: "advance_production_session", arguments: {} } }
+const directory = await exchange(bin, ["serve"], { ABLETON_MCP_TOOL_PROFILE: "directory", ABLETON_MCP_TOOL_SLICES: undefined,
+  ABLETON_MCP_BRIDGE_SOCKET: path.join(work, "absent.sock") }, [
+  { id: 1, method: "tools/list" }
 ]);
 assert.equal(directory[0].result.tools.some(tool => tool.name === "set_bulk_track_mixer"), true);
-assert.equal(directory[0].result.tools.some(tool => tool.name === "run_production_task"), false);
 for (const tool of directory[0].result.tools) for (const hint of ["readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"])
   assert.equal(typeof tool.annotations[hint], "boolean", `${tool.name}.${hint}`);
-assert.equal(directory[1].error.code, -32601);
-assert.equal(directory[2].error.code, -32601);
 
 const remoteScripts = path.join(work, "Remote Scripts");
 execFileSync(bin, ["install", "--destination", remoteScripts, "--json"], { encoding: "utf8" });
@@ -170,12 +128,10 @@ assert.ok(!existsSync(path.join(installed, "apps/ableton-mcp/test")));
 process.stdout.write(`${JSON.stringify({
   tarball: filename,
   tools: listing[1].result.tools.length,
-  producerTools: producer[0].result.tools.length,
   directoryTools: directory[0].result.tools.length,
   resources: listing[2].result.resources.length,
   resourceTemplates: listing[3].result.resourceTemplates.length,
   prompts: listing[4].result.prompts.length,
-  workflowSearchProfiles:["all","producer"],
   bridgeFiles
 })}\n`);
 rmSync(work, { recursive: true, force: true });

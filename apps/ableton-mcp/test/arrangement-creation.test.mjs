@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ToolService} from '../src/tool-service.mjs';
 import {createRouter} from '../src/server.mjs';
-import {getPrompt} from '../src/prompts.mjs';
 const args={trackId:'track-0',startBeats:16,lengthBeats:4,name:'Verse chords',notes:[{pitch:60,start:0,duration:1,velocity:80}],expectedStateVersion:4};
 function fixture(){
  let identity='track-a',trackName='Piano',writes=0;
@@ -27,11 +26,4 @@ test('Arrangement creation validates clip bounds, names and MIDI notes and remai
  for(const change of [{lengthBeats:0},{startBeats:-1},{name:''},{name:'line\nbreak'},{notes:[{pitch:128,start:0,duration:1,velocity:80}]}])assert.equal((await route({id:1,method:'tools/call',params:{name:'create_arrangement_midi_clip',arguments:{...args,...change}}})).error.code,-32602);
  await assert.rejects(f.service.call('create_arrangement_midi_clip',{...args,notes:[{pitch:60,start:3,duration:2,velocity:80}]}));
  assert.equal((await core({id:2,method:'tools/call',params:{name:'create_arrangement_midi_clip',arguments:args}})).error.code,-32601);assert.equal(f.writes(),0);
-});
-test('sketch workflow supports Arrangement composition and preserves Session default',()=>{
- const text=getPrompt('create-musical-sketch',{request:'Add chords under the verse',location:'arrangement',mode:'autonomous'}).messages[0].content.text;
- assert.match(text,/create_arrangement_midi_clip/);assert.match(text,/audition_arrangement_passage/);
- assert.deepEqual(getPrompt('create-musical-sketch',{request:'A chord idea'}),getPrompt('create-musical-sketch',{request:'A chord idea',location:'session'}));
- assert.doesNotMatch(getPrompt('create-musical-sketch',{request:'A chord idea'}).messages[0].content.text,/create_arrangement_midi_clip/);
- assert.throws(()=>getPrompt('create-musical-sketch',{request:'A chord idea',location:'elsewhere'}));
 });

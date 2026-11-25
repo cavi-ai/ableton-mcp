@@ -9,7 +9,6 @@ import {createHash} from 'node:crypto';
 import {compareAudioReference} from '../src/audio-reference.mjs';
 import {ToolService} from '../src/tool-service.mjs';
 import {createRouter} from '../src/server.mjs';
-import {getPrompt} from '../src/prompts.mjs';
 import {analyzeAudioFile} from '../src/audio-analysis.mjs';
 import {withRequestSignal} from '../src/request-context.mjs';
 
@@ -101,9 +100,3 @@ test('the production router exposes comparison read-only in all without touching
   const core=createRouter(service,{toolProfile:'core'});
   assert.equal((await core({id:3,method:'tools/call',params:{name:'compare_audio_reference',arguments:args}})).error.code,-32601);
 }));
-
-test('reference workflow requires rendered provenance, musical scope and user feedback before edits',()=>{
-  const text=getPrompt('compare-mix-to-reference',{request:'Compare the chorus and leave my mix alone',referencePath:'/audio/reference.wav'}).messages[0].content.text;
-  for(const term of ['compare_audio_reference','capture_live_audio','get_live_audio_capture','export_audio_mix','sha256','levelMatch','balance-mix'])assert.ok(text.includes(term),term);
-  assert.match(text,/equal.*duration/i);assert.match(text,/not.*quality/i);assert.match(text,/user.*hear|what.*hear/i);assert.match(text,/never.*retry blindly/i);
-});

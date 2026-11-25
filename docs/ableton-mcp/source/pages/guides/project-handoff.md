@@ -1,6 +1,6 @@
 # Collect Project samples for handoff
 
-Use `prepare-project-handoff` through `get_producer_workflow` to prepare the current Set for backup or collaboration. The workflow saves intended edits, inspects saved sample references, uses Live’s native **Collect All and Save**, and checks the copied samples. Sharing or uploading the Project requires separate intent.
+Prepare the current Set for backup or collaboration: save intended edits, inspect saved sample references, run Live’s native **Collect All and Save** through `collect_project_media`, and check the copied samples. Sharing or uploading the Project requires separate intent.
 
 ## Inspect the saved Set
 

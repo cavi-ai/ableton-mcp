@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {ToolService} from "../src/tool-service.mjs";
 import {createRouter} from "../src/server.mjs";
-import {getProducerWorkflow} from "../src/prompts.mjs";
 
 function fixture(){
   const source={stateVersion:3,trackId:"track-0",deviceId:"track-0:device-0",identityToken:"native",before:{controls:{Repeat:{value:0}}}};
@@ -54,12 +53,4 @@ test("fill MCP schemas and annotations preserve the core tool catalog",async()=>
   const count=f.calls.length;
   const invalid=await all({id:3,method:"tools/call",params:{name:"perform_beat_repeat_fill",arguments:{...f.args,durationSeconds:9}}});
   assert.equal(invalid.error.code,-32602);assert.equal(f.calls.length,count);
-});
-
-test("performance workflow is discoverable offline and distinguishes Repeat release from bypass",()=>{
-  assert.ok(getProducerWorkflow().workflows.some(w=>w.name==="perform-repeat-fill"));
-  assert.throws(()=>getProducerWorkflow({workflow:"perform-repeat-fill"}),/request/);
-  const text=getProducerWorkflow({workflow:"perform-repeat-fill",arguments:{request:"Try a short triplet fill"}}).messages[0].content.text;
-  for(const term of ["perform_beat_repeat_fill","get_beat_repeat_fill","finish_beat_repeat_fill","manual edits","Chance"])assert.ok(text.includes(term),term);
-  assert.match(text,/not.*bypass|bypass.*not/i);assert.match(text,/not.*beat|beat.*not/i);
 });

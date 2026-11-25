@@ -1,6 +1,6 @@
 # Print MIDI processing as editable notes
 
-Retrieve `print-processed-midi` through `get_producer_workflow` in the `all` profile or as an MCP prompt. Describe the source Session MIDI clip, destination and intended take length. `recordBeats` accepts a numeric string from 1 to 64 quarter-note beats and defaults to 4. This workflow uses the existing guarded routing, clip launch and recording tools; retrieving it does not operate Live.
+Resolve the source Session MIDI clip, destination and intended take length. This uses the existing guarded routing, clip launch and recording tools in the `all` profile.
 
 ## Resolve the source and destination
 

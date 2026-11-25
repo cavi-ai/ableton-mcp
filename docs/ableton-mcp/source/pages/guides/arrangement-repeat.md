@@ -1,18 +1,8 @@
 # Repeat an Arrangement passage
 
-Use `repeat-arrangement-section` for requests such as “repeat the chorus twice later in the song.” It copies complete existing Arrangement clips onto their own tracks, preserving their relative positions and the passage's gaps. Retrieve the workflow through `get_producer_workflow` or its MCP prompt. Execution requires the `all` profile and updated bridge.
+`plan_arrangement_repeat` covers requests such as “repeat the chorus twice later in the song.” It copies complete existing Arrangement clips onto their own tracks, preserving their relative positions and the passage's gaps. This requires the `all` profile and updated bridge.
 
-```json
-{
-  "workflow": "repeat-arrangement-section",
-  "arguments": {
-    "request": "Repeat the chorus at beats 16–32 twice, starting at beat 64, on the chords, bass and drum tracks. Preserve the originals and audition the new passage.",
-    "mode": "collaborative"
-  }
-}
-```
-
-The default `collaborative` mode proposes a structural map unless the user already chose one. `autonomous` chooses within the brief and states its decisions. Neither mode grants unrelated playback, source edits, deletion, recording or saving.
+Propose a structural map unless the user already chose one. Unrelated playback, source edits, deletion, recording and saving need their own authority.
 
 ## Resolve a complete passage
 

@@ -1,8 +1,8 @@
 # Record a Session performance into Arrangement
 
-Retrieve `record-session-arrangement` through `get_producer_workflow` in the `all` profile, or open its MCP prompt. This captures user or agent clip/scene choices as Arrangement clips. [Live records Session launches into Arrangement](https://www.ableton.com/en/manual/session-view/#recording-sessions-into-the-arrangement); this differs from recording incoming audio or MIDI into an armed track.
+`record_session_arrangement` in the `all` profile captures user or agent clip/scene choices as Arrangement clips. [Live records Session launches into Arrangement](https://www.ableton.com/en/manual/session-view/#recording-sessions-into-the-arrangement); this differs from recording incoming audio or MIDI into an armed track.
 
-The default `collaborative` mode resolves the performance brief and launch cues with the user. `autonomous` lets the agent choose Session combinations and transitions within the request. Neither mode authorizes unrelated edits, deleting existing material, saving or claiming that a performance sounds better.
+Resolve the performance brief and launch cues with the user. The request does not authorize unrelated edits, deleting existing material, saving or claiming that a performance sounds better.
 
 ## Prepare the performance
 

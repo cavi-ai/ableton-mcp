@@ -1,6 +1,6 @@
 # Chop a sample into a groove
 
-Retrieve `chop-sample-groove` through `get_producer_workflow` in the `all` profile, or open its MCP prompt. Describe the sample or part, the intended cuts, groove density/length and any audition request. `collaborative` resolves material choices with the user; `autonomous` chooses within the brief. Retrieving the workflow does not execute it.
+Resolve the sample or part, the intended cuts, groove density/length and any audition request. The Simpler tools require the `all` profile.
 
 ## Preserve the part and choose cuts
 

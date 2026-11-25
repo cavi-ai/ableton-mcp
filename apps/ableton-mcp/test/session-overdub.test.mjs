@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ToolService} from '../src/tool-service.mjs';
 import {createRouter} from '../src/server.mjs';
-import {getProducerWorkflow} from '../src/prompts.mjs';
 
 function fixture(receiptOverrides={}){
   const source={stateVersion:3,trackId:'track-0',clipId:'track-0:clip-0',identityToken:'native',sessionRecord:false,baseline:{notesSha256:'a'}};
@@ -74,11 +73,4 @@ test('overdub contracts are all-profile only with strict booleans and a read-onl
   assert.ok(!(await core({id:2,method:'tools/list'})).result.tools.some(t=>t.name==='set_session_midi_overdub'));
   const result=await router({id:3,method:'tools/call',params:{name:'set_session_midi_overdub',arguments:{...f.args,enabled:'true'}}});
   assert.equal(result.error.code,-32602);assert.equal(f.writes.length,0);
-});
-
-test('interactive overdub workflow preserves originals and reconciles a lost start instead of replaying',()=>{
-  const result=getProducerWorkflow({workflow:'overdub-session-midi',arguments:{request:'Add a shaker performance to this loop'}});
-  const text=result.messages[0].content.text;
-  for(const term of ['duplicate_clip','set_session_midi_overdub','get_session_midi_overdub_context','session_record','disconnect','original','manual edits','performanceVerified'])assert.ok(text.includes(term),term);
-  assert.match(text,/same-pitch/);assert.match(text,/never replay/i);assert.match(text,/not.*fixed|no.*fixed/i);
 });

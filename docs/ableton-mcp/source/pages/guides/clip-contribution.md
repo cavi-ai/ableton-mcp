@@ -1,6 +1,6 @@
 # Compare a clip's contribution
 
-Retrieve `compare-clip-contribution` through `get_producer_workflow`, or open its MCP prompt. For example: “try the bridge without the named hi-hat clips, keep their notes, and let me hear the difference.” The default `collaborative` mode proposes unresolved choices; `autonomous` chooses only within the request. Existing playback authority is reused.
+For example: “try the bridge without the named hi-hat clips, keep their notes, and let me hear the difference.” Propose unresolved choices to the user. Existing playback authority is reused.
 
 ## Resolve the actual material
 

@@ -10,24 +10,21 @@ From a checkout, run `npm run cli -- <command>`, or `node apps/ableton-mcp/src/c
 | `doctor` | Distinguishes socket/protocol connection from Live-state availability; reports structured failures, observed capabilities, catalog configuration and Remote Scripts copies. |
 | `identity` | Prints the packaged runtime fingerprint without connecting to Live. |
 | `serve` | Runs a managed MCP server over stdio. With none of `ABLETON_MCP_TOOLS`, `ABLETON_MCP_TOOL_SLICES`, and `ABLETON_MCP_TOOL_PROFILE`, it advertises the `observe` slice. Startup logs the tool count and `baseSchemaBytes`, the size of the serialized tool definitions before any Live discovery examples are added. |
-| `slices` | Lists slice names, tools, resources, and prompts. Does not connect to Live. |
+| `slices` | Lists slice names, tools, and resources. Does not connect to Live. |
 | `restart [--pid <pid>]` | Replaces one idle managed server worker with this package and verifies its fingerprint while preserving the host connection. Select a PID when multiple servers are running. |
 | `status` | Calls `get_live_state`. |
 | `call <tool> [--args '<json>']` | Validates the arguments against the tool's schema, then calls it. Confirmation tokens persist between calls in `ABLETON_MCP_CONFIRMATION_DIR`. |
 | `resource <uri>` | Reads one MCP resource, for example `ableton://set/tracks`. |
-| `prompts` | Lists the prompt templates. |
-| `prompt <name> [--args '<json>']` | Renders one prompt template. |
 
 ## Examples
 
 ```bash
 npm run cli -- doctor --json
 npm run cli -- resource ableton://track/track-0/devices --json
-npm run cli -- prompt harmonize-clip --args '{"trackId":"track-0","clipId":"track-0:clip-0"}' --json
 npm run cli -- call list_devices --args '{"trackId":"track-0"}' --json
 ```
 
-Restart refuses active or unsettled requests and never replays operations. Make fresh dry-run plans after restarting; in-memory confirmation tokens are discarded and native handles must be inspected again. Durable production sessions remain in their configured artifact directory and require a fresh `resume` inspection.
+Restart refuses active or unsettled requests and never replays operations. Make fresh dry-run plans after restarting; in-memory confirmation tokens are discarded and native handles must be inspected again.
 
 Reconnect the MCP host once when upgrading from a server that predates tool slices. Managed restart requires compatible session catalog versions so the host can keep using its discovered catalog. `ABLETON_MCP_SERVER_DIRECTORY` can override the private registration directory, which defaults to `~/.cavi/ableton-mcp/servers`. Registration files contain local control credentials; keep the directory private.
 

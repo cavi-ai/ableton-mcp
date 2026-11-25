@@ -1,6 +1,6 @@
 # Compare native device A/B states
 
-Use `compare-device-ab` to compare settings on one supported device without duplicating its track. The workflow requires the `all` profile and an updated bridge. [Live's device API](https://docs.cycling74.com/apiref/lom/device/) exposes A/B support, the active A/B slot and a command to copy current state to the other slot; availability depends on the actual device.
+Compare settings on one supported device without duplicating its track. The A/B tools require the `all` profile and an updated bridge. [Live's device API](https://docs.cycling74.com/apiref/lom/device/) exposes A/B support, the active A/B slot and a command to copy current state to the other slot; availability depends on the actual device.
 
 ## Resolve and preserve
 

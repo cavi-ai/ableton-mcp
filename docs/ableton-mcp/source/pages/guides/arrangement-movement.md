@@ -1,6 +1,6 @@
 # Move an Arrangement part
 
-Use `move-arrangement-part` to move one placed MIDI or audio clip on its current ordinary track. Supply the musical intent and destination, with `collaborative` or `autonomous` mode. The workflow resolves the source, locators, current recording context and the intended quarter-note song position before planning `move_arrangement_clip`. A whole section, ripple edit or move across tracks requires a different scope.
+`move_arrangement_clip` moves one placed MIDI or audio clip on its current ordinary track. Resolve the musical intent, destination, source, locators, current recording context and the intended quarter-note song position before planning `move_arrangement_clip`. A whole section, ripple edit or move across tracks requires a different scope.
 
 ## Review the destination
 

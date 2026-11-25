@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ToolService} from '../src/tool-service.mjs';
 import {createRouter} from '../src/server.mjs';
-import {getPrompt} from '../src/prompts.mjs';
 
 function fixture(){
  const calls=[],args={trackId:'track-0',clipId:'track-0:clip-0',durationSeconds:2,expectedStateVersion:4};
@@ -55,10 +54,4 @@ test('hold tools validate at the MCP boundary and leave the core profile unchang
  const callsBeforeInvalid=f.calls.length;
  const result=await all({id:3,method:'tools/call',params:{name:'hold_session_clip',arguments:{...f.args,durationSeconds:9}}});
  assert.equal(result.error.code,-32602);assert.equal(f.calls.length,callsBeforeInvalid);
-});
-
-test('held performance workflow separates release receipts from playback and manual input',()=>{
- const text=getPrompt('perform-session-clip',{request:'Hold the selected Gate clip for two seconds.'}).messages[0].content.text;
- for(const name of ['hold_session_clip','get_session_clip_hold','finish_session_clip_hold','releaseCallReturned'])assert.ok(text.includes(name),name);
- assert.match(text,/manual|controller/);assert.match(text,/Repeat.*continu|continu.*Repeat/s);
 });

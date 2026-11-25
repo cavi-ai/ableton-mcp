@@ -1,6 +1,6 @@
 # Resample Live output into an instrument
 
-Retrieve `resample-to-instrument` through `get_producer_workflow` in the `all` profile, or open its MCP prompt. Describe the source mix/passage, intended instrument role, musical direction and any audition request. `captureBeats` is a numeric string from `1` to `16`, defaulting to `4` quarter-note beats. `collaborative` resolves material choices with the user; `autonomous` chooses within the brief. Retrieval renders guidance without recording or editing Live. Execution requires the `all` profile, an updated bridge and ffmpeg/ffprobe.
+Resolve the source mix/passage, intended instrument role, musical direction and any audition request. This requires the `all` profile, an updated bridge and ffmpeg/ffprobe.
 
 ## Resolve what will be printed
 

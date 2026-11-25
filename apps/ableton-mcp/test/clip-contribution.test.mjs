@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ToolService} from '../src/tool-service.mjs';
-import {getProducerWorkflow} from '../src/prompts.mjs';
 
 function fixture(){
   const timing={stateVersion:4,trackId:'track-0',clipId:'track-0:clip-0',mute:{supported:true,enabled:false}},
@@ -15,13 +14,6 @@ function fixture(){
   }}});
   return {service,timing,context,calls,args:{trackId:timing.trackId,clipId:timing.clipId,expectedStateVersion:4,mute:true}};
 }
-
-test('clip contribution workflow preserves material and distinguishes whole clips from sections',()=>{
-  const text=getProducerWorkflow({workflow:'compare-clip-contribution',arguments:{request:'Try the bridge without the hats',mode:'autonomous'}}).messages[0].content.text;
-  for(const term of ['get_clip_timing','set_clip_timing','muteEditContext','identityToken','whole clip','manual edits','audition-arrangement-passage'])assert.ok(text.includes(term),term);
-  assert.match(text,/does not prove.*silence|does not prove.*heard/i);
-  assert.throws(()=>getProducerWorkflow({workflow:'compare-clip-contribution',arguments:{request:'Try it',mode:'unknown'}}),/mode/);
-});
 
 test('clip mute binds native identity and sends one confirmed edit',async()=>{
   const f=fixture(),p=await f.service.call('set_clip_timing',f.args);

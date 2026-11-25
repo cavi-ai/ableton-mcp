@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ToolService} from '../src/tool-service.mjs';
-import {getPrompt} from '../src/prompts.mjs';
 
 for(const method of ['duplicate_clip','duplicate_session_object']){
   test(`${method} binds strengthened context and retains partial receipts once`,async()=>{
@@ -22,8 +21,3 @@ for(const method of ['duplicate_clip','duplicate_session_object']){
     await assert.rejects(service.call(method,confirmed));assert.equal(writes,1);
   });
 }
-
-test('reuse workflow describes explicit partial-copy observations without cleanup',()=>{
-  const text=getPrompt('reuse-session-clip',{request:'Try this part on the piano'}).messages[0].content.text;
-  for(const term of ['copyRequested','nativeReturned','nameWriteRequested','targetOccupied','sourcePreserved','otherClipsRetained','undo entry','No automatic cleanup'])assert.ok(text.includes(term),term);
-});

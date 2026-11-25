@@ -1,6 +1,6 @@
 # Make space in a MIDI part
 
-Use `simplify-midi-part` through `get_producer_workflow` or its MCP prompt for requests such as “leave more space in the verse hats, but keep the pickup” or “thin the chord attacks without losing the moving top voice.” The default `collaborative` mode proposes what to retain and mute; `autonomous` makes bounded musical choices within the brief. Execution requires the `all` profile. Playback and saving retain their own scope.
+This covers requests such as “leave more space in the verse hats, but keep the pickup” or “thin the chord attacks without losing the moving top voice.” Propose what to retain and mute. This requires the `all` profile. Playback and saving retain their own scope.
 
 The workflow creates one named alternative and mutes chosen notes with `set_midi_note_properties`. It keeps the source and every note in the copy. A generic simplification does not authorize deletion: [exact note removal](midi-note-removal.md) also removes hidden expression and is a separate intention.
 

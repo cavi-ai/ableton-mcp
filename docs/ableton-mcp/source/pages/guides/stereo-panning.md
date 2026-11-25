@@ -1,6 +1,6 @@
 # Shape stereo placement
 
-Retrieve `shape-stereo-image` through `get_producer_workflow` in the `all` profile, or open its MCP prompt. Resolve the exact track, Group, Return or Main before changing placement. Group and Main edits affect the whole stage; Return edits can affect shared effect tails.
+The pan tools require the `all` profile. Resolve the exact track, Group, Return or Main before changing placement. Group and Main edits affect the whole stage; Return edits can affect shared effect tails.
 
 ## Inspect the active mode
 

@@ -1,6 +1,6 @@
 # Build a Session scene from chosen parts
 
-Retrieve `build-session-scene` through `get_producer_workflow` in the `all` profile, or open its MCP prompt. Describe a section and its parts, for example “make a new verse scene from the named chords and vocal clips; keep the originals and leave playback stopped.” The default `collaborative` mode proposes unresolved combinations. `autonomous` chooses parts within the brief. Existing choices and authorization are reused.
+Resolve a section and its parts, for example “make a new verse scene from the named chords and vocal clips; keep the originals and leave playback stopped.” Propose unresolved combinations to the user. Existing choices and authorization are reused. The scene tools require the `all` profile.
 
 ## Map the parts
 

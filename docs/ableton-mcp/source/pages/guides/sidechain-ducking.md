@@ -1,10 +1,10 @@
 # Duck one part against another
 
-Use `duck-against-source` or `set-up-sidechain-ducking` through the MCP prompt or `get_producer_workflow` for requests such as “make room for the kick on the bass.” Describe the trigger, the part to duck, the desired strength or movement, and whether to audition. Retrieving the workflow only returns guidance; it does not call Live or configure a processor automatically.
+For requests such as “make room for the kick on the bass,” resolve the trigger, the part to duck, the desired strength or movement, and whether to audition.
 
-`mode: "collaborative"` is the default. Materially different source, target, processor and character choices are resolved with the user. `mode: "autonomous"` lets the agent choose bounded initial settings within the brief. Both modes use the same guarded operations and preserve unrelated parts and manual edits.
+Resolve materially different source, target, processor and character choices with the user. Guarded operations preserve unrelated parts and manual edits.
 
-`set-up-sidechain-ducking` is an alias of `duck-against-source` and uses the same instructions. For a requested preserved MIDI comparison, use [instrument comparison](instrument-comparison.md), resolve the returned alternative IDs and process only that chosen alternative.
+For a requested preserved MIDI comparison, use [instrument comparison](instrument-comparison.md), resolve the returned alternative IDs and process only that chosen alternative.
 
 ## Keep the two audio paths
 

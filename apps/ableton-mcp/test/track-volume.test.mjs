@@ -3,7 +3,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {ToolService} from "../src/tool-service.mjs";
 import {validateToolArguments} from "../src/tool-validation.mjs";
-import {getPrompt} from "../src/prompts.mjs";
 import {createRouter} from "../src/server.mjs";
 
 test("dB level changes bind native context and use single-use confirmation",async()=>{
@@ -20,12 +19,9 @@ test("dB level changes bind native context and use single-use confirmation",asyn
   await assert.rejects(service.call("set_track_volume_db",confirmed));assert.equal(writes,1);
 });
 
-test("dB level contract and workflow reject unsupported inputs and preserve scope",()=>{
+test("dB level contract rejects unsupported inputs",()=>{
   assert.equal(validateToolArguments("set_track_volume_db",{trackId:"track-0",volumeDb:-12,expectedStateVersion:3}).volumeDb,-12);
   assert.throws(()=>validateToolArguments("set_track_volume_db",{trackId:"track-0",volumeDb:"-12",expectedStateVersion:3}));
-  const text=getPrompt("balance-mix",{request:"Lower the bass a little",mode:"autonomous"}).messages[0].content.text;
-  for(const phrase of ["set_track_volume_db","automation","manual edits","routing","not prove","listen-to-live-output"])assert.ok(text.includes(phrase),phrase);
-  assert.throws(()=>getPrompt("balance-mix",{request:"Balance",mode:"invalid"}));
 });
 
 test("dB level tool is callable in all and excluded from core",async()=>{
@@ -62,9 +58,4 @@ test('Return and Main dB plans require exact owners and warn about their scope',
 test('dB plans reject another owner in native readback',async()=>{
  const service=new ToolService({bridge:{request:async()=>({stateVersion:3,trackId:'return-1',identityToken:'native',target:{value:.5}})}});
  await assert.rejects(()=>service.call('set_track_volume_db',{trackId:'return-0',volumeDb:-12,expectedStateVersion:3}),/trackId mismatch/);
-});
-
-test('bus balance workflow selects native bus dB readback without widening a track brief',()=>{
- const text=getPrompt('balance-mix',{request:'Lower the reverb Return by 2 dB'}).messages[0].content.text;
- for(const phrase of ['return-N','master','get_set_mixer','entire mix','explicit scope'])assert.ok(text.includes(phrase),phrase);
 });

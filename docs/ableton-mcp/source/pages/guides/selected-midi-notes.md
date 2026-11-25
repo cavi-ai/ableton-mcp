@@ -1,6 +1,6 @@
 # Edit the selected MIDI notes
 
-Use `edit-selected-midi-notes` through `get_producer_workflow` or its MCP prompt for requests such as “make these notes quieter” or “shorten the selected hits.” The `all` profile provides `get_midi_note_selection`; `set_midi_note_properties` accepts its optional `expectedNoteSelectionToken`.
+This covers requests such as “make these notes quieter” or “shorten the selected hits.” The `all` profile provides `get_midi_note_selection`; `set_midi_note_properties` accepts its optional `expectedNoteSelectionToken`.
 
 ## Read the actual selection
 

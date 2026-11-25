@@ -1,6 +1,6 @@
 # Duplicate a musical part
 
-Retrieve `duplicate-musical-part` through `get_producer_workflow` or its MCP prompt when a whole-track alternative is useful. Resolve the exact track or Group and musical purpose first. Reuse an existing identified alternative when appropriate and preserve the original and preferred manual edits.
+Duplicate a track when a whole-track alternative is useful. Resolve the exact track or Group and musical purpose first. Reuse an existing identified alternative when appropriate and preserve the original and preferred manual edits.
 
 Plan `duplicate_session_object` with `targetType: "track"`, exact `targetId`, an optional `name` and fresh `expectedStateVersion`. Explicit names must contain 1 to 128 characters without controls; omission retains the source name. Review `trackCopyContext.sourceTracks`, both views' clip inventory, device trees, counts, content fingerprints and planned insertion. A Group copy includes its complete subtree, including nested Groups, and appears after that subtree. A child copy remains in its existing parent. Only the new root is renamed.
 

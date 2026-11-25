@@ -1,6 +1,6 @@
 # Scale a MIDI phrase in time
 
-Retrieve `scale-midi-phrase-time` through `get_producer_workflow`, or open its MCP prompt. Describe the part and whether it should play faster or slower within the same song tempo. The workflow supports collaborative decisions and autonomous choices within a brief.
+Resolve the part and whether it should play faster or slower within the same song tempo.
 
 Preserve an original for comparison with `duplicate_clip` in Session or `duplicate_arrangement_clip` at an explicitly chosen empty Arrangement interval. Read the copy's own note IDs and timing. Copies retain the track's shared processing; they are not separate instrument states.
 

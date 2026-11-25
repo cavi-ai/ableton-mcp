@@ -60,8 +60,6 @@ With no selector set, `serve` advertises the `observe` slice. Set `ABLETON_MCP_T
 
 ## Keep making music together
 
-Use [production sessions and specialists](docs/ableton-mcp/source/pages/guides/production-specialists.md) to keep your brief and feedback with the project as it develops. Creative and functional specialists help plan the next pass; you review the changes before they run in Live.
-
 Explore a [musical sketch](docs/ableton-mcp/source/pages/guides/musical-sketch.md), [supporting parts](docs/ableton-mcp/source/pages/guides/supporting-parts.md), [instrument refinement](docs/ableton-mcp/source/pages/guides/instrument-refinement.md) and [Session-to-Arrangement workflow](docs/ableton-mcp/source/pages/guides/session-arrangement.md). For sound and project handoff, see [native saving and recall](docs/ableton-mcp/source/pages/guides/native-saving-and-recall.md) and [project handoff](docs/ableton-mcp/source/pages/guides/project-handoff.md).
 
 ## Documentation and help

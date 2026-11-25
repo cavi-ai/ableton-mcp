@@ -1,6 +1,6 @@
 # Shape Session clip automation
 
-Retrieve `shape-clip-automation` through `get_producer_workflow` in the `all` profile, or open its MCP prompt. Describe the clip, control and desired motion. The default `mode: "copy"` preserves the original in place and uses a named alternative in an existing empty Session slot. `in-place` requires explicit scope for the existing clip. Both modes preserve existing target envelopes.
+Resolve the clip, control and desired motion. The envelope tools require the `all` profile. A copy preserves the original in place and uses a named alternative in an existing empty Session slot. An in-place edit requires explicit scope for the existing clip. Both preserve existing target envelopes.
 
 ## Choose the lane and shape
 

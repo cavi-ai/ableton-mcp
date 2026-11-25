@@ -60,9 +60,8 @@ test('post-action source changes report unverified selection and preserve the ob
  const args={...f.args,laneId:'track-0:take-lane-0'},p=await f.service.call('select_take_lane_audition',args),result=await f.service.call('select_take_lane_audition',execute(args,p));
  assert.equal(result.selectionVerified,false);assert.equal(result.contextUnchanged,false);assert.equal(f.ui.lanes[0].audition,true);assert.equal(f.calls.length,2);
 });
-test('audition controls are available in all profile with read-only context and a producer workflow',async()=>{
+test('audition controls are available in all profile with read-only context',async()=>{
  const f=fixture(),router=createRouter(f.service),tools=(await router({id:1,method:'tools/list'})).result.tools;
  assert.equal(tools.find(t=>t.name==='get_take_lane_audition_context').annotations.readOnlyHint,true);
  assert.equal(tools.find(t=>t.name==='select_take_lane_audition').annotations.readOnlyHint,false);
- assert.ok((await f.service.call('get_producer_workflow',{workflow:'audition-recorded-takes',arguments:{request:'Compare two takes and return to the comp'}})).messages.length);
 });

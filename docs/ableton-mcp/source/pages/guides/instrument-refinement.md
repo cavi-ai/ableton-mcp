@@ -1,12 +1,12 @@
 # Refine an instrument sound
 
-Retrieve `refine-instrument-sound` through `get_producer_workflow` in the `all` profile, or open its MCP prompt. Describe the part and change, such as “make the Analog chords less bright; keep the notes.” The workflow resolves the current instrument and actual exposed controls, proposes a small change, reads it back and compares the result with the user.
+For a change such as “make the Analog chords less bright; keep the notes,” resolve the current instrument and actual exposed controls, propose a small change, read it back and compare the result with the user.
 
 ## Keep an original
 
-The default `mode: "compare"` uses [instrument comparison](instrument-comparison.md) to prepare one native track copy or reuse an explicitly identified comparison. Its stopped-transport, recording, arm and monitoring requirements still apply. The copy starts muted and unarmed. Resolve current track, device and parameter IDs after insertion; do not reuse the original's IDs. Keep both versions when the user chooses, and finish the handle without deleting tracks automatically.
+By default, use [instrument comparison](instrument-comparison.md) to prepare one native track copy or reuse an explicitly identified comparison. Its stopped-transport, recording, arm and monitoring requirements still apply. The copy starts muted and unarmed. Resolve current track, device and parameter IDs after insertion; do not reuse the original's IDs. Keep both versions when the user chooses, and finish the handle without deleting tracks automatically.
 
-Use `mode: "in-place"` only when the request or existing authorization chooses editing the existing instrument. Capture the actual current parameter and note/timing baselines first. Parameter JSON excludes hidden plug-in state, automation envelopes, mappings and samples; it is not a complete native preset backup.
+Edit the existing instrument in place only when the request or existing authorization chooses it. Capture the actual current parameter and note/timing baselines first. Parameter JSON excludes hidden plug-in state, automation envelopes, mappings and samples; it is not a complete native preset backup.
 
 ## Choose an observed control
 

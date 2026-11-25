@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ToolService} from '../src/tool-service.mjs';
 import {createRouter} from '../src/server.mjs';
-import {getPrompt} from '../src/prompts.mjs';
 
 function fixture(){
  const before={stateVersion:4,setFingerprint:'set',identityToken:'native',root:'samples',path:['Kick.wav'],
@@ -48,9 +47,7 @@ test('schemas reject incomplete, mixed or arbitrary preview arguments before nat
  }
  assert.equal(f.calls.length,0);
 });
-test('preview is all-profile and the workflow keeps sound selection separate from loading',async()=>{
+test('preview is all-profile',async()=>{
  const f=fixture(),core=createRouter(f.service,{toolProfile:'core'});
  assert.equal((await core({id:1,method:'tools/call',params:{name:'get_browser_preview_context',arguments:{}}})).error.code,-32601);
- const text=getPrompt('audition-browser-sounds',{request:'Compare available kick samples'}).messages[0].content.text;
- for(const term of ['get_browser_preview_context','set_browser_preview','global','load_browser_item','audible','manual'])assert.ok(text.includes(term),term);
 });

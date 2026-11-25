@@ -1,6 +1,6 @@
 # Compare a Session clip's entry
 
-Retrieve `compare-clip-entry` through `get_producer_workflow`, or open its MCP prompt. For example: “try the phrase starting on its second beat, keep the original, and let me compare.” The default `collaborative` mode resolves musical choices with the user; `autonomous` chooses only within the brief.
+For example: “try the phrase starting on its second beat, keep the original, and let me compare.” Resolve musical choices with the user.
 
 ## Entry and loop are different
 

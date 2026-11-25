@@ -1,6 +1,5 @@
 // Job slices for one functional MCP process. A session advertises the union of
-// the slices it was given. Producer coordination is not a slice.
-export const workflowToolName = "get_producer_workflow";
+// the slices it was given.
 
 export const toolSlices = {
   observe: [
@@ -150,9 +149,6 @@ export const sliceResourceUris = {
   library: ["nks://catalog/products", "nks://catalog/presets/{preset_id}", "nks://catalog/artwork/{artwork_id}"]
 };
 
-// Slice sessions do not advertise workflow prompts. A slice may opt in later by listing names here.
-export const slicePromptNames = Object.fromEntries(Object.keys(toolSlices).map((name) => [name, []]));
-
 export function toolsForSlices(names) {
   const selected = new Set();
   for (const name of names) for (const tool of toolSlices[name]) selected.add(tool);
@@ -163,12 +159,6 @@ export function resourceUrisForSlices(names) {
   const uris = [];
   for (const name of names) uris.push(...sliceResourceUris[name]);
   return uris;
-}
-
-export function promptNamesForSlices(names) {
-  const prompts = [];
-  for (const name of names) prompts.push(...slicePromptNames[name]);
-  return prompts;
 }
 
 export function normalizeSlices(value) {
@@ -184,7 +174,7 @@ export function normalizeSlices(value) {
   return names;
 }
 
-// Exact sessions name functional tools only; producer coordination is in no slice.
+// Exact sessions name functional tools only.
 export function normalizeToolNames(value) {
   const names = Array.isArray(value) ? value : typeof value === "string" ? value.split(",").map((part) => part.trim()) : null;
   if (!names || names.length === 0 || names.some((name) => typeof name !== "string" || !name))
@@ -216,7 +206,7 @@ export function sessionSelection(env = {}) {
 
 export function listSliceCatalog() {
   return Object.entries(toolSlices).map(([name, tools]) => ({
-    name, toolCount: tools.length, tools, resources: sliceResourceUris[name], prompts: slicePromptNames[name]
+    name, toolCount: tools.length, tools, resources: sliceResourceUris[name]
   }));
 }
 

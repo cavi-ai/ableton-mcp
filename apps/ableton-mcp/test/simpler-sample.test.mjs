@@ -55,7 +55,7 @@ test('Simpler loading refuses unsupported or active targets and mismatched nativ
   }
 });
 
-test('Simpler tools validate scope, annotations, all-profile routing and workflow discovery',async t=>{
+test('Simpler tools validate scope, annotations and all-profile routing',async t=>{
   const {service,args}=await fixture(t);
   for(const extra of [{trackId:'return-0'},{deviceId:'track-1:device-0'},{deviceId:'track-0:device-00'},{sourcePath:'relative.wav'},
     {allowReplace:1},{playbackMode:'guess'},{expectedStateVersion:undefined}])await assert.rejects(service.call('load_simpler_sample',{...args,...extra}));
@@ -64,6 +64,4 @@ test('Simpler tools validate scope, annotations, all-profile routing and workflo
   assert.equal(listed.find(t=>t.name==='load_simpler_sample').annotations.destructiveHint,true);
   assert.equal((await core({id:2,method:'tools/call',params:{name:'get_simpler_sample_state',arguments:target}})).error.code,-32601);
   assert.equal((await router({id:3,method:'tools/call',params:{name:'get_simpler_sample_state',arguments:target}})).result.structuredContent.identityToken,'native-device-a');
-  const workflow=await service.call('get_producer_workflow',{workflow:'build-sample-instrument',arguments:{request:'Build a melodic part from this named sample, preserve the current instrument.',mode:'collaborative'}});
-  assert.ok(workflow.messages.length);
 });

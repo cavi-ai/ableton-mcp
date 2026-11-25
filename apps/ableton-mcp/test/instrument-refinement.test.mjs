@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {ToolService} from "../src/tool-service.mjs";
-import {getPrompt} from "../src/prompts.mjs";
 
 test("parameter confirmation binds observed automation ownership and invalidates a changed state",async()=>{
   const parameter={id:"parameter-0",name:"Cutoff",originalName:"Cutoff",value:0.5,min:0,max:1,enabled:true,
@@ -22,26 +21,4 @@ test("parameter confirmation binds observed automation ownership and invalidates
   const fresh=await service.call("set_device_parameters",args);editContext.identityToken="native-device-b";
   await assert.rejects(service.call("set_device_parameters",{...args,dryRun:false,confirmationToken:fresh.confirmation.token,planHash:fresh.confirmation.planHash}));
   assert.equal(writes.length,0);
-});
-test("sound refinement is available through the same workflow tool and MCP prompt with validated modes",async()=>{
-  const service=new ToolService({bridge:{request:async()=>{throw Error("retrieval must not call Live");}}});
-  for(const mode of [undefined,"compare","in-place"]){
-    const args={request:"Make the named Analog chords a little warmer; preserve my notes.",...(mode?{mode}:{})};
-    const result=await service.call("get_producer_workflow",{workflow:"refine-instrument-sound",arguments:args});
-    assert.deepEqual(result.messages,getPrompt("refine-instrument-sound",args).messages);
-  }
-  await assert.rejects(service.call("get_producer_workflow",{workflow:"refine-instrument-sound",arguments:{request:"Warmer",mode:"replace"}}));
-});
-
-test("instrument exploration retains musical context and routes existing-sound refinement",async()=>{
-  const service=new ToolService({bridge:{request:async()=>{throw Error("retrieval must not call Live");}}});
-  const args={request:"Explore warmer sounds for the named Arrangement passage."};
-  const result=await service.call("get_producer_workflow",{workflow:"explore-selected-instrument",arguments:args});
-  assert.deepEqual(result.messages,getPrompt("explore-selected-instrument",args).messages);
-  const text=result.messages[0].content.text;
-  assert.match(text,/retrieve refine-instrument-sound through get_producer_workflow/);
-  assert.match(text,/analyze_arrangement_section with includeHarmony: true/);
-  assert.match(text,/analyze_midi_parts can compare the target plus explicitly resolved related clips/);
-  assert.match(text,/These analysis tools require the all profile; if unavailable, explain the missing context/);
-  assert.match(text,/Preserve selection, playback and content during analysis/);
 });

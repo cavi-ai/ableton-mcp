@@ -1,6 +1,6 @@
 # Match MIDI feel
 
-Use `match-midi-feel` through the MCP prompt or `get_producer_workflow` for requests such as “give the bass the hat timing, with lighter accents.” Specify the source passage, target part or note lanes, desired strength and any audition intent. Retrieving the workflow returns guidance without calling Live. Collaborative mode resolves material choices; autonomous mode chooses bounded grid, cycle and blend settings within the brief.
+For requests such as “give the bass the hat timing, with lighter accents,” resolve the source passage, target part or note lanes, desired strength and any audition intent. Grid, cycle and blend settings stay bounded by the brief.
 
 ## Measure the intended events
 

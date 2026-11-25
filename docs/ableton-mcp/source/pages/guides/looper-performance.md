@@ -1,6 +1,6 @@
 # Keep a Looper performance
 
-Use `keep-looper-performance` through `prompts/get` or `get_producer_workflow` to turn an existing native Looper performance into a named Session audio clip. The workflow also guides an authorized new take and subsequent audition with the user.
+Turn an existing native Looper performance into a named Session audio clip with `export_looper_clip`. An authorized new take and subsequent audition with the user follow the same guarded steps.
 
 ## Inspect the source and destination
 

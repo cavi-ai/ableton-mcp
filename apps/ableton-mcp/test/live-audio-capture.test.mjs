@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ToolService } from "../src/tool-service.mjs";
 import { createRouter } from "../src/server.mjs";
-import { getPrompt } from "../src/prompts.mjs";
 import { mkdtempSync, writeFileSync, statSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -57,7 +56,7 @@ test("finish preserves recorded files and binds exact captured identity and stat
   assert.equal(calls.at(-1)[1].cancel, false);
 });
 
-test("capture recovery is read-only and all-only; listening workflow requires stable completed audio", async () => {
+test("capture recovery is read-only and all-only", async () => {
   const { service } = harness();
   const route = createRouter(service);
   const tools = (await route({ id: 1, method: "tools/list" })).result.tools;
@@ -65,10 +64,6 @@ test("capture recovery is read-only and all-only; listening workflow requires st
   assert.ok(tools.some(t => t.name === "capture_live_audio"));
   const core = (await createRouter(service, { toolProfile: "core" })({ id: 2, method: "tools/list" })).result.tools;
   assert.ok(!core.some(t => t.name === "capture_live_audio"));
-  const text = getPrompt("listen-to-live-output", { request: "check this mix" }).messages[0].content.text;
-  for (const word of ["capture_live_audio", "get_live_audio_capture", "finish_live_audio_capture", "analyze_audio_file",
-    "fileUnchanged", "complete", "armed", "microphone", "cancel", "heard", "mono"])
-    assert.ok(text.includes(word), word);
 });
 
 test("completed capture requires recorded duration evidence; an early stop remains partial", async () => {

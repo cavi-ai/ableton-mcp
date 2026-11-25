@@ -1,6 +1,6 @@
 # Overdub a Session MIDI loop
 
-Retrieve `overdub-session-midi` through `get_producer_workflow` in the `all` profile, or open its MCP prompt. Use this when a user wants to play additional notes into an existing loop and keep listening afterward. For a fixed-length take into an empty slot, use [Record a Session take](session-take.md).
+The overdub tools require the `all` profile. Use them when a user wants to play additional notes into an existing loop and keep listening afterward. For a fixed-length take into an empty slot, use [Record a Session take](session-take.md).
 
 ## Preserve and prepare
 

@@ -1,6 +1,6 @@
 # Create a native track Group
 
-`group-session-tracks` turns an explicit request such as “group these two synth layers as Synth bus” into a native Live Group. It resolves the tracks, creates the Group, inspects its members and routing, and separately applies an authorized name or processing chain.
+`group_tracks` turns an explicit request such as “group these two synth layers as Synth bus” into a native Live Group. Resolve the tracks, create the Group, inspect its members and routing, and separately apply an authorized name or processing chain.
 
 ## Supported sources
 

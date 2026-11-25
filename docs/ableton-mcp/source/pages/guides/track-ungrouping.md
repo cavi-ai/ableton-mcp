@@ -1,6 +1,6 @@
 # Ungroup tracks and retain their material
 
-Use `ungroup-session-tracks` for an explicit request such as “ungroup the Synth bus.” The workflow resolves one Group, discloses the bus stage that will disappear and verifies the retained descendants under their current IDs.
+For an explicit request such as “ungroup the Synth bus,” resolve one Group, discloses the bus stage that will disappear and verifies the retained descendants under their current IDs.
 
 ## What removal changes
 

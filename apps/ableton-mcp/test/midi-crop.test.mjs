@@ -40,9 +40,3 @@ test('crop is an all-profile destructive writer and rejects invented crop limits
  assert.equal((await core({id:2,method:'tools/call',params:{name:'crop_midi_clip',arguments:f.args}})).error.code,-32601);
  assert.equal((await all({id:3,method:'tools/call',params:{name:'crop_midi_clip',arguments:{...f.args,startBeats:0}}})).error.code,-32602);
 });
-test('workflow retrieval executes nothing and rejects unsupported crop modes',async()=>{
- const f=fixture(),result=await f.service.call('get_producer_workflow',{workflow:'crop-midi-phrase',arguments:{request:'Keep the loop on a copy'}});
- assert.ok(result.messages.length);
- await assert.rejects(f.service.call('get_producer_workflow',{workflow:'crop-midi-phrase',arguments:{request:'Keep the loop',mode:'replace'}}),/mode/);
- assert.equal(f.calls.length,0);
-});

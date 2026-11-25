@@ -1,6 +1,6 @@
 # Remove a Return effect
 
-Retrieve `remove-return` through `get_producer_workflow` or its MCP prompt for an explicitly unwanted Return. Resolve the exact current Return and its full device chain. Removal discards that Return and its send lane across ordinary tracks, Groups and other Returns. Silence does not establish that stored automation or hidden plug-in state is absent.
+This covers an explicitly unwanted Return. Resolve the exact current Return and its full device chain. Removal discards that Return and its send lane across ordinary tracks, Groups and other Returns. Silence does not establish that stored automation or hidden plug-in state is absent.
 
 Plan `delete_session_object` with `targetType: "return"`, exact `targetId`, fresh `expectedStateVersion` and `allowContent: true`. This authority covers the Return's devices, controls and every send to it. Review `returnRemovalContext.target`, its complete device parameters, and `affectedSends` from all owners, including values, enablement and automation state. The last Return can be removed.
 

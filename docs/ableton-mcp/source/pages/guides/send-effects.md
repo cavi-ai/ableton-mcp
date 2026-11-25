@@ -1,6 +1,6 @@
 # Add a shared send effect
 
-Retrieve `add-send-effect` through `get_producer_workflow` or its MCP prompt. Describe the parts, reverb/delay or other parallel effect, intended Return and desired balance. `collaborative` resolves material choices with the user; `autonomous` chooses within the brief. Rendering the workflow does not observe or change Live. Execution requires the `all` profile and updated bridge.
+Resolve the parts, reverb/delay or other parallel effect, intended Return and desired balance. This requires the `all` profile and updated bridge.
 
 ## Preserve the dry parts
 

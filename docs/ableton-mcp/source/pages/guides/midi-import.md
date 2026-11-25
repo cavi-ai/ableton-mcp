@@ -1,6 +1,6 @@
 # Import MIDI files
 
-Use `import-midi-file` through `get_producer_workflow` to import a chosen local file or native browser item and inspect the resulting parts. An explicit local path can use `import_midi_file` without browser indexing on macOS English Live. Browser items use `load_browser_item` with an exact observed root/path. Filesystem and browser paths are different.
+Import a chosen local file or native browser item and inspect the resulting parts. An explicit local path can use `import_midi_file` without browser indexing on macOS English Live. Browser items use `load_browser_item` with an exact observed root/path. Filesystem and browser paths are different.
 
 Live can import several standard MIDI formats, including multitrack files; see [Ableton’s MIDI file guidance](https://help.ableton.com/hc/en-us/articles/209068169-Understanding-MIDI-files). Native browser loading can create separate tracks rather than put a clip on the selected track. Resolve whether new imported parts or replacement is intended before loading. Preserve populated tracks and use an authorized empty compatible MIDI track as an anchor. Creating the anchor is a separate change.
 

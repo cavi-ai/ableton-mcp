@@ -2,19 +2,7 @@
 
 To capture actual user or agent clip/scene launches instead of building a fixed section map, use [Record a Session performance](session-performance-recording.md).
 
-Retrieve `arrange-session-ideas` through `get_producer_workflow` in the `all` profile, or open its MCP prompt. Describe the Session parts, intended structure and whether playback or saving is wanted.
-
-```json
-{
-  "workflow": "arrange-session-ideas",
-  "arguments": {
-    "request": "Arrange the named chords and bass into an intro and verse in empty timeline space. Keep the Session clips and leave playback stopped.",
-    "mode": "autonomous"
-  }
-}
-```
-
-The default `collaborative` mode proposes a section map for the user to choose. `autonomous` lets the agent choose section order, repetitions and entrances within the brief. Neither mode authorizes unrelated edits, deletion, playback, recording or saving. Retrieving instructions does not execute the workflow.
+Resolve the Session parts, intended structure and whether playback or saving is wanted. Propose a section map for the user to choose unless the brief already sets section order, repetitions and entrances. Unrelated edits, deletion, playback, recording and saving need their own authority.
 
 ## Map the parts before copying
 

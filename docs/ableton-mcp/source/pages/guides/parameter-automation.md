@@ -1,6 +1,6 @@
 # Move between manual control and automation
 
-Use `take-manual-control` when the intended action is explicit: for example, “hold the bass filter at 2 kHz instead of following its automation.” A general value-change request or a refused normal edit does not authorize suspending automation. The workflow preserves the envelope and changes one exact control. It requires the `all` profile and updated bridge.
+Take manual control only when the intended action is explicit: for example, “hold the bass filter at 2 kHz instead of following its automation.” A general value-change request or a refused normal edit does not authorize suspending automation. The override preserves the envelope and changes one exact control. It requires the `all` profile and updated bridge.
 
 ## Take manual control
 
@@ -16,7 +16,7 @@ This is one immediate value write followed by up to three display-tick observati
 
 ## Resume automation
 
-Use `resume-parameter-automation` for a request such as “give the bass filter back to its automation.” This workflow hands one exact overridden control back to Live. It does not create or recover an envelope. The tools require the `all` profile and updated bridge.
+`re_enable_parameter_automation` covers a request such as “give the bass filter back to its automation.” It hands one exact overridden control back to Live. It does not create or recover an envelope. The tools require the `all` profile and updated bridge.
 
 ## Resolve the control
 

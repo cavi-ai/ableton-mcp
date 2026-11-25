@@ -1,6 +1,6 @@
 # Keep a played MIDI idea
 
-Use `keep-played-midi` when you want to retain recently played MIDI without having started a normal recording. For example: “Keep what I just played, leave its timing alone and show me the captured clip.” The workflow uses the `all` profile and an updated bridge.
+`capture_midi_session` retains recently played MIDI without a normal recording having started. For example: “Keep what I just played, leave its timing alone and show me the captured clip.” It requires the `all` profile and an updated bridge.
 
 `get_midi_capture_context` reads global Capture MIDI availability, current armed/monitored candidates, playing-clip risks, input routing, existing note counts/digests, timing, tempo and recording/musical controls. Input monitoring In can make an unarmed track a candidate. This preserves focus and does not reveal Live's hidden input buffer, exact future notes or a chosen destination slot. The moving playhead is observed through the separate transport reader and is not reserved by a capture plan.
 

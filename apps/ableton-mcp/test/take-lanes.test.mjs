@@ -23,10 +23,9 @@ test('take read refuses ambiguous references and mismatched native context',asyn
  }
  const {service,requests}=fixture();await assert.rejects(service.call('get_take_lane_context',{...target,takeClipId:'track-0:take-lane-00:clip-0'}));assert.equal(requests.length,0);
 });
-test('take inspection is read-only, all-profile and discoverable through workflow catalog',async()=>{
+test('take inspection is read-only and all-profile',async()=>{
  const {service}=fixture(),listed=(await createRouter(service)({id:1,method:'tools/list'})).result.tools;
  assert.equal(listed.find(t=>t.name==='get_take_lane_context').annotations.readOnlyHint,true);
  assert.equal(listed.find(t=>t.name==='copy_take_lane_clip'),undefined);
  const core=createRouter(service,{toolProfile:'core'});assert.equal((await core({id:2,method:'tools/call',params:{name:'get_take_lane_context',arguments:target}})).error.code,-32601);
- const workflow=await service.call('get_producer_workflow',{workflow:'inspect-recorded-takes',arguments:{request:'Inspect alternate performances'}});assert.ok(workflow.messages.length);
 });

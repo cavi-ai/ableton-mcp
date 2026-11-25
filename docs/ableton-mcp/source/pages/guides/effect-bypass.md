@@ -1,6 +1,6 @@
 # Compare an effect with bypass
 
-Use `compare-effect-bypass` through `get_producer_workflow` or its MCP prompt to hear one existing effect enabled and bypassed. Resolve the exact owner and device path, including nested racks, Returns and Main. Turning off an instrument or whole rack has a broader scope than bypassing one effect.
+Hear one existing effect enabled and bypassed. Resolve the exact owner and device path, including nested racks, Returns and Main. Turning off an instrument or whole rack has a broader scope than bypassing one effect.
 
 `get_device_activation_context` is read-only and preserves focus. It reports the unique binary `Device On` parameter, `localActive`, `effectiveActive`, enclosing rack activity, native automation context and strict recording/freeze flags. Missing, ambiguous or nonbinary controls are unsupported. Live's [effective activation](https://docs.cycling74.com/apiref/lom/device/) includes enclosing racks: a device can be locally on while a parent rack keeps it inactive. Do not enable parents automatically.
 

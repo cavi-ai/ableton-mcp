@@ -1,18 +1,8 @@
 # Develop a drum part
 
-Use `develop-drum-part` for an existing Session MIDI beat: “thin the hats,” “make the last bar less repetitive,” or “add a fill while keeping the kick.” Retrieve the workflow through `get_producer_workflow` or its MCP prompt. Retrieval does not call Live; execution requires the `all` profile and the updated Remote Script bridge.
+This covers an existing Session MIDI beat: “thin the hats,” “make the last bar less repetitive,” or “add a fill while keeping the kick.” It requires the `all` profile and the updated Remote Script bridge.
 
-```json
-{
-  "workflow": "develop-drum-part",
-  "arguments": {
-    "request": "Make a named alternative to the verse beat. Keep kick and snare timing, thin the hats and add a final-bar fill. Audition it, then refine from my feedback.",
-    "mode": "collaborative"
-  }
-}
-```
-
-The default `collaborative` mode proposes a musical direction unless the user already chose it. `autonomous` chooses within the brief and states its choices. Neither mode grants unrelated playback, device edits, deletion or saving. For a new pattern, use `produce-drum-pattern` after resolving the instrument and pitch mapping.
+Propose a musical direction unless the user already chose it. Unrelated playback, device edits, deletion and saving need their own authority. For a new pattern, use `plan_drum_pattern` and `create_drum_pattern_clip` after resolving the instrument and pitch mapping.
 
 ## Resolve the actual beat
 
@@ -38,4 +28,4 @@ Each mutation uses fresh observations and an unchanged confirmed plan. Verify th
 
 When listening is authorized, inspect launch mode, quantization, arm/freeze and recording state before `launch_clip`. Launch can start playback, replace the playing clip on its track and override Arrangement. Keep the previous playing reference for a requested return. Separate clip launches do not establish alignment with other parts; a full-row comparison follows [Build a Session scene](session-scene-building.md) and needs its complete effects reviewed. Preserve unrelated mutes, solos, monitoring, arms and global groove.
 
-Read actual playback and native signal activity, then ask what the user hears or make a bounded refinement within the autonomous brief. Neither meters nor stored notes establish what sounded better. Re-read the alternative before further edits and preserve intervening added hits, velocities and timing. Refresh the comparison if the source, kit or phase changes. Keep original and alternative clips; cleanup and saving remain separate.
+Read actual playback and native signal activity, then ask what the user hears or make a bounded refinement within the brief. Neither meters nor stored notes establish what sounded better. Re-read the alternative before further edits and preserve intervening added hits, velocities and timing. Refresh the comparison if the source, kit or phase changes. Keep original and alternative clips; cleanup and saving remain separate.
