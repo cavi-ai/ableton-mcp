@@ -1,6 +1,6 @@
 # Ungroup tracks and retain their material
 
-For an explicit request such as “ungroup the Synth bus,” resolve one Group, discloses the bus stage that will disappear and verifies the retained descendants under their current IDs.
+For an explicit request such as “ungroup the Synth bus,” resolve one Group, disclose the bus stage that will disappear and verify the retained descendants under their current IDs.
 
 ## What removal changes
 
