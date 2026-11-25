@@ -17,6 +17,19 @@ export function assertAcceptanceFixture(live, setPath) {
   assert.equal(live.isPlaying, false, "Acceptance requires stopped playback");
 }
 
+export async function createAcceptanceMidiClip({ apply, call, trackId, clipId, name }) {
+  const target = { trackId, clipId };
+  const lengthBeats = 4;
+  const notes = [{ pitch: 60, start: 0, duration: 1, velocity: 80, mute: false }];
+  await apply("create_midi_clip", { ...target, name, lengthBeats, notes });
+
+  const clip = await call("get_midi_clip_notes_extended", target);
+  assert.deepEqual({ trackId: clip.trackId, clipId: clip.clipId, lengthBeats: clip.lengthBeats },
+    { ...target, lengthBeats }, "MIDI clip readback differs");
+  assert.deepEqual(clip.notes.map(({ pitch, start, duration, velocity, mute }) => ({ pitch, start, duration, velocity, mute })),
+    notes, "MIDI note readback differs");
+}
+
 export async function runLiveAcceptance({ setPath, outDir, progress = value => console.log(JSON.stringify(value)) }) {
   assert.ok(setPath && /\.als$/i.test(setPath), "--set must name an explicit saved scratch .als Set");
   setPath = realpathSync(setPath);
@@ -62,8 +75,7 @@ export async function runLiveAcceptance({ setPath, outDir, progress = value => c
       const created = (await call("list_tracks")).tracks.filter(track => track.name === name);
       assert.equal(created.length, 1); trackId = created[0].id;
       const clipId = `${trackId}:clip-0`;
-      await apply("create_midi_clip", { trackId, clipId, name, lengthBeats: 4,
-        notes: [{ pitch: 60, start: 0, duration: 1, velocity: 80, mute: false }] });
+      await createAcceptanceMidiClip({ apply, call, trackId, clipId, name });
       const browser = await call("search_browser_roots", { roots: ["audio_effects"], query: "Utility", maxDepth: 6, limit: 20, maxVisited: 10000 });
       const utility = browser.results.find(item => item.name === "Utility" && item.loadable);
       assert.ok(utility, "Utility must be available in Live's Audio Effects browser");

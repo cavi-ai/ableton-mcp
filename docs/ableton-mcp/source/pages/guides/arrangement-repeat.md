@@ -1,6 +1,6 @@
 # Repeat an Arrangement passage
 
-`plan_arrangement_repeat` covers requests such as “repeat the chorus twice later in the song.” It copies complete existing Arrangement clips onto their own tracks, preserving their relative positions and the passage's gaps. This requires the `all` profile and updated bridge.
+`plan_arrangement_repeat` previews requests such as “repeat the chorus twice later in the song.” The preview maps complete Arrangement clips to new positions on their own tracks and preserves the passage's gaps. Use a separate guarded `duplicate_arrangement_clip` call for each copy. Use the updated bridge with the `observe,arrangement,midi,audio` slices or the `all` or `directory` profile.
 
 Propose a structural map unless the user already chose one. Unrelated playback, source edits, deletion, recording and saving need their own authority.
 
