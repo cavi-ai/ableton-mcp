@@ -1,6 +1,6 @@
 # Hold a Session clip
 
-Use `perform-session-clip` through `get_producer_workflow` in the `all` profile, or retrieve its MCP prompt. Name the existing Session clip and intended hold duration. The workflow uses native press/release calls for Gate and Repeat; ordinary one-shot launching remains available through `launch_clip`.
+Resolve the existing Session clip and intended hold duration. `hold_session_clip` in the `all` profile uses native press/release calls for Gate and Repeat; ordinary one-shot launching remains available through `launch_clip`.
 
 ## Prepare the intended clip
 

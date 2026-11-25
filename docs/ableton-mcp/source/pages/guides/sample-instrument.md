@@ -1,6 +1,6 @@
 # Build a sample instrument
 
-Retrieve `build-sample-instrument` through `get_producer_workflow` in the `all` profile, or open its MCP prompt. Describe the musical role, a local sample or configured library, the intended part and any audition request. `collaborative` resolves material choices with the user; `autonomous` chooses within the brief. Retrieving the workflow does not execute it.
+Resolve the musical role, a local sample or configured library, the intended part and any audition request. The sample tools require the `all` profile.
 
 ## Preserve a playable part
 

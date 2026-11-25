@@ -1,6 +1,6 @@
 # Keep a device sound as a native preset
 
-Use `keep-device-sound` through `get_producer_workflow` to keep a useful device or rack in the User Library, then recall it separately. `save_native_device_preset` is available in the `all` profile and uses Live’s native **Save Preset** button.
+Keep a useful device or rack in the User Library, then recall it separately. `save_native_device_preset` is available in the `all` profile and uses Live’s native **Save Preset** button.
 
 ## Choose and prepare the source
 

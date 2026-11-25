@@ -1,6 +1,6 @@
 # Record a Session take
 
-Retrieve `record-session-take` through `get_producer_workflow` in the `all` profile, or open its MCP prompt. Describe the input, target part, length and when to start. Preparing or inspecting an input is separate from permission to record it. Recording one take does not authorize changing unrelated arms, monitoring, routing or material.
+The recording tools require the `all` profile. Resolve the input, target part, length and when to start. Preparing or inspecting an input is separate from permission to record it. Recording one take does not authorize changing unrelated arms, monitoring, routing or material.
 
 ## Prepare the destination
 

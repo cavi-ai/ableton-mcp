@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ToolService} from '../src/tool-service.mjs';
-import {getPrompt} from '../src/prompts.mjs';
 import {toolContracts} from '../src/tool-contracts.mjs';
 
 for (const method of ['delete_clip','delete_arrangement_clip','delete_session_object']) {
@@ -31,16 +30,4 @@ test('clip removal requires fresh state and an updated whole-clip context',async
   const args={trackId:'track-0',clipId:'track-0:clip-0'};
   await assert.rejects(service.call('delete_clip',args),/expectedStateVersion/);assert.equal(calls,0);
   await assert.rejects(service.call('delete_clip',{...args,expectedStateVersion:4}),/updated native/);
-});
-
-test('whole-clip removal workflow resolves destructive scope and actual outcomes',()=>{
-  for(const mode of ['collaborative','autonomous']){
-    const text=getPrompt('remove-whole-clip',{request:'Discard the alternate bass take',mode}).messages[0].content.text;
-    for(const reference of new Set(text.match(/[a-z]+(?:_[a-z]+)+/g)))assert.ok(toolContracts[reference],`unknown workflow tool ${reference}`);
-    assert.match(text,/get_selection_context/);assert.match(text,/whole clip/);assert.match(text,/clip envelopes and note expression/);
-    assert.match(text,/not a restorable backup/);assert.match(text,/delete_arrangement_clip/);assert.match(text,/delete_clip/);
-    assert.match(text,/targetCleared/);assert.match(text,/deletionVerified/);assert.match(text,/Do not replay/);
-    assert.match(text,/already authorized/);
-  }
-  assert.throws(()=>getPrompt('remove-whole-clip',{request:'Discard take',mode:'replace'}),/mode/);
 });

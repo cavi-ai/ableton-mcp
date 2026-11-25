@@ -1,6 +1,6 @@
 # Build instrument layers
 
-Ask for a direction such as “Keep this bass part and build sub, body and texture alternatives into a shared bus.” Retrieve `build-layered-instrument` through MCP prompts or `get_producer_workflow`, with the request and optional `mode: "collaborative"` or `"autonomous"`. Autonomous choices stay within the brief; playback, replacement, saving and deletion retain their own scope.
+Ask for a direction such as “Keep this bass part and build sub, body and texture alternatives into a shared bus.” Choices stay within the brief; playback, replacement, saving and deletion retain their own scope.
 
 ## Preserve the part
 

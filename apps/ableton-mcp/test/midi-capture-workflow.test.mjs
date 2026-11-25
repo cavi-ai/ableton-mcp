@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ToolService} from '../src/tool-service.mjs';
-import {getPrompt} from '../src/prompts.mjs';
 
 test('MIDI capture binds the native global context and requires explicit existing-clip scope',async()=>{
   const before={stateVersion:3,available:true,possibleTrackIds:['track-0'],overdubClipIds:['track-0:clip-0'],identityToken:'native'};
@@ -18,10 +17,4 @@ test('MIDI capture binds the native global context and requires explicit existin
   assert.match(plan.plan.warning,/outside the resulting loop/);
   const result=await service.call('capture_midi_session',{...args,dryRun:false,confirmationToken:plan.confirmation.token,planHash:plan.confirmation.planHash});
   assert.equal(result.observed.captureVerified,false);
-});
-
-test('capture workflow distinguishes global hidden buffer scope and preserves manual edits',()=>{
-  const text=getPrompt('keep-played-midi',{request:'Keep what I just played and leave it unquantized'}).messages[0].content.text;
-  for(const term of ['get_midi_capture_context','capture_midi_session','get_midi_clip_notes_extended','captureVerified','allowExistingClipChanges'])assert.ok(text.includes(term),term);
-  assert.match(text,/global/i);assert.match(text,/hidden/i);assert.match(text,/manual edits/i);assert.match(text,/never.*retry blindly/i);
 });

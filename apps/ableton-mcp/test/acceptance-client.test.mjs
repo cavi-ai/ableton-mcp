@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { McpAcceptanceClient } from "../../../scripts/acceptance/mcp-client.mjs";
-import { assertAcceptanceFixture } from "../../../scripts/acceptance/live.mjs";
+import { assertAcceptanceFixture, createAcceptanceMidiClip } from "../../../scripts/acceptance/live.mjs";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -43,6 +43,40 @@ test("acceptance refuses unsaved, mismatched and playing Sets before any fixture
   assert.throws(() => assertAcceptanceFixture({ filePath: other, isPlaying: false }, path), /selected scratch/);
   assert.throws(() => assertAcceptanceFixture({ filePath: path, isPlaying: true }, path), /stopped/);
   assertAcceptanceFixture({ filePath: path, isPlaying: false }, path);
+});
+
+test("MIDI acceptance rejects a successful creation receipt with missing or changed notes", async () => {
+  const target = { trackId: "track-1", clipId: "track-1:clip-0" };
+  const note = { noteId: 7, pitch: 60, start: 0, duration: 1, velocity: 80, mute: false,
+    probability: 1, velocityDeviation: 0, releaseVelocity: 64 };
+  const readback = { ...target, stateVersion: 2, location: "session", timeline: null, lengthBeats: 4, notes: [note] };
+  const create = observed => {
+    let applied = false;
+    return createAcceptanceMidiClip({
+      ...target, name: "Acceptance clip",
+      apply: async (tool, args) => {
+        assert.equal(tool, "create_midi_clip");
+        assert.deepEqual(args, { ...target, name: "Acceptance clip", lengthBeats: 4,
+          notes: [{ pitch: 60, start: 0, duration: 1, velocity: 80, mute: false }] });
+        applied = true;
+        return { stateVersion: 2, operationOutcome: { status: "applied" } };
+      },
+      call: async (tool, args) => {
+        assert.ok(applied, "read back the clip after creation");
+        assert.equal(tool, "get_midi_clip_notes_extended");
+        assert.deepEqual(args, target);
+        return observed;
+      }
+    });
+  };
+
+  for (const notes of [[], [note, { ...note, noteId: 8 }], [{ ...note, pitch: 61 }], [{ ...note, start: 0.5 }],
+    [{ ...note, duration: 2 }], [{ ...note, velocity: 81 }], [{ ...note, mute: true }]]) {
+    await assert.rejects(create({ ...readback, notes }), /MIDI note readback differs/);
+  }
+  await assert.rejects(create({ ...readback, clipId: "track-1:clip-1" }), /MIDI clip readback differs/);
+  await assert.rejects(create({ ...readback, lengthBeats: 8 }), /MIDI clip readback differs/);
+  await create(readback);
 });
 
 test("acceptance close is bounded even when its owned child ignores termination", async () => {

@@ -18,7 +18,7 @@ Names are comma-separated. Unknown names, duplicates, and an empty list fail at 
 ableton-mcp session slices=observe,drums,transport tools=34 baseSchemaBytes=32500
 ```
 
-`ableton-mcp slices --json` lists every slice, its tools, its resources, and its prompts. Slice sessions currently advertise no workflow prompts. Prompt text remains available through `ableton-mcp prompt` and through the legacy `all` and `producer` profiles.
+`ableton-mcp slices --json` lists every slice, its tools, and its resources. No session advertises prompts.
 
 A custom union is allowed. The stock unions below are the ones kept inside 63 tools and 57,000 bytes of advertised schema. A larger union still starts; the log line is how you see the cost.
 
@@ -38,13 +38,13 @@ A custom union is allowed. The stock unions below are the ones kept inside 63 to
 
 ## Select exact tools
 
-`ABLETON_MCP_TOOLS` names the exact functional tools a session advertises. The session refuses every other tool and advertises no resources and no workflow prompts.
+`ABLETON_MCP_TOOLS` names the exact functional tools a session advertises. The session refuses every other tool and advertises no resources.
 
 ```bash
 ABLETON_MCP_TOOLS=list_tracks,plan_drum_pattern,create_drum_pattern_clip ableton-mcp serve
 ```
 
-Names are comma-separated. Every name must belong to a slice; producer coordination tools are refused. Unknown names, duplicates, and an empty list fail at startup.
+Names are comma-separated. Every name must belong to a slice. Unknown names, duplicates, and an empty list fail at startup.
 
 ```text
 ableton-mcp session allowlist=list_tracks,plan_drum_pattern,create_drum_pattern_clip tools=3 baseSchemaBytes=4491
@@ -54,10 +54,9 @@ ableton-mcp session allowlist=list_tracks,plan_drum_pattern,create_drum_pattern_
 
 `ABLETON_MCP_TOOL_PROFILE` remains an explicit alias:
 
-- `all` advertises every tool, including producer coordination, and every workflow prompt.
+- `all` advertises every tool.
 - `core` advertises the frozen 63-tool catalog.
-- `directory` advertises native tools without producer coordinators.
-- `producer` is the temporary specialist alias. Functional sessions use slices. See [Production specialists](production-specialists.md).
+- `directory` advertises every native tool.
 
 ## Configure role sessions
 

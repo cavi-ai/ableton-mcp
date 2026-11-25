@@ -8,7 +8,7 @@ const args = { expectedStateVersion: 1, dryRun: false };
 const outcome = (name, observed, options = {}) => classifyMutationOutcome(name, { ...args, ...options }, { dryRun: false, observed });
 
 test("every guarded native tool declares a mutation receipt policy", () => {
-  const names = Object.keys(toolContracts).filter(name => !["apply_production_operation", "advance_production_session"].includes(name) &&
+  const names = Object.keys(toolContracts).filter(name =>
     toolContracts[name].inputSchema.properties.dryRun && (toolContracts[name].inputSchema.properties.expectedStateVersion ||
       toolContracts[name].outputSchema === guardedMutationResult));
   assert.deepEqual(Object.keys(mutationOutcomeContracts).sort(), names.sort());

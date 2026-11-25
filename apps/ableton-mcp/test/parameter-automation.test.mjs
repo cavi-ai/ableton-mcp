@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ToolService} from '../src/tool-service.mjs';
 import {createRouter} from '../src/server.mjs';
-import {getPrompt} from '../src/prompts.mjs';
 
 function fixture(){
  const before={stateVersion:4,setFingerprint:'set',trackId:'track-0',deviceId:null,parameterId:'volume',identityToken:'native',
@@ -56,13 +55,11 @@ test('Return and Main plans warn about their stage while arbitrary fields and se
  assert.equal(invalid.error.code,-32602);
 });
 
-test('handoff tools remain all-profile and workflow preserves unrelated overrides and ongoing playback',async()=>{
+test('handoff tools remain all-profile',async()=>{
  const f=fixture(),all=createRouter(f.service),core=createRouter(f.service,{toolProfile:'core'});
  const tools=(await all({id:1,method:'tools/list'})).result.tools;
  assert.equal(tools.find(t=>t.name==='get_parameter_automation_context').annotations.readOnlyHint,true);
  assert.ok(tools.some(t=>t.name==='re_enable_parameter_automation'));
  const unavailable=await core({id:2,method:'tools/call',params:{name:'get_parameter_automation_context',arguments:{trackId:'track-0'}}});
  assert.equal(unavailable.error.code,-32601);
- const text=getPrompt('resume-parameter-automation',{request:'Give this filter back to automation'}).messages[0].content.text;
- for(const term of ['get_parameter_automation_context','re_enable_parameter_automation','overridden','unrelated','playback','partial','audible'])assert.ok(text.includes(term),term);
 });

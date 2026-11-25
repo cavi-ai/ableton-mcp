@@ -44,9 +44,3 @@ test('marker writer is all-profile and refuses wrong units at the MCP boundary',
  assert.equal((await core({id:2,method:'tools/call',params:{name:'set_midi_clip_markers',arguments:f.args}})).error.code,-32601);
  assert.equal((await all({id:3,method:'tools/call',params:{name:'set_midi_clip_markers',arguments:{...f.args,startSeconds:2}}})).error.code,-32602);
 });
-test('phrase workflow retrieval makes no Live call and refuses unsupported modes',async()=>{
- const f=fixture(),result=await f.service.call('get_producer_workflow',{workflow:'set-midi-phrase-bounds',arguments:{request:'Try a shorter ending'}});
- assert.ok(result.messages.length);
- await assert.rejects(f.service.call('get_producer_workflow',{workflow:'set-midi-phrase-bounds',arguments:{request:'Try a shorter ending',mode:'replace'}}),/mode/);
- assert.equal(f.calls.length,0);
-});

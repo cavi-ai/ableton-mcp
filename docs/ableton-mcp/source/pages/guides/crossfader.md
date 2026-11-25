@@ -1,6 +1,6 @@
 # Prepare crossfader parts
 
-Use `crossfade-parts` through `get_producer_workflow` in the `all` profile, or retrieve its MCP prompt. Name the intended A/B parts and distinguish setup from a requested Main position move.
+The crossfader tools require the `all` profile. Resolve the intended A/B parts and distinguish setup from a requested Main position move.
 
 ## Inspect the complete bus
 

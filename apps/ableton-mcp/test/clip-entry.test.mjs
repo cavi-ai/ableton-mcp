@@ -2,15 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ToolService} from '../src/tool-service.mjs';
 import {createRouter} from '../src/server.mjs';
-import {getProducerWorkflow} from '../src/prompts.mjs';
 import {withRequestSignal} from '../src/request-context.mjs';
-
-test('entry workflow preserves originals and distinguishes launch entry from a loop',()=>{
- const text=getProducerWorkflow({workflow:'compare-clip-entry',arguments:{request:'Start the phrase halfway through',mode:'autonomous'}}).messages[0].content.text;
- for(const term of ['set_session_clip_entry','duplicate_clip','Legato','loop','manual edits','identityToken','seconds'])assert.ok(text.includes(term),term);
- assert.match(text,/does not prove.*heard|does not establish.*heard/);
- assert.throws(()=>getProducerWorkflow({workflow:'compare-clip-entry',arguments:{request:'Try it',mode:'unknown'}}),/mode/);
-});
 
 function fixture(){
  const before={stateVersion:4,trackId:'track-0',clipId:'track-0:clip-0',identityToken:'native',unit:'beats',start:0,end:4,content:{notes:[{noteId:1,velocity:80}]}},calls=[];

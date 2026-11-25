@@ -1,6 +1,6 @@
 # Print a part to editable audio
 
-Use `print-track-to-audio` through `get_producer_workflow` in the `all` profile to keep an editable source and print a copy. The workflow duplicates one ordinary audio/MIDI track, mutes and disarms the copy, turns off its input monitoring, and uses `bounce_track_in_place` only on that copy. Refresh track IDs after duplication and verify the new copy before converting it.
+Keep an editable source and print a copy in the `all` profile. Duplicate one ordinary audio/MIDI track, mute and disarm the copy, turn off its input monitoring, and use `bounce_track_in_place` only on that copy. Refresh track IDs after duplication and verify the new copy before converting it.
 
 ## Choose the print scope
 

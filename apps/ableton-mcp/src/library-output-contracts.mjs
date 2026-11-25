@@ -63,7 +63,5 @@ export const libraryOutputContracts = {
     installedVariants: records, recommendedVariant: nullable(object), parameterExposure: object }),
   inspect_producer_chain: versioned({ trackId: text, verification: object }),
   inspect_producer_bus: versioned({ busTrackId: text, busChain: object, children: records, matchesBlueprint: bool, limitation: text }),
-  inspect_producer_return_bus: versioned({ returnTrackId: text, busChain: object, children: records, matchesBlueprint: bool, limitation: text }),
-  get_producer_workflow: { type: "object", anyOf: [result({ workflows: records }),
-    result({ workflow: text, description: text, messages: records })] }
+  inspect_producer_return_bus: versioned({ returnTrackId: text, busChain: object, children: records, matchesBlueprint: bool, limitation: text })
 };

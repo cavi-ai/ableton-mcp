@@ -1,6 +1,6 @@
 # Capture and inspect Live audio
 
-Use `listen-to-live-output` to inspect a short recording from Live's Resampling input. Unlike analysis of an original audio clip's source file, this records the signal Live is producing during the capture window. It does not establish what reached the speakers or what a listener heard. These tools require the `all` profile and the updated Remote Script.
+`capture_live_audio` makes a short recording from Live's Resampling input. Unlike analysis of an original audio clip's source file, this records the signal Live is producing during the capture window. It does not establish what reached the speakers or what a listener heard. These tools require the `all` profile and the updated Remote Script.
 
 To turn a verified print into a new playable part while retaining its sources, use [resampling into an instrument](resample-instrument.md).
 

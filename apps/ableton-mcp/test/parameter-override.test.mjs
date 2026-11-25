@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ToolService} from '../src/tool-service.mjs';
 import {createRouter} from '../src/server.mjs';
-import {getPrompt} from '../src/prompts.mjs';
 
 function fixture(){
  const source={stateVersion:4,setFingerprint:'set',identityToken:'native',trackId:'track-0',deviceId:null,parameterId:'volume',
@@ -68,11 +67,9 @@ test('partial native outcomes remain visible without an automatic retry',async()
  assert.equal(result.observed.partial,true);assert.equal(calls.filter(m=>m==='override_parameter_automation').length,1);
 });
 
-test('override stays all-profile and its workflow requires explicit manual takeover intent',async()=>{
+test('override stays all-profile',async()=>{
  const f=fixture(),all=createRouter(f.service),core=createRouter(f.service,{toolProfile:'core'});
  const tools=(await all({id:1,method:'tools/list'})).result.tools;assert.ok(tools.some(t=>t.name==='override_parameter_automation'));
  assert.equal((await core({id:2,method:'tools/call',params:{name:'override_parameter_automation',arguments:f.args}})).error.code,-32601);
  const invalid=await all({id:3,method:'tools/call',params:{name:'override_parameter_automation',arguments:{...f.args,targetDisplay:'600 Hz'}}});assert.equal(invalid.error.code,-32602);
- const text=getPrompt('take-manual-control',{request:'Hold the bass filter at 2 kHz until I give it back'}).messages[0].content.text;
- for(const term of ['explicit','override_parameter_automation','re_enable_parameter_automation','recording','unrelated','partial','moving'])assert.ok(text.includes(term),term);
 });

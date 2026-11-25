@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { analyzeTonalEvidence, enrichSessionOrientation } from "../src/session-orientation.mjs";
 import { ToolService } from "../src/tool-service.mjs";
 import { createRouter } from "../src/server.mjs";
-import { getPrompt } from "../src/prompts.mjs";
 
 const key = { rootNote: 0, scaleName: "Major", scaleIntervals: [0, 2, 4, 5, 7, 9, 11] };
 const note = (pitch, start = 0, duration = 1, extra = {}) => ({ pitch, start, duration, mute: false, ...extra });
@@ -84,19 +83,4 @@ test("unavailable pitch evidence stays unavailable for audio, drums, recording, 
     assert.equal(result.focus.status, status);
     assert.equal(Object.hasOwn(result.focus, "notes"), false);
   }
-});
-
-test("session and instrument workflows separate configuration from evidence and require user choice before replacement", () => {
-  const overview = getPrompt("session-overview").messages[0].content.text;
-  assert.match(overview, /get_session_orientation/);
-  assert.match(overview, /configured/i);
-  assert.match(overview, /ambigui/i);
-  const explore = getPrompt("explore-selected-instrument", { request: "warmer synths" }).messages[0].content.text;
-  for (const phrase of ["get_session_orientation", "save_live_set", "load_browser_item", "original", "user", "readback", "opaque", "recording"])
-    assert.ok(explore.includes(phrase), phrase);
-  assert.match(explore, /only.*Serum 2\/Omnisphere\/VPS Avenger/i);
-  assert.match(explore, /Before loading.*get_midi_clip_notes_extended.*get_clip_timing/);
-  assert.match(explore, /Arrangement.*never.*launch_clip/);
-  for (const phrase of ["prepare_instrument_comparison", "get_instrument_comparison", "select_instrument_comparison"])
-    assert.ok(explore.includes(phrase), phrase);
 });

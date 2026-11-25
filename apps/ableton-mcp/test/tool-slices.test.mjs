@@ -1,10 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { toolContracts } from "../src/tool-contracts.mjs";
-import { producerToolContracts } from "../src/producer-contracts.mjs";
 import { createRouter, sessionLogLine } from "../src/server.mjs";
-import { listPrompts } from "../src/prompts.mjs";
-import { listSliceCatalog, sessionSelection, toolSlices, sliceResourceUris, workflowToolName } from "../src/tool-slices.mjs";
+import { listSliceCatalog, sessionSelection, toolSlices, sliceResourceUris } from "../src/tool-slices.mjs";
 import { runCli } from "../src/cli.mjs";
 import { ToolService } from "../src/tool-service.mjs";
 
@@ -18,7 +16,7 @@ const stockRoles = {
   files: ["observe", "files"]
 };
 
-test("every functional tool is in exactly one slice and producer tools are in none", () => {
+test("every tool is in exactly one slice", () => {
   const assigned = new Map();
   for (const [slice, names] of Object.entries(toolSlices)) {
     assert.deepEqual(sliceResourceUris[slice] instanceof Array, true, slice);
@@ -27,11 +25,9 @@ test("every functional tool is in exactly one slice and producer tools are in no
       assigned.set(name, slice);
     }
   }
-  const functional = Object.keys(toolContracts).filter((name) => !Object.hasOwn(producerToolContracts, name) && name !== workflowToolName);
+  const functional = Object.keys(toolContracts);
   assert.deepEqual(functional.filter((name) => !assigned.has(name)), []);
   assert.deepEqual([...assigned.keys()].filter((name) => !functional.includes(name)), []);
-  assert.equal(assigned.has(workflowToolName), false);
-  for (const name of Object.keys(producerToolContracts)) assert.equal(assigned.has(name), false, name);
   const resources = Object.values(sliceResourceUris).flat();
   assert.equal(new Set(resources).size, resources.length);
 });
@@ -47,8 +43,6 @@ test("a slice session advertises only its union and refuses hidden tools, prompt
   assert.equal(names.has("get_live_state"), true);
   assert.equal(names.has("plan_drum_pattern"), true);
   assert.equal(names.has("set_tempo"), false);
-  assert.equal(names.has("run_production_task"), false);
-  assert.equal(names.has(workflowToolName), false);
   const hidden = await route({ id: 2, method: "tools/call", params: { name: "set_tempo", arguments: {} } });
   assert.equal(hidden.error.code, -32601);
   assert.equal(calls, 0);
@@ -94,7 +88,6 @@ test("an exact tool session advertises only the named tools and refuses everythi
   assert.throws(() => sessionSelection({ ABLETON_MCP_TOOLS: "list_tracks,list_tracks" }), /duplicate tool: list_tracks/);
   assert.throws(() => sessionSelection({ ABLETON_MCP_TOOLS: "nope" }), /unknown functional tool: nope/);
   assert.throws(() => sessionSelection({ ABLETON_MCP_TOOLS: "run_production_task" }), /unknown functional tool: run_production_task/);
-  assert.throws(() => sessionSelection({ ABLETON_MCP_TOOLS: workflowToolName }), /unknown functional tool/);
   assert.throws(() => sessionSelection({ ABLETON_MCP_TOOLS: "list_tracks", ABLETON_MCP_TOOL_SLICES: "observe" }), /mutually exclusive/);
   assert.throws(() => sessionSelection({ ABLETON_MCP_TOOLS: "list_tracks", ABLETON_MCP_TOOL_PROFILE: "all" }), /mutually exclusive/);
   assert.throws(() => createRouter({}, { toolNames: ["list_tracks"], toolSlices: ["observe"] }), /mutually exclusive/);
@@ -107,7 +100,6 @@ test("stock role unions stay inside the core discovery budget", async () => {
     const bytes = Buffer.byteLength(JSON.stringify(tools));
     assert.ok(tools.length <= 63, `${role} advertises ${tools.length} tools`);
     assert.ok(bytes <= 57000, `${role} catalog is ${bytes} bytes`);
-    assert.equal(tools.some((tool) => Object.hasOwn(producerToolContracts, tool.name)), false, role);
   }
 });
 
@@ -118,15 +110,15 @@ test("unknown, duplicate, and mixed session selectors fail before routing", () =
   assert.throws(() => sessionSelection({ ABLETON_MCP_TOOL_PROFILE: "all", ABLETON_MCP_TOOL_SLICES: "observe" }), /mutually exclusive/);
   assert.throws(() => sessionSelection({ ABLETON_MCP_TOOL_SLICES: "" }), /at least one slice/);
   assert.deepEqual(sessionSelection({}), { toolSlices: ["observe"] });
-  assert.deepEqual(sessionSelection({ ABLETON_MCP_TOOL_PROFILE: "producer" }), { toolProfile: "producer" });
+  assert.throws(() => createRouter({}, { toolProfile: "producer" }), /unknown tool profile: producer/);
 });
 
-test("legacy profiles still advertise their catalogs and workflow prompts", async () => {
+test("legacy profiles advertise the full catalog and no prompts", async () => {
   const all = createRouter({ call: async () => ({}) });
   const tools = (await all({ id: 1, method: "tools/list" })).result.tools;
   assert.equal(tools.length, Object.keys(toolContracts).length);
   const prompts = await all({ id: 2, method: "prompts/list" });
-  assert.equal(prompts.result.prompts.length, listPrompts().length);
+  assert.deepEqual(prompts.result.prompts, []);
   const baseSchemaBytes = Buffer.byteLength(JSON.stringify(tools));
   assert.equal(sessionLogLine({}), `ableton-mcp session profile=all tools=${tools.length} baseSchemaBytes=${baseSchemaBytes}\n`);
 });

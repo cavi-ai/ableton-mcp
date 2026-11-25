@@ -38,7 +38,4 @@ test('Looper export exposes conservative partial receipts and all-profile workfl
   const router=createRouter(service),listed=(await router({id:1,method:'tools/list'})).result.tools;
   assert.equal(listed.find(t=>t.name==='get_looper_export_context').annotations.readOnlyHint,true);
   assert.equal(listed.find(t=>t.name==='export_looper_clip').annotations.destructiveHint,true);
-  const prompt=await service.call('get_producer_workflow',{workflow:'keep-looper-performance',arguments:{request:'Keep the current loop as a Session clip'}});
-  assert.match(prompt.messages[0].content.text,/export_looper_clip/);
-  assert.match(prompt.messages[0].content.text,/bufferContentVerified/);
 });

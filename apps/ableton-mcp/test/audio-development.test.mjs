@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {ToolService} from "../src/tool-service.mjs";
 import {createRouter} from "../src/server.mjs";
-import {getPrompt} from "../src/prompts.mjs";
 
 test("public clip duplication binds native source edits and carries a copy name",async()=>{
   let pitch=0,writes=0;
@@ -21,9 +20,4 @@ test("public clip duplication binds native source edits and carries a copy name"
   const confirmed={...args,dryRun:false,confirmationToken:dry.confirmation.token,planHash:dry.confirmation.planHash};
   pitch=1;assert.equal((await request(confirmed)).isError,true);assert.equal(writes,0);
   pitch=0;assert.equal((await request(confirmed)).structuredContent.observed.copyVerified,true);assert.equal(writes,1);
-});
-
-test("audio development workflow resolves selected material and preserves original and manual edits",()=>{
-  const text=getPrompt("develop-selected-audio-clip",{request:"Make this loop warmer"}).messages[0].content.text;
-  for(const phrase of ["detailClip","duplicate_clip","destinationClipId","seconds","manual edits","warp","source file","partial","heard"])assert.ok(text.includes(phrase),phrase);
 });

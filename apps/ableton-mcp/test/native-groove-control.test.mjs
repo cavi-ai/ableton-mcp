@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import {ToolService} from "../src/tool-service.mjs";
 import {createRouter} from "../src/server.mjs";
 import {MacClipGrooveHost} from "../src/clip-groove-removal.mjs";
-import {getProducerWorkflow} from "../src/prompts.mjs";
 
 function fixture({changedDuringMenu = false, changedAfter = false, unchangedAfter = false, wrongSelection = false} = {}) {
   const clip = {stateVersion: 4, trackId: "track-0", clipId: "track-0:clip-0", trackName: "Bass", clipName: "Unique bass clip",
@@ -97,23 +96,4 @@ test("groove UI host rechecks between menu preparation and selection and cancels
     assert.deepEqual(order, ["native preparation", "prepare", "native recheck", stale ? "cancel" : "commit"]);
     assert.equal(host.busy, false);
   }
-});
-
-test("native groove workflow is discoverable without Live and validates intent and mode", async () => {
-  const service = new ToolService({bridge: {request: async () => {throw Error("unexpected Live call");}}});
-  const route = createRouter(service, {toolProfile: "producer"});
-  const listed = await route({id: 1, method: "tools/call", params: {name: "get_producer_workflow", arguments: {}}});
-  assert.ok(listed.result.structuredContent.workflows.find(w => w.name === "try-clip-groove"));
-  assert.throws(() => getProducerWorkflow({workflow: "try-clip-groove"}), /request/);
-  assert.throws(() => getProducerWorkflow({workflow: "try-clip-groove", arguments: {request: "Try swing", mode: "replace"}}), /mode/);
-  const text = getProducerWorkflow({workflow: "try-clip-groove", arguments: {request: "Try a swing alternative", mode: "autonomous"}}).messages[0].content.text;
-  assert.match(text, /Try a swing alternative/);
-  assert.match(text, /duplicate_clip/);
-  assert.match(text, /duplicate_arrangement_clip.*nonoverlapping startBeats/);
-  assert.doesNotMatch(text, /retrieve arrange-session-ideas/);
-  assert.match(text, /grooveId: null/);
-  assert.match(text, /unique clip name/);
-  assert.match(text, /global.*other clips|other clips.*global/i);
-  assert.match(text, /not.*bak|without baking/i);
-  assert.match(text, /manual edits/);
 });

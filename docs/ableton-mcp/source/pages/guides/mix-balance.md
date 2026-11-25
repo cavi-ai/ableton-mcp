@@ -1,6 +1,6 @@
 # Balance track levels
 
-Retrieve `balance-mix` through `get_producer_workflow` in the `all` profile, or open its MCP prompt. Describe the parts and desired balance. The default `collaborative` mode proposes a direction unless already chosen; `autonomous` chooses small, stated changes within the brief. Playback, recording, isolation and saving need their own authority.
+Resolve the parts and desired balance before changing levels. Playback, recording, isolation and saving need their own authority.
 
 The workflow covers explicitly chosen track, Group, Return and Main faders and track-to-Return sends. Return and Main changes need their own scope; do not include them in a request that names only ordinary tracks. Adding effects, changing Return processing or routing, and changing send pre/post settings require their own scope.
 

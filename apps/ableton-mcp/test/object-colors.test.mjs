@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import {ToolService} from '../src/tool-service.mjs';
 import {createRouter} from '../src/server.mjs';
 import {validateToolArguments} from '../src/tool-validation.mjs';
-import {getPrompt} from '../src/prompts.mjs';
 
 const args={changes:[{objectId:'track-0',color:'#ff0000'},{objectId:'track-0:arrangement-clip-0',color:'#0000ff'}],expectedStateVersion:3,expectedSetFingerprint:'set'};
 function fixture(){let identity='original',writes=0;const bridge={request:async(method,p)=>{
@@ -44,11 +43,6 @@ test('an incomplete bridge write passes through unchanged',async()=>{
 test('an honest failed color write keeps the bridge verdict',async()=>{
  const f=fixture(),original=f.bridge.request;let receipt;f.bridge.request=async(...a)=>{const r=await original(...a);if(a[0]==='set_live_object_colors'){r.writeCompleted=false;r.identityRetained=false;r.selectionUnchanged=false;r.inspectionRequired=true;receipt=structuredClone(r);}return r;};
  const p=await f.service.call('set_live_object_colors',args),r=await f.service.call('set_live_object_colors',{...args,dryRun:false,confirmationToken:p.confirmation.token,planHash:p.confirmation.planHash});assert.deepEqual(r.observed,receipt);
-});
-test('organization workflow resolves explicit roles and preserves manually chosen content and focus',()=>{
- assert.throws(()=>getPrompt('organize-session'),/required/);
- const text=getPrompt('organize-session',{request:'Make the named bass track blue'}).messages[0].content.text;
- for(const required of ['Make the named bass track blue','get_live_object_colors','set_live_object_colors','exactMatch','manual','Arrangement','musical roles','rename_session_object'])assert.ok(text.includes(required),required);
 });
 test('an unassigned Scene palette entry can be planned without claiming it is already colored',async()=>{
  const f=fixture(),original=f.bridge.request;f.bridge.request=async(...a)=>{const r=await original(...a);if(a[0]==='get_live_object_colors')r.objects[0]={...r.objects[0],color:null,colorIndex:null};return r;};

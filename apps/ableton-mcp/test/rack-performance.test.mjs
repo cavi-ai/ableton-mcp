@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createRouter} from '../src/server.mjs';
 import {ToolService} from '../src/tool-service.mjs';
-import {getPrompt} from '../src/prompts.mjs';
 
 test('rack performance read is discoverable and uses one native request', async()=>{
   const calls=[];
@@ -17,16 +16,6 @@ test('rack performance read is discoverable and uses one native request', async(
   const result=await route({id:2,method:'tools/call',params:{name:'get_rack_performance_context',arguments:args}});
   assert.deepEqual(result.result?.structuredContent,native);
   assert.deepEqual(calls,[['get_rack_performance_context',args]]);
-});
-
-test('rack performance prompt preserves starting states and checks actual recalls',()=>{
-  const text=getPrompt('shape-rack-performance',{request:'Make a brighter chorus and compare it with the verse'}).messages[0].content.text;
-  for(const term of ['get_rack_performance_context','map_rack_macro_to_parameter','store_rack_macro_variation','recall_rack_macro_variation','set_rack_macro_mapping_edge','get_transport_recording_context','confirmationToken'])assert.ok(text.includes(term),term);
-  assert.match(text,/saved variation contents.*not exposed/i);
-  assert.match(text,/manual edits/i);
-  assert.match(text,/same.*macro.*multiple targets/i);
-  assert.match(text,/not.*beat.scheduled/i);
-  assert.match(text,/ask what the user hears/i);
 });
 
 test('stored variation index follows count increase while selection stays unchanged',async()=>{

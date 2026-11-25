@@ -1,6 +1,6 @@
 # Crop a MIDI phrase
 
-Use `crop-midi-phrase` through `get_producer_workflow` or its MCP prompt in the `all` profile for requests such as “keep only this loop.” Default `mode: "copy"` creates a named alternative before cropping; `in-place` requires explicit intent to discard content from the existing clip. Retrieving the workflow does not edit Live.
+`crop_midi_clip` in the `all` profile covers requests such as “keep only this loop.” A copy creates a named alternative before cropping; an in-place crop requires explicit intent to discard content from the existing clip.
 
 ## Preserve the original and resolve the interval
 

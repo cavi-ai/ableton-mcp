@@ -56,33 +56,3 @@ export const withToolErrorSchema = schema => schema === extensibleToolResult ? s
   type: "object", anyOf: [schema, toolErrorResult]
 };
 
-const artifactId = { type: "string", pattern: "^[a-f0-9]{64}$" };
-const checkSource = { enum: ["caller", "specialist"] };
-const executionStatus = { enum: ["not_attempted", "execution_pending", "applied", "rejected", "outcome_unknown",
-  "postconditions_failed", "pending_postconditions", "pending_user_action", "unrecorded"] };
-const execution = result({ taskId: artifactId,
-  operations: { type: "array", maxItems: 16, items: result({ index: { type: "integer", minimum: 0, maximum: 15 }, tool: text,
-    status: executionStatus, attemptRef: artifactId, receiptId: artifactId, resultRef: artifactId, nativeStatus: mutationReceiptSchema.properties.status,
-    error: { type: "string", maxLength: 300 } }, ["index", "tool", "status"]) },
-  counts: { type: "object", additionalProperties: { type: "integer", minimum: 0, maximum: 16 } }
-});
-const sessionSummary = result({ sessionId: { type: "string" }, sessionRef: artifactId, revision: { type: "integer", minimum: 1 },
-  phase: { enum: ["inspect", "choose", "propose", "proposing", "apply", "execution_pending", "needs_inspection", "audition", "evaluate", "complete"] },
-  execution, recoveryRef: artifactId, recoveryRequired: { type: "boolean" },
-  audibleQualityVerified: { const: false } }, ["sessionId", "sessionRef", "revision", "phase", "audibleQualityVerified"]);
-export const producerOutputContracts = {
-  start_production_session: sessionSummary,
-  advance_production_session: sessionSummary,
-  get_production_session: { type: "object", oneOf: [sessionSummary, result({ sessions: records,
-    nextOffset: { anyOf: [{ type: "integer", minimum: 0 }, { type: "null" }] } })] },
-  get_production_context: result({ stateVersion: version, setFingerprint: text, contextRef: artifactId, summary: text }),
-  record_production_note: result({ noteRef: artifactId }),
-  read_production_artifact: result({ artifactId, text, offset: { type: "integer", minimum: 0 }, totalCharacters: { type: "integer", minimum: 0 },
-    truncated: { type: "boolean" }, nextOffset: { anyOf: [{ type: "integer", minimum: 0 }, { type: "null" }] } }),
-  run_production_task: result({ taskId: artifactId, intent: { enum: ["inspect", "change"] },
-    status: { enum: ["proposed", "observed", "no_change_needed", "incomplete", "budget_exhausted", "stale_context", "needs_input"] },
-    checkSource, operationCount: { type: "integer", minimum: 0, maximum: 16 }, summary: text,
-    stateVersion: version, setFingerprint: text, questions: strings, contextRef: artifactId, resultRefs: records, turnRefs: records, readsUsed: { type: "integer", minimum: 0 } }),
-  apply_production_operation: result({ taskId: artifactId, operationIndex: { type: "integer", minimum: 0 },
-    status: { enum: ["planned", "applied", "rejected", "outcome_unknown", "postconditions_failed", "pending_postconditions", "pending_user_action"] }, checkSource })
-};

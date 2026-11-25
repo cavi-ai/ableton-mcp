@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ToolService} from '../src/tool-service.mjs';
 import {validateToolArguments} from '../src/tool-validation.mjs';
-import {getPrompt} from '../src/prompts.mjs';
 
 const base={trackId:'track-0',clipId:'track-0:clip-0',expectedStateVersion:4};
 function fixture(){
@@ -37,9 +36,4 @@ test('launch-mode planning refuses Arrangement clips, unavailable modes and inva
  for(const value of [true,'unknown',4,-1])await assert.rejects(()=>fixture().service.call('set_clip_timing',{...base,launchMode:value}));
  const f=fixture();f.timing.location='arrangement';await assert.rejects(()=>f.service.call('set_clip_timing',{...base,launchMode:'gate'}),/unavailable|Session/);
  f.timing.location='session';f.timing.launchMode={supported:false};await assert.rejects(()=>f.service.call('set_clip_timing',{...base,launchMode:'gate'}),/unavailable|supported/);
-});
-
-test('Session workflow separates mode configuration from held launch input',()=>{
- const text=getPrompt('build-session-scene',{request:'Prepare the chosen clips for live triggering.'}).messages[0].content.text;
- assert.match(text,/launchMode/);assert.match(text,/held.button/);assert.match(text,/Gate.*Repeat/s);
 });

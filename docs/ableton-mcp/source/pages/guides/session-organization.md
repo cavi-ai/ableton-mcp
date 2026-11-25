@@ -1,6 +1,6 @@
 # Organize names and colors
 
-Use `organize-session` with an explicit request such as “keep the existing names, make these drum tracks red, and match their selected clips.” Resolve the exact tracks, Returns, Main, scenes and clips first. Colors supplement useful names; they should not be the sole way to identify a part. A name or instrument is evidence to discuss, not proof of a musical role.
+Start from an explicit request such as “keep the existing names, make these drum tracks red, and match their selected clips.” Resolve the exact tracks, Returns, Main, scenes and clips first. Colors supplement useful names; they should not be the sole way to identify a part. A name or instrument is evidence to discuss, not proof of a musical role.
 
 ## Read and apply colors
 

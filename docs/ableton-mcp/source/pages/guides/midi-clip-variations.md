@@ -1,6 +1,6 @@
 # Develop a selected MIDI clip
 
-Select a Session MIDI clip in Live and open it in the Clip Detail View. In your MCP client, use the `develop-selected-midi-clip` prompt with a musical request such as “Give me two less busy versions, keeping the kick and snare.” Both `core` and `all` profiles expose the tools this workflow needs.
+Select a Session MIDI clip in Live and open it in the Clip Detail View. In your MCP client, make a musical request such as “Give me two less busy versions, keeping the kick and snare.” Both `core` and `all` profiles expose the tools it needs.
 
 The agent reads the displayed clip, its notes and timing, and the available Session slots. It creates two named copies in existing empty slots on the same track, then edits the copies using their own native note IDs. The original stays in place. If there is no suitable selected clip or not enough space, the agent asks you to select a clip or make room.
 

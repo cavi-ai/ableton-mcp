@@ -1,6 +1,6 @@
 # Reverse a MIDI phrase
 
-Retrieve `reverse-midi-phrase` through `get_producer_workflow` or its MCP prompt in the `all` profile. Describe the phrase and beat window. The default `mode: "copy"` preserves the original through a named alternative; `in-place` requires explicit intent to edit the existing clip. Retrieving the workflow does not change Live.
+Resolve the phrase and beat window. The transform tools require the `all` profile. A copy preserves the original through a named alternative; an in-place edit requires explicit intent to edit the existing clip.
 
 Read the source's complete notes and timing. Copy Session MIDI with `duplicate_midi_clip_variations` into an existing empty slot. For Arrangement sources, duplicate or copy into explicitly scoped, nonoverlapping timeline space and resolve the new native clip IDs afterward. Read the copy's own note IDs; they need not match the source. Missing space does not authorize replacement, deletion or silently switching to in-place editing.
 

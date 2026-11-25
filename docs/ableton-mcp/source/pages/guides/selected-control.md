@@ -1,6 +1,6 @@
 # Edit the selected control
 
-Use `edit-selected-control` through `get_producer_workflow` or its MCP prompt for a request about the parameter selected in Live. The `all` profile provides `get_selected_parameter_context` and `set_selected_parameter`.
+This covers a request about the parameter selected in Live. The `all` profile provides `get_selected_parameter_context` and `set_selected_parameter`.
 
 ## Resolve what is selected
 

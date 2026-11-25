@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import {ToolService} from '../src/tool-service.mjs';
 import {createRouter} from '../src/server.mjs';
 import {validateToolArguments} from '../src/tool-validation.mjs';
-import {getPrompt} from '../src/prompts.mjs';
 import {readFile} from 'node:fs/promises';
 import {runInNewContext} from 'node:vm';
 
@@ -72,8 +71,4 @@ test('a successful truncated receipt cannot satisfy a larger requested grouping'
 });
 test('grouping and recovery tools are available only in all profile',async()=>{
  const f=fixture(),all=createRouter(f.service),core=createRouter(f.service,{toolProfile:'core'}),tools=(await all({id:1,method:'tools/list'})).result.tools;assert.equal(tools.find(t=>t.name==='get_track_grouping_status').annotations.readOnlyHint,true);assert.equal(tools.find(t=>t.name==='group_tracks').annotations.readOnlyHint,false);assert.equal((await core({id:2,method:'tools/call',params:{name:'group_tracks',arguments:args}})).error.code,-32601);
-});
-test('grouping workflow retains recovery context and refreshes shifted IDs before naming the bus',()=>{
- assert.throws(()=>getPrompt('group-session-tracks'),/required/);const text=getPrompt('group-session-tracks',{request:'Group the two named synth layers as Synth bus'}).messages[0].content.text;
- for(const required of ['Group the two named synth layers as Synth bus','group_tracks','get_track_grouping_status','groupingId','consecutive','rename_session_object','track IDs','hidden'])assert.ok(text.includes(required),required);
 });

@@ -1,6 +1,6 @@
 # Remove a Session scene
 
-Retrieve `remove-session-scene` through `get_producer_workflow` or its MCP prompt when the user explicitly wants one Session row removed. Resolve the exact row using current selection, scenes and `get_scene_launch_context`. Making a comparison does not authorize deleting rejected alternatives. Preserve the original and chosen versions unless their removal is explicitly requested.
+This covers an explicit request to remove one Session row. Resolve the exact row using current selection, scenes and `get_scene_launch_context`. Making a comparison does not authorize deleting rejected alternatives. Preserve the original and chosen versions unless their removal is explicitly requested.
 
 A scene spans every ordinary track and Group slot in its row: clips, empty stop buttons and tempo/meter overrides. Exposed material reads do not back up hidden expression or clip envelopes.
 

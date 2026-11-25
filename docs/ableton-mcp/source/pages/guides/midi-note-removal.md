@@ -1,6 +1,6 @@
 # Remove exact MIDI notes
 
-Use `remove-notes-from-midi-part` through `get_producer_workflow` or its MCP prompt when the user explicitly wants to delete notes. A less busy variation can instead mute chosen notes on a copied clip through [MIDI clip variations](midi-clip-variations.md). Deletion removes the notes and their hidden expression; exposed note records are not a complete backup.
+This covers an explicit request to delete notes. A less busy variation can instead mute chosen notes on a copied clip through [MIDI clip variations](midi-clip-variations.md). Deletion removes the notes and their hidden expression; exposed note records are not a complete backup.
 
 The `all` profile exposes `get_midi_note_removal_context` and `remove_midi_notes`. Resolve the exact Session or Arrangement clip, actual instrument and requested musical scope first. The context reads complete exposed notes, timing, native identity and safety without moving focus or selecting material. Sources are limited to 4096 notes and are never sampled.
 

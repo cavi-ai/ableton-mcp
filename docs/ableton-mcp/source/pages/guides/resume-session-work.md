@@ -1,10 +1,10 @@
 # Resume work after an interruption
 
-Use the `resume-session-work` prompt when continuing after cancellation, a lost connection, or edits made while the agent was away. Give it the current request, such as “continue comparing the bass instruments,” and optionally a prior task summary in `previousContext`. Retrieving the prompt does not call Live or execute the task. The agent follows it using the tools available to its client.
+After cancellation, a lost connection, or edits made while the agent was away, continue from the current request, such as “continue comparing the bass instruments,” and any prior task summary.
 
 ## Establish what is open now
 
-The workflow reads `get_session_orientation` and `get_live_state` to establish the current Set, playback, recording, selected part and musical context. The configured key and bounded MIDI evidence remain distinct. Resuming does not automatically reopen a Set, move selection, stop playback or restore earlier material.
+Read `get_session_orientation` and `get_live_state` to establish the current Set, playback, recording, selected part and musical context. The configured key and bounded MIDI evidence remain distinct. Resuming does not automatically reopen a Set, move selection, stop playback or restore earlier material.
 
 The agent uses authorization already given in the conversation and asks only when the desired continuation is unclear. A copied task summary helps identify what to inspect; it does not establish permission, prove an operation completed or authenticate earlier content. If another Set is open, the agent resolves which Set you intend before switching, unless your request already specifies the switch.
 

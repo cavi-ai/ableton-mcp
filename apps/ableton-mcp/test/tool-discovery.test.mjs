@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { createRouter } from "../src/server.mjs";
 import { ToolService } from "../src/tool-service.mjs";
 import { toolContracts } from "../src/tool-contracts.mjs";
-import { ProducerService } from "../src/producer-service.mjs";
 import { plannedResult } from "./fixtures/tool-results.mjs";
 
 test("MCP discovery exposes every contracted producer tool", async () => {
@@ -99,7 +98,7 @@ test("every tool advertises MCP annotations matching its mutation class", async 
     assert.equal(byName.get(name).annotations.destructiveHint, false, name);
   }
   for (const name of ["create_track", "create_groove", "create_midi_clip", "insert_midi_notes",
-    "create_clip_parameter_envelope", "create_clip_mixer_envelope", "get_production_context", "record_production_note"]) {
+    "create_clip_parameter_envelope", "create_clip_mixer_envelope"]) {
     assert.equal(byName.get(name).annotations.readOnlyHint, false, name);
     assert.equal(byName.get(name).annotations.destructiveHint, false, name);
   }
@@ -113,29 +112,21 @@ test("every tool advertises MCP annotations matching its mutation class", async 
     assert.equal(byName.get(name).annotations.destructiveHint, true, name);
   }
   for (const name of ["get_live_scale_reference", "list_live_scales", "list_factory_device_profiles", "get_live_state",
-    "search_presets", "set_tempo", "read_production_artifact", "record_production_note", "get_production_session"]) {
+    "search_presets", "set_tempo"]) {
     assert.equal(byName.get(name).annotations.openWorldHint, false, name);
   }
-  for (const name of ["analyze_audio_file", "export_midi_clip", "run_production_task"]) {
+  for (const name of ["analyze_audio_file", "export_midi_clip"]) {
     assert.equal(byName.get(name).annotations.openWorldHint, true, name);
   }
-  assert.equal(byName.get("get_production_context").annotations.idempotentHint, false);
-  assert.equal(byName.get("record_production_note").annotations.idempotentHint, true);
 });
 
-test("directory profile exposes named native tools and rejects producer coordinators", async () => {
+test("directory profile exposes named native tools", async () => {
   let calls = 0;
   const route = createRouter({ call: async () => { calls++; return plannedResult(); } }, { toolProfile: "directory" });
   const tools = (await route({ id: 1, method: "tools/list" })).result.tools;
   const names = new Set(tools.map(tool => tool.name));
   for (const name of ["set_tempo", "set_bulk_track_mixer", "duplicate_midi_clip_variations", "transform_midi_notes"])
     assert.ok(names.has(name), name);
-  for (const name of ["run_production_task", "apply_production_operation", "start_production_session", "advance_production_session",
-    "get_production_context", "get_production_session", "read_production_artifact", "record_production_note"]) {
-    assert.equal(names.has(name), false, name);
-    const denied = await route({ id: 2, method: "tools/call", params: { name, arguments: {} } });
-    assert.equal(denied.error.code, -32601);
-  }
   assert.equal(calls, 0);
   const planned = await route({ id: 3, method: "tools/call", params: {
     name: "set_tempo", arguments: { tempo: 100, expectedStateVersion: 1 }
@@ -148,9 +139,7 @@ test("directory profile exposes named native tools and rejects producer coordina
 
 test("every contracted tool has a service handler", async () => {
   const bridge = { request: async () => { throw new Error("bridge unavailable"); } };
-  const service = new ProducerService({
-    service: new ToolService({ bridge, catalog: { search: () => [], get: () => undefined } }), config: null
-  });
+  const service = new ToolService({ bridge, catalog: { search: () => [], get: () => undefined } });
   const unhandled = [];
   for (const name of Object.keys(toolContracts)) {
     try {

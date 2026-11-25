@@ -1,6 +1,6 @@
 # Remove a track or Group
 
-Retrieve `remove-track` through `get_producer_workflow` or its MCP prompt for an explicitly unwanted track. Resolve its exact current identity and contents in both Session and Arrangement, including devices and Group descendants. Preserve originals and preferred alternatives unless their removal is explicit.
+This covers an explicitly unwanted track. Resolve its exact current identity and contents in both Session and Arrangement, including devices and Group descendants. Preserve originals and preferred alternatives unless their removal is explicit.
 
 Deleting a Group deletes its entire subtree, including nested Groups. Use [ungrouping](track-ungrouping.md) when the children should remain. A track without Session clips can still contain Arrangement clips, processing and automation.
 

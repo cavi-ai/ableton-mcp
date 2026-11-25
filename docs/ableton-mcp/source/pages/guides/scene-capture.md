@@ -1,6 +1,6 @@
 # Keep the current Session combination
 
-Retrieve `keep-session-combination` through `get_producer_workflow` or its MCP prompt to keep a Session jam as a named scene. Execution requires the `all` profile and updated bridge. Retrieval does not call Live or execute work.
+`capture_session_scene` keeps a Session jam as a named scene. It requires the `all` profile and updated bridge.
 
 `capture_session_scene` uses Live's native [Capture and Insert Scene](https://www.ableton.com/en/manual/session-view/#editing-scenes): it copies currently playing Session clips into a new row below the selected scene **and immediately launches that row**. This includes muted playing parts and children hidden inside Groups. Full-row launching can change Arrangement overrides or stop empty tracks. The original clip objects remain, but they need not remain playing. If the request is storage without switching playback or a chosen subset, use [Build a Session scene](session-scene-building.md) with explicit copies instead.
 

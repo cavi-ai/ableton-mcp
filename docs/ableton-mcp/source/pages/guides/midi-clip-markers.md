@@ -1,6 +1,6 @@
 # Define MIDI phrase bounds
 
-Use `set-midi-phrase-bounds` through `get_producer_workflow` or its MCP prompt in the `all` profile for requests such as “start this phrase after the pickup” or “try a shorter ending.” Default `mode: "copy"` makes a named alternative; `in-place` requires explicit intent to edit the existing clip's markers. Retrieving the workflow does not edit Live.
+`set_midi_clip_markers` in the `all` profile covers requests such as “start this phrase after the pickup” or “try a shorter ending.” A copy makes a named alternative; an in-place edit requires explicit intent to edit the existing clip's markers.
 
 This marker tool supports loop-enabled clips only. Read complete `get_midi_clip_notes_extended` and `get_clip_timing` for the exact Session or Arrangement MIDI clip. Start/end markers use absolute source-clip quarter-note beats. They differ from Arrangement song positions, offsets from the loop start and repeated loop passes. A highlighted slot, selected notes or editor time selection do not establish the intended interval.
 

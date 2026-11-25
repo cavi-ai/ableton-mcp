@@ -1,6 +1,6 @@
 # Export a native audio mix
 
-Retrieve `export-audio-mix` through `get_producer_workflow` in the `all` profile, or open its MCP prompt. `export_audio_mix` controls English Live on macOS through the native Export Audio/Video dialog. It exports Main as a new stereo WAV and requires macOS Accessibility and Automation access for the tool host.
+`export_audio_mix` in the `all` profile controls English Live on macOS through the native Export Audio/Video dialog. It exports Main as a new stereo WAV and requires macOS Accessibility and Automation access for the tool host.
 
 ## Prepare the range and destination
 

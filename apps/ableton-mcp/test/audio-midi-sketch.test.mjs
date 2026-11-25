@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {buildAudioMidiSketch} from '../src/audio-midi-sketch.mjs';
-import {getPrompt} from '../src/prompts.mjs';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -38,14 +37,6 @@ test('empty candidates remain empty and mismatched or reversed native mappings f
   for(const points of [converted.points.slice(1),converted.points.map((p,i)=>({...p,sourceSeconds:i})),
     converted.points.map(p=>({...p,beatTime:-p.beatTime}))])assert.throws(()=>buildAudioMidiSketch(source,{events}, {conversion:'native',points},100));
 });
-
-test('audio-to-MIDI workflow preserves audio and distinguishes sketch from transcription',()=>{
-  const text=getPrompt('sketch-midi-from-audio',{request:'Make this isolated bass phrase playable with another instrument'}).messages[0].content.text;
-  for(const name of ['plan_audio_midi_sketch','create_midi_clip','get_midi_clip_notes_extended','get_audio_clip_state','get_transport_recording_context'])assert.ok(text.includes(name),name);
-  assert.match(text,/polyphonic/i);assert.match(text,/manual edits/i);assert.match(text,/uniform velocity/i);
-  assert.match(text,/source audio/i);assert.match(text,/approximate/i);
-});
-
 test('planner analyzes real audio and refuses changed native context instead of returning stale notes',async()=>{
   const directory=await mkdtemp(join(tmpdir(),'audio-midi-'));
   try{

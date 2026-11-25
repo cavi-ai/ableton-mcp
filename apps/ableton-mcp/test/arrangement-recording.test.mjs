@@ -32,10 +32,9 @@ test('cancel confirmation binds control context without binding the advancing cl
  const f=fixture(),args={takeId:'take-a',cancel:true,expectedStateVersion:4},p=await f.service.call('finish_arrangement_take',args);
  assert.equal((await f.service.call('finish_arrangement_take',confirm(args,p))).observed.released,true);
 });
-test('all profile exposes the read and guarded recording lifecycle with a user workflow',async()=>{
+test('all profile exposes the read and guarded recording lifecycle',async()=>{
  const f=fixture(),router=createRouter(f.service),tools=(await router({id:1,method:'tools/list'})).result.tools;
  assert.equal(tools.find(t=>t.name==='get_arrangement_take')?.annotations.readOnlyHint,true);
  assert.equal(tools.find(t=>t.name==='record_arrangement_take')?.annotations.readOnlyHint,false);
- assert.ok((await f.service.call('get_producer_workflow',{workflow:'record-arrangement-take',arguments:{request:'Record a four-bar guitar part into empty Arrangement space'}})).messages.length);
  const core=createRouter(f.service,{toolProfile:'core'});assert.ok(!(await core({id:2,method:'tools/list'})).result.tools.some(t=>t.name==='record_arrangement_take'));
 });

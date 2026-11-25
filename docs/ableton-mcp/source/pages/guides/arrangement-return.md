@@ -1,6 +1,6 @@
 # Return tracks to Arrangement
 
-Use `resume-arrangement-tracks` through `get_producer_workflow` in the `all` profile, or retrieve its MCP prompt, to hand named parts back from Session performance to Arrangement. The existing global playback and loop settings stay in place; the tool does not seek. A running playhead continues to advance.
+`return_tracks_to_arrangement` in the `all` profile hands named parts back from Session performance to Arrangement. The existing global playback and loop settings stay in place; the tool does not seek. A running playhead continues to advance.
 
 ## Resolve the handoff
 

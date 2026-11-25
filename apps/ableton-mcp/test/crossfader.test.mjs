@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ToolService} from '../src/tool-service.mjs';
 import {createRouter} from '../src/server.mjs';
-import {getPrompt} from '../src/prompts.mjs';
 
 function fixture(){
  const position={supported:true,value:0,min:-1,max:1,enabled:true,quantized:false,automationState:{value:0,name:'none'}};
@@ -43,9 +42,4 @@ test('invalid and combined requests stop before native reads; tools remain all-o
  assert.equal(tools.find(t=>t.name==='get_crossfader_context').annotations.readOnlyHint,true);
  assert.ok(tools.some(t=>t.name==='set_crossfader_state'));
  assert.equal((await core({id:2,method:'tools/call',params:{name:'get_crossfader_context',arguments:{}}})).error.code,-32601);
-});
-
-test('crossfader workflow exposes all members, separates setup and movement, and preserves partial work',()=>{
- const text=getPrompt('crossfade-parts',{request:'Prepare bass and pads on A/B.'}).messages[0].content.text;
- for(const term of ['get_crossfader_context','set_crossfader_state','Return','Group','automation','partial','separate','audible'])assert.ok(text.includes(term),term);
 });

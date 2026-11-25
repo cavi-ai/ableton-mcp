@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ToolService} from '../src/tool-service.mjs';
 import {createRouter} from '../src/server.mjs';
-import {getPrompt} from '../src/prompts.mjs';
 
 function fixture(){
  const parameter=value=>({supported:true,value,min:-1,max:1,enabled:true,quantized:false,automationState:{value:0,name:'none'}});
@@ -47,15 +46,13 @@ test('wrong-mode values, combined setup, unknown targets and invalid values neve
  assert.equal(f.calls.filter(x=>x.name==='set_mixer_panning').length,0);
 });
 
-test('pan tools are all-profile only and workflow distinguishes mode setup from channel placement',async()=>{
+test('pan tools are all-profile only',async()=>{
  const f=fixture(),all=createRouter(f.service),core=createRouter(f.service,{toolProfile:'core'});
  const tools=(await all({id:1,method:'tools/list'})).result.tools;
  assert.equal(tools.find(t=>t.name==='get_mixer_panning_context').annotations.readOnlyHint,true);
  assert.ok(tools.some(t=>t.name==='set_mixer_panning'));
  const mixed=await all({id:2,method:'tools/call',params:{name:'set_mixer_panning',arguments:{...f.args,mode:'splitStereo'}}});assert.equal(mixed.error.code,-32602);
  assert.equal((await core({id:3,method:'tools/call',params:{name:'get_mixer_panning_context',arguments:{trackId:'track-0'}}})).error.code,-32601);
- const text=getPrompt('shape-stereo-image',{request:'Narrow the selected pad.'}).messages[0].content.text;
- for(const term of ['get_mixer_panning_context','set_mixer_panning','input channel','separate','automation','partial','audible'])assert.ok(text.includes(term),term);
 });
 
 test('legacy single-pan planning requires observed Stereo mode for tracks, bulk, Return and Main',async()=>{

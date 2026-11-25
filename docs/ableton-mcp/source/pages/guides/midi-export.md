@@ -1,6 +1,6 @@
 # Export a native MIDI clip
 
-Use `export-midi-clip` through `get_producer_workflow`, or call `export_midi_clip` in the `all` profile. It exports one exact Session or Arrangement MIDI clip through Live’s native **Export MIDI Clip** command into a new `.mid` file. It supports macOS English Live and does not require saving an untitled Set first.
+Call `export_midi_clip` in the `all` profile. It exports one exact Session or Arrangement MIDI clip through Live’s native **Export MIDI Clip** command into a new `.mid` file. It supports macOS English Live and does not require saving an untitled Set first.
 
 ## Choose what the file should contain
 

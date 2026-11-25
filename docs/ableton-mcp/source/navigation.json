@@ -27,7 +27,6 @@
         { "title": "Edit the selected control", "path": "guides/selected-control.md" },
         { "title": "Reverse a MIDI phrase", "path": "guides/midi-retrograde.md" },
         { "title": "Organize names and colors", "path": "guides/session-organization.md" },
-        { "title": "Production specialists", "path": "guides/production-specialists.md" },
         { "title": "Sliced agent sessions", "path": "guides/session-slices.md" },
         { "title": "Create a musical sketch", "path": "guides/musical-sketch.md" },
         { "title": "Relate musical parts", "path": "guides/musical-parts.md" },
@@ -80,7 +79,6 @@
         { "title": "Build a sample instrument", "path": "guides/sample-instrument.md" },
         { "title": "Chop a sample into a groove", "path": "guides/sample-chopping.md" },
         { "title": "Balance track levels", "path": "guides/mix-balance.md" },
-        { "title": "Build a shared Return effect", "path": "guides/shared-return-effects.md" },
         { "title": "Hold a Session clip", "path": "guides/session-clip-holds.md" },
         { "title": "Record an Arrangement take", "path": "guides/arrangement-take.md" },
         { "title": "Sidechain ducking", "path": "guides/sidechain-ducking.md" },
@@ -108,7 +106,7 @@
         { "title": "Preset catalog", "path": "guides/preset-catalog.md" },
         { "title": "NKS artwork", "path": "guides/artwork.md" },
         { "title": "Troubleshooting", "path": "guides/troubleshooting.md" },
-        { "title": "Validate production workflows", "path": "guides/workflow-validation.md" }
+        { "title": "Validate against Live", "path": "guides/workflow-validation.md" }
       ]
     },
     {

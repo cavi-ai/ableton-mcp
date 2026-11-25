@@ -7,10 +7,6 @@ import { SnapshotLibrary } from "./snapshot-library.mjs";
 import { join } from "node:path";
 import { BrowserMetadataLibrary } from "./browser-metadata-library.mjs";
 import { MacLiveSetHost } from "./live-set-host.mjs";
-import { ProducerArtifacts } from "./producer-artifacts.mjs";
-import { ProducerService } from "./producer-service.mjs";
-import { createProducerRuntime, parseProducerConfig } from "./producer-runtime.mjs";
-import { homedir } from "node:os";
 
 const emptyCatalog = {
   configured: false,
@@ -26,7 +22,6 @@ const emptyCatalog = {
 };
 
 export function createConfiguredService(environment = process.env, { persistentConfirmations = false } = {}) {
-  const producerConfig = parseProducerConfig(environment);
   const { catalogPath, socketPath, confirmationDirectory, snapshotDirectory, browserMetadataPath, spliceRoots, liveAppPath } = resolveRuntimeConfig(environment);
   const catalog = catalogPath ? Catalog.open(catalogPath) : emptyCatalog;
   const bridge = new UnixBridgeClient(socketPath);
@@ -45,13 +40,7 @@ export function createConfiguredService(environment = process.env, { persistentC
       midiFeelLibrary: new SnapshotLibrary({ directory: join(snapshotDirectory, "midi-feel"),
         formats: ["cavi-midi-feel-v1"] }), browserMetadata });
   return {
-    service: createConfiguredProducerService(service, environment, producerConfig),
+    service,
     close: () => { browserLibrary?.close(); catalog.close(); }
   };
-}
-
-export function createConfiguredProducerService(service, environment = process.env, config = parseProducerConfig(environment)) {
-  return new ProducerService({ service, config,
-    runtimeFactory: runtime => createProducerRuntime(runtime, { environment }),
-    artifacts: new ProducerArtifacts(environment.ABLETON_MCP_PRODUCER_DIR || join(homedir(), ".cavi", "ableton-mcp", "producer")) });
 }

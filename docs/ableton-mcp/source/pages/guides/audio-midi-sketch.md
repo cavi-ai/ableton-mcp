@@ -1,6 +1,6 @@
 # Sketch MIDI from an audio phrase
 
-Use `sketch-midi-from-audio` to make an isolated monophonic phrase playable with another instrument while keeping the audio original. For example: “Make a MIDI sketch of this bass loop on a new track, keep its timing and let me choose a synth.” This is a source-audio sketch with approximate pitches and boundaries, not exact transcription or a polyphonic audio-to-MIDI converter.
+Make an isolated monophonic phrase playable with another instrument while keeping the audio original. For example: “Make a MIDI sketch of this bass loop on a new track, keep its timing and let me choose a synth.” This is a source-audio sketch with approximate pitches and boundaries, not exact transcription or a polyphonic audio-to-MIDI converter.
 
 The workflow uses the `all` profile, an updated bridge and local `ffmpeg`/`ffprobe`. `plan_audio_midi_sketch` reads an exact warped Session or Arrangement audio clip. By default it analyzes the current loop when enabled, otherwise the playback markers. Supply `startBeats` and `endBeats` together for another region. These are absolute clip beats; an Arrangement region is not the global Arrangement time or the repeated/truncated occurrence heard on the timeline.
 

@@ -1,6 +1,6 @@
 # Inspect recorded takes
 
-Retrieve `inspect-recorded-takes` through `get_producer_workflow` or its MCP prompt. Describe the track, passage and musical question. The workflow reads stored performances alongside the main Arrangement without changing the comp, focus or playback.
+Resolve the track, passage and musical question, then read stored performances alongside the main Arrangement without changing the comp, focus or playback.
 
 ## Find alternate performances
 
@@ -20,7 +20,7 @@ Stored takes do not reveal current comp selections, source highlights or lane au
 
 ## Compare lanes with the user
 
-Retrieve `audition-recorded-takes` to compare whole take lanes and return to the comp. On macOS, `get_take_lane_audition_context` combines the native inventory with visible audition checkboxes. Hidden lanes have unknown audition state. A saved Set with an identifiable native document, accessibility access and one running Live instance are required.
+Compare whole take lanes and return to the comp. On macOS, `get_take_lane_audition_context` combines the native inventory with visible audition checkboxes. Hidden lanes have unknown audition state. A saved Set with an identifiable native document, accessibility access and one running Live instance are required.
 
 Confirm `show_take_lanes` separately to open Arrangement and reveal the target's lanes. Unfold necessary ancestor groups separately. Then confirm `select_take_lane_audition` with a returned `laneId`; pass explicit `null` to return that track to the comp. Selection applies to the entire lane, not a chosen clip or interval. It does not start playback. Use an authorized [Arrangement audition](arrangement-audition.md) to hear the intended passage and ask the user what they prefer. Check track mutes, Session overrides and routing first; other tracks may sound.
 

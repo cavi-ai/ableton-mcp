@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ToolService } from "../src/tool-service.mjs";
 import { createRouter } from "../src/server.mjs";
-import { getPrompt } from "../src/prompts.mjs";
 
 function fixture() {
   const context = { stateVersion: 4, setFingerprint: "set", trackId: "track-0",
@@ -71,10 +70,4 @@ test("selection and variation tools are discoverable in core with correct mutati
   assert.equal(tools.find(t => t.name === "duplicate_midi_clip_variations")?.annotations.readOnlyHint, false);
   const selected = await route({ id: 2, method: "tools/call", params: { name: "get_selection_context", arguments: {} } });
   assert.equal(selected.result.structuredContent.selectedTrack.id, "track-0");
-});
-
-test("the collaborative prompt preserves originals and re-reads manual edits before refinement", () => {
-  const text = getPrompt("develop-selected-midi-clip", { request: "two less busy versions" }).messages[0].content.text;
-  for (const phrase of ["get_selection_context", "duplicate_midi_clip_variations", "set_midi_note_properties",
-    "launch_clip", "re-read", "original", "manual", "stop_clip"]) assert.ok(text.includes(phrase), phrase);
 });

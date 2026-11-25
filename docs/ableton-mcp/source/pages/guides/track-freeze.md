@@ -1,6 +1,6 @@
 # Freeze and unfreeze track processing
 
-Use `freeze-track-processing` through `get_producer_workflow` in the `all` profile when a user wants to freeze a named part for playback or unfreeze it for editing. Freezing renders the track's Session and Arrangement clips so Live can play cached audio instead of processing its devices in real time. Unfreezing restores access to the original processing. This operation does not bounce a track, delete devices, save the Set or start playback.
+`set_track_freeze_state` in the `all` profile covers a request to freeze a named part for playback or unfreeze it for editing. Freezing renders the track's Session and Arrangement clips so Live can play cached audio instead of processing its devices in real time. Unfreezing restores access to the original processing. This operation does not bounce a track, delete devices, save the Set or start playback.
 
 ## Prepare one track
 

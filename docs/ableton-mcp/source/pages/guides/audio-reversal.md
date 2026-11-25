@@ -1,6 +1,6 @@
 # Reverse an audio alternative
 
-Use `develop-selected-audio-clip` to preserve a Session source, create a uniquely named copy in an empty slot, reverse it and audition the alternative. `reverse_audio_clip` also accepts an exact Arrangement clip for an explicitly scoped in-place edit. This Session workflow does not automatically copy and rename Arrangement clips.
+Preserve a Session source, create a uniquely named copy in an empty slot, reverse it with `reverse_audio_clip` and audition the alternative. `reverse_audio_clip` also accepts an exact Arrangement clip for an explicitly scoped in-place edit. The Session copy step does not copy and rename Arrangement clips.
 
 The native action reverses the whole referenced sample, rather than only its visible loop. Live adjusts loop/region and warp placement while clip envelopes stay at their clip times. See [Live's reversal behavior](https://www.ableton.com/en/manual/clip-view/#reversing-samples). Inspect observed timing before auditioning.
 

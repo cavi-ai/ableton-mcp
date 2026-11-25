@@ -1,6 +1,6 @@
 # Shape rack performance controls
 
-Use `shape-rack-performance` to turn an existing rack into a small set of playable controls, preserve a starting macro state and compare variations. For example: “Give this synth rack a Brightness control, store a restrained verse state and a brighter chorus state, then compare them.” The request should identify the rack and authorize any playback.
+Turn an existing rack into a small set of playable controls, preserve a starting macro state and compare variations. For example: “Give this synth rack a Brightness control, store a restrained verse state and a brighter chorus state, then compare them.” The request should identify the rack and authorize any playback.
 
 The workflow uses the `all` tool profile and an updated bridge. `get_rack_performance_context` reads visible macros and resolves their mappings to exact descendant device and parameter IDs, including nested racks and rack Return chains. It reports current values, units, automation, available mapping ranges, operation support and variation count/index in one native read. It preserves selection. Duplicate names and display paths are not target identities; unresolved targets and unsupported macro layouts are reported explicitly.
 

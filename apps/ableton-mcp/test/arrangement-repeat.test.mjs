@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ToolService} from '../src/tool-service.mjs';
 import {createRouter} from '../src/server.mjs';
-import {getPrompt} from '../src/prompts.mjs';
 
 const args={trackIds:['track-0','track-1'],sourceStartBeats:16,sourceEndBeats:32,destinationStartBeats:64,repeatCount:2};
 const clip=(track,index,start,end,type='midi')=>({id:`${track}:arrangement-clip-${index}`,name:'Part',startBeats:start,endBeats:end,lengthBeats:end-start,type});
@@ -85,15 +84,10 @@ test('fractional repeat boundaries match native start-plus-span arithmetic witho
   assert.equal(spaced.canCopy,true);assert.ok(spaced.placements[1].startBeats>spaced.placements[0].endBeats);
 });
 
-test('Arrangement repeat discovery is all-profile read-only while workflow retrieval remains inert',async()=>{
-  const {service,calls}=fixture(),route=createRouter(service,{toolProfile:'all'});
+test('Arrangement repeat discovery is all-profile read-only',async()=>{
+  const {service}=fixture(),route=createRouter(service,{toolProfile:'all'});
   const discovery=await route({id:1,method:'tools/list'});
   const tool=discovery.result.tools.find(x=>x.name==='plan_arrangement_repeat');
   assert.equal(tool.annotations.readOnlyHint,true);
   const core=await createRouter(service,{toolProfile:'core'})({id:2,method:'tools/list'});assert.ok(!core.result.tools.some(x=>x.name==='plan_arrangement_repeat'));
-  const callsBefore=calls.length;
-  const workflow=await route({id:3,method:'tools/call',params:{name:'get_producer_workflow',arguments:{workflow:'repeat-arrangement-section',arguments:{request:'Repeat the chorus twice at beat 64'}}}});
-  assert.ok(workflow.result.structuredContent.messages[0].content.text.includes('plan_arrangement_repeat'));
-  assert.equal(calls.length,callsBefore);
-  assert.throws(()=>getPrompt('repeat-arrangement-section',{request:'Repeat',mode:'overwrite'}),/mode/);
 });

@@ -1,6 +1,6 @@
 # Bring audio into a song
 
-Retrieve `import-audio-file` through `get_producer_workflow` or its MCP prompt in the `all` profile. Describe the exact local file, intended part/track, Session slot or timeline position, timing intent and any audition request. Collaborative mode resolves meaningful choices with the user; autonomous mode chooses within the brief. Playback, replacement, deletion and saving retain their own scope.
+Resolve the exact local file, intended part/track, Session slot or timeline position, timing intent and any audition request. The audio clip tools require the `all` profile. Playback, replacement, deletion and saving retain their own scope.
 
 ## Import directly into Arrangement
 

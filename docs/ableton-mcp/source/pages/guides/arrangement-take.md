@@ -1,6 +1,6 @@
 # Record an Arrangement take
 
-Retrieve `record-arrangement-take` through `get_producer_workflow` in the `all` profile, or open its MCP prompt. Describe the input, target track, empty beat range and when to start. Preparing an input does not authorize starting a recording.
+`record_arrangement_take` requires the `all` profile. Resolve the input, target track, empty beat range and when to start. Preparing an input does not authorize starting a recording.
 
 ## Prepare the input and passage
 

@@ -1,6 +1,6 @@
 # Audition browser sounds before loading
 
-Use `audition-browser-sounds` through `get_producer_workflow` or its MCP prompt to choose sounds with the user before loading them. The `all` profile provides `get_browser_preview_context` and `set_browser_preview`. Preview controls require the updated bridge and native `preview_item` and `stop_preview` support.
+Choose sounds with the user before loading them. The `all` profile provides `get_browser_preview_context` and `set_browser_preview`. Preview controls require the updated bridge and native `preview_item` and `stop_preview` support.
 
 ## Resolve the exact item
 

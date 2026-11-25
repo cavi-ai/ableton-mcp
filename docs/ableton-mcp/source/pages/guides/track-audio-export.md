@@ -1,6 +1,6 @@
 # Export individual parts
 
-Use `export-track-stems` through `get_producer_workflow` or its MCP prompt to prepare separate WAVs for selected parts. `export_audio_track` in the `all` profile renders one exact ordinary track, Group or Return through English Live's native macOS Export Audio/Video dialog. Main uses [audio mix export](audio-export.md).
+Prepare separate WAVs for selected parts. `export_audio_track` in the `all` profile renders one exact ordinary track, Group or Return through English Live's native macOS Export Audio/Video dialog. Main uses [audio mix export](audio-export.md).
 
 This selects the track in Live's exporter. It does not isolate audio through solo, mute, routing or device changes. Current Session overrides and mute/solo state still apply, so inspect the intended playback source first. A muted output may render silence. Stopped transport, recording off, unarmed tracks and resolved pending launches are required; these are not permission to change unrelated controls.
 

@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {ToolService} from "../src/tool-service.mjs";
 import {createRouter} from "../src/server.mjs";
-import {getProducerWorkflow} from "../src/prompts.mjs";
 import {getProducerChainBlueprint} from "../src/producer-chain-knowledge.mjs";
 
 function fixture() {
@@ -89,15 +88,6 @@ test("audio bus contract is reachable through MCP and validates kind before Live
   const count=f.calls.length;
   const invalid=await route({id:2,method:"tools/call",params:{name:"inspect_producer_bus",arguments:{...f.args,busKind:"return"}}});
   assert.equal(invalid.error.code,-32602);assert.equal(f.calls.length,count);
-});
-
-test("layered instrument workflow resolves a preserved part and exact audio-bus routing",()=>{
-  assert.ok(getProducerWorkflow().workflows.some(w=>w.name==="build-layered-instrument"));
-  assert.throws(()=>getProducerWorkflow({workflow:"build-layered-instrument"}),/request/);
-  assert.throws(()=>getProducerWorkflow({workflow:"build-layered-instrument",arguments:{request:"Layer this bass",mode:"replace"}}),/mode/);
-  const text=getProducerWorkflow({workflow:"build-layered-instrument",arguments:{request:"Layer this bass",mode:"autonomous"}}).messages[0].content.text;
-  for(const term of ["Layer this bass","duplicate_clip","Track In","No Input","busKind","inspect_producer_bus","manual edits"])assert.ok(text.includes(term),term);
-  assert.match(text,/not.*phase|phase.*not/i);
 });
 
 test("shared blueprint discovery names the ordinary audio-bus route and inspector",()=>{

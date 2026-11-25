@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { enrichMidiPartsContext } from "../src/session-orientation.mjs";
 import { ToolService } from "../src/tool-service.mjs";
 import { createRouter } from "../src/server.mjs";
-import { getPrompt } from "../src/prompts.mjs";
 
 const key = { rootNote: 0, scaleName: "Major", scaleIntervals: [0, 2, 4, 5, 7, 9, 11] };
 const part = (index, pitches, extra = {}) => ({ trackId: `track-${index}`, clipId: `track-${index}:clip-0`,
@@ -81,10 +80,4 @@ test("all-profile tool validates explicit unique parts, makes one observation, a
     assert.ok(result.error || result.result?.isError);
   }
   assert.equal(calls.length, 1);
-});
-
-test("parts workflow resolves exact references and keeps interpretation separate from playback", () => {
-  const text = getPrompt("understand-musical-parts", { request: "relate the bass to the chords" }).messages[0].content.text;
-  for (const phrase of ["analyze_midi_parts", "list_clips", "list_arrangement_clips", "configured", "excluded", "simultaneous", "role", "probabil", "playback"])
-    assert.ok(text.includes(phrase), phrase);
 });

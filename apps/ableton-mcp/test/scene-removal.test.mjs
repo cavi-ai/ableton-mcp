@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ToolService} from '../src/tool-service.mjs';
-import {getPrompt} from '../src/prompts.mjs';
 function fixture(){let token='native',writes=0;const service=new ToolService({bridge:{request:async(method,args)=>{
  if(method==='list_scenes')return {stateVersion:4,scenes:[{id:'scene-0',name:'Verse'},{id:'scene-1',name:'Chorus'}]};
  if(method==='get_scene_removal_context')return {stateVersion:4,sceneId:'scene-0',identityToken:token,scenes:[{name:'Verse'},{name:'Chorus'}],tracks:[{slots:[{content:{notes:[{noteId:7,velocity:90}]}},{}]}],occupiedClips:[{trackId:'track-0',clipId:'track-0:clip-0',name:'Phrase'}]};
@@ -14,9 +13,4 @@ test('scene removal binds native context and content authority, preserving parti
 });
 test('populated scene refusal occurs before a writer or confirmation token',async()=>{
  const f=fixture();await assert.rejects(f.service.call('delete_session_object',{targetType:'scene',targetId:'scene-0',expectedStateVersion:4}),/allowContent/);assert.equal(f.writes(),0);
-});
-test('scene removal workflow requires row-specific intent and retains unrelated material',()=>{
- const text=getPrompt('remove-session-scene',{request:'Remove only the rejected chorus row'}).messages[0].content.text;
- for(const word of ['delete_session_object','allowContent','get_scene_launch_context','deletionVerified','targetAbsent','original','manual','playing','partial'])assert.ok(text.includes(word),word);
- assert.match(text,/never.*replay/i);assert.match(text,/IDs.*shift/i);assert.match(text,/does not.*back.?up/i);
 });

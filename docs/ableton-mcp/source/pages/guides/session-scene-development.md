@@ -1,6 +1,6 @@
 # Develop a Session scene
 
-Retrieve `develop-session-scene` through `get_producer_workflow` or its MCP prompt for requests such as “try a sparse version of this verse.” Resolve the exact source from current selection, scenes and `get_scene_launch_context`. Establish which parts should change and preserve the original row.
+This covers requests such as “try a sparse version of this verse.” Resolve the exact source from current selection, scenes and `get_scene_launch_context`. Establish which parts should change and preserve the original row.
 
 A scene spans ordinary tracks and Groups, including empty stop buttons, clip launch settings and tempo/meter overrides. Native scene duplication copies Session clips on their existing tracks. It does not create independent instruments, mixer settings or rendered audio.
 

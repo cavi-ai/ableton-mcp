@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ToolService} from '../src/tool-service.mjs';
 import {createRouter} from '../src/server.mjs';
-import {getProducerWorkflow} from '../src/prompts.mjs';
 
 function fixture(){
   const source={stateVersion:3,identityToken:'native-tail',startBeats:64,endBeats:96,controls:{arms:[false]},arrangement:[]};
@@ -52,12 +51,4 @@ test('Session capture tools are all-profile and validate cancellation before wri
   assert.ok(!(await core({id:2,method:'tools/list'})).result.tools.some(t=>t.name==='record_session_arrangement'));
   const response=await router({id:3,method:'tools/call',params:{name:'finish_session_arrangement_recording',arguments:{recordingId:'retained',cancel:'true',expectedStateVersion:4}}});
   assert.equal(response.error.code,-32602);
-});
-
-test('performance workflow distinguishes captured Session choices from input recording and exact timing',()=>{
-  const result=getProducerWorkflow({workflow:'record-session-arrangement',arguments:{request:'Perform the intro and chorus scenes into a new Arrangement passage',mode:'autonomous'}});
-  const text=result.messages[0].content.text;
-  for(const term of ['record_session_arrangement','get_session_arrangement_recording','finish_session_arrangement_recording','append','manual edits','recordingId','return_tracks_to_arrangement','automation'])assert.ok(text.includes(term),term);
-  assert.match(text,/never replay/i);assert.match(text,/not.*sample|not.*exact/i);
-  assert.throws(()=>getProducerWorkflow({workflow:'record-session-arrangement',arguments:{request:'Jam',mode:'unknown'}}),/mode/);
 });

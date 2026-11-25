@@ -100,7 +100,6 @@ import { matchDrumPatternEditReadback, planDrumPattern, planDrumPatternEdit } fr
 import { matchDrumVariationReadback, planDrumVariation } from "./drum-variation.mjs";
 import { duplicateMidiClipVariations } from "./midi-clip-variations.mjs";
 import { requestSignal } from "./request-context.mjs";
-import { getProducerWorkflow } from "./prompts.mjs";
 import {crossfaderState} from './crossfader.mjs';
 import {mixerPanning,assertStereoPan} from './panning.mjs';
 import {returnTracksToArrangement} from './arrangement-return.mjs';
@@ -965,7 +964,6 @@ export class ToolService {
     if (name === "arm_track") return armTrack(this.bridge,this.confirmations,args);
 
     if (name === "get_return_routing") return this.bridge.request("get_return_routing", {returnTrackId:args.returnTrackId});
-    if (name === "get_producer_workflow") return getProducerWorkflow(args);
     if (['get_mixer_panning_context','set_mixer_panning'].includes(name)) return mixerPanning(this.bridge,this.confirmations,name,args);
     if (['get_crossfader_context','set_crossfader_state'].includes(name)) return crossfaderState(this.bridge,this.confirmations,name,args);
     if (name === 'return_tracks_to_arrangement') return returnTracksToArrangement(this.bridge,this.confirmations,args);

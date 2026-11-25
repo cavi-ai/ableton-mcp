@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ToolService} from '../src/tool-service.mjs';
-import {getPrompt} from '../src/prompts.mjs';
 
 test('whole scene copy binds native material and confirms once with partial receipt',async()=>{
  let token='native-scene',writes=0;
@@ -15,10 +14,4 @@ test('whole scene copy binds native material and confirms once with partial rece
  const confirmed={...args,dryRun:false,confirmationToken:plan.confirmation.token,planHash:plan.confirmation.planHash};
  token='replaced';await assert.rejects(service.call('duplicate_session_object',confirmed));token='native-scene';
  const result=await service.call('duplicate_session_object',confirmed);assert.equal(result.observed.copyVerified,false);assert.equal(writes,1);await assert.rejects(service.call('duplicate_session_object',confirmed));
-});
-
-test('scene alternative workflow separates duplication from full row audition',()=>{
- const text=getPrompt('develop-session-scene',{request:'Try a sparse version of the verse'}).messages[0].content.text;
- for(const word of ['duplicate_session_object','get_scene_launch_context','copyVerified','empty','recording','partial','original','manual','get_selection_context'])assert.ok(text.includes(word),word);
- assert.match(text,/does not launch/);assert.match(text,/scene IDs.*shift/i);
 });

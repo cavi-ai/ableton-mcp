@@ -1,28 +1,16 @@
 # Create a playable musical sketch
 
-Run `ableton-mcp prompts` to list prompt templates. Run `ableton-mcp prompt create-musical-sketch --args '{"request":"Create a four-bar chord and bass idea.","mode":"autonomous"}'` to retrieve the sketch instructions.
-
-On the `all` or `producer` profile, MCP clients can open the prompt directly or call `get_producer_workflow` with the workflow name and named string arguments. These routes return the same instructions as the CLI. Retrieving them requires no Live connection or permission to edit the Set.
-
-```json
-{
-  "workflow": "create-musical-sketch",
-  "arguments": {
-    "request": "Create a four-bar chord and bass idea using the current tempo and key. Leave playback stopped.",
-    "mode": "autonomous"
-  }
-}
-```
+Start from a request such as “Create a four-bar chord and bass idea using the current tempo and key. Leave playback stopped.”
 
 ## Choose how to work
 
-The default `collaborative` mode offers two directions and lets the user choose before building, unless the request already chooses a direction. `autonomous` lets the agent make compositional decisions within the brief without asking about every creative detail. Neither mode authorizes unrelated edits, deletion, playback, recording or saving. Include those requests in the brief when wanted. An unspecified length starts with a proposed four-bar sketch.
+Offer two directions and let the user choose before building, unless the request already chooses a direction. Unrelated edits, deletion, playback, recording and saving need their own authority. Include those requests in the brief when wanted. An unspecified length starts with a proposed four-bar sketch.
 
-The workflow reads the current Set, recording state, meter, tempo and configured scale. The configured scale is a compositional constraint, not a detected key. Existing context stays in place unless global changes are authorized. An optional new absolute `.als` `setPath` creates a separate working Set through guarded Save As before building; verify its receipt and loaded path. Save As does not collect samples.
+Read the current Set, recording state, meter, tempo and configured scale. The configured scale is a compositional constraint, not a detected key. Existing context stays in place unless global changes are authorized. `save_live_set` with a new absolute `.als` path creates a separate working Set through guarded Save As before building; verify its receipt and loaded path. Save As does not collect samples.
 
 ## Compose directly in Arrangement
 
-Set `location: "arrangement"` in the `create-musical-sketch` workflow arguments to write a new MIDI part at a timeline position. `location: "session"` remains the default. The same collaborative/autonomous modes apply; resolve the intended section from actual locators and passages rather than inferring historical bar positions from the current meter. Existing ordinary MIDI tracks retain their processing; append new instrument tracks only within the brief. Creation requires no Session clip or scene.
+To write a new MIDI part at a timeline position, resolve the intended section from actual locators and passages rather than inferring historical bar positions from the current meter. Existing ordinary MIDI tracks retain their processing; append new instrument tracks only within the brief. Creation requires no Session clip or scene.
 
 Use `create_arrangement_midi_clip` with `trackId`, absolute `startBeats`, positive `lengthBeats`, explicit `name`, `notes` and fresh `expectedStateVersion`. Notes use pitch, relative clip-beat start/duration, velocity and optional mute; every note must fit the span. The complete destination interval must be empty. Names must be nonempty, at most 128 characters and contain no control characters. The tool supports 256 tracks, room for one clip within 4096 Arrangement clips, up to 4096 notes, and an interval within 0 to 1576800 beats.
 
@@ -42,7 +30,7 @@ Coordinate the requested chord, bass, melody and drum parts using the scale/grid
 
 Audition only when requested or authorized. Launching new Session clips can start playback; separate launches do not establish phase alignment. For a [scene launch](scene-launch.md), review the full-row dry-run plan, including empty stop buttons, armed tracks, recording state and scene tempo/meter overrides. Resolve authority for its full effect first. Require `launchRequested: true`, then read actual clip playback, recording and musical context; the immediate receipt does not certify playback. Stop created clips for a local stop; stop transport only for an intended global stop. Do not change unrelated mutes, monitoring or recording to isolate the sketch automatically.
 
-Discuss what the user hears, or make an authorized bounded refinement in autonomous mode. Re-read affected material before edits and preserve manual changes. Use clip or instrument variations for alternatives. Stored-state checks do not establish audible output or musical quality. Requested measurements use a separately authorized [Live audio capture](live-audio-capture.md), with its complete-file and cleanup checks. Save or delete only when requested or already authorized.
+Discuss what the user hears, or make an authorized bounded refinement. Re-read affected material before edits and preserve manual changes. Use clip or instrument variations for alternatives. Stored-state checks do not establish audible output or musical quality. Requested measurements use a separately authorized [Live audio capture](live-audio-capture.md), with its complete-file and cleanup checks. Save or delete only when requested or already authorized.
 
 To develop the Session parts into named sections, follow [Arrange Session ideas](session-arrangement.md). The same tool provides [Set orientation](session-orientation.md), [instrument comparison](instrument-comparison.md), [musical part context](musical-parts.md) and [resuming interrupted work](resume-session-work.md). Listings describe required and optional arguments. Missing, unknown or non-string arguments are rejected before returning instructions.
 

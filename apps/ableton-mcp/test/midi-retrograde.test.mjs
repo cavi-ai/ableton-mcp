@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {planMidiRetrograde} from '../src/midi-retrograde.mjs';
 import {ToolService} from '../src/tool-service.mjs';
-import {getPrompt} from '../src/prompts.mjs';
 import {validateToolArguments} from '../src/tool-validation.mjs';
 const note=(noteId,pitch,start,duration)=>({noteId,pitch,start,duration,velocity:88,velocityDeviation:-3,releaseVelocity:71,probability:.8,mute:false});
 const notes=[note(1,60,2,.5),note(2,64,3,1),note(3,67,5,.5),note(4,72,7,1)];
@@ -37,15 +36,8 @@ test('native identity changes refuse while partial receipts are retained and con
  await assert.rejects(service.call('transform_midi_notes',confirmed));assert.equal(writes,1);
 });
 
-test('reverse workflow and strict transform schema are available without Live',async()=>{
+test('strict transform schema is available without Live',()=>{
  validateToolArguments('transform_midi_notes',{trackId:'track-0',clipId:'track-0:clip-0',expectedStateVersion:4,noteIds:[1],operation});
- const service=new ToolService({bridge:{request:async()=>{throw Error('must not access Live');}}});
- for(const mode of ['copy','in-place']){
-  const args={request:'Play this phrase backward; keep my original.',mode};
-  const result=await service.call('get_producer_workflow',{workflow:'reverse-midi-phrase',arguments:args});assert.deepEqual(result.messages,getPrompt('reverse-midi-phrase',args).messages);
-  for(const phrase of ['reverseTime','duration','hidden expression','copy','same-pitch','lost reply'])assert.ok(result.messages[0].content.text.toLowerCase().includes(phrase.toLowerCase()),phrase);
- }
- assert.throws(()=>getPrompt('reverse-midi-phrase',{request:'reverse',mode:'anything'}));
 });
 
 test('dense legal material and randomized retained-overlap checks match a pairwise oracle',()=>{

@@ -1,6 +1,6 @@
 # Add notes to an existing part
 
-Use `add-notes-to-midi-part` through `get_producer_workflow` or its MCP prompt for a fill, counterline or extra hits. The `all` profile exposes `get_midi_note_insertion_context` and `insert_midi_notes`.
+Add a fill, counterline or extra hits to an existing part. The `all` profile exposes `get_midi_note_insertion_context` and `insert_midi_notes`.
 
 Resolve the exact Session or Arrangement clip and inspect its instrument, notes and musical context first. The insertion context reads complete notes, timing, native identity and edit safety without changing focus. Sources and final clips are limited to 4096 notes; reads never sample a larger part.
 

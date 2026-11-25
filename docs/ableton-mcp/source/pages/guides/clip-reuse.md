@@ -1,8 +1,8 @@
 # Reuse a part on another track
 
-Retrieve `reuse-session-clip` through `get_producer_workflow` in the `all` profile, or open its MCP prompt. For example, ask “copy these chords to the existing piano track, keep the original, and leave playback stopped.” The workflow resolves the source, destination and empty Session slot before planning a native copy.
+For a request such as “copy these chords to the existing piano track, keep the original, and leave playback stopped,” resolve the source, destination and empty Session slot before planning a native copy in the `all` profile.
 
-For timeline material, use `reuse-arrangement-clip` with the source passage, intended destination and musical purpose. Collaborative mode resolves the direction with the user; autonomous mode chooses within the brief. Playback, instrument replacement, saving and deletion remain separately scoped.
+For timeline material, resolve the source passage, intended destination and musical purpose with the user. Playback, instrument replacement, saving and deletion remain separately scoped.
 
 ## Reuse an Arrangement passage
 

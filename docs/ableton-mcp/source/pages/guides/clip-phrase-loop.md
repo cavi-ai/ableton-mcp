@@ -1,6 +1,6 @@
 # Repeat a phrase or play it once
 
-Use `set-clip-phrase-loop` through `get_producer_workflow` or its MCP prompt for requests such as “repeat these two bars” or “try this phrase once.” The default `copy` mode preserves the original through a named alternative; `in-place` requires intent to edit the existing clip. Retrieving the workflow does not edit Live.
+This covers requests such as “repeat these two bars” or “try this phrase once.” A copy preserves the original through a named alternative; an in-place edit requires intent to edit the existing clip.
 
 Resolve one exact Session or Arrangement clip. Read `get_clip_timing`, complete MIDI notes or `get_audio_clip_state`, musical context and recording state. MIDI and warped audio loop limits use absolute source-clip quarter-note beats; unwarped audio uses source seconds. Arrangement song positions, offsets from loop start and repeated passes are different coordinates.
 

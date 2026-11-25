@@ -1,6 +1,6 @@
 # Remove a whole clip
 
-Use `remove-whole-clip` through `get_producer_workflow` or its MCP prompt for an explicitly requested whole Session or Arrangement clip deletion. Both collaborative and autonomous modes resolve the actual target and scope first. A partial phrase, temporary mute or less busy alternative needs its own editing workflow. Existing deletion authority does not require another permission question.
+This covers an explicitly requested whole Session or Arrangement clip deletion. Resolve the actual target and scope first. A partial phrase, temporary mute or less busy alternative needs its own edit. Existing deletion authority does not require another permission question.
 
 The `all` profile exposes `delete_clip` for Session and `delete_arrangement_clip` for Arrangement. The clip form of `delete_session_object` uses the same native guard. Install the updated bridge. Resolve the exact occupied slot or timeline interval, then inspect complete exposed notes or audio state and timing. Duplicate names and a selected track do not identify a clip.
 

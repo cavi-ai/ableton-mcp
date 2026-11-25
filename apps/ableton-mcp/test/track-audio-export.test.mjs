@@ -76,17 +76,6 @@ test('individual audio export is all-profile only and rejects invalid effect sco
   for(const input of [{...args,includeReturnMainEffects:'yes'},{...args,trackId:undefined}])assert.equal((await all({id:2,method:'tools/call',params:{name:'export_audio_track',arguments:input}})).error?.code,-32602);
   assert.equal((await core({id:3,method:'tools/call',params:{name:'export_audio_track',arguments:args}})).error?.code,-32601);assert.equal(calls.length,discoveryCalls);
 });
-
-test('track-stem workflow is discoverable and validates required intent without Live mutations',async()=>{
- const route=createRouter(new ToolService({bridge:{request:async()=>{throw Error('workflow retrieval does not call Live');}}}),{toolProfile:'producer'});
- const args={request:'Export the verse chords and bass to separate new WAVs with the same range; leave the mix controls unchanged.'};
- const p=await route({id:1,method:'prompts/get',params:{name:'export-track-stems',arguments:args}});
- assert.ok(p.result?.messages[0].content.text.includes(args.request));
- const t=await route({id:2,method:'tools/call',params:{name:'get_producer_workflow',arguments:{workflow:'export-track-stems',arguments:args}}});
- assert.deepEqual(t.result.structuredContent,{workflow:'export-track-stems',...p.result});
- assert.equal((await route({id:3,method:'prompts/get',params:{name:'export-track-stems',arguments:{}}})).error?.code,-32602);
-});
-
 test('a changed native selected track preserves the dialog without Export, Save or cleanup input',async t=>{
  const root=await realpath(await mkdtemp(join(tmpdir(),'cavi-track-export-')));t.after(()=>rm(root,{recursive:true,force:true}));
  const app=join(root,'Live.app');await mkdir(join(app,'Contents/MacOS'),{recursive:true});await writeFile(join(app,'Contents/MacOS/Live'),'binary');

@@ -1,6 +1,6 @@
 # Navigate to an Arrangement locator
 
-Retrieve `navigate-arrangement` through `get_producer_workflow` in the `all` profile, or open its MCP prompt. A request such as “go back to the chorus and leave playback stopped” resolves an existing exact locator before moving the playhead. Retrieval returns instructions without changing Live.
+For a request such as “go back to the chorus and leave playback stopped,” resolve an existing exact locator before moving the playhead. Use the `arrangement,transport` slices or the `all` or `directory` profile to read the locator and transport and run `jump_to_arrangement_cue_point`.
 
 Read `list_arrangement_cue_points` and `get_transport_recording_context`. Match the current `cuePointId`, name and `timeBeats`. IDs are current inventory indices, not persistent identities; refresh them after manual changes. Resolve duplicate names rather than choosing the first match. A locator marks a position, not a section ending, and current meter is not a historical bar map. Creating or editing locators is separate from navigating to them.
 

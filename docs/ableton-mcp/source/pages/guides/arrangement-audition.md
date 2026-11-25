@@ -1,6 +1,6 @@
 # Audition an Arrangement passage
 
-Retrieve `audition-arrangement-passage` through `get_producer_workflow` or open its MCP prompt. Describe the passage, intended tracks and playback action. The workflow resolves exact track references and quarter-note song-time boundaries without changing selection. A named locator alone does not establish an ending, and the current meter does not establish a bar map across meter changes.
+`audition_arrangement_passage` plays a resolved passage. Resolve the passage, intended tracks and playback action, then exact track references and quarter-note song-time boundaries without changing selection. A named locator alone does not establish an ending, and the current meter does not establish a bar map across meter changes.
 
 ## Start a loop
 

@@ -4,7 +4,7 @@ Ableton MCP {{PRODUCT_VERSION}} gives MCP clients local control of Ableton Live.
 
 - **CaviMcpBridge**: a Live Remote Script. It runs inside Live and serves a Unix domain socket.
 - **The MCP server**: a stdio server that turns MCP tool calls into bridge requests.
-- **The `ableton-mcp` CLI**: installs the bridge, checks the connection, and calls tools, resources and prompts from a shell.
+- **The `ableton-mcp` CLI**: installs the bridge, checks the connection, and calls tools and resources from a shell.
 
 Everything runs on the local machine. The bridge opens no TCP port. The server makes no network requests.
 
@@ -16,7 +16,7 @@ Everything runs on the local machine. The bridge opens no TCP port. The server m
 - **Audio analysis**: loudness, true peak, spectrum, pitch, transients and tuning of local audio files, using `ffmpeg`.
 - **An optional NKS preset catalog**: search, tags and favorites for presets discovered from local plug-in libraries.
 
-The server implements 9 concrete resources, 13 resource templates and 89 prompt templates. A `serve` process advertises one slice union. With no selector set, that union is the `observe` slice. `get_producer_workflow` and the workflow prompts remain on the `all` and `producer` profiles. See [Sliced agent sessions](../guides/session-slices.md). Start with [a musical sketch](../guides/musical-sketch.md), [Set orientation](../guides/session-orientation.md), [instrument comparison](../guides/instrument-comparison.md) or [MIDI clip variations](../guides/midi-clip-variations.md). Retrieving instructions does not execute the workflow. [Tools](../reference/tools.md) lists every tool.
+The server implements 9 concrete resources and 13 resource templates, and serves functional tools only. A `serve` process advertises one slice union. With no selector set, that union is the `observe` slice. See [Sliced agent sessions](../guides/session-slices.md). Start with [a musical sketch](../guides/musical-sketch.md), [Set orientation](../guides/session-orientation.md), [instrument comparison](../guides/instrument-comparison.md) or [MIDI clip variations](../guides/midi-clip-variations.md). [Tools](../reference/tools.md) lists every tool.
 
 ## Boundaries
 

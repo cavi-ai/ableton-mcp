@@ -4,7 +4,6 @@ import {readFile} from 'node:fs/promises';
 import {runInNewContext} from 'node:vm';
 import {ToolService} from '../src/tool-service.mjs';
 import {createRouter} from '../src/server.mjs';
-import {getPrompt} from '../src/prompts.mjs';
 
 const args={groupTrackId:'track-2',expectedStateVersion:3,expectedSetFingerprint:'set'};
 function fixture(){
@@ -73,10 +72,6 @@ test('ungrouping stays outside core and carries a destructive annotation',async(
  assert.equal(listed.find(t=>t.name==='ungroup_tracks').annotations.destructiveHint,true);
  assert.equal(listed.find(t=>t.name==='get_track_ungrouping_status').annotations.readOnlyHint,true);
  assert.equal((await core({id:2,method:'tools/call',params:{name:'ungroup_tracks',arguments:args}})).error.code,-32601);
-});
-test('ungrouping workflow discloses removed processing and refreshes shifted identities',()=>{
- const text=getPrompt('ungroup-session-tracks',{request:'Ungroup the Synth bus'}).messages[0].content.text;
- for(const value of ['Ungroup the Synth bus','ungroup_tracks','get_track_ungrouping_status','allowContent','ungroupingId','routing','track IDs','hidden'])assert.ok(text.includes(value),value);
 });
 test('Group header resolution binds the entire visible native order and literal label variants',async()=>{
  const scope={};runInNewContext(await readFile(new URL('../src/live-track-grouping.js',import.meta.url),'utf8'),scope);

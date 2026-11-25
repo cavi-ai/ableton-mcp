@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {ToolService} from "../src/tool-service.mjs";
-import {getPrompt} from "../src/prompts.mjs";
 
 test("Arrangement placement binds source content and native identity before confirmation",async()=>{
   const before={stateVersion:4,trackId:"track-0",clipId:"track-0:clip-0",source:{id:"track-0:clip-0",hasClip:true,lengthBeats:4},beforeArrangement:[],
@@ -59,14 +58,4 @@ test('missing or invalid placement ranges require a current bridge before planni
 test('placement reserves capacity for its new clip before issuing a plan',async()=>{
  const f=offsetFixture();f.before.beforeArrangement=Array.from({length:4096},(_,i)=>({startBeats:100+i*2,endBeats:101+i*2}));
  await assert.rejects(f.service.call('place_session_clip_in_arrangement',f.args),/capacity|4096/);assert.equal(f.writes(),0);
-});
-
-test("Session arrangement workflow validates mode and is shared by MCP retrieval and prompt",async()=>{
-  const service=new ToolService({bridge:{request:async()=>{throw Error("retrieval must not call Live");}}});
-  for(const mode of [undefined,"collaborative","autonomous"]){
-    const args={request:"Arrange the named chords and bass into two sections; preserve Session clips.",...(mode?{mode}:{})};
-    const result=await service.call("get_producer_workflow",{workflow:"arrange-session-ideas",arguments:args});
-    assert.deepEqual(result.messages,getPrompt("arrange-session-ideas",args).messages);
-  }
-  await assert.rejects(service.call("get_producer_workflow",{workflow:"arrange-session-ideas",arguments:{request:"Arrange",mode:"overwrite"}}));
 });

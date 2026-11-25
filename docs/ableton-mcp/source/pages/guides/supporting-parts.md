@@ -1,18 +1,8 @@
 # Write a supporting musical part
 
-Use `write-supporting-part` when the request is relational: “write bass under these chords” or “add a counter-melody to the verse.” It creates a new part from the observed source passage, with deliberate musical choices and separate verification. Retrieve it through `get_producer_workflow` or its MCP prompt. Execution requires the `all` profile; retrieval does not call Live or execute work.
+This covers relational requests: “write bass under these chords” or “add a counter-melody to the verse.” Create a new part from the observed source passage, with deliberate musical choices and separate verification. This requires the `all` profile.
 
-```json
-{
-  "workflow": "write-supporting-part",
-  "arguments": {
-    "request": "Write a sparse bass part under the verse chords, keep their timing and instruments, and audition them together.",
-    "mode": "autonomous"
-  }
-}
-```
-
-The default `collaborative` mode proposes a register, rhythm and harmonic direction for the user to choose unless already chosen. `autonomous` makes those decisions within the brief and states them. Neither mode authorizes unrelated changes, replacement, deletion, recording or saving. Listening and further refinement follow the request's scope.
+Propose a register, rhythm and harmonic direction for the user to choose unless already chosen. The request does not authorize unrelated changes, replacement, deletion, recording or saving. Listening and further refinement follow the request's scope.
 
 ## Establish the relationship
 
@@ -36,4 +26,4 @@ Every mutation uses fresh observations and a reviewed unchanged plan. After inte
 
 Authorized Arrangement listening uses the exact shared window and relevant source/new tracks through [Arrangement audition](arrangement-audition.md). Session listening needs an intentional phase relationship and a full-row review before a scene launch. Separate clip launches do not establish alignment. Preserve unrelated mutes, solos, arms and monitoring; other tracks may sound. Native playback or meters do not establish what the user heard.
 
-Discuss the result, or make a bounded refinement when requested in autonomous mode. Read the current new part and edit only the intended note IDs or controls, preserving manual edits and the source. Check the shared passage again. Report choices, exclusions, actual playback and unresolved relationships. Keep staging clips and original material; cleanup and saving remain separate.
+Discuss the result, or make a bounded refinement when requested. Read the current new part and edit only the intended note IDs or controls, preserving manual edits and the source. Check the shared passage again. Report choices, exclusions, actual playback and unresolved relationships. Keep staging clips and original material; cleanup and saving remain separate.
