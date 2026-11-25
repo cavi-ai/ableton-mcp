@@ -1,4 +1,4 @@
-import { createInterface } from "node:readline";
+import { runStdio as serveStdio } from "@cavi-ai/mcp-core";
 import { ToolService } from "./tool-service.mjs";
 import { PACKAGE_VERSION, isMainModule } from "./paths.mjs";
 import { runtimeIdentity, withRuntimeIdentity } from "./runtime-identity.mjs";
@@ -179,77 +179,7 @@ export async function runStdio({ service, toolProfile, toolSlices, toolNames, in
   const options = toolNames !== undefined ? { toolNames } : toolSlices !== undefined ? { toolSlices } : { toolProfile: toolProfile ?? "all" };
   stderr.write(sessionLogLine(options));
   const route = createRouter(service, options);
-  const lines = createInterface({ input, crlfDelay: Infinity });
-  const pending = new Map();
-  let queue = Promise.resolve();
-  let disconnected = false;
-  const disconnect = () => {
-    disconnected = true;
-    for (const active of pending.values()) active.controller.abort(new Error("MCP output disconnected"));
-  };
-  output.on("close", disconnect);
-  output.on("error", disconnect);
-  const send = reply => {
-    if (disconnected) return;
-    return new Promise(resolve => {
-      const finish = () => {
-        output.off("error", finish);
-        output.off("close", finish);
-        resolve();
-      };
-      output.once("error", finish);
-      output.once("close", finish);
-      output.write(`${JSON.stringify(reply)}\n`, error => {
-        // Writable emits an error after its failed write callback. Keep ownership
-        // until that event (or close), including for the final response.
-        if (!error) finish();
-      });
-    });
-  };
-  const enqueue = callback => { queue = queue.then(callback); };
-  for await (const line of lines) {
-    if (!line.trim()) continue;
-    let request;
-    try { request = JSON.parse(line); }
-    catch { enqueue(() => send({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } })); continue; }
-    if (!request || typeof request !== "object" || Array.isArray(request) ||
-      request.jsonrpc !== "2.0" || typeof request.method !== "string" || !request.method ||
-      (Object.hasOwn(request, "id") && request.id !== null &&
-        typeof request.id !== "string" && typeof request.id !== "number")) {
-      enqueue(() => send({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "invalid request" } }));
-      continue;
-    }
-    if (!Object.hasOwn(request, "id")) {
-      if (request.method === "notifications/cancelled") {
-        const id = request.params?.requestId;
-        const active = (typeof id === "string" || typeof id === "number") ? pending.get(id) : undefined;
-        if (active && active.method !== "initialize") active.controller.abort(new Error("MCP request cancelled"));
-      }
-      continue;
-    }
-    if (pending.has(request.id) || pending.size >= 32) {
-      const message = pending.has(request.id) ? "request ID is already pending" : "too many pending requests";
-      enqueue(() => send({ jsonrpc: "2.0", id: request.id, error: { code: -32600,
-        message } }));
-      continue;
-    }
-    const active = { controller: new AbortController(), method: request.method };
-    pending.set(request.id, active);
-    const dispatch = async () => {
-      try {
-        if (disconnected || active.controller.signal.aborted) return;
-        const reply = await withRequestSignal(active.controller.signal, () => route(request));
-        if (!active.controller.signal.aborted) await send(reply);
-      } finally {
-        pending.delete(request.id);
-      }
-    };
-    enqueue(dispatch);
-  }
-  // CLI callers may half-close stdin after sending their requests.
-  await queue;
-  output.off("close", disconnect);
-  output.off("error", disconnect);
+  await serveStdio({ input, output, route: (request, { signal }) => withRequestSignal(signal, () => route(request)) });
 }
 
 if (isMainModule(import.meta.url, process.argv[1])) {
