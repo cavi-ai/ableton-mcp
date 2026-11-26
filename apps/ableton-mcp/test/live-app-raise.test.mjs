@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import { MacLiveSetHost } from "../src/live-set-host.mjs";
 import { ToolService } from "../src/tool-service.mjs";
 import { validateToolResult } from "../src/tool-validation.mjs";
 
@@ -12,15 +13,32 @@ const live = { pid: 42, name: "Live", bundleIdentifier: "com.ableton.live" };
 
 function desktop({ path = appPath, front = 7, shown = false, raises = true } = {}) {
   const activated = [];
+  function activate(target) {
+    activated.push(target);
+    if (raises) { front = 42;shown = true; }
+  }
   const app = pid => pid === 42 ? { processIdentifier: 42, localizedName: "Live", bundleIdentifier: "com.ableton.live" }
     : { processIdentifier: 7, localizedName: "Editor", bundleIdentifier: "com.example.editor" };
   const native = Object.assign(value => value, {
-    NSRunningApplication: { runningApplicationWithProcessIdentifier: () => ({ bundleIdentifier: "com.ableton.live", bundleURL: { path } }) },
+    NSRunningApplication: { runningApplicationWithProcessIdentifier: () => ({ isNil: () => false, bundleIdentifier: "com.ableton.live", bundleURL: { path } }) },
+    NSAppleEventSendDefaultOptions: 3,
+    NSAppleEventDescriptor: {
+      descriptorWithProcessIdentifier: pid => ({ pid }),
+      appleEventWithEventClassEventIDTargetDescriptorReturnIDTransactionID(eventClass, eventId, target) {
+        return { sendEventWithOptionsTimeoutError() {
+          assert.equal(eventClass, 0x6d697363);
+          assert.equal(eventId, 0x61637476);
+          activate(target.pid);
+          return { isNil: () => false, paramDescriptorForKeyword: () => ({ int32Value: 0 }) };
+        } };
+      }
+    },
     NSWorkspace: { sharedWorkspace: { get frontmostApplication() { return app(front); } } },
     CGWindowListCopyWindowInfo: () => shown ? [{ kCGWindowOwnerPID: 42, kCGWindowNumber: 212685, kCGWindowLayer: 0, kCGWindowIsOnscreen: true }] : []
   });
   const run = vm.runInNewContext(`${source}\nrun`, { $: native, delay() {},
-    Application: target => ({ activate() { activated.push(target);if (raises) { front = 42;shown = true; } } }),
+    Application: target => ({ activate() { activate(target); } }),
+    Ref: () => [],
     ObjC: { import() {}, unwrap: value => value, deepUnwrap: value => value, castRefToObject: value => value } });
   return { activated, execute: input => JSON.parse(run([JSON.stringify({ pid: 42, appPath, ...input })])) };
 }
@@ -28,7 +46,7 @@ function desktop({ path = appPath, front = 7, shown = false, raises = true } = {
 test("raising activates the exact Live app once and verifies it is frontmost with a window on screen", () => {
   const behind = desktop();
   assert.deepEqual(behind.execute({}), { raised: true, activations: 1, previous: editor, frontmost: live, windowIds: [212685] });
-  assert.deepEqual(behind.activated, [appPath]);
+  assert.deepEqual(behind.activated, [42]);
 });
 
 test("Live already in front is not activated, and observe never activates", () => {
@@ -74,4 +92,30 @@ test("a changed Live process rejects the confirmed raise before activation", asy
   state.pid = 43;
   await assert.rejects(service.call("raise_live", { dryRun: false, confirmationToken: plan.confirmation.token, planHash: plan.confirmation.planHash }));
   assert.deepEqual(calls, ["observe", "observe"]);
+});
+
+test("raise_live refuses a replacement that appears after confirmation and before dispatch", async () => {
+  for (const replacement of [
+    { pid: 43, path: appPath },
+    { pid: 42, path: "/Applications/Other Live.app" }
+  ]) {
+    const activations = [];
+    let observations = 0;
+    const host = new MacLiveSetHost({ platform: "darwin", run: async (command, args) => {
+      if (command === "/bin/ps") {
+        const current = ++observations <= 2 ? { pid: 42, path: appPath } : replacement;
+        return { stdout: ` ${current.pid} ${current.path}/Contents/MacOS/Live\n` };
+      }
+      const input = JSON.parse(args.at(-1));
+      if (!input.action) activations.push(input);
+      return { stdout: JSON.stringify({ raised: !input.action }) };
+    } });
+    const service = new ToolService({ liveSetHost: host });
+    const plan = await service.call("raise_live", {});
+    const result = await service.call("raise_live", {
+      dryRun: false, confirmationToken: plan.confirmation.token, planHash: plan.confirmation.planHash
+    });
+    assert.equal(result.raised, false);
+    assert.deepEqual(activations, []);
+  }
 });

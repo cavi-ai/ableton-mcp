@@ -7,9 +7,9 @@ const source = readFileSync(new URL("../src/live-set-save-dialog.js", import.met
 
 function dialog({ windowId = 123, purpose = "Save Live Set As:", frontmost = true, bundle = "com.ableton.live",
   filename = "Original.als", directory = "/tmp/work", childPath, folderUnavailable = false, retainedClosedWindow = false,
-  unexpectedSheet = false, saveEnabled = true, windowOrderChanges = false, staleRole = false,
+  whereAncestor, focusChangesDuringKeySend = false, unexpectedSheet = false, saveEnabled = true, windowOrderChanges = false, staleRole = false,
   panelOpen = true, panelOnscreen = true, hiddenWindows = false, filenameEdit = name => name, saveEnabledAfter = 0 } = {}) {
-  const keys = [], saves = [], menuPresses = [];
+  const keys = [], keysOutsideLive = [], saves = [], menuPresses = [];
   // hiddenWindows: AXWindows omits the panel and only Live's focused window lists it.
   let visible = panelOpen, saveReads = 0;
   const listed = () => visible && !hiddenWindows;
@@ -32,6 +32,11 @@ function dialog({ windowId = 123, purpose = "Save Live Set As:", frontmost = tru
   const panel = element("AXWindow", "save-panel", "", [element("AXStaticText", "_messageTextField", purpose),
     element("AXTextField", "saveAsNameTextField", filename), element("AXPopUpButton", "where popup", "work"),
     element("AXButton", "OKButton", ""), element("AXButton", "CancelButton", "")]);
+  const where = panel.uiElements().find(item => item.role() === "AXPopUpButton");
+  where.menus = () => whereAncestor ? [{ menuItems: () => [{
+    name: () => whereAncestor.split("/").at(-1),
+    actions: { byName: () => ({ perform: () => { directory = whereAncestor; } }) }
+  }] }] : [];
   let navigating = false;
   panel.sheets = () => unexpectedSheet ? [element("AXSheet", "Replace", "")] : navigating ? [sheet] : [];
   const indexedPanel=new Proxy(panel,{get(target,key){if(windowOrderChanges&&navigating)throw Error("Window index changed");return target[key];}});
@@ -40,8 +45,15 @@ function dialog({ windowId = 123, purpose = "Save Live Set As:", frontmost = tru
     actions: { byName: () => ({ perform: () => { menuPresses.push("Save Live Set As...");visible = true; } }) } };
   const menuBars = () => [{ menuBarItems: { byName: () => ({ menus: () => [{ menuItems: { byName: () => saveAsItem } }] }) } }];
   const process = { bundleIdentifier: () => bundle, frontmost: () => frontmost, windows, menuBars };
+  function deliverKey(pid, key) {
+    if (pid !== 42) { keysOutsideLive.push(key);return; }
+    keys.push(key);
+    if (key === "g") navigating = true;
+    if (navigating && key === 36) { directory = path.value();navigating = false; }
+  }
+  const globalTarget = focusChangesDuringKeySend ? 7 : 42;
   const events = { applicationProcesses: { whose: () => () => [process] },
-    keystroke: key => { keys.push(key);navigating = true; }, keyCode: key => { keys.push(key);if (navigating && key === 36) directory = path.value();navigating = false; } };
+    keystroke: key => deliverKey(globalTarget, key), keyCode: key => deliverKey(globalTarget, key) };
   const array = items => ({ count: items.length, objectAtIndex: index => items[index] });
   const folder = { AXURL: { isFileURL: true, hasDirectoryPath: true, filePathURL: { get path() { return directory; } } } };
   const selectedRow = { AXChildren: array([folder]) };
@@ -75,6 +87,15 @@ function dialog({ windowId = 123, purpose = "Save Live Set As:", frontmost = tru
     AXUIElementSetAttributeValue:(element,key,value)=>{element[key]=value;return 0;},
     AXUIElementPerformAction:(element,action)=>{element.perform(action);return 0;},
     CFEqual:(a,b)=>a===b,
+    kCGEventFlagMaskShift: 0x20000,
+    kCGEventFlagMaskCommand: 0x100000,
+    CGEventCreateKeyboardEvent: (source, keyCode, keyDown) => ({ keyCode, keyDown }),
+    CGEventSetFlags: (event, flags) => { event.flags = flags; },
+    CGEventPostToPid: (pid, event) => {
+      if (!event.keyDown) return;
+      if (event.keyCode === 5 && event.flags === 0x120000) deliverKey(pid, "g");
+      if (event.keyCode === 36 && event.flags === 0) deliverKey(pid, 36);
+    },
     CGWindowListCopyWindowInfo: option => [
       ...(visible && (panelOnscreen || option === 0) ? [{ kCGWindowOwnerPID: 42, kCGWindowNumber: windowId, kCGWindowName:"Save",
         kCGWindowIsOnscreen: panelOnscreen, kCGWindowBounds: { X: 10, Y: 20, Width: 800, Height: 400 } }] : []),
@@ -84,7 +105,7 @@ function dialog({ windowId = 123, purpose = "Save Live Set As:", frontmost = tru
     ObjC: { import() {}, unwrap: value => value, deepUnwrap: value => value, castRefToObject: value => value },
     $: native, delay() {} });
   return { execute: (action,overrides={}) => run([JSON.stringify({ pid: 42, action, windowId: 123, purpose: "Save Live Set As:",
-    panelState: {name:"Original.als",folder:"/tmp/work"},parent: "/tmp/work", name: "Working.als",...overrides })]), keys, saves, menuPresses };
+    panelState: {name:"Original.als",folder:"/tmp/work"},parent: "/tmp/work", name: "Working.als",...overrides })]), keys, keysOutsideLive, saves, menuPresses };
 }
 
 test("Save As refuses a replacement window, other Save purpose, or the wrong app before input", () => {
@@ -164,6 +185,22 @@ test("Save As types a folder outside the visible columns into Go to Folder while
   const native = dialog();
   assert.equal(JSON.parse(native.execute("commit", { parent: "/Volumes/Other/Runs" })).savePressed, true);
   assert.deepEqual(native.keys, ["g", 36]);assert.deepEqual(native.saves, ["OKButton"]);
+});
+
+test("Save As sends Go to Folder keys only to Live when the foreground changes during dispatch", () => {
+  const native = dialog({ focusChangesDuringKeySend: true });
+  const result = JSON.parse(native.execute("commit", { parent: "/Volumes/Other/Runs" }));
+  assert.deepEqual(native.keysOutsideLive, []);
+  assert.equal(result.savePressed, true);
+  assert.deepEqual(native.keys, ["g", 36]);
+});
+
+test("Save As tries Go to Folder after a Where jump leaves the target hidden", () => {
+  const native = dialog({ whereAncestor: "/tmp" });
+  const result = JSON.parse(native.execute("commit", { parent: "/tmp/.hidden" }));
+  assert.equal(result.savePressed, true);
+  assert.deepEqual(native.keys, ["g", 36]);
+  assert.deepEqual(native.saves, ["OKButton"]);
 });
 
 test("Save As refuses a folder outside the visible columns while Live is behind another app, without keys", () => {

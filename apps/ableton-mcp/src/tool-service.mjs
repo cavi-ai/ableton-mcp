@@ -3157,13 +3157,13 @@ export class ToolService {
       warning: "Brings Live to the front and switches to its desktop Space; the app in front moves behind Live." });
     this.#consumeConfirmation(plan, args);
     let result;
-    try { result = await this.liveSetHost.raise({ signal: requestSignal() }); }
+    try { result = await this.liveSetHost.raise({ expected: plan, signal: requestSignal() }); }
     catch (error) {
       requestSignal()?.throwIfAborted();
       return { dryRun: false, requested: plan, raised: false, observationError: String(error.message ?? error).slice(0, 600),
         limitation: "Live was not verified in front. Plan raise_live again before retrying." };
     }
-    const raised = result.raised === true && result.pid === plan.pid;
+    const raised = result.raised === true && result.pid === plan.pid && result.appPath === plan.appPath;
     return { dryRun: false, requested: plan, raised, activations: result.activations, previous: result.previous,
       frontmost: result.frontmost, windowIds: result.windowIds,
       ...(!raised ? { limitation: "Live was activated but is not frontmost with a window on screen. Plan raise_live again before retrying." } : {}) };

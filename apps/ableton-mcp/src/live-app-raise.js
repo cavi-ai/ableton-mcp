@@ -2,9 +2,13 @@
 function run(argv) {
   ObjC.import("AppKit");ObjC.import("CoreGraphics");
   var input = JSON.parse(argv[0]);
-  var running = $.NSRunningApplication.runningApplicationWithProcessIdentifier(input.pid);
-  if (!running || ObjC.unwrap(running.bundleIdentifier) !== "com.ableton.live" || ObjC.unwrap(running.bundleURL.path) !== input.appPath)
-    throw Error("Expected the exact running Live app");
+  function requireLive() {
+    var running = $.NSRunningApplication.runningApplicationWithProcessIdentifier(input.pid);
+    if (running.isNil() || running.isTerminated || ObjC.unwrap(running.bundleIdentifier) !== "com.ableton.live" ||
+        ObjC.unwrap(running.bundleURL.path) !== input.appPath)
+      throw Error("Expected the exact running Live app");
+  }
+  requireLive();
   function describe(app) {
     if (!app) return null;
     return { pid: Number(ObjC.unwrap(app.processIdentifier)), name: ObjC.unwrap(app.localizedName) || null, bundleIdentifier: ObjC.unwrap(app.bundleIdentifier) || null };
@@ -20,10 +24,23 @@ function run(argv) {
     return { raised: !!(app && app.pid === input.pid && windows.length), frontmost: app, windowIds: windows };
   }
   var observed = state(), previous = observed.frontmost, activations = 0;
-  // An Apple Event activate switches to Live's Space; `open -a` does not while a full-screen app is in front.
+  // Address the activate Apple Event to the confirmed PID. This keeps the Space switch
+  // without resolving the bundle again or launching Live if that process exits.
   if (input.action !== "observe") {
+    var target = $.NSAppleEventDescriptor.descriptorWithProcessIdentifier(input.pid);
     for (var attempt = 0; attempt < 2 && !observed.raised; attempt++) {
-      Application(input.appPath).activate();activations++;
+      requireLive();
+      var event = $.NSAppleEventDescriptor.appleEventWithEventClassEventIDTargetDescriptorReturnIDTransactionID(
+        0x6d697363, 0x61637476, target, -1, 0); // 'misc' / 'actv'
+      var failure = Ref();
+      var reply = event.sendEventWithOptionsTimeoutError($.NSAppleEventSendDefaultOptions, 3, failure);
+      if (reply.isNil()) {
+        var reason = failure[0] && ObjC.unwrap(failure[0].localizedDescription);
+        throw Error("Live activation event failed" + (reason ? ": " + reason : ""));
+      }
+      var errorCode = reply.paramDescriptorForKeyword(0x6572726e).int32Value; // 'errn'
+      if (errorCode) throw Error("Live refused the activation event (" + errorCode + ")");
+      activations++;
       for (var i = 0; i < 60 && !observed.raised; i++) { delay(0.05);observed = state(); }
     }
   }

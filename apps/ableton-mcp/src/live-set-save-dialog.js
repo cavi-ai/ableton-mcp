@@ -250,26 +250,36 @@ function run(argv) {
       if (!match) return false;
       match.item.actions.byName("AXPress").perform();
       if (audio) route("folder", "where");
-      if (directoryPath() === current) throw Error("Save folder popup did not change the column; no key was sent");
-      return true;
+      return directoryPath() !== current;
     }
-    var jumped = false;
+    var triedWhere = false;
     for (var step = 0; step < 32; step++) {
       var current = directoryPath();
       if (current === target) { if (audio) route("folder", "column"); return; }
       var rows = rowsOf(view()).filter(function (entry) { return covers(entry.path) && entry.path.length > current.length; });
       rows.sort(function (a, b) { return b.path.length - a.path.length; });
       if (rows.length) { press(rows[0].row); if (audio) route("folder", "column"); continue; }
-      if (jumped) throw Error("Save folder is not in the visible columns; no key was sent");
-      jumped = true;
-      if (!jumpAncestor(current)) {
-        if (exporting) throw Error("Save folder is not in the visible columns; no key was sent");
-        goToFolder(target);
+      if (!triedWhere) {
+        triedWhere = true;
+        if (jumpAncestor(current)) continue;
       }
+      if (exporting) break;
+      goToFolder(target);
+      return;
     }
     throw Error("Save folder is not in the visible columns; no key was sent");
   }
-  // Go to Folder takes the exact path. Its keys go to Live only while Live is frontmost; raise_live brings it there.
+  function postLiveKey(keyCode, flags) {
+    var down = $.CGEventCreateKeyboardEvent(null, keyCode, true);
+    var up = $.CGEventCreateKeyboardEvent(null, keyCode, false);
+    if (!down || !up) throw Error("Could not create the Go to Folder keystroke");
+    $.CGEventSetFlags(down, flags);
+    $.CGEventSetFlags(up, flags);
+    $.CGEventPostToPid(input.pid, down);
+    $.CGEventPostToPid(input.pid, up);
+  }
+  // Go to Folder requires Live in front, but the keystrokes are addressed to Live
+  // even if another app gains focus between the check and delivery.
   function goToFolder(target) {
     if (!process.frontmost()) throw Error("Save folder is not in the visible columns and Live is not frontmost; run raise_live, then retry; no key was sent");
     var save = panel(audio);
@@ -277,7 +287,7 @@ function run(argv) {
     save.attributes.byName("AXMain").value = true;
     if (attribute(save, "AXMain") !== true) throw Error("Save panel is not the main window; no key was sent");
     if (!process.frontmost()) throw Error("Live is not frontmost; no key was sent");
-    events.keystroke("g", { using: ["command down", "shift down"] });
+    postLiveKey(5, $.kCGEventFlagMaskCommand | $.kCGEventFlagMaskShift); // kVK_ANSI_G
     var sheet = waitFor(function () { var sheets = save.sheets(); return sheets.length === 1 && sheets[0]; }, "Go to Folder did not appear");
     if (attribute(sheet, "AXIdentifier") !== "GoToWindow") throw Error("Unexpected folder sheet");
     var field = find(sheet, "PathTextField", "AXTextField");
@@ -287,7 +297,7 @@ function run(argv) {
     field.attributes.byName("AXFocused").value = true;
     if (field.value() !== target || attribute(field, "AXFocused") !== true) throw Error("Folder field is not focused on the requested path");
     if (!process.frontmost()) throw Error("Live lost the front before Go to Folder was confirmed; Return was not sent");
-    events.keyCode(36);
+    postLiveKey(36, 0); // kVK_Return
     waitFor(function () { return save.sheets().length === 0; }, "Folder navigation is unverified");
     ownedFolderPath = null;
   }

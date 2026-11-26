@@ -120,7 +120,7 @@ export class MacLiveSetHost {
   }
 
   // Brings the exact running Live to the front of the current desktop; observe reads without activating.
-  async raise({ observe = false, signal } = {}) {
+  async raise({ observe = false, expected, signal } = {}) {
     this.#requireMac();
     signal?.throwIfAborted();
     const processes = await this.runningProcesses(), binary = "/Contents/MacOS/Live";
@@ -129,7 +129,10 @@ export class MacLiveSetHost {
     const appPath = processes[0].path.slice(0, -binary.length);
     if (this.configuredAppPath && await realpath(this.configuredAppPath) !== appPath)
       throw new Error("the running Live is not the configured ABLETON_MCP_LIVE_APP_PATH app");
-    const input = { pid: processes[0].pid, appPath, ...(observe ? { action: "observe" } : {}) };
+    const pid = processes[0].pid;
+    if (!observe && (expected?.pid !== pid || expected.appPath !== appPath))
+      throw new Error("the confirmed Ableton Live process changed before activation");
+    const input = { pid, appPath, ...(observe ? { action: "observe" } : {}) };
     try {
       const result = await this.run("/usr/bin/osascript", ["-l", "JavaScript", raiseScript, JSON.stringify(input)],
         { timeout: 15000, maxBuffer: 65536, signal });
