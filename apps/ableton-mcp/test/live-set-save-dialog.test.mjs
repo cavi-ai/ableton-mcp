@@ -41,7 +41,7 @@ function dialog({ windowId = 123, purpose = "Save Live Set As:", frontmost = tru
   const menuBars = () => [{ menuBarItems: { byName: () => ({ menus: () => [{ menuItems: { byName: () => saveAsItem } }] }) } }];
   const process = { bundleIdentifier: () => bundle, frontmost: () => frontmost, windows, menuBars };
   const events = { applicationProcesses: { whose: () => () => [process] },
-    keystroke: key => { keys.push(key);navigating = true; }, keyCode: key => { keys.push(key);navigating = false; } };
+    keystroke: key => { keys.push(key);navigating = true; }, keyCode: key => { keys.push(key);if (navigating && key === 36) directory = path.value();navigating = false; } };
   const array = items => ({ count: items.length, objectAtIndex: index => items[index] });
   const folder = { AXURL: { isFileURL: true, hasDirectoryPath: true, filePathURL: { get path() { return directory; } } } };
   const selectedRow = { AXChildren: array([folder]) };
@@ -158,6 +158,20 @@ test("Save As opens a visible column folder and presses Save without typing", ()
   const native = dialog({ childPath: "/tmp/work/Song" });
   assert.equal(JSON.parse(native.execute("commit", { parent: "/tmp/work/Song" })).savePressed, true);
   assert.deepEqual(native.keys, []);assert.deepEqual(native.saves, ["OKButton"]);
+});
+
+test("Save As types a folder outside the visible columns into Go to Folder while Live is frontmost", () => {
+  const native = dialog();
+  assert.equal(JSON.parse(native.execute("commit", { parent: "/Volumes/Other/Runs" })).savePressed, true);
+  assert.deepEqual(native.keys, ["g", 36]);assert.deepEqual(native.saves, ["OKButton"]);
+});
+
+test("Save As refuses a folder outside the visible columns while Live is behind another app, without keys", () => {
+  const native = dialog({ frontmost: false });
+  const result = JSON.parse(native.execute("commit", { parent: "/Volumes/Other/Runs" }));
+  assert.equal(result.savePressed, false);assert.match(result.error, /raise_live/);
+  assert.equal(result.recovery.status, "cancelled");
+  assert.deepEqual(native.keys, []);assert.deepEqual(native.saves, ["CancelButton"]);
 });
 
 test("Save As presses only the bound Save button", () => {

@@ -175,7 +175,7 @@ function run(argv) {
     if (typeof path !== "string" || path.charAt(0) !== "/") throw Error("Save directory path is unavailable");
     return path;
   }
-  // Moves the column browser to target by file URL. The Where popup is used only to reach an ancestor that is not already visible.
+  // Moves the column browser to target by file URL: visible columns, then a populated Where popup, then Go to Folder for a Set.
   function revealDirectory(target) {
     function read(element, key) {
       var value = Ref(), error = $.AXUIElementCopyAttributeValue(element, $(key), value);
@@ -235,8 +235,7 @@ function run(argv) {
       process.windows().forEach(function (window) {
         try { if (attribute(window, "AXIdentifier") === "save-panel") popups.push(find(window, "where popup", "AXPopUpButton")); } catch (error) {}
       });
-      if (popups.length !== 1 || typeof popups[0].menus !== "function" || !popups[0].menus().length)
-        throw Error("Save folder is not in the visible columns; no key was sent");
+      if (popups.length !== 1 || typeof popups[0].menus !== "function" || !popups[0].menus().length) return false;
       var menuItems = popups[0].menus()[0].menuItems(), choices = [];
       for (var i = 0; i < menuItems.length; i++) {
         try { choices.push({ item: menuItems[i], name: menuItems[i].name() }); } catch (error) {}
@@ -248,10 +247,11 @@ function run(argv) {
         var hits = choices.filter(function (choice) { return choice.name === parts[part]; });
         if (hits.length === 1) match = hits[0];
       }
-      if (!match) throw Error("Save folder is not in the visible columns; no key was sent");
+      if (!match) return false;
       match.item.actions.byName("AXPress").perform();
       if (audio) route("folder", "where");
       if (directoryPath() === current) throw Error("Save folder popup did not change the column; no key was sent");
+      return true;
     }
     var jumped = false;
     for (var step = 0; step < 32; step++) {
@@ -261,9 +261,35 @@ function run(argv) {
       rows.sort(function (a, b) { return b.path.length - a.path.length; });
       if (rows.length) { press(rows[0].row); if (audio) route("folder", "column"); continue; }
       if (jumped) throw Error("Save folder is not in the visible columns; no key was sent");
-      jumped = true;jumpAncestor(current);
+      jumped = true;
+      if (!jumpAncestor(current)) {
+        if (exporting) throw Error("Save folder is not in the visible columns; no key was sent");
+        goToFolder(target);
+      }
     }
     throw Error("Save folder is not in the visible columns; no key was sent");
+  }
+  // Go to Folder takes the exact path. Its keys go to Live only while Live is frontmost; raise_live brings it there.
+  function goToFolder(target) {
+    if (!process.frontmost()) throw Error("Save folder is not in the visible columns and Live is not frontmost; run raise_live, then retry; no key was sent");
+    var save = panel(audio);
+    if (save.sheets().length) throw Error("Unexpected sheet; no key was sent");
+    save.attributes.byName("AXMain").value = true;
+    if (attribute(save, "AXMain") !== true) throw Error("Save panel is not the main window; no key was sent");
+    if (!process.frontmost()) throw Error("Live is not frontmost; no key was sent");
+    events.keystroke("g", { using: ["command down", "shift down"] });
+    var sheet = waitFor(function () { var sheets = save.sheets(); return sheets.length === 1 && sheets[0]; }, "Go to Folder did not appear");
+    if (attribute(sheet, "AXIdentifier") !== "GoToWindow") throw Error("Unexpected folder sheet");
+    var field = find(sheet, "PathTextField", "AXTextField");
+    ownedFolderPath = field.value();
+    field.value = target;
+    ownedFolderPath = target;
+    field.attributes.byName("AXFocused").value = true;
+    if (field.value() !== target || attribute(field, "AXFocused") !== true) throw Error("Folder field is not focused on the requested path");
+    if (!process.frontmost()) throw Error("Live lost the front before Go to Folder was confirmed; Return was not sent");
+    events.keyCode(36);
+    waitFor(function () { return save.sheets().length === 0; }, "Folder navigation is unverified");
+    ownedFolderPath = null;
   }
   function showFolder(target) {
     if (directoryPath() === target) { if (audio) route("folder", "panel"); return; }

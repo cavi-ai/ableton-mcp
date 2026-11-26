@@ -491,6 +491,9 @@ const contracts = {
     answer: { type: "string", enum: ["No", "Yes"], description: "No declines recovery; Yes recovers." },
     dryRun: confirmation.dryRun, confirmationToken: confirmation.confirmationToken, planHash: confirmation.planHash
   }, ["answer"]) },
+  raise_live: { description: "Plan/bring the exact running Live app to the front on macOS, switching to its desktop Space, and verify Live is frontmost with a window on screen; needs no bridge. Run it before native dialog tools when Live is behind another app.", inputSchema: object({
+    dryRun: confirmation.dryRun, confirmationToken: confirmation.confirmationToken, planHash: confirmation.planHash
+  }) },
   get_live_dialog_state: { description: "Read Live's blocking native dialogs on macOS without the bridge or pressing anything: title, subrole, modal/sheet flags, button titles, window id, and identity as the Export Audio/Video dialog, its Save panel, or unknown.", inputSchema: object({}) },
   cancel_live_export_dialog: { description: "Plan/press Cancel on a leftover Export Audio/Video dialog or its Save panel on macOS; needs no bridge or owning call. Refuses with every dialog's identity when any blocker is unidentified, such as a save-changes sheet.", inputSchema: object({
     dryRun: confirmation.dryRun, confirmationToken: confirmation.confirmationToken, planHash: confirmation.planHash

@@ -34,6 +34,7 @@ export const compactOutputNames = new Set(["list_live_scales", "get_live_scale_r
 export const toolOutputContracts = {
   answer_live_recovery_prompt: guardedMutationResult,
   cancel_live_export_dialog: guardedMutationResult,
+  raise_live: guardedMutationResult,
   get_automation_capabilities: result({ sessionClipParameterEnvelopes: { type: "object" }, sessionClipMixerEnvelopes: { type: "object" },
     arrangementParameterAutomation: { type: "object" }, perNoteProperties: { type: "object" }, perNoteExpressionCurves: { type: "object" },
     productionBoundaries: { type: "object" }, handoffs: records }),

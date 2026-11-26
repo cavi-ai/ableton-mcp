@@ -69,6 +69,7 @@ declare(["sampleCollectionVerified"], "collect_project_media");
 declare(["opened"], "open_live_set");
 declare(["dismissed"], "answer_live_recovery_prompt");
 declare(["cancelled"], "cancel_live_export_dialog");
+declare(["raised"], "raise_live");
 declare(["saved"], "save_live_set");
 declare(["sessionRecordVerified", "scopeVerified"], "set_session_midi_overdub");
 for (const fields of Object.values(mutationOutcomeContracts)) Object.freeze(fields);

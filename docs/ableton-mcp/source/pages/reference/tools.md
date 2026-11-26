@@ -2,7 +2,7 @@
 
 Generated from `apps/ableton-mcp/src/tool-contracts.mjs` by `node scripts/docs/tools-reference.mjs`. Do not edit by hand.
 
-The server publishes 322 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
+The server publishes 323 tools. Mutations of the Live Set require `expectedStateVersion`; metadata edits require `expectedMetadataRevision`. A guarded mutation returns a plan when `dryRun` is omitted or true, and executes only with the single-use `confirmationToken` and `planHash` from that plan.
 
 ## Read-only (136)
 
@@ -177,7 +177,7 @@ The server publishes 322 tools. Mutations of the Live Set require `expectedState
 | `save_track_state_snapshot` | Capture one exact track state and save its JSON to the private named local snapshot library. Never overwrites; excludes clips, hidden plugin state, samples, automation and mappings. | `trackId`, `name` |
 | `store_rack_macro_variation` | Plan or store a new native variation of mapped rack macros. Binds exact rack and parameter state, reports the observed count and appended storedVariationIndex independently of selection; variation contents are not exposed by Live's API. | `expectedStateVersion`, `trackId`, `deviceId` |
 
-## Destructive mutations (159)
+## Destructive mutations (160)
 
 | Tool | Description | Required arguments |
 |---|---|---|
@@ -259,6 +259,7 @@ The server publishes 322 tools. Mutations of the Live Set require `expectedState
 | `place_session_clip_in_arrangement` | Copy a Session MIDI/warped-audio clip using its full loop plus lead-in or nonlooped marker span. Binds source identity/content; excludes file bytes and automation. Refuses overlap, frozen, recording and pending launches. Partial work remains with verification receipts. Limit: 4096 notes/clips. Updated bridge. | `expectedStateVersion`, `trackId`, `clipId`, `startBeats` |
 | `prepare_instrument_comparison` | Plan or natively duplicate a MIDI instrument track for comparison. Binds exposed devices, routing, clips and notes; verifies source/copy and cleans up a failed copy. Requires stopped transport. Temporarily mutes source, restores it, leaves copy muted/unarmed with input monitoring off. IDs shift. Opaque state/audio unverified. | `expectedStateVersion`, `trackId`, `clipId`, `name` |
 | `quantize_audio_clip` | Plan or request Live native quantization for one warped audio clip at a selected grid, amount, and observed global swing. Dry runs warn that Live may insert many warp markers and shift existing source start/end anchors; duplicate the clip first if the original edit must be preserved. Returns native anchors and a measured before/after marker-change summary; an existing marker is not guaranteed to snap to the grid. Use move_audio_warp_marker for an exact anchor move. Requires unchanged audio state and swing. Does not quantize MIDI note ends. | `expectedStateVersion`, `trackId`, `clipId`, `grid`, `amount` |
+| `raise_live` | Plan/bring the exact running Live app to the front on macOS, switching to its desktop Space, and verify Live is frontmost with a window on screen; needs no bridge. Run it before native dialog tools when Live is behind another app. | none |
 | `randomize_rack_macros` | Plan or invoke Live's native randomization of eligible mapped rack macros. Binds exact rack and parameter state, then reports observed values. No seed or predictable outcome is available. | `expectedStateVersion`, `trackId`, `deviceId` |
 | `re_enable_parameter_automation` | Hand one exact overridden device or mixer control back to native automation. Binds native owner/device/control identities and current manual value. Requires supported enabled control, unfrozen target and recording/count-in off; preserves playback. Values may jump. Reports active automation separately from requested handoff. Partial work remains; no rollback or replay. All profile. | `expectedStateVersion`, `trackId`, `parameterId` |
 | `recall_device_chain_snapshot` | Plan or recall Return or master mixer, available master output channel, exposed device parameters, rack-chain mixer, Drum Rack note routing and populated pad mute/solo onto exactly compatible topology in one guarded Live undo step. Legacy v1-v5 captures remain supported. Does not create, delete, or load devices or restore hidden plugin state. | `expectedStateVersion`, `trackId`, `snapshot` |

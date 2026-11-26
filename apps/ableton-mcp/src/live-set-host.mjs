@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const saveDialogScript = fileURLToPath(new URL("./live-set-save-dialog.js", import.meta.url));
 const saveStateScript = fileURLToPath(new URL("./live-set-save-state.js", import.meta.url));
 const recoveryPromptScript = fileURLToPath(new URL("./live-recovery-prompt.js", import.meta.url));
+const raiseScript = fileURLToPath(new URL("./live-app-raise.js", import.meta.url));
 const execFileAsync = promisify(execFile);
 const scriptDirectorySuffix = "/Contents/App-Resources/MIDI Remote Scripts/CaviMcpBridge";
 const saveMenuScript = `function run(argv){
@@ -115,6 +116,27 @@ export class MacLiveSetHost {
     } catch (error) {
       signal?.throwIfAborted();
       throw new Error(`Live recovery prompt: ${String(error.stderr || error.message).trim().slice(0, 600)}`);
+    }
+  }
+
+  // Brings the exact running Live to the front of the current desktop; observe reads without activating.
+  async raise({ observe = false, signal } = {}) {
+    this.#requireMac();
+    signal?.throwIfAborted();
+    const processes = await this.runningProcesses(), binary = "/Contents/MacOS/Live";
+    if (processes.length !== 1 || !processes[0].path.endsWith(`.app${binary}`))
+      throw new Error("raising Live requires exactly one running Live app");
+    const appPath = processes[0].path.slice(0, -binary.length);
+    if (this.configuredAppPath && await realpath(this.configuredAppPath) !== appPath)
+      throw new Error("the running Live is not the configured ABLETON_MCP_LIVE_APP_PATH app");
+    const input = { pid: processes[0].pid, appPath, ...(observe ? { action: "observe" } : {}) };
+    try {
+      const result = await this.run("/usr/bin/osascript", ["-l", "JavaScript", raiseScript, JSON.stringify(input)],
+        { timeout: 15000, maxBuffer: 65536, signal });
+      return { pid: input.pid, appPath, ...JSON.parse(result.stdout) };
+    } catch (error) {
+      signal?.throwIfAborted();
+      throw new Error(`Live raise: ${String(error.stderr || error.message).trim().slice(0, 600)}`);
     }
   }
 
