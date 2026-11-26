@@ -11,7 +11,7 @@ const appPath = "/Applications/Ableton Live 12 Suite.app";
 const editor = { pid: 7, name: "Editor", bundleIdentifier: "com.example.editor" };
 const live = { pid: 42, name: "Live", bundleIdentifier: "com.ableton.live" };
 
-function desktop({ path = appPath, front = 7, shown = false, raises = true } = {}) {
+function desktop({ path = appPath, front = 7, shown = false, raises = true, systemEventsDenied = false } = {}) {
   const activated = [];
   function activate(target) {
     activated.push(target);
@@ -19,7 +19,10 @@ function desktop({ path = appPath, front = 7, shown = false, raises = true } = {
   }
   const systemProcess = pid => pid === 42 ? { unixId: () => 42, name: () => "Live", bundleIdentifier: () => "com.ableton.live" }
     : { unixId: () => 7, name: () => "Editor", bundleIdentifier: () => "com.example.editor" };
-  const events = { applicationProcesses: { whose: query => () => query.frontmost === true ? [systemProcess(front)] : [] } };
+  const events = { applicationProcesses: { whose: query => () => {
+    if (systemEventsDenied) throw new Error("Not authorized to send Apple events.");
+    return query.frontmost === true ? [systemProcess(front)] : [];
+  } } };
   const native = Object.assign(value => value, {
     NSRunningApplication: { runningApplicationWithProcessIdentifier: () => ({ isNil: () => false, bundleIdentifier: "com.ableton.live", bundleURL: { path } }) },
     NSAppleEventSendDefaultOptions: 3,
@@ -57,6 +60,12 @@ test("Live already in front is not activated, and observe never activates", () =
   const behind = desktop();
   assert.equal(behind.execute({ action: "observe" }).raised, false);
   assert.deepEqual([...shown.activated, ...behind.activated], []);
+});
+
+test("System Events denial is reported before sending a Live activation", () => {
+  const denied = desktop({ front: 42, shown: true, systemEventsDenied: true });
+  assert.throws(() => denied.execute({}), /System Events.*not authorized to send Apple events/i);
+  assert.deepEqual(denied.activated, []);
 });
 
 test("a refused activation reports raised false after two attempts, and another app path is refused", () => {

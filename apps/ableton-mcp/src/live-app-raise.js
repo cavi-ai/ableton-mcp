@@ -16,7 +16,9 @@ function run(argv) {
       var found = events.applicationProcesses.whose({ frontmost: true })();
       if (found.length !== 1) return null;
       return { pid: found[0].unixId(), name: found[0].name() || null, bundleIdentifier: found[0].bundleIdentifier() || null };
-    } catch (error) { return null; }
+    } catch (error) {
+      throw Error("Could not read the frontmost app from System Events: " + error.message);
+    }
   }
   function shown() {
     return ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1, 0))).filter(function (window) {
