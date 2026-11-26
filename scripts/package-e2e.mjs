@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { createRuntimeIdentity } from "../apps/ableton-mcp/src/runtime-identity.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const work = mkdtempSync(path.join(tmpdir(), "ableton-mcp-package-"));
@@ -31,14 +32,37 @@ function exchange(command, args, env, requests) {
   });
 }
 
-const [{ filename }] = JSON.parse(npm(["pack", "--json", "--pack-destination", work], repoRoot));
+const sourceLock = JSON.parse(readFileSync(path.join(repoRoot, "package-lock.json"), "utf8"));
+const coreLockPath = "node_modules/@cavi-ai/mcp-core";
+const coreSha = sourceLock.packages[coreLockPath]?.resolved?.split("#").at(-1);
+assert.match(coreSha ?? "", /^[0-9a-f]{40}$/u, "the source lockfile must resolve mcp-core to a commit");
+const coreSpec = `github:cavi-ai/mcp-core#${coreSha}`;
+
+// Preserve the source manifest for lockfile updates and pin core in the publishable package.
+const [{ filename: sourceArchive }] = JSON.parse(npm(["pack", "--json", "--pack-destination", work], repoRoot));
+execFileSync("tar", ["-xf", path.join(work, sourceArchive), "-C", work]);
+const staged = path.join(work, "package");
+assert.deepEqual(createRuntimeIdentity(staged), createRuntimeIdentity(repoRoot),
+  "the staged package must contain the source runtime files and manifest");
+const manifestPath = path.join(staged, "package.json");
+const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+manifest.dependencies["@cavi-ai/mcp-core"] = coreSpec;
+writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+const [{ filename }] = JSON.parse(npm(["pack", "--ignore-scripts", "--json", "--pack-destination", work], staged));
+const tarball = path.join(work, filename);
 mkdirSync(consumer);
 writeFileSync(path.join(consumer, "package.json"), JSON.stringify({ name: "consumer", private: true }));
-npm(["install", "--no-audit", "--no-fund", path.join(work, filename)], consumer);
+npm(["install", "--no-audit", "--no-fund", tarball], consumer);
 
 const bin = path.join(consumer, "node_modules/.bin/ableton-mcp");
 const installed = path.join(consumer, "node_modules/@cavi-ai/ableton-mcp");
-const packageVersion = JSON.parse(readFileSync(path.join(installed, "package.json"), "utf8")).version;
+const installedManifest = JSON.parse(readFileSync(path.join(installed, "package.json"), "utf8"));
+const packageVersion = installedManifest.version;
+assert.equal(installedManifest.dependencies["@cavi-ai/mcp-core"], coreSpec,
+  "the installed package must pin the core commit from the source lockfile");
+const consumerLock = JSON.parse(readFileSync(path.join(consumer, "package-lock.json"), "utf8"));
+assert.equal(consumerLock.packages[coreLockPath]?.resolved?.split("#").at(-1), coreSha,
+  "npm must resolve the packed package to the pinned core commit");
 const { classifyMutationOutcome } = await import(pathToFileURL(path.join(installed, "apps/ableton-mcp/src/mutation-outcomes.mjs")));
 for (const [name, field] of [["capture_session_scene", "captureVerified"], ["duplicate_clip", "copyVerified"]]) {
   const failed = classifyMutationOutcome(name, { expectedStateVersion: 1, dryRun: false },
@@ -48,8 +72,7 @@ for (const [name, field] of [["capture_session_scene", "captureVerified"], ["dup
 const help = execFileSync(bin, ["help"], { encoding: "utf8" });
 assert.match(help, /"serve"/u);
 const identity = JSON.parse(execFileSync(bin, ["identity", "--json"], { encoding: "utf8" }));
-const sourceIdentity = JSON.parse(execFileSync(process.execPath, [path.join(repoRoot, "apps/ableton-mcp/src/cli.mjs"), "identity", "--json"], { encoding: "utf8" }));
-assert.deepEqual(identity, sourceIdentity, "installed package must identify the same runtime code as its source");
+assert.deepEqual(identity, createRuntimeIdentity(staged), "the installed package must identify the staged release runtime");
 const previewPlan = JSON.parse(execFileSync(process.execPath,
   [path.join(installed, "packages/nks-pipeline/scripts/process-preview.mjs"),
     "--raw", path.join(work, "raw.wav"), "--out", path.join(work, "preview.wav")], { encoding: "utf8" }));
@@ -124,6 +147,9 @@ assert.equal(doctor.ok, false);
 assert.deepEqual(doctor.serverIdentity, identity);
 assert.match(doctor.bridge.reason, /ENOENT/u);
 assert.ok(!existsSync(path.join(installed, "apps/ableton-mcp/test")));
+
+const verifiedPackageOutput = process.argv[2];
+if (verifiedPackageOutput) copyFileSync(tarball, verifiedPackageOutput);
 
 process.stdout.write(`${JSON.stringify({
   tarball: filename,

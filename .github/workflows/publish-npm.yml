@@ -57,16 +57,16 @@ jobs:
             echo "publish=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Test package
+      - name: Test and pack package
         if: steps.release.outputs.publish == 'true'
         run: |
           brew install imagemagick ffmpeg
           npm ci
           npm test
-          npm run verify:package
+          npm run verify:package -- "$RUNNER_TEMP/ableton-mcp.tgz"
 
       # The trusted publisher for @cavi-ai/ableton-mcp on npmjs.com names this repository and the
       # workflow filename publish-npm.yml; renaming this file stops publishing until it is updated.
       - name: Publish
         if: steps.release.outputs.publish == 'true'
-        run: npm publish --access public --provenance
+        run: npm publish "$RUNNER_TEMP/ableton-mcp.tgz" --access public --provenance

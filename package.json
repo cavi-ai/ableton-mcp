@@ -152,7 +152,7 @@
     "node": ">=26"
   },
   "dependencies": {
-    "@cavi-ai/mcp-core": "github:cavi-ai/mcp-core#620ac2f90c99f7baaf404d77c6806ce321fd4029",
+    "@cavi-ai/mcp-core": "github:cavi-ai/mcp-core#main",
     "ajv": "8.20.0",
     "fast-xml-parser": "5.12.1",
     "midi-file": "1.2.4"
