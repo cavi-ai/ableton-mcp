@@ -9,11 +9,15 @@ function run(argv) {
       throw Error("Expected the exact running Live app");
   }
   requireLive();
-  function describe(app) {
-    if (!app) return null;
-    return { pid: Number(ObjC.unwrap(app.processIdentifier)), name: ObjC.unwrap(app.localizedName) || null, bundleIdentifier: ObjC.unwrap(app.bundleIdentifier) || null };
+  var events = Application("System Events");
+  // NSWorkspace keeps the frontmost app this script read first; System Events reports the current one.
+  function front() {
+    try {
+      var found = events.applicationProcesses.whose({ frontmost: true })();
+      if (found.length !== 1) return null;
+      return { pid: found[0].unixId(), name: found[0].name() || null, bundleIdentifier: found[0].bundleIdentifier() || null };
+    } catch (error) { return null; }
   }
-  function front() { try { return describe($.NSWorkspace.sharedWorkspace.frontmostApplication); } catch (error) { return null; } }
   function shown() {
     return ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1, 0))).filter(function (window) {
       return window.kCGWindowOwnerPID === input.pid && window.kCGWindowLayer === 0 && window.kCGWindowIsOnscreen !== false;
@@ -41,7 +45,7 @@ function run(argv) {
       var errorCode = reply.paramDescriptorForKeyword(0x6572726e).int32Value; // 'errn'
       if (errorCode) throw Error("Live refused the activation event (" + errorCode + ")");
       activations++;
-      for (var i = 0; i < 60 && !observed.raised; i++) { delay(0.05);observed = state(); }
+      for (var i = 0; i < 40 && !observed.raised; i++) { delay(0.05);observed = state(); }
     }
   }
   return JSON.stringify({ raised: observed.raised, activations: activations, previous: previous, frontmost: observed.frontmost, windowIds: observed.windowIds });

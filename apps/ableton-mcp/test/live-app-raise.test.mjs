@@ -17,8 +17,9 @@ function desktop({ path = appPath, front = 7, shown = false, raises = true } = {
     activated.push(target);
     if (raises) { front = 42;shown = true; }
   }
-  const app = pid => pid === 42 ? { processIdentifier: 42, localizedName: "Live", bundleIdentifier: "com.ableton.live" }
-    : { processIdentifier: 7, localizedName: "Editor", bundleIdentifier: "com.example.editor" };
+  const systemProcess = pid => pid === 42 ? { unixId: () => 42, name: () => "Live", bundleIdentifier: () => "com.ableton.live" }
+    : { unixId: () => 7, name: () => "Editor", bundleIdentifier: () => "com.example.editor" };
+  const events = { applicationProcesses: { whose: query => () => query.frontmost === true ? [systemProcess(front)] : [] } };
   const native = Object.assign(value => value, {
     NSRunningApplication: { runningApplicationWithProcessIdentifier: () => ({ isNil: () => false, bundleIdentifier: "com.ableton.live", bundleURL: { path } }) },
     NSAppleEventSendDefaultOptions: 3,
@@ -33,11 +34,12 @@ function desktop({ path = appPath, front = 7, shown = false, raises = true } = {
         } };
       }
     },
-    NSWorkspace: { sharedWorkspace: { get frontmostApplication() { return app(front); } } },
+    // A polling script's NSWorkspace keeps the app it read first.
+    NSWorkspace: { sharedWorkspace: { frontmostApplication: { processIdentifier: 7, localizedName: "Editor", bundleIdentifier: "com.example.editor" } } },
     CGWindowListCopyWindowInfo: () => shown ? [{ kCGWindowOwnerPID: 42, kCGWindowNumber: 212685, kCGWindowLayer: 0, kCGWindowIsOnscreen: true }] : []
   });
   const run = vm.runInNewContext(`${source}\nrun`, { $: native, delay() {},
-    Application: target => ({ activate() { activate(target); } }),
+    Application: name => { assert.equal(name, "System Events"); return events; },
     Ref: () => [],
     ObjC: { import() {}, unwrap: value => value, deepUnwrap: value => value, castRefToObject: value => value } });
   return { activated, execute: input => JSON.parse(run([JSON.stringify({ pid: 42, appPath, ...input })])) };
