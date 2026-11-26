@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add `raise_live`, which brings the running Live app to the front and switches to its desktop Space. Save As types a folder that no visible column reaches into Go to Folder while Live is frontmost, and otherwise refuses without sending a key.
 - Serve MCP stdio through `@cavi-ai/mcp-core`; requires Node.js 26 or newer. Request IDs must be strings or integers.
 - Breaking: remove the production coordinator tools, the `producer` tool profile, workflow prompts, the `prompts` and `prompt` CLI commands and `ABLETON_MCP_PRODUCER_CONFIG`; every profile and slice serves functional tools only and `prompts/list` is empty.
 - `serve` advertises the `observe` slice unless `ABLETON_MCP_TOOLS` (exact functional tools), `ABLETON_MCP_TOOL_SLICES` or `ABLETON_MCP_TOOL_PROFILE` selects a session. `ableton-mcp slices` lists the catalog.

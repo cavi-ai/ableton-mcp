@@ -838,6 +838,7 @@ export class ToolService {
     if (name === "answer_live_recovery_prompt") return this.#answerLiveRecoveryPrompt(args);
     if (name === "get_live_dialog_state") return this.audioExportHost.nativeDialogs({ signal: requestSignal() });
     if (name === "cancel_live_export_dialog") return cancelLiveExportDialog(this.confirmations, this.audioExportHost, args);
+    if (name === "raise_live") return this.#raiseLive(args);
     if (name === "save_live_set") return this.#saveLiveSet(args);
 
     if (name === "get_looper_export_context") return this.#readLooperExport(args);
@@ -3144,6 +3145,28 @@ export class ToolService {
     return { dryRun: false, requested: plan, answered: result.answered, dismissed,
       ...(result.observationError ? { observationError: result.observationError } : {}),
       ...(!dismissed ? { limitation: "The button was pressed once, but the prompt's closure was not observed. Read the prompt again before answering; it was not pressed twice." } : {}) };
+  }
+
+  async #raiseLive(args) {
+    const observe = async () => {
+      const observed = await this.liveSetHost.raise({ observe: true, signal: requestSignal() });
+      return { method: "raise_live", pid: observed.pid, appPath: observed.appPath };
+    };
+    const plan = await observe();
+    if (args.dryRun !== false) return this.#issueGuarded(plan, args, {
+      warning: "Brings Live to the front and switches to its desktop Space; the app in front moves behind Live." });
+    this.#consumeConfirmation(plan, args);
+    let result;
+    try { result = await this.liveSetHost.raise({ expected: plan, signal: requestSignal() }); }
+    catch (error) {
+      requestSignal()?.throwIfAborted();
+      return { dryRun: false, requested: plan, raised: false, observationError: String(error.message ?? error).slice(0, 600),
+        limitation: "Live was not verified in front. Plan raise_live again before retrying." };
+    }
+    const raised = result.raised === true && result.pid === plan.pid && result.appPath === plan.appPath;
+    return { dryRun: false, requested: plan, raised, activations: result.activations, previous: result.previous,
+      frontmost: result.frontmost, windowIds: result.windowIds,
+      ...(!raised ? { limitation: "Live was activated but is not frontmost with a window on screen. Plan raise_live again before retrying." } : {}) };
   }
 
   async #saveLiveSet(args) {

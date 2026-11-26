@@ -107,7 +107,7 @@ export const toolSlices = {
   files: [
     "open_live_set", "save_live_set", "export_audio_mix", "export_audio_track", "export_midi_clip", "bounce_track_in_place",
     "save_native_device_preset", "get_project_media", "collect_project_media", "import_midi_file", "create_audio_clip",
-    "answer_live_recovery_prompt", "get_live_dialog_state", "cancel_live_export_dialog",
+    "answer_live_recovery_prompt", "get_live_dialog_state", "cancel_live_export_dialog", "raise_live",
     "create_arrangement_audio_clip", "get_track_freeze_state", "set_track_freeze_state"
   ],
   library: [
