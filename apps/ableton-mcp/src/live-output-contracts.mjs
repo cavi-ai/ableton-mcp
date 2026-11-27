@@ -100,7 +100,7 @@ Object.assign(liveOutputContracts, {
   get_live_audio_capture: handleResult({ captureId: text, captures: records, file: nullable(object), fileUnchanged: nullable(bool),
     scope: text, beats: numeric, partialSourcePath: nullable(text) }),
   get_live_dialog_state: result({ pid: integer, appPath: text, blocked: bool, uiComplete: bool, observation: object,
-    dialogs: array(result({ identity: { enum: ["exportAudioVideo", "exportSavePanel", "unknown"] }, title: nullable(text),
+    dialogs: array(result({ identity: { enum: ["exportAudioVideo", "exportSavePanel", "saveOutsideProject", "saveOlderVersion", "unknown"] }, title: nullable(text),
       subrole: nullable(text), identifier: nullable(text), modal: bool, sheet: bool, sheetCount: integer, buttons: strings,
       texts: strings, windowId: nullable(integer), parentTitle: nullable(text) }, ["identity", "modal", "sheet", "buttons"])) },
   ["pid", "appPath", "blocked", "dialogs"]),

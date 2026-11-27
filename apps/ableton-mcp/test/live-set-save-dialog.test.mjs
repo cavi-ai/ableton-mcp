@@ -8,7 +8,7 @@ const source = readFileSync(new URL("../src/live-set-save-dialog.js", import.met
 function dialog({ windowId = 123, purpose = "Save Live Set As:", frontmost = true, bundle = "com.ableton.live",
   filename = "Original.als", directory = "/tmp/work", childPath, folderUnavailable = false, retainedClosedWindow = false,
   whereAncestor, focusChangesDuringKeySend = false, unexpectedSheet = false, saveEnabled = true, windowOrderChanges = false, staleRole = false,
-  panelOpen = true, panelOnscreen = true, hiddenWindows = false, filenameEdit = name => name, saveEnabledAfter = 0 } = {}) {
+  panelOpen = true, panelOnscreen = true, hiddenWindows = false, filenameEdit = name => name, saveEnabledAfter = 0, liveOnscreen = true } = {}) {
   const keys = [], keysOutsideLive = [], saves = [], menuPresses = [];
   // hiddenWindows: AXWindows omits the panel and only Live's focused window lists it.
   let visible = panelOpen, saveReads = 0;
@@ -97,6 +97,8 @@ function dialog({ windowId = 123, purpose = "Save Live Set As:", frontmost = tru
       if (event.keyCode === 36 && event.flags === 0) deliverKey(pid, 36);
     },
     CGWindowListCopyWindowInfo: option => [
+      // Live's main Set window, on the visible desktop unless liveOnscreen is false.
+      ...(liveOnscreen || option === 0 ? [{ kCGWindowOwnerPID: 42, kCGWindowNumber: 100, kCGWindowName: "Set", kCGWindowIsOnscreen: liveOnscreen }] : []),
       ...(visible && (panelOnscreen || option === 0) ? [{ kCGWindowOwnerPID: 42, kCGWindowNumber: windowId, kCGWindowName:"Save",
         kCGWindowIsOnscreen: panelOnscreen, kCGWindowBounds: { X: 10, Y: 20, Width: 800, Height: 400 } }] : []),
       ...(retainedClosedWindow && option === 0 ? [{ kCGWindowOwnerPID: 42, kCGWindowNumber: 122, kCGWindowName:"Save",
@@ -206,9 +208,24 @@ test("Save As tries Go to Folder after a Where jump leaves the target hidden", (
 test("Save As refuses a folder outside the visible columns while Live is behind another app, without keys", () => {
   const native = dialog({ frontmost: false });
   const result = JSON.parse(native.execute("commit", { parent: "/Volumes/Other/Runs" }));
-  assert.equal(result.savePressed, false);assert.match(result.error, /raise_live/);
+  assert.equal(result.savePressed, false);assert.match(result.error, /never brings Live forward/);assert.doesNotMatch(result.error, /raise_live/);
   assert.equal(result.recovery.status, "cancelled");
   assert.deepEqual(native.keys, []);assert.deepEqual(native.saves, ["CancelButton"]);
+});
+
+test("Save As walks into a sibling folder from an earlier column while Live is behind another app, without keys", () => {
+  const native = dialog({ frontmost: false, directory: "/tmp/work/A", childPath: "/tmp/work/B" });
+  const result = JSON.parse(native.execute("commit", { parent: "/tmp/work/B", panelState: { name: "Original.als", folder: "/tmp/work/A" } }));
+  assert.equal(result.savePressed, true);
+  assert.deepEqual(native.keys, []);assert.deepEqual(native.saves, ["OKButton"]);
+});
+
+test("Save As opens nothing when no Live window is on the visible desktop", () => {
+  const native = dialog({ frontmost: false, panelOpen: false, panelOnscreen: false, liveOnscreen: false });
+  const result = JSON.parse(native.execute("prepare"));
+  assert.equal(result.prepared, false);assert.match(result.error, /not on screen/);
+  assert.deepEqual(result.recovery, { status: "notOpened", savePressed: false });
+  assert.deepEqual(native.menuPresses, []);assert.deepEqual(native.saves, []);assert.deepEqual(native.keys, []);
 });
 
 test("Save As presses only the bound Save button", () => {

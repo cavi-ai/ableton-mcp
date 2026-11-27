@@ -49,7 +49,7 @@ import { liveAudioCapture } from "./live-audio-capture.mjs";
 import { realpath, stat } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { createHash } from "node:crypto";
-import { isAbsolute, relative, sep } from "node:path";
+import { isAbsolute, relative, sep, dirname } from "node:path";
 import { analyzeAudioFile } from "./audio-analysis.mjs";
 import {compareAudioReference} from "./audio-reference.mjs";
 import {planAudioMidiSketch} from "./audio-midi-sketch.mjs";
@@ -66,7 +66,7 @@ import {removeClipGroove, MacClipGrooveHost} from "./clip-groove-removal.mjs";
 import { ConfirmationStore, hashPlan } from "./confirmation-store.mjs";
 import { beginGuardedWrite, consumeConfirmation, guardedWrite } from "./guarded-write.mjs";
 import { MacLiveSetHost } from "./live-set-host.mjs";
-import {MacAudioExportHost,exportAudioMix,exportAudioTrack,cancelLiveExportDialog} from "./audio-export.mjs";
+import {MacAudioExportHost,exportAudioMix,exportAudioTrack,cancelLiveExportDialog,savePromptKinds} from "./audio-export.mjs";
 import { CatalogService } from "./catalog-service.mjs";
 import { discoverExamples } from "./discovery-examples.mjs";
 import { LIVE_BROWSER_ROOTS } from "./browser-roots.mjs";
@@ -3175,6 +3175,8 @@ export class ToolService {
     if (!before.filePath) throw new Error("save_live_set requires a named Live Set; save a new Set through Live's Save As UI");
     const appPath = this.liveSetHost.appPathFor(before);
     const file = await this.liveSetHost.fileInfo(before.filePath);
+    if (!await this.liveSetHost.projectFor(dirname(file.path)))
+      throw new Error("Live saves a Set only inside a Project folder and otherwise stops on its own prompt; no folder above this Set holds \"Ableton Project Info\". Nothing was pressed. Plan save_live_set with a new path: Save As creates a Project folder.");
     const plan = { method: "save_live_set", appPath, path: file.path, file,
       before: { stateVersion: before.stateVersion, setFingerprint: before.setFingerprint, filePath: before.filePath } };
     if (args.dryRun !== false) return this.#issueGuarded(plan, args);
@@ -3187,7 +3189,7 @@ export class ToolService {
     await this.liveSetHost.save(appPath);
     let after = currentFile;
     let observed = null;
-    let menuClean = false, menuChecked = false;
+    let menuClean = false, menuChecked = false, settled = null;
     const sameSet = live => live?.filePath === file.path && live.setFingerprint === before.setFingerprint && live.stateVersion === before.stateVersion;
     const menuEligible = live => sameSet(live) && (live.isDirty === null || live.isDirty === undefined);
     const deadline = Date.now() + this.liveSetSaveTimeoutMs;
@@ -3211,15 +3213,49 @@ export class ToolService {
           }
         } catch { requestSignal()?.throwIfAborted(); /* An optional observation cannot establish clean state. */ }
       }
+      settled = await this.#settleSavePrompt();
+      if (settled) break;
       if (Date.now() >= deadline) break;
       await new Promise(resolve => setTimeout(resolve, 250));
     } while (true);
     const fileWriteObserved = after.mtimeMs !== file.mtimeMs || after.size !== file.size;
     const bridgeClean = observed?.filePath === file.path && observed.isDirty === false;
     const saved = fileWriteObserved || bridgeClean || menuClean;
-    return { dryRun: false, requested: plan, saved, pendingUserAction: !saved, after,
-      verification: { basis: fileWriteObserved ? "file-change" : bridgeClean ? "bridge-clean" : menuClean ? "native-save-menu" : "unverified", fileWriteObserved },
-      ...(!saved ? { limitation: "Save was requested in Live, but no changed file or clean-state readback was observed. Live may be showing Save As or another dialog; resolve it in Live before relying on this save." } : {}) };
+    const verification = { basis: fileWriteObserved ? "file-change" : bridgeClean ? "bridge-clean" : menuClean ? "native-save-menu" : "unverified", fileWriteObserved };
+    if (!saved && settled?.prompt) {
+      const { identity, texts, buttons } = settled.prompt;
+      const reason = identity === "saveOutsideProject" ? "Live saves a Set only inside a Project folder"
+        : "Live does not overwrite a Set created with an older Live or an edition with fewer features";
+      return { dryRun: false, requested: plan, saved: false, pendingUserAction: !settled.cancelled, after, verification,
+        savePrompt: { identity, texts, buttons, cancelled: settled.cancelled }, saveAsRequired: true,
+        ...(settled.cancelError ? { observationError: settled.cancelError } : {}),
+        limitation: `${reason}. ${settled.cancelled ? "Its prompt was cancelled in the background and the file on disk is unchanged" : "Its prompt is still open; cancel_live_export_dialog cancels it"}. Plan save_live_set with a new path to save the Set as a new file.` };
+    }
+    return { dryRun: false, requested: plan, saved, pendingUserAction: !saved, after, verification,
+      ...(!saved && settled?.blockingDialogs ? { blockingDialogs: settled.blockingDialogs } : {}),
+      ...(!saved ? { limitation: settled?.blockingDialogs
+        ? "Live shows a dialog after Save that is not one of its known save prompts; nothing was pressed in it. get_live_dialog_state reads it."
+        : "Save was requested in Live, but no changed file or clean-state readback was observed. Live may be showing Save As or another dialog; resolve it in Live before relying on this save." } : {}) };
+  }
+
+  // Live answers Save Live Set with its own prompt for a Set outside a Project folder or from an older Live.
+  // A known prompt is cancelled in the background, leaving the Set unsaved; any other dialog is only reported.
+  async #settleSavePrompt() {
+    let state;
+    try { state = await this.audioExportHost.nativeDialogs({ signal: requestSignal() }); }
+    catch { requestSignal()?.throwIfAborted(); return null; }
+    const dialogs = state?.dialogs ?? [];
+    if (!dialogs.length) return null;
+    const [prompt] = dialogs;
+    if (dialogs.length !== 1 || !savePromptKinds.includes(prompt.identity)) return { blockingDialogs: dialogs };
+    try {
+      const result = await this.audioExportHost.cancelNativeDialogs([{ identity: prompt.identity, windowId: prompt.windowId,
+        title: prompt.title, sheetCount: prompt.sheetCount }], { signal: requestSignal() });
+      return { prompt, cancelled: result.cancelled === true && result.blocked === false };
+    } catch (error) {
+      requestSignal()?.throwIfAborted();
+      return { prompt, cancelled: false, cancelError: String(error.message ?? error).slice(0, 300) };
+    }
   }
 
   async #saveLiveSetAs(args) {
@@ -3253,11 +3289,13 @@ export class ToolService {
       saveAsRecovery = error.saveAsRecovery;
     }
     const saved = Boolean(observed && after?.path === destination.path && after.size > 0 && !observationError);
-    return { dryRun: false, requested: plan, saveAsRequested: true, saved,
-      pendingUserAction: !saved && saveAsRecovery?.status !== "cancelled", observed, after,
+    const notOpened = saveAsRecovery?.status === "notOpened";
+    return { dryRun: false, requested: plan, saveAsRequested: !notOpened, saved,
+      pendingUserAction: !saved && !["cancelled", "notOpened"].includes(saveAsRecovery?.status), observed, after,
       ...(saveAsRecovery ? { saveAsRecovery } : {}),
       ...(observationError ? { observationError } : {}), ...(!saved ? { limitation:
-        saveAsRecovery?.status === "cancelled"
+        notOpened ? `Save As did not open Live's panel: ${observationError}. Nothing in Live changed.`
+        : saveAsRecovery?.status === "cancelled"
           ? "Save As stopped before Save and closed its prepared panel. Re-read the current Set and destination, then make a fresh plan."
           : "Save As was requested but the new file and loaded Set path are not both verified. Inspect Live and the destination before retrying. No overwrite or unexpected dialog was accepted." } : {}) };
   }

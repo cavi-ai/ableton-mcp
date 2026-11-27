@@ -72,6 +72,13 @@ test('offscreen Live cannot open the MIDI picker',()=>{
  assert.equal(f.presses,0);
 });
 
+test('cleanup cancels an unidentified picker with nothing selected on another desktop, and presses nothing without one',()=>{
+ const f=fixture({panelOpen:true,selected:false,cancelCloses:true,panelOnscreen:false,frontmost:false}),r=f.execute('cancel',{windowId:null});
+ assert.equal(r.cancelled,true);assert.equal(r.importRequested,false);assert.equal(f.presses,1);assert.equal(f.imports,0);
+ const none=fixture({frontmost:false}),empty=none.execute('cancel',{windowId:null});
+ assert.equal(empty.cancelled,true);assert.equal(empty.pickerFound,false);assert.equal(none.presses,0);
+});
+
 test('an offscreen MIDI picker cannot commit the import',()=>{
  const f=fixture({panelOpen:true,panelOnscreen:false});
  assert.match(f.execute('commit').error??'',/not on screen/);

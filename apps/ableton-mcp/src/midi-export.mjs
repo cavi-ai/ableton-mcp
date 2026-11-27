@@ -4,13 +4,8 @@ import {constants} from 'node:fs';
 import {createHash} from 'node:crypto';
 
 const maxBytes=8*1024*1024;
-export function inspectMidiBytes(bytes){
-  if(!Buffer.isBuffer(bytes)||bytes.length<26||bytes.length>maxBytes||bytes.toString('ascii',0,4)!=='MThd'||bytes.readUInt32BE(4)!==6)throw Error('unsupported or incomplete MIDI header');
-  const format=bytes.readUInt16BE(8),tracks=bytes.readUInt16BE(10),division=bytes.readUInt16BE(12);
-  if(format!==0||tracks!==1||!division||division&0x8000)throw Error('native MIDI verification requires SMF0 with a positive beat division');
-  if(bytes.toString('ascii',14,18)!=='MTrk'||bytes.readUInt32BE(18)!==bytes.length-22)throw Error('MIDI track coverage is incomplete or has trailing bytes');
-  let midi;try{midi=parseMidi(bytes);}catch(error){throw Error('MIDI event parsing failed: '+String(error.message??error));}
-  const events=midi.tracks[0];if(events.length>1000000||events.at(-1)?.type!=='endOfTrack'||events.filter(e=>e.type==='endOfTrack').length!==1)throw Error('MIDI track must have one final end marker');
+// Pairs note-ons with note-offs first in, first out per channel and pitch.
+export function pairMidiTrackNotes(events,division){
   let tick=0,unmatchedNoteOffs=0;const active=new Map(),notes=[],eventCounts={};
   for(const e of events){
     if(!Number.isSafeInteger(e.deltaTime)||e.deltaTime<0||!Number.isSafeInteger(tick+=e.deltaTime))throw Error('MIDI event time is invalid');
@@ -21,9 +16,19 @@ export function inspectMidiBytes(bytes){
     if(e.type==='noteOn'&&e.velocity>0){queue.push({channel:e.channel,pitch:e.noteNumber,startTick:tick,velocity:e.velocity});active.set(key,queue);}
     else{const start=queue.shift();if(!start){unmatchedNoteOffs++;continue;}notes.push({channel:start.channel,pitch:start.pitch,start:start.startTick/division,duration:(tick-start.startTick)/division,velocity:start.velocity,releaseVelocity:e.velocity});}
   }
-  if([...active.values()].some(q=>q.length))throw Error('MIDI export contains incomplete note durations');
+  return {endTicks:tick,notes,eventCounts,unmatchedNoteOffs,incomplete:[...active.values()].some(q=>q.length)};
+}
+export function inspectMidiBytes(bytes){
+  if(!Buffer.isBuffer(bytes)||bytes.length<26||bytes.length>maxBytes||bytes.toString('ascii',0,4)!=='MThd'||bytes.readUInt32BE(4)!==6)throw Error('unsupported or incomplete MIDI header');
+  const format=bytes.readUInt16BE(8),tracks=bytes.readUInt16BE(10),division=bytes.readUInt16BE(12);
+  if(format!==0||tracks!==1||!division||division&0x8000)throw Error('native MIDI verification requires SMF0 with a positive beat division');
+  if(bytes.toString('ascii',14,18)!=='MTrk'||bytes.readUInt32BE(18)!==bytes.length-22)throw Error('MIDI track coverage is incomplete or has trailing bytes');
+  let midi;try{midi=parseMidi(bytes);}catch(error){throw Error('MIDI event parsing failed: '+String(error.message??error));}
+  const events=midi.tracks[0];if(events.length>1000000||events.at(-1)?.type!=='endOfTrack'||events.filter(e=>e.type==='endOfTrack').length!==1)throw Error('MIDI track must have one final end marker');
+  const {endTicks,notes,eventCounts,unmatchedNoteOffs,incomplete}=pairMidiTrackNotes(events,division);
+  if(incomplete)throw Error('MIDI export contains incomplete note durations');
   notes.sort((a,b)=>a.start-b.start||a.pitch-b.pitch||a.channel-b.channel||a.duration-b.duration);
-  return {format,ticksPerBeat:division,endBeats:tick/division,notes,eventCounts,unmatchedNoteOffs,
+  return {format,ticksPerBeat:division,endBeats:endTicks/division,notes,eventCounts,unmatchedNoteOffs,
     limitation:'SMF structure and stored MIDI events only; channel/pitch pairing cannot recover Live note identities, hidden expression, random behavior, instruments or audible equivalence.'};
 }
 

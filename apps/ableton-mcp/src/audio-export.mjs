@@ -82,9 +82,10 @@ async function exportAudio(bridge,confirmations,host,args,trackMode){
   let observed;
   try{observed=await host.render(appPath,settings,destination,{beforeExport:recheck,beforeSave:recheck,signal:requestSignal()});}
   catch(error){return {dryRun:false,requested:plan,exportRequested:error.exportRequested??null,exportVerified:false,
-    dialogCleanup:error.dialogCleanup,...(error.stagingDirectory?{stagingDirectory:error.stagingDirectory}:{}),limitation:`Native export did not verify completion; never replay blindly: ${error.message}`,
+    dialogCleanup:error.dialogCleanup,...(error.stagingDirectory?{stagingDirectory:error.stagingDirectory}:{}),
+    limitation:error.notOpened?`Export did not start: ${error.message}`:`Native export did not verify completion; never replay blindly: ${error.message}`,
     ...(error.blockingDialogs?{blockingDialogs:error.blockingDialogs}:{}),...(error.dialogStateError?{dialogStateError:error.dialogStateError}:{}),
-    ...(error.blockingDialogs?.length?{recovery:"get_live_dialog_state reads these dialogs; cancel_live_export_dialog cancels only an identified Export Audio/Video dialog or its export Save panel."}:{}),
+    ...(error.blockingDialogs?.length?{recovery:"get_live_dialog_state reads these dialogs; cancel_live_export_dialog cancels only an identified Export Audio/Video dialog, its export Save panel or a Live save prompt."}:{}),
     ...(error.exportPress?{exportPress:error.exportPress}:{}),retrySafe:error.retrySafe===true,
     pendingUserAction:error.dialogCleanup?.cancelled!==true};}
   if(!observed.uiComplete)return {dryRun:false,requested:plan,...observed,exportVerified:false,pendingUserAction:true};
@@ -199,12 +200,12 @@ export class MacAudioExportHost{
     const bringLive=async()=>{
       let focused;
       try{focused=await osascript(focusScript,{pid,appPath:canonicalApp},signal,15000);}
-      catch(error){throw Error(`Live focus: ${failure(error)}; nothing was pressed`);}
+      catch(error){throw Object.assign(Error(`Live focus: ${failure(error)}; nothing was pressed`),{notOpened:true});}
       const activations=Number.isInteger(focused.activations)?focused.activations:0;
       exportPress.focus.before=focused.previous?.name??focused.previous?.bundleIdentifier??null;
       exportPress.focus.activations=activations;exportPress.activations+=activations;
       if(Number.isInteger(focused.previous?.pid)&&focused.previous.pid!==pid)returnTo=focused.previous;
-      if(focused.focused!==true)throw Error("Live window is not on screen; nothing was pressed");
+      if(focused.focused!==true)throw Object.assign(Error("Live window is not on screen; export never moves Live or switches desktops, so nothing was opened"),{notOpened:true});
     };
     // Cleanup reads the windows where they are. A miss leaves cancellation to accessibility alone.
     const refront=async()=>{
@@ -262,6 +263,12 @@ export class MacAudioExportHost{
       await giveBack();
       return {exportRequested:true,uiComplete:false,exportPress,...(target!==destination?{nativePath:target.path}:{}),limitation:"Native rendering or a dialog remains unresolved; inspect Live and the destination before retrying."};
     }catch(error){
+      // Refused before any dialog script ran: there is nothing to clean up.
+      if(error.notOpened){
+        await giveBack();
+        Object.assign(error,{exportPress,exportRequested:false,dialogCleanup:{cancelled:true,opened:false},retrySafe:await absent(destination.path)});
+        throw error;
+      }
       if(!saveAttempted&&!error.preserveDialog){
         // Live shows Export Audio/Video again after its Save panel closes only while it is in front.
         if(prepared?.prepared)await refront();
@@ -321,7 +328,8 @@ export class MacAudioExportHost{
   async cancelNativeDialogs(targets,{signal}={}){
     if(this.busy)throw Error("another native audio export is active and owns its dialog cleanup");
     const live=await this.liveProcess();
-    if(targets.every(target=>Number.isInteger(target.windowId)))return {...live,...await this.#dialogScript({pid:live.pid,action:"cancelLeftover",targets},signal)};
+    // A save prompt has no window id anywhere; its accessibility element binds it in the background.
+    if(targets.every(target=>Number.isInteger(target.windowId)||savePromptKinds.includes(target.identity)))return {...live,...await this.#dialogScript({pid:live.pid,action:"cancelLeftover",targets},signal)};
     return {...live,...await this.#cancelInFront(live,targets,signal)};
   }
     // A dialog without a window id is cancelled only when that Live window is already on screen.
@@ -353,6 +361,7 @@ export class MacAudioExportHost{
 }
 
 const exportKinds=["exportAudioVideo","exportSavePanel"];
+export const savePromptKinds=["saveOutsideProject","saveOlderVersion"];
 
 export function exportWindowIdAgrees(plannedId,currentId){
   if(Number.isInteger(plannedId)&&Number.isInteger(currentId))return plannedId===currentId;
@@ -373,16 +382,16 @@ export async function cancelLiveExportDialog(confirmations,host,args){
     const state=await host.nativeDialogs({signal:requestSignal()}),dialogs=state.dialogs??[];
     const refuse=reason=>{throw Object.assign(Error(`${reason}; no Cancel was pressed. Blocking dialogs: ${JSON.stringify(dialogs)}`),{code:"NATIVE_DIALOG_REFUSED",blockingDialogs:dialogs});};
     if(!dialogs.length)refuse("Live shows no blocking native dialog");
-    if(dialogs.some(d=>!exportKinds.includes(d.identity)))refuse("A blocking dialog is not Live's Export Audio/Video dialog or its export Save panel and is not answered");
+    if(dialogs.some(d=>!exportKinds.includes(d.identity)&&!savePromptKinds.includes(d.identity)))refuse("A blocking dialog is not Live's Export Audio/Video dialog, its export Save panel or a Live save prompt and is not answered");
     // An identified export dialog without a window id sits behind another app; the cancel reads it again with Live in front.
-    if(exportKinds.some(kind=>dialogs.filter(d=>d.identity===kind).length>1)||dialogs.some(d=>d.sheet||d.sheetCount))
+    if([...exportKinds,...savePromptKinds].some(kind=>dialogs.filter(d=>d.identity===kind).length>1)||dialogs.some(d=>d.sheet||d.sheetCount))
       refuse("The export dialog identity is ambiguous or it shows a sheet");
     return {method:"cancel_live_export_dialog",pid:state.pid,appPath:state.appPath,
       targets:dialogs.map(({identity,windowId,title,sheetCount,buttons})=>({identity,windowId,title,sheetCount,buttons}))};
   };
   const plan=await observe();
   if(args.dryRun!==false)return beginGuardedWrite(confirmations,plan,args,{preview:{
-    warning:"Presses Cancel once on each listed window, the export Save panel before Export Audio/Video, then on the Export Audio/Video dialog Live shows again after that Save panel closes. A listed window that is not already on screen is left alone. No audio is rendered, no file is written and no other dialog is answered."}});
+    warning:"Presses Cancel once on each listed window, the export Save panel before Export Audio/Video, then on the Export Audio/Video dialog Live shows again after that Save panel closes. A listed export window that is not already on screen is left alone; a Live save prompt is cancelled where it is and its Set stays unsaved. No audio is rendered, no file is written and no other dialog is answered."}});
   // A window id reads null while Live is behind another app; a planned and a current id must match when both are read.
   const planned=confirmations.consume(args.confirmationToken,args.planHash),unread=p=>({...p,targets:p.targets.map(t=>({...t,windowId:null}))});
   if(hashPlan(unread(planned))!==hashPlan(unread(plan))||!planned.targets.every((target,index)=>exportWindowIdAgrees(target.windowId,plan.targets[index].windowId)))
