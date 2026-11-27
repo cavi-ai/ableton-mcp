@@ -4548,6 +4548,47 @@ class DispatchTest(unittest.TestCase):
                 "params": {"trackId": "track-0", "clipId": "track-0:clip-0", "lengthBeats": 4, "notes": []}
             }, 3)
 
+    def test_midi_import_write_checks_set_and_destination_before_creating_the_clip(self):
+        for change in (None, "tracks", "scenes", "set", "slot", "frozen"):
+            with self.subTest(change=change):
+                song = Song()
+                original, other = song.tracks
+                other.name = original.name  # Track names cannot detect this reorder.
+                track_id, clip_id = "track-0", "track-0:clip-1"
+                params = {"trackId": track_id, "clipId": clip_id}
+                messages = []
+                client = SimpleNamespace(sendall=lambda payload: messages.append(json.loads(payload)))
+                bridge = SocketBridge(SimpleNamespace(song=lambda: song, application=lambda: None), "/unused")
+                bridge.requests.put((client, {"id": 1, "method": "list_clips", "params": params}))
+                bridge.drain()
+                target = messages.pop()["result"]
+                params.update(expectedStateVersion=target["stateVersion"],
+                              expectedSetFingerprint=_set_fingerprint(song),
+                              before=target["clips"][1], lengthBeats=4, name="Imported",
+                              notes=[{"pitch": 60, "start": 0, "duration": 1, "velocity": 100}])
+                if change == "tracks":
+                    song.tracks = (other, original)
+                elif change == "scenes":
+                    song.scenes = tuple(reversed(song.scenes))
+                elif change == "set":
+                    song.file_path = "/Other.als"
+                elif change == "slot":
+                    song.tracks[0].clip_slots[1].is_triggered = True
+                elif change == "frozen":
+                    original.is_frozen = True
+
+                bridge.requests.put((client, {"id": 2, "method": "create_midi_import_clip", "params": params}))
+                bridge.drain()
+                self.assertNotIn("error", messages[-1], messages[-1])
+                result = messages[-1]["result"]
+                self.assertFalse(other.clip_slots[1].has_clip)
+                if change is None:
+                    self.assertEqual(result["clip"]["name"], "Imported")
+                    self.assertEqual(original.clip_slots[1].clip.notes, ((60, 0.0, 1.0, 100, False),))
+                else:
+                    self.assertFalse(original.clip_slots[1].has_clip)
+                    self.assertIs(result["importRequested"], False)
+
     def test_get_midi_clip_notes_returns_normalized_notes(self):
         song = Song()
         clip = song.tracks[0].clip_slots[0].clip

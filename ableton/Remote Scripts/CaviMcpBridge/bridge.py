@@ -5319,8 +5319,20 @@ def dispatch_request(song, request, state_version, application=None):
             parameter.value = max(parameter.min, min(parameter.max, float(change["value"])))
             observed.append(_parameter_record(parameter, index))
         return {"stateVersion": state_version + 1, "trackId": params["trackId"], "deviceId": params["deviceId"], "observedChanges": observed}
-    if method == "create_midi_clip":
+    if method in ("create_midi_clip", "create_midi_import_clip"):
+        guarded_import = method == "create_midi_import_clip"
+        if guarded_import and (type(params.get("expectedStateVersion")) is not int
+                               or params["expectedStateVersion"] != state_version
+                               or params.get("expectedSetFingerprint") != _set_fingerprint(song)):
+            return {"stateVersion": state_version, "importRequested": False,
+                    "verificationError": "MIDI import Set or state changed before clip creation"}
         track, slot_index, slot = _clip_slot(song, params["trackId"], params["clipId"])
+        if guarded_import:
+            current_slot = _clip_list(song, params["trackId"], state_version)["clips"][slot_index]
+            if (current_slot != params.get("before") or slot.has_clip
+                    or not track.has_midi_input or bool(getattr(track, "is_frozen", False))):
+                return {"stateVersion": state_version, "importRequested": False,
+                        "verificationError": "MIDI import destination changed before clip creation"}
         if not getattr(track, "has_midi_input", True):
             raise ValueError("track cannot host MIDI clips")
         if slot.has_clip:
@@ -5329,8 +5341,8 @@ def dispatch_request(song, request, state_version, application=None):
             int(note["pitch"]), float(note["start"]), float(note["duration"]),
             int(note["velocity"]), bool(note.get("mute", False))
         ) for note in params["notes"])
-        guarded_melody = params.get("operation") == "create_scale_melody_clip"
-        guarded_progression = params.get("operation") == "create_scale_chord_progression_clip"
+        guarded_melody = not guarded_import and params.get("operation") == "create_scale_melody_clip"
+        guarded_progression = not guarded_import and params.get("operation") == "create_scale_chord_progression_clip"
         if guarded_progression:
             current_slot = _clip_list(song, params["trackId"], state_version)["clips"][slot_index]
             if params.get("before") != current_slot:

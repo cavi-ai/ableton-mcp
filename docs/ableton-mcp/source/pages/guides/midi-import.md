@@ -10,6 +10,8 @@ Live can import several standard MIDI formats, including multitrack files; see [
 
 Plan it with `sourcePath`, `trackId`, `clipId`, fresh `expectedStateVersion` and `expectedSetFingerprint`. The plan shows the file identity and SHA-256, and the clip name (the file's track name, or else the file name), length (rounded up to whole bars of the file's starting meter, 4/4 when absent) and note count. Files with controller, program, pitch-bend, aftertouch or SysEx events, notes on more than one track or channel, more than 4096 notes, zero-length or overlapping same-pitch notes, or SMPTE time are refused before any write. Tempo, meter and track-name events are not applied.
 
+The Remote Script rechecks the Set, state version and destination immediately before creating the clip. A change to that context refuses the write.
+
 `importVerified: true` requires the created clip in the chosen slot with the planned name and length and every note's pitch, start, duration and velocity read back from Live. A failed write that the bridge may have run reports `inspectionRequired: true` and is never replayed.
 
 ## Import a local file through Live's picker
@@ -24,7 +26,7 @@ Confirmation shows the Session destination, opens native **Create > Import MIDI 
 
 `importVerified:true` requires a known Open request, closed owned picker, an observed MIDI clip in the chosen slot, unchanged source-file checks, preserved existing track/device/clip object structure, unchanged tempo/meter and stopped recording/playback. Inspect `observed.targetClips` and `trackEffect` for actual current IDs. Object preservation does not compare existing note, parameter or envelope contents. Full file-event, controller, tempo-map, MPE and audible equivalence remain separate checks; `completePerformanceEquivalenceVerified` and `audibleEquivalenceVerified` remain false.
 
-Unknown Open outcomes are never replayed, undone or deleted. Any failure after the picker opens and before Open, including a lost picker reply or a file outside the picker's visible columns, cancels the import picker in the background; `pickerCancelled` reports whether it closed. Changed user input, unexpected dialogs and partial imports require inspection before more input.
+Unknown Open outcomes are never replayed, undone or deleted. After a confirmed failure before Open, the tool attempts to cancel the owned picker in the background. If the original window ID is known, cleanup requires that ID before pressing Cancel. `pickerCancelled` reports whether cleanup verified closure. Changed user input, unexpected dialogs and partial imports require inspection before more input.
 
 ## Load a browser item
 

@@ -15,7 +15,7 @@ function run(argv){
  function windows(){return items(read(root,'AXWindows'));}
  function rows(e){var a=[];function walk(e,d){if(d>24||a.length>20000)throw Error('Native MIDI import UI exceeds bounds');a.push(e);if(['AXBrowser','AXOutline','AXTable'].indexOf(get(e,'AXRole'))>=0)return;items(read(e,'AXChildren')).forEach(function(c){walk(c,d+1);});}walk(e,0);return a;}
  function find(e,id){return one(rows(e).filter(function(c){return get(c,'AXIdentifier')===id;}),'Native MIDI import control unavailable: '+id);}
- function windowId(w){var all=ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(0,0))).filter(function(v){return v.kCGWindowOwnerPID===input.pid&&v.kCGWindowName===get(w,'AXTitle');}),visible=all.filter(function(v){return v.kCGWindowIsOnscreen===true;});return Number(one(visible.length?visible:all,'Native MIDI import window identity is ambiguous').kCGWindowNumber);}
+ function windowId(w,requireUnique){var all=ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(0,0))).filter(function(v){return v.kCGWindowOwnerPID===input.pid&&v.kCGWindowName===get(w,'AXTitle');}),visible=all.filter(function(v){return v.kCGWindowIsOnscreen===true;});return Number(one(!requireUnique&&visible.length?visible:all,'Native MIDI import window identity is ambiguous').kCGWindowNumber);}
  function mainDocument(allowOpen){
   var all=windows();if(all.some(function(w){return (get(w,'AXModal')===true||get(w,'AXSubrole')==='AXDialog'||items(read(w,'AXChildren')).some(function(c){return get(c,'AXRole')==='AXSheet';}))&&!(allowOpen&&get(w,'AXIdentifier')==='open-panel'&&windowId(w)===input.windowId);}))throw Error('Resolve the existing native dialog before MIDI import');
   var candidates=all.filter(function(w){var doc=get(w,'AXDocument');if(source.filePath){if(typeof doc!=='string'||!/^file:\/\//.test(doc))return false;var url=$.NSURL.URLWithString($(doc));if(Number(url.isFileURL)!==1||ObjC.unwrap(url.path.stringByResolvingSymlinksInPath)!==ObjC.unwrap($(source.filePath).stringByResolvingSymlinksInPath))return false;}else if(doc!==null&&doc!=='')return false;return rows(w).some(function(e){return get(e,'AXIdentifier')==='Transport';});});
@@ -71,13 +71,14 @@ function run(argv){
    throw Error('Native MIDI file is not in the visible columns; no key was sent');
   }
   if(input.action==='cancel'){
-   // Open picker refuses while any dialog is shown, so the only import picker is this request's own,
-   // on any desktop and whatever it selects. Without a window id a late picker gets a short wait.
+   // A known picker locks cleanup to its window ID. With a lost open reply,
+   // wait briefly for the only picker with the import purpose.
    function pickers(){return windows().filter(function(w){if(get(w,'AXIdentifier')!=='open-panel')return false;var message=rows(w).filter(function(e){return get(e,'AXIdentifier')==='_messageTextField';});return message.length===1&&get(message[0],'AXValue')==='Import Audio or MIDI File:';});}
    var known=typeof input.windowId==='number',owned=pickers();
    for(var look=0;!known&&!owned.length&&look<20;look++){delay(.05);owned=pickers();}
    if(!owned.length)return JSON.stringify({cancelled:true,importRequested:false,pickerFound:false});
    var picker=one(owned,'Native MIDI import picker is ambiguous; no Cancel was pressed'),pickerId=known?input.windowId:null;
+   if(known&&windowId(picker,true)!==pickerId)return JSON.stringify({cancelled:false,importRequested:false,requiresInspection:true});
    if(!known)try{pickerId=windowId(picker);}catch(error){pickerId=null;}
    if($.AXUIElementPerformAction(find(picker,'CancelButton'),$('AXPress')))throw Error('Native Open cancellation is unconfirmed');
    for(var attempt=0;attempt<40;attempt++){

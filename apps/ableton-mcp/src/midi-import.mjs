@@ -78,19 +78,26 @@ async function importThroughBridge(bridge,confirmations,args){
   file:{...source,scope:'Full file hash. Notes are parsed here and written through the bridge.'},clip:summary,
   warning:'Writes the file\'s notes into the empty Session slot through the bridge. Live is not raised, focused or clicked; selection, tempo, meter and the saved Set are unchanged. Tempo, meter and track-name events in the file are not applied.'};
  const reply=beginGuardedWrite(confirmations,plan,args,{mismatch:'MIDI import confirmation context changed'});if(reply)return reply;
- const request={method:'create_midi_clip',trackId,clipId,expectedStateVersion:args.expectedStateVersion,lengthBeats:clip.lengthBeats,notes,name:clip.name};
+ const request={trackId,clipId,expectedStateVersion:state.stateVersion,expectedSetFingerprint:state.setFingerprint,before:slot,
+  lengthBeats:clip.lengthBeats,notes,name:clip.name};
  const result=fields=>({dryRun:false,route:'bridge',requested:plan,...fields,completePerformanceEquivalenceVerified:false,audibleEquivalenceVerified:false,
   limitation:'Verification covers the clip name, length and every note\'s pitch, start, duration and velocity read back from Live. Tempo, meter, instruments and sound are not compared.'});
  let created;
- try{created=await bridge.request('create_midi_clip',request);}
+ try{created=await bridge.request('create_midi_import_clip',request);}
  catch(error){
   // A request the bridge never ran changed nothing; any other failure may have created a clip.
   if(error.outcome==='not_executed')throw error;
   return result({importRequested:null,importVerified:false,pendingUserAction:false,inspectionRequired:true,verificationError:String(error.message??error).slice(0,600)});
  }
+ if(created?.importRequested===false)return result({importRequested:false,importVerified:false,pendingUserAction:false,
+  stateVersion:created.stateVersion,verificationError:created.verificationError});
  let readback,after,readError;
- try{readback=await bridge.request('get_midi_clip_notes',{trackId,clipId});after=(await bridge.request('list_clips',{trackId})).clips?.find(c=>c.id===clipId);}
- catch(error){readError=String(error.message??error).slice(0,600);}
+ try{
+  readback=await bridge.request('get_midi_clip_notes',{trackId,clipId});
+  const slots=await bridge.request('list_clips',{trackId});
+  if(readback.stateVersion!==created.stateVersion||slots.stateVersion!==created.stateVersion)throw Error('MIDI import destination state changed before readback');
+  after=slots.clips?.find(c=>c.id===clipId);
+ }catch(error){readError=String(error.message??error).slice(0,600);}
  const notesMatch=!!readback&&matchMidiNoteReadback(notes,readback.notes.map(({pitch,start,duration,velocity,mute})=>({pitch,start,duration,velocity,mute})),1e-6);
  const importVerified=!readError&&created?.clip?.id===clipId&&created.clip.hasClip===true&&notesMatch&&Math.abs(readback.lengthBeats-clip.lengthBeats)<=1e-6&&after?.hasClip===true&&after.name===clip.name;
  return result({importRequested:true,stateVersion:created?.stateVersion,observed:{clip:created?.clip??null,name:after?.name??null,lengthBeats:readback?.lengthBeats??null,noteCount:readback?.notes?.length??null},
@@ -148,9 +155,9 @@ export class MacMidiImportHost{
    const deadline=Date.now()+this.timeoutMs;do{const state=await this.call(owner,source,{action:'finish',windowId:panel.windowId},signal);if(state.uiComplete){if(hashPlan(state.document)!==hashPlan(document))throw Error('Native MIDI import document changed after Open');return {importRequested:true,uiComplete:true};}await new Promise(r=>setTimeout(r,100));}while(Date.now()<deadline);
    return {importRequested:true,uiComplete:false};
   }catch(error){
-   if(importDispatched){error.importRequested=importRequested===true?true:error.importRequested??null;error.requiresInspection=true;}
+   error.importRequested=importRequested===true?true:importDispatched?error.importRequested??null:false;
+   if(error.importRequested!==false)error.requiresInspection=true;
    else{
-    error.importRequested=false;
     // After the menu press, every failure before Open closes the picker. A lost picker reply has no window id; the cancel then takes the only import picker.
     if(pickerDispatched)try{const cleanup=await this.call(owner,source,{action:'cancel',windowId:panel?.windowId??null},undefined);error.pickerCancelled=cleanup.cancelled===true;error.requiresInspection=cleanup.cancelled!==true;}catch{error.pickerCancelled=false;error.requiresInspection=true;}
     else error.requiresInspection=false;
