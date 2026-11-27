@@ -23,8 +23,6 @@ def source(song, version):
     tracks, slots = [], 0
     for index, track in enumerate(song.tracks):
         row = _track_record(song, track, index)
-        if row["armed"]:
-            raise ValueError("resolve armed tracks before native audio export")
         clips = list(track.clip_slots)
         slots += len(clips)
         if slots > 16384:

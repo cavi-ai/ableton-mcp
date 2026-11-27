@@ -94,13 +94,18 @@ class AudioExportTests(unittest.TestCase):
         self.assertEqual(song.undo_boundaries, [])
         self.assertFalse(automated['crossfader']['tracks'][0]['assignment']['supported'])
 
-    def test_playing_recording_arms_and_pending_launches_refuse(self):
+    def test_playing_recording_and_pending_launches_refuse(self):
         for change in [lambda s: setattr(s, "is_playing", True), lambda s: setattr(s, "record_mode", True),
-                       lambda s: setattr(s.tracks[0], "arm", True), lambda s: setattr(s.tracks[0], "fired_slot_index", 0)]:
+                       lambda s: setattr(s.tracks[0], "fired_slot_index", 0)]:
             song = Song()
             change(song)
             with self.assertRaises(ValueError):
                 self.source(song)
+
+    def test_an_armed_track_exports_with_transport_stopped_and_recording_off(self):
+        song = Song()
+        song.tracks[0].arm = True
+        self.assertTrue(self.source(song)["tracks"][0]["armed"])
 
 
 if __name__ == "__main__":
