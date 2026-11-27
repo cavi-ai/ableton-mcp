@@ -6,13 +6,20 @@ import {join} from "node:path";
 import {tmpdir} from "node:os";
 import vm from "node:vm";
 import {MacAudioExportHost,exportWindowIdAgrees,samePlannedExportDialogs} from "../src/audio-export.mjs";
+import {MacLiveSetHost} from "../src/live-set-host.mjs";
 import {ToolService} from "../src/tool-service.mjs";
 import {validateToolResult} from "../src/tool-validation.mjs";
 
 const source=readFileSync(new URL("../src/live-audio-export-dialog.js",import.meta.url),"utf8");
 const array=items=>({count:items.length,objectAtIndex:i=>items[i]});
 
-// Live's accessibility tree with either a leftover Export dialog or a save-changes sheet.
+// Live's prompts after Save Live Set: an untitled modal AXDialog with Cancel and Save As... buttons.
+const savePromptTexts={
+  saveOutsideProject:"The Live Set you are about to save is located outside of a Project folder. Please choose a Project folder.",
+  saveOlderVersion:"The Live Set you are trying to save was created with a version of Live that is either older or has fewer features than this one. Please save your Set as a new file."
+};
+
+// Live's accessibility tree with a leftover Export dialog, a save prompt, a save-changes sheet or no dialog.
 function nativeLive(scene){
   const standard={AXRole:"AXWindow",AXTitle:"Mix",AXSubrole:"AXStandardWindow",AXDocument:"file:///Mix.als"};
   let windows;
@@ -24,9 +31,16 @@ function nativeLive(scene){
   const sheet={AXRole:"AXSheet",AXChildren:array([{AXRole:"AXStaticText",AXValue:"Save changes to Mix before closing?"},answer("Don't Save"),answer("Cancel"),answer("Save")])};
   // The focused window is a second reference to the same Export window, so the window list and the focused window both report it.
   const focusedCopy={...exporting};
-  if(scene==="export"||scene==="exportTwice")windows=[exporting,standard];
-  else{standard.AXSheets=array([sheet]);standard.AXChildren=array([sheet]);windows=[standard];}
   const numbers=new Map([[exporting,123],[standard,125]]);
+  const showPrompt=kind=>{
+    const prompt={AXRole:"AXWindow",AXTitle:"",AXSubrole:"AXDialog",AXModal:true,AXChildren:array([{AXRole:"AXStaticText",AXValue:savePromptTexts[kind]},
+      {AXRole:"AXButton",AXTitle:"Cancel",AXEnabled:true,press:()=>{windows=windows.filter(w=>w!==prompt);}},{AXRole:"AXButton",AXTitle:"Save As...",AXEnabled:true}])};
+    numbers.set(prompt,126);windows=[prompt,standard];
+  };
+  if(scene==="export"||scene==="exportTwice")windows=[exporting,standard];
+  else if(scene==="idle")windows=[standard];
+  else if(savePromptTexts[scene])showPrompt(scene);
+  else{standard.AXSheets=array([sheet]);standard.AXChildren=array([sheet]);windows=[standard];}
   const app={get AXWindows(){return array(windows);},get AXFocusedWindow(){return scene==="exportTwice"?focusedCopy:undefined;}};
   const native=Object.assign(value=>value,{
     NSRunningApplication:{runningApplicationWithProcessIdentifier:()=>({activateWithOptions(){}})},
@@ -38,8 +52,9 @@ function nativeLive(scene){
     CGWindowListCopyWindowInfo:()=>windows.map(w=>({kCGWindowOwnerPID:42,kCGWindowName:focus.behind?undefined:w.AXTitle,kCGWindowNumber:numbers.get(w),kCGWindowIsOnscreen:!focus.behind}))
   });
   const events={applicationProcesses:{whose:()=>()=>[{bundleIdentifier:()=>"com.ableton.live",frontmost:()=>true}]},keystroke(){throw Error("no key may be sent");}};
-  return vm.runInNewContext(`${source}\nrun`,{Application:()=>events,$:native,Ref:()=>[],delay(){},
+  const script=vm.runInNewContext(`${source}\nrun`,{Application:()=>events,$:native,Ref:()=>[],delay(){},
     ObjC:{import(){},unwrap:value=>value,deepUnwrap:value=>value,castRefToObject:value=>value}});
+  return Object.assign(argv=>script(argv),{showPrompt});
 }
 
 // An unsaved Set: Export hides its dialog and the Save panel opens only after the Export press stopped
@@ -85,23 +100,23 @@ function lateSavePanel(leftover){
   };
 }
 
-async function serviceFor(t,scene){
+async function serviceFor(t,scene,{behind=scene==="exportBehind",host={},live}={}){
   const directory=await realpath(await mkdtemp(join(tmpdir(),"cavi-dialog-")));t.after(()=>rm(directory,{recursive:true,force:true}));
   const app=join(directory,"Live.app");await mkdir(join(app,"Contents/MacOS"),{recursive:true});await writeFile(join(app,"Contents/MacOS/Live"),"binary");
-  focus.behind=scene==="exportBehind";focus.restored=[];
-  const run=scene==="lateSave"||scene==="leftoverSave"?lateSavePanel(scene==="leftoverSave"):nativeLive(scene==="exportBehind"?"export":scene),liveSetHost={runningProcesses:async()=>[{pid:42,path:app+"/Contents/MacOS/Live"}],appPathFor:()=>app};
+  focus.behind=behind;focus.restored=[];
+  const run=scene==="lateSave"||scene==="leftoverSave"?lateSavePanel(scene==="leftoverSave"):nativeLive(scene==="exportBehind"?"export":scene),liveSetHost={runningProcesses:async()=>[{pid:42,path:app+"/Contents/MacOS/Live"}],appPathFor:()=>app,...host};
   const execute=async(command,args)=>{
     if(command==="/usr/bin/open")return {stdout:""};
     if(args[2].endsWith("live-app-focus.js")){
-      const behind=scene==="exportBehind"&&focus.behind;
+      const behind=focus.behind;
       const previous=behind?{pid:77,name:"Viewer"}:{pid:42,name:"Live"};
       return {stdout:JSON.stringify({focused:!behind,activations:0,dockPressed:false,previous})};
     }
     if(!args[2].endsWith("live-audio-export-dialog.js"))throw Error("unexpected native script");
     return {stdout:run([args.at(-1)])};
   };
-  const bridge={request:async()=>({stateVersion:3,setFingerprint:"set",identityToken:"document"})};
-  return {directory,service:new ToolService({liveSetHost,bridge,audioExportHost:new MacAudioExportHost({platform:"darwin",liveSetHost,execute})})};
+  const bridge={request:async()=>live?.()??{stateVersion:3,setFingerprint:"set",identityToken:"document"}};
+  return {directory,run,service:new ToolService({liveSetHost,bridge,liveSetSaveTimeoutMs:0,audioExportHost:new MacAudioExportHost({platform:"darwin",liveSetHost,execute})})};
 }
 
 const focus={behind:false,restored:[]};
@@ -194,6 +209,51 @@ test("cancelling a leftover export Save panel also cancels the Export dialog Liv
   assert.deepEqual(result.closed.map(d=>[d.identity,d.windowId]),[["exportSavePanel",124],["exportAudioVideo",123]]);
   assert.equal(result.blocked,false);assert.equal(result.pendingUserAction,false);
   assert.deepEqual((await service.call("get_live_dialog_state",{})).dialogs,[]);
+});
+
+test("Live's save prompts are identified and cancelled in the background while Live is behind another app",async t=>{
+  for(const kind of ["saveOutsideProject","saveOlderVersion"]){
+    const {service}=await serviceFor(t,kind,{behind:true});
+    const state=validateToolResult("get_live_dialog_state",await service.call("get_live_dialog_state",{}),{});
+    assert.deepEqual(state.dialogs.map(d=>[d.identity,d.windowId,d.buttons]),[[kind,null,["Cancel","Save As..."]]]);
+    const plan=validateToolResult("cancel_live_export_dialog",await service.call("cancel_live_export_dialog",{}),{});
+    assert.deepEqual(plan.plan.targets.map(d=>[d.identity,d.windowId]),[[kind,null]]);
+    const execute={dryRun:false,confirmationToken:plan.confirmation.token,planHash:plan.confirmation.planHash};
+    const result=validateToolResult("cancel_live_export_dialog",await service.call("cancel_live_export_dialog",execute),execute);
+    assert.equal(result.cancelled,true);assert.equal(result.pendingUserAction,false);assert.equal(result.operationOutcome.status,"applied");
+    assert.deepEqual((await service.call("get_live_dialog_state",{})).dialogs,[]);
+  }
+});
+
+async function setFile(t,project){
+  const directory=await realpath(await mkdtemp(join(tmpdir(),"cavi-set-")));t.after(()=>rm(directory,{recursive:true,force:true}));
+  if(project)await mkdir(join(directory,"Ableton Project Info"));
+  const path=join(directory,"Song.als");await writeFile(path,"set");return path;
+}
+const saveArgs={expectedStateVersion:3,expectedSetFingerprint:"set"};
+
+test("save_live_set cancels Live's older-version prompt in the background and leaves the Set file unchanged",async t=>{
+  const path=await setFile(t,true),files=new MacLiveSetHost({platform:"darwin"});let saves=0;
+  const {service,run}=await serviceFor(t,"idle",{behind:true,live:()=>({stateVersion:3,setFingerprint:"set",filePath:path}),
+    host:{fileInfo:file=>files.fileInfo(file),projectFor:directory=>files.projectFor(directory),save:async()=>{saves++;run.showPrompt("saveOlderVersion");}}});
+  const plan=await service.call("save_live_set",saveArgs);
+  assert.equal(saves,0);
+  const execute={...saveArgs,dryRun:false,confirmationToken:plan.confirmation.token,planHash:plan.confirmation.planHash};
+  const result=validateToolResult("save_live_set",await service.call("save_live_set",execute),execute);
+  assert.equal(saves,1);
+  assert.equal(result.saved,false);assert.equal(result.pendingUserAction,false);assert.equal(result.saveAsRequired,true);
+  assert.deepEqual([result.savePrompt.identity,result.savePrompt.cancelled],["saveOlderVersion",true]);
+  assert.match(result.limitation,/new path/);
+  assert.deepEqual((await service.call("get_live_dialog_state",{})).dialogs,[]);
+  assert.equal(readFileSync(path,"utf8"),"set");
+});
+
+test("save_live_set refuses a Set outside a Project folder before pressing Save",async t=>{
+  const path=await setFile(t,false),files=new MacLiveSetHost({platform:"darwin"});let saves=0;
+  const {service}=await serviceFor(t,"idle",{live:()=>({stateVersion:3,setFingerprint:"set",filePath:path}),
+    host:{fileInfo:file=>files.fileInfo(file),projectFor:directory=>files.projectFor(directory),save:async()=>{saves++;}}});
+  await assert.rejects(service.call("save_live_set",saveArgs),/only inside a Project folder.*Nothing was pressed/);
+  assert.equal(saves,0);
 });
 
 test("a null export window id agrees until both reads are integers",()=>{

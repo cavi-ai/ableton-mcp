@@ -84,17 +84,26 @@ function run(argv){
       if(["AXScrollArea","AXOutline","AXTable","AXBrowser"].indexOf(role)===-1)children(e).forEach(function(c){walk(c,depth+1);});
     })(root,0);
   }
+  // Live's own prompts after Save Live Set: Cancel leaves the Set unsaved, Save As... opens the Save panel.
+  var savePrompts=["saveOutsideProject","saveOlderVersion"];
+  function savePromptButtons(buttons){return buttons.length===2&&buttons.indexOf("Cancel")!==-1&&buttons.some(function(name){return /^Save As(\.\.\.|…)$/.test(name);});}
+  function savePromptIdentity(text){
+    if(/The Live Set you are about to save is located outside of a Project folder/.test(text))return "saveOutsideProject";
+    if(/The Live Set you are trying to save was created with a version of Live that is either older or has fewer features/.test(text))return "saveOlderVersion";
+    return "unknown";
+  }
   // Identity is read only; nothing is pressed or focused.
   function describe(e,parentTitle){
-    var buttons=[],texts=[],ids={},message=null;
+    var buttons=[],texts=[],prose=[],ids={},message=null;
     walkControls(e,function(node,role){
       var id=value(node,"AXIdentifier");if(typeof id==="string")ids[id]=(ids[id]||0)+1;
       if(role==="AXButton"){var name=value(node,"AXTitle")||value(node,"AXDescription")||id;if(typeof name==="string"&&name)buttons.push(name);}
-      else if(role==="AXStaticText"){var text=value(node,"AXValue");if(typeof text!=="string"||!text)return;if(id==="_messageTextField")message=text;if(texts.length<4)texts.push(text.slice(0,240));}
+      else if(role==="AXStaticText"){var text=value(node,"AXValue");if(typeof text!=="string"||!text)return;if(id==="_messageTextField")message=text;prose.push(text);if(texts.length<4)texts.push(text.slice(0,240));}
     });
     var title=value(e,"AXTitle"),subrole=value(e,"AXSubrole"),identifier=value(e,"AXIdentifier"),sheet=value(e,"AXRole")==="AXSheet",identity="unknown";
     if(!sheet&&title==="Export Audio/Video"&&subrole==="AXDialog"&&ids["Base.FinalButtonsBox.CancelButton"]===1&&ids["Base.FinalButtonsBox.ExportButton"]===1)identity="exportAudioVideo";
     else if(!sheet&&identifier==="save-panel"&&message==="Save Audio File As:"&&ids.CancelButton===1)identity="exportSavePanel";
+    else if(!sheet&&subrole==="AXDialog"&&savePromptButtons(buttons))identity=savePromptIdentity(prose.join(" "));
     var info={identity:identity,title:typeof title==="string"?title:null,subrole:typeof subrole==="string"?subrole:null,
       identifier:typeof identifier==="string"?identifier:null,modal:value(e,"AXModal")===true,sheet:sheet,
       sheetCount:sheet?0:sheetsOf(e).length,buttons:buttons,texts:texts,windowId:sheet?null:cgWindowId(title)};
@@ -115,14 +124,15 @@ function run(argv){
   // An unsaved Set's main window has no AXDocument; AXMainWindow names it when AXWindows omits it.
   function documentWindow(list){var main=read(app,"AXMainWindow");return list.concat(main?[main]:[]).some(function(w){return value(w,"AXSubrole")==="AXStandardWindow";});}
   function dialogKey(info){return JSON.stringify([info.identity,info.windowId,info.title,info.sheetCount]);}
+  // A save prompt has no window title, so its window id reads null; its accessibility element binds it instead.
   function cancelDialog(entry){
-    var target=entry.info,cancelId=target.identity==="exportSavePanel"?"CancelButton":"Base.FinalButtonsBox.CancelButton",buttons=[];
+    var target=entry.info,prompt=savePrompts.indexOf(target.identity)!==-1,cancelId=target.identity==="exportSavePanel"?"CancelButton":"Base.FinalButtonsBox.CancelButton",buttons=[];
     var same=nativeDialogs().filter(function(other){return $.CFEqual(other.element,entry.element);});
-    if(same.length!==1||dialogKey(same[0].info)!==dialogKey(target)||same[0].info.sheetCount||!Number.isInteger(target.windowId))throw Error("Native "+target.identity+" window changed; no Cancel was pressed");
-    walkControls(entry.element,function(node,role){if(role==="AXButton"&&value(node,"AXIdentifier")===cancelId)buttons.push(node);});
+    if(same.length!==1||dialogKey(same[0].info)!==dialogKey(target)||same[0].info.sheetCount||!prompt&&!Number.isInteger(target.windowId))throw Error("Native "+target.identity+" window changed; no Cancel was pressed");
+    walkControls(entry.element,function(node,role){if(role==="AXButton"&&(prompt?(value(node,"AXTitle")||value(node,"AXDescription"))==="Cancel":value(node,"AXIdentifier")===cancelId))buttons.push(node);});
     if(buttons.length!==1)throw Error("Native "+target.identity+" Cancel is unavailable; no Cancel was pressed");
     if(press(buttons[0])!==0)throw Error("Native "+target.identity+" Cancel outcome is unknown");
-    wait(function(){return !nativeDialogs().some(function(other){return $.CFEqual(other.element,entry.element);})&&!onscreenWindow(target.windowId);},"Native "+target.identity+" closure is unverified");
+    wait(function(){return !nativeDialogs().some(function(other){return $.CFEqual(other.element,entry.element);})&&!(Number.isInteger(target.windowId)&&onscreenWindow(target.windowId));},"Native "+target.identity+" closure is unverified");
     return target;
   }
   // Live hides Export Audio/Video while its Save panel is open and shows it again after that panel closes.
@@ -135,9 +145,9 @@ function run(argv){
   // Cancels a leftover export dialog without prior ownership, only on the planned identities.
   if(input.action==="cancelLeftover"){
     var planned=input.targets,current=nativeDialogs();
-    if(!Array.isArray(planned)||!planned.length||current.length!==planned.length||current.some(function(entry,i){return entry.info.identity==="unknown"||!Number.isInteger(entry.info.windowId)||dialogKey(entry.info)!==dialogKey(planned[i]);}))
+    if(!Array.isArray(planned)||!planned.length||current.length!==planned.length||current.some(function(entry,i){return entry.info.identity==="unknown"||!Number.isInteger(entry.info.windowId)&&savePrompts.indexOf(entry.info.identity)===-1||dialogKey(entry.info)!==dialogKey(planned[i]);}))
       throw Error("Native dialogs changed; no Cancel was pressed");
-    var order=current.filter(function(entry){return entry.info.identity==="exportSavePanel";}).concat(current.filter(function(entry){return entry.info.identity==="exportAudioVideo";}));
+    var order=current.filter(function(entry){return savePrompts.indexOf(entry.info.identity)!==-1;}).concat(current.filter(function(entry){return entry.info.identity==="exportSavePanel";}),current.filter(function(entry){return entry.info.identity==="exportAudioVideo";}));
     var closed=order.map(cancelDialog);
     if(closed.some(function(info){return info.identity==="exportSavePanel";})&&!closed.some(function(info){return info.identity==="exportAudioVideo";})){
       var parent=reshownExport();if(parent.length===1)closed.push(cancelDialog(parent[0]));

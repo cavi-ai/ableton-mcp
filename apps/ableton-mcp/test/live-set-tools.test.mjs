@@ -64,7 +64,7 @@ test("save_live_set confirms the named current Set and proves an on-disk write",
   let mtimeMs = 100;
   let saves = 0;
   const host = { appPathFor: () => "/Applications/Ableton Live 12 Suite.app",
-    fileInfo: async () => ({ path: "/tmp/Song.als", size: 1000, mtimeMs }),
+    fileInfo: async () => ({ path: "/tmp/Song.als", size: 1000, mtimeMs }), projectFor: async () => ({ path: "/tmp" }),
     save: async () => { saves++; mtimeMs = 200; } };
   const service = new ToolService({ bridge: { request: async () => live }, liveSetHost: host });
   const args = { expectedStateVersion: 4, expectedSetFingerprint: "current" };
@@ -82,7 +82,7 @@ test("save_live_set confirms the named current Set and proves an on-disk write",
 test("save_live_set reports a pending dialog instead of claiming an unchanged file was saved", async () => {
   const live = { stateVersion: 4, setFingerprint: "current", filePath: "/tmp/Song.als", scriptDirectory };
   const host = { appPathFor: () => "/Applications/Ableton Live 12 Suite.app",
-    fileInfo: async () => ({ path: "/tmp/Song.als", size: 1000, mtimeMs: 100 }),
+    fileInfo: async () => ({ path: "/tmp/Song.als", size: 1000, mtimeMs: 100 }), projectFor: async () => ({ path: "/tmp" }),
     save: async () => {} };
   const service = new ToolService({ bridge: { request: async () => live }, liveSetHost: host,
     liveSetSaveTimeoutMs: 0 });
@@ -98,7 +98,7 @@ test("save_live_set accepts native menu clean evidence only for an unchanged bri
   for (const change of [null,"path","fingerprint","version","unavailable","error","dirty-before","dirty-after"]) {
     const live={stateVersion:4,setFingerprint:"current",filePath:"/tmp/Song.als",scriptDirectory};
     let reads=0,observations=0;
-    const host={appPathFor:()=>"/Live.app",fileInfo:async()=>({path:"/tmp/Song.als",size:1000,mtimeMs:100}),save:async()=>{},
+    const host={appPathFor:()=>"/Live.app",fileInfo:async()=>({path:"/tmp/Song.als",size:1000,mtimeMs:100}),projectFor:async()=>({path:"/tmp"}),save:async()=>{},
       observeSaveState:async()=>{
         observations++;
         if(change==="error")throw Error("Accessibility unavailable");

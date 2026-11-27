@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 const script=readFileSync(new URL('../src/live-midi-import.js',import.meta.url),'utf8');
-function fixture({panelOpen=false,path='/Input/Phrase.mid',track='SessionView.Track[1].TitleBar',recording=0,cancelCloses=false,retainedOnscreen=false,frontmost=true,mainOnscreen=true,panelOnscreen=true,selected=true,navigate=false,selectionAvailable=true}={}){
+function fixture({panelOpen=false,panelId=2,path='/Input/Phrase.mid',track='SessionView.Track[1].TitleBar',recording=0,cancelCloses=false,retainedOnscreen=false,frontmost=true,mainOnscreen=true,panelOnscreen=true,selected=true,navigate=false,selectionAvailable=true}={}){
  const array=a=>({count:a.length,objectAtIndex:i=>a[i]}),header={AXIdentifier:track},session={AXIdentifier:'SessionView',AXRole:'AXGroup'},controls=['Transport.Play','Transport.GlobalRecord','Transport.SessionRecord'].map((AXIdentifier,i)=>({AXIdentifier,AXValue:i===1?recording:0}));
  const main={AXTitle:'Set',AXRole:'AXWindow',AXDocument:'file:///Set.als',AXChildren:array([{AXIdentifier:'Transport'},{AXRole:'AXOutline',AXDescription:'Track Headers',AXSelectedRows:array([header])},session,...controls])};session.AXParent=main;
  const rowFor=(path,hasDirectoryPath)=>({AXChildren:array([{AXURL:{isFileURL:1,hasDirectoryPath,filePathURL:{path}}}])});
@@ -29,7 +29,7 @@ function fixture({panelOpen=false,path='/Input/Phrase.mid',track='SessionView.Tr
   },
   CFEqual:(a,b)=>a===b,
   NSURL:{URLWithString:()=>({isFileURL:1,path:{stringByResolvingSymlinksInPath:'/Set.als'}})},
-  CGWindowListCopyWindowInfo:option=>windows.map(w=>({kCGWindowOwnerPID:42,kCGWindowName:w.AXTitle,kCGWindowNumber:w===main?1:2,kCGWindowIsOnscreen:w===main?mainOnscreen:panelOnscreen})).concat(retainedOnscreen&&!windows.includes(panel)?[{kCGWindowOwnerPID:42,kCGWindowName:'Open',kCGWindowNumber:2,kCGWindowIsOnscreen:true}]:[]).filter(w=>option!==1||w.kCGWindowIsOnscreen),
+  CGWindowListCopyWindowInfo:option=>windows.map(w=>({kCGWindowOwnerPID:42,kCGWindowName:w.AXTitle,kCGWindowNumber:w===main?1:panelId,kCGWindowIsOnscreen:w===main?mainOnscreen:panelOnscreen})).concat(retainedOnscreen&&(panelId!==2||!windows.includes(panel))?[{kCGWindowOwnerPID:42,kCGWindowName:'Open',kCGWindowNumber:2,kCGWindowIsOnscreen:true}]:[]).filter(w=>option!==1||w.kCGWindowIsOnscreen),
   NSFileManager:{defaultManager:{attributesOfItemAtPathError:()=>({objectForKey:k=>({NSFileType:'NSFileTypeRegular',NSFileSystemNumber:{stringValue:'1'},NSFileSystemFileNumber:{stringValue:'2'},NSFileSize:{stringValue:'24'},NSFileModificationDate:{timeIntervalSince1970:1}})[k]})}}
  });
  const menu={exists:()=>true,enabled:()=>true,actions:{byName:()=>({perform:()=>{presses++;windows.push(panel);}})}},process={menuBars:()=>[{menuBarItems:{byName:()=>({menus:()=>[{menuItems:{byName:()=>menu}}]})}}]},run=vm.runInNewContext(`${script}\nrun`,{$:native,Ref:()=>[],delay(){},ObjC:{import(){},unwrap:v=>v instanceof String?v.toString():v,castRefToObject:v=>v,deepUnwrap:v=>v},Application:()=>({applicationProcesses:{whose:()=>()=>[process]}})});
@@ -41,6 +41,14 @@ test('native Open verifies the exact file URL, document and owner',()=>{const f=
 test('another file, track, document or recording state refuses before Open input',()=>{for(const setup of [{path:'/Other.mid'},{track:'SessionView.Track[0].TitleBar'},{recording:1}]){const f=fixture({panelOpen:true,...setup}),result=f.execute('commit');assert.ok(result.error);assert.equal(result.importRequested,false);assert.equal(f.presses,0);}const f=fixture({panelOpen:true}),result=f.execute('commit',{document:{path:'/Other.als',mainWindowId:1}});assert.ok(result.error);assert.equal(f.presses,0);});
 
 test('cancellation requires both AX and owned onscreen window closure',()=>{for(const options of [{cancelCloses:false},{cancelCloses:true,retainedOnscreen:true},{cancelCloses:true}]){const f=fixture({panelOpen:true,...options}),r=f.execute('cancel');assert.equal(r.cancelled,options.cancelCloses===true&&!options.retainedOnscreen);assert.equal(f.presses,1);}});
+
+test('cleanup with a known window ID leaves a replacement MIDI picker open',()=>{
+ for(const retainedOnscreen of [false,true]){
+  const f=fixture({panelOpen:true,panelId:3,cancelCloses:true,retainedOnscreen,panelOnscreen:!retainedOnscreen});
+  f.execute('cancel',{windowId:2});
+  assert.equal(f.presses,0);
+ }
+});
 
 test('preparing a file in a child column leaves the actual import for commit',()=>{
  const f=fixture({panelOpen:true,selected:false,navigate:true});
@@ -70,6 +78,13 @@ test('offscreen Live cannot open the MIDI picker',()=>{
  const expected=fixture().execute('inspect'),f=fixture({mainOnscreen:false});
  assert.match(f.execute('openPicker',{expected}).error??'',/not on screen/);
  assert.equal(f.presses,0);
+});
+
+test('cleanup cancels an unidentified picker with nothing selected on another desktop, and presses nothing without one',()=>{
+ const f=fixture({panelOpen:true,selected:false,cancelCloses:true,panelOnscreen:false,frontmost:false}),r=f.execute('cancel',{windowId:null});
+ assert.equal(r.cancelled,true);assert.equal(r.importRequested,false);assert.equal(f.presses,1);assert.equal(f.imports,0);
+ const none=fixture({frontmost:false}),empty=none.execute('cancel',{windowId:null});
+ assert.equal(empty.cancelled,true);assert.equal(empty.pickerFound,false);assert.equal(none.presses,0);
 });
 
 test('an offscreen MIDI picker cannot commit the import',()=>{

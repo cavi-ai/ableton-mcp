@@ -99,7 +99,7 @@ test("cancellation during filesystem observation prevents issuing a host save", 
     liveSetHost: { appPathFor: () => "/Live.app", fileInfo: async path => {
       if (++observations === 3) controller.abort(new Error("cancelled"));
       return { path, size: 1, mtimeMs: 1 };
-    }, save: async () => { saves++; } } });
+    }, projectFor: async () => ({ path: "/" }), save: async () => { saves++; } } });
   const args = { expectedStateVersion: 1, expectedSetFingerprint: "set" };
   const planned = await service.call("save_live_set", args);
   await assert.rejects(withRequestSignal(controller.signal, () => service.call("save_live_set", { ...args,

@@ -120,9 +120,10 @@ test("audio export leaves Live where it is and completes through accessibility",
 });
 
 test("audio export presses nothing when Live's window is not on screen",async t=>{
-  const {result,live,requested}=await backgroundExport(t,{onscreen:false});
+  const {result,live,requested,commands}=await backgroundExport(t,{onscreen:false});
   assert.equal(result.exportVerified,false);assert.equal(result.exportRequested,false);assert.equal(result.retrySafe,true);
-  assert.match(result.limitation,/not on screen/);
+  assert.match(result.limitation,/not on screen/);assert.doesNotMatch(result.limitation,/raise_live/);
+  assert.deepEqual(commands,["live-app-focus.js"]);assert.equal(result.pendingUserAction,false);
   assert.equal(result.exportPress.focus.activations,0);
   assert.deepEqual(live.presses,[]);assert.deepEqual(live.keys,[]);assert.deepEqual(live.dockPresses,[]);
   assert.equal(live.front,7);assert.equal(existsSync(join(requested,"Mix.wav")),false);

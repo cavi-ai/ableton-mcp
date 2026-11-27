@@ -15,7 +15,7 @@ const saveMenuScript = `function run(argv){
   var processes=events.applicationProcesses.whose({unixId:input.pid})();
   if(processes.length!==1||processes[0].bundleIdentifier()!=="com.ableton.live")throw Error("Expected the exact Live process");
   var item=processes[0].menuBars()[0].menuBarItems.byName("File").menus()[0].menuItems.byName("Save Live Set");
-  if(!item.exists()||!item.enabled())throw Error("Save Live Set is missing or disabled");
+  if(!item.exists()||!item.enabled())throw Error("Save Live Set is missing or disabled; Live disables it for a Set without changes or behind a dialog (get_live_dialog_state)");
   item.actions.byName("AXPress").perform();
 }`;
 
@@ -143,6 +143,20 @@ export class MacLiveSetHost {
     }
   }
 
+  // The nearest folder at or above directory that holds Live's "Ableton Project Info" folder, or null.
+  async projectFor(directory) {
+    const identity = async target => {
+      const info = await lstat(target, { bigint: true });
+      if (!info.isDirectory()) throw new Error("Save As context must be a directory, not a symlink");
+      return { path: target, dev: String(info.dev), ino: String(info.ino) };
+    };
+    for (let folder = directory; ; folder = dirname(folder)) {
+      try { return { path: folder, marker: await identity(join(folder, "Ableton Project Info")) }; }
+      catch (error) { if (error.code !== "ENOENT") throw error; }
+      if (dirname(folder) === folder) return null;
+    }
+  }
+
   async saveAsDestination(path) {
     this.#requireMac();
     if (typeof path !== "string" || !isAbsolute(path) || !/\.als$/iu.test(path))
@@ -159,13 +173,7 @@ export class MacLiveSetHost {
       return { path: target, dev: String(info.dev), ino: String(info.ino) };
     };
     const parent = await identity(parentPath);
-    let project = null;
-    for (let folder = parentPath; ; folder = dirname(folder)) {
-      const marker = join(folder, "Ableton Project Info");
-      try { project = { path: folder, marker: await identity(marker) };break; }
-      catch (error) { if (error.code !== "ENOENT") throw error; }
-      if (dirname(folder) === folder) break;
-    }
+    const project = await this.projectFor(parentPath);
     const absent = async target => {
       try { await lstat(target); }
       catch (error) { if (error.code === "ENOENT") return;throw error; }
@@ -201,7 +209,7 @@ export class MacLiveSetHost {
       }
     };
     const prepared = await dialog("prepare");
-    if (prepared.prepared === false && prepared.recovery?.status === "cancelled" && prepared.recovery.savePressed === false)
+    if (prepared.prepared === false && ["cancelled", "notOpened"].includes(prepared.recovery?.status) && prepared.recovery.savePressed === false)
       throw Object.assign(new Error(`Live Save As dialog: ${String(prepared.error).slice(0, 600)}`),
         { saveAsRecovery: { status: prepared.recovery.status, savePressed: false } });
     if (prepared.prepared !== true || !Number.isInteger(prepared.windowId) || prepared.windowId < 1 || prepared.purpose !== "Save Live Set As:" ||

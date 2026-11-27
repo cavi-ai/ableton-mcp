@@ -256,7 +256,12 @@ function run(argv) {
     for (var step = 0; step < 32; step++) {
       var current = directoryPath();
       if (current === target) { if (audio) route("folder", "column"); return; }
-      var rows = rowsOf(view()).filter(function (entry) { return covers(entry.path) && entry.path.length > current.length; });
+      // A row on the target's path that is not above the current folder moves toward the target,
+      // including into a sibling branch shown in an earlier column.
+      var rows = rowsOf(view()).filter(function (entry) {
+        var folder = entry.path.replace(/\/+$/, "");
+        return covers(entry.path) && current !== folder && current.indexOf(folder + "/") !== 0;
+      });
       rows.sort(function (a, b) { return b.path.length - a.path.length; });
       if (rows.length) { press(rows[0].row); if (audio) route("folder", "column"); continue; }
       if (!triedWhere) {
@@ -281,7 +286,7 @@ function run(argv) {
   // Go to Folder requires Live in front, but the keystrokes are addressed to Live
   // even if another app gains focus between the check and delivery.
   function goToFolder(target) {
-    if (!process.frontmost()) throw Error("Save folder is not in the visible columns and Live is not frontmost; run raise_live, then retry; no key was sent");
+    if (!process.frontmost()) throw Error("Save folder is not reachable through the panel's columns or Where menu, and Go to Folder needs Live frontmost; Save As never brings Live forward; no key was sent");
     var save = panel(audio);
     if (save.sheets().length) throw Error("Unexpected sheet; no key was sent");
     save.attributes.byName("AXMain").value = true;
@@ -372,6 +377,11 @@ function run(argv) {
     }) || focusedDialog()) throw Error("Dismiss the existing Live dialog before Save As");
     var menu = process.menuBars()[0].menuBarItems.byName("File").menus()[0].menuItems.byName("Save Live Set As...");
     if (!menu.exists() || !menu.enabled()) throw Error("Live Set Save As menu is unavailable (requires English Live)");
+    // Live enables Save in this panel only on the visible desktop, and Save As never moves Live there.
+    if (!ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1, 0))).some(function (item) {
+      return item.kCGWindowOwnerPID === input.pid && item.kCGWindowIsOnscreen !== false;
+    })) return JSON.stringify({ prepared: false, recovery: { status: "notOpened", savePressed: false },
+      error: "Live window is not on screen; Live enables Save As only on the visible desktop and Save As never moves Live or switches desktops, so nothing was opened" });
     menu.actions.byName("AXPress").perform();
     var save;
     try {

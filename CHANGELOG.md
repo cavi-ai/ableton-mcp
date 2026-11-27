@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `import_midi_file` writes a local file's notes into an empty Session slot through the bridge by default, with no Live window; `route: "nativeDialog"` keeps Live's picker. Files with non-note events, several note tracks or channels, overlapping notes or SMPTE time are refused before any write.
+- The native MIDI import picker is cancelled after any failure before Open, including a lost picker reply or a file outside the visible columns, and `pickerCancelled` reports the result.
+- `save_live_set` refuses a Set outside a Project folder at planning and cancels Live's outside-Project and older-version save prompts in the background, reporting `savePrompt` and `saveAsRequired`; `get_live_dialog_state` and `cancel_live_export_dialog` identify and cancel those prompts.
+- Save As, audio export and the native MIDI picker never bring Live forward or switch desktops: with no Live window on the visible desktop they open nothing and report why. Save As reaches a sibling folder shown in an earlier column.
 - Add `raise_live`, which brings the running Live app to the front and switches to its desktop Space. Save As types a folder that no visible column reaches into Go to Folder while Live is frontmost, and otherwise refuses without sending a key.
 - Serve MCP stdio through `@cavi-ai/mcp-core`; requires Node.js 26 or newer. Request IDs must be strings or integers.
 - Breaking: remove the production coordinator tools, the `producer` tool profile, workflow prompts, the `prompts` and `prompt` CLI commands and `ABLETON_MCP_PRODUCER_CONFIG`; every profile and slice serves functional tools only and `prompts/list` is empty.

@@ -1,10 +1,22 @@
 # Import MIDI files
 
-Import a chosen local file or native browser item and inspect the resulting parts. An explicit local path can use `import_midi_file` without browser indexing on macOS English Live. Browser items use `load_browser_item` with an exact observed root/path. Filesystem and browser paths are different.
+Import a chosen local file or native browser item and inspect the resulting parts. An explicit local path can use `import_midi_file` without browser indexing. Browser items use `load_browser_item` with an exact observed root/path. Filesystem and browser paths are different.
 
 Live can import several standard MIDI formats, including multitrack files; see [Ableton’s MIDI file guidance](https://help.ableton.com/hc/en-us/articles/209068169-Understanding-MIDI-files). Native browser loading can create separate tracks rather than put a clip on the selected track. Resolve whether new imported parts or replacement is intended before loading. Preserve populated tracks and use an authorized empty compatible MIDI track as an anchor. Creating the anchor is a separate change.
 
-## Import a local file
+## Import a local file through the bridge
+
+`import_midi_file` defaults to `route: "bridge"`. It parses the file and writes its notes into an existing empty Session slot on an unfrozen MIDI track through the Remote Script. No Live window, picker, focus or desktop is used, and selection, tempo, meter and the saved Set are unchanged.
+
+Plan it with `sourcePath`, `trackId`, `clipId`, fresh `expectedStateVersion` and `expectedSetFingerprint`. The plan shows the file identity and SHA-256, and the clip name (the file's track name, or else the file name), length (rounded up to whole bars of the file's starting meter, 4/4 when absent) and note count. Files with controller, program, pitch-bend, aftertouch or SysEx events, notes on more than one track or channel, more than 4096 notes, zero-length or overlapping same-pitch notes, or SMPTE time are refused before any write. Tempo, meter and track-name events are not applied.
+
+The Remote Script rechecks the Set, state version and destination immediately before creating the clip. A change to that context refuses the write.
+
+`importVerified: true` requires the created clip in the chosen slot with the planned name and length and every note's pitch, start, duration and velocity read back from Live. A failed write that the bridge may have run reports `inspectionRequired: true` and is never replayed.
+
+## Import a local file through Live's picker
+
+Pass `route: "nativeDialog"` to use Live's **Create > Import MIDI File** on macOS English Live. It needs a Live window on the visible desktop; Live can stay behind another app. It never moves Live or switches desktops: without that window it refuses before opening anything.
 
 Create an authorized empty staging track at the end of the Set with `create_track`. It must be an ungrouped ordinary MIDI track with no devices, Session clips or Arrangement clips, muted, unarmed, unsoloed, unfrozen, monitoring off and No Output. These separate preparation changes remain after failure. Choose an existing Session slot; the tool selects it after confirmation. It never replaces populated material. For Arrangement reuse, import into Session first, then use guarded `place_session_clip_in_arrangement` within the intended timing and scope.
 
@@ -14,7 +26,7 @@ Confirmation shows the Session destination, opens native **Create > Import MIDI 
 
 `importVerified:true` requires a known Open request, closed owned picker, an observed MIDI clip in the chosen slot, unchanged source-file checks, preserved existing track/device/clip object structure, unchanged tempo/meter and stopped recording/playback. Inspect `observed.targetClips` and `trackEffect` for actual current IDs. Object preservation does not compare existing note, parameter or envelope contents. Full file-event, controller, tempo-map, MPE and audible equivalence remain separate checks; `completePerformanceEquivalenceVerified` and `audibleEquivalenceVerified` remain false.
 
-Unknown Open outcomes are never replayed, undone or deleted. Before Open, cleanup can cancel only the unchanged owned file picker. Changed user input, unexpected dialogs and partial imports require inspection before more input.
+Unknown Open outcomes are never replayed, undone or deleted. After a confirmed failure before Open, the tool attempts to cancel the owned picker in the background. If the original window ID is known, cleanup requires that ID before pressing Cancel. `pickerCancelled` reports whether cleanup verified closure. Changed user input, unexpected dialogs and partial imports require inspection before more input.
 
 ## Load a browser item
 
